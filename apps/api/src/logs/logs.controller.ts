@@ -1,0 +1,22 @@
+import { Controller, Get, Query } from '@nestjs/common';
+import { LogsService } from './logs.service';
+
+@Controller('logs')
+export class LogsController {
+  constructor(private logsService: LogsService) {}
+
+  @Get()
+  async list(
+    @Query('jobId') jobId?: string,
+    @Query('accountId') accountId?: string,
+    @Query('level') level?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.logsService.query({
+      jobId,
+      accountId,
+      level,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+}

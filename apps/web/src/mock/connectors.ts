@@ -1,0 +1,48 @@
+import type { ConnectorConfig, ConnectorAccount } from '@botmem/shared';
+
+export const connectorConfigs: ConnectorConfig[] = [
+  { type: 'gmail', label: 'Gmail', color: '#FF6B9D', description: 'Import emails and attachments' },
+  { type: 'whatsapp', label: 'WhatsApp', color: '#22C55E', description: 'Import chat messages' },
+  { type: 'slack', label: 'Slack', color: '#A855F7', description: 'Import workspace messages' },
+  { type: 'imessage', label: 'iMessage', color: '#4ECDC4', description: 'Import iMessage conversations' },
+  { type: 'photos', label: 'Photos', color: '#FFE66D', description: 'Import photo metadata and OCR' },
+];
+
+export const mockAccounts: ConnectorAccount[] = [
+  {
+    id: 'acc-1',
+    type: 'gmail',
+    identifier: 'amr@gmail.com',
+    status: 'connected',
+    schedule: 'hourly',
+    lastSync: '2026-02-23T10:30:00Z',
+    lastError: null, memoriesIngested: 1247,
+  },
+  {
+    id: 'acc-2',
+    type: 'slack',
+    identifier: 'botmem-workspace',
+    status: 'syncing',
+    schedule: '15min',
+    lastSync: '2026-02-23T11:45:00Z',
+    lastError: null, memoriesIngested: 832,
+  },
+  {
+    id: 'acc-3',
+    type: 'whatsapp',
+    identifier: '+1-555-0123',
+    status: 'connected',
+    schedule: 'daily',
+    lastSync: '2026-02-22T22:00:00Z',
+    lastError: null, memoriesIngested: 2103,
+  },
+  {
+    id: 'acc-4',
+    type: 'photos',
+    identifier: 'iCloud Photos',
+    status: 'error',
+    schedule: 'manual',
+    lastSync: '2026-02-20T08:15:00Z',
+    lastError: null, memoriesIngested: 456,
+  },
+];

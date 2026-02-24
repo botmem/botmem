@@ -1,0 +1,121 @@
+export type BuiltinConnectorType = 'gmail' | 'whatsapp' | 'slack' | 'imessage' | 'photos';
+export type ConnectorType = BuiltinConnectorType | (string & {});
+
+export type AuthType = 'oauth2' | 'qr-code' | 'api-key' | 'local-tool';
+
+export type SyncSchedule = '15min' | 'hourly' | 'daily' | 'manual';
+
+export type ConnectorStatus = 'connected' | 'syncing' | 'error' | 'disconnected';
+
+export interface ConnectorManifest {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  icon: string;
+  authType: AuthType;
+  configSchema: Record<string, unknown>;
+}
+
+export interface ConnectorAccount {
+  id: string;
+  type: ConnectorType;
+  identifier: string;
+  status: ConnectorStatus;
+  schedule: SyncSchedule;
+  lastSync: string | null;
+  memoriesIngested: number;
+  lastError: string | null;
+}
+
+export interface ConnectorConfig {
+  type: ConnectorType;
+  label: string;
+  color: string;
+  description: string;
+}
+
+export type JobStatus = 'running' | 'queued' | 'done' | 'failed' | 'cancelled';
+
+export interface Job {
+  id: string;
+  connector: ConnectorType;
+  accountId: string;
+  accountIdentifier: string | null;
+  status: JobStatus;
+  priority: number;
+  progress: number;
+  total: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+}
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  connector: ConnectorType;
+  message: string;
+}
+
+export type SourceType = 'email' | 'message' | 'photo' | 'location';
+
+export type FactualityLabel = 'FACT' | 'UNVERIFIED' | 'FICTION';
+
+export interface Memory {
+  id: string;
+  source: SourceType;
+  sourceConnector: ConnectorType;
+  text: string;
+  time: string;
+  ingestTime: string;
+  factuality: {
+    label: FactualityLabel;
+    confidence: number;
+    rationale: string;
+  };
+  weights: {
+    semantic: number;
+    rerank: number;
+    recency: number;
+    importance: number;
+    trust: number;
+    final: number;
+  };
+  entities: Array<{ type: string; value: string; confidence: number }>;
+  claims: Array<{ id: string; text: string; type: string }>;
+  metadata: Record<string, unknown>;
+}
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  source: SourceType;
+  sourceConnector: ConnectorType;
+  importance: number;
+  factuality: FactualityLabel;
+  cluster: number;
+  nodeType?: 'memory' | 'contact';
+  entities?: string[];
+  connectors?: string[];
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  linkType: 'related' | 'supports' | 'contradicts';
+  strength: number;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  links: GraphEdge[];
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  onboarded: boolean;
+}

@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-nb-bg: #0D0D0D;
+  --color-nb-surface: #1A1A2E;
+  --color-nb-surface-hover: #252540;
+  --color-nb-surface-muted: #2A2A45;
+  --color-nb-border: #E0E0E0;
+  --color-nb-text: #F0F0F0;
+  --color-nb-muted: #888888;
+  --color-nb-black: #000000;
+  --color-nb-pink: #FF6B9D;
+  --color-nb-lime: #C4F53A;
+  --color-nb-blue: #4ECDC4;
+  --color-nb-purple: #A855F7;
+  --color-nb-orange: #FF8A50;
+  --color-nb-red: #EF4444;
+  --color-nb-green: #22C55E;
+  --color-nb-yellow: #FFE66D;
+
+  --font-display: 'Space Mono', monospace;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-body: 'IBM Plex Mono', monospace;
+
+  --shadow-nb-sm: 2px 2px 0 rgba(255, 255, 255, 0.12);
+  --shadow-nb: 4px 4px 0 rgba(255, 255, 255, 0.12);
+  --shadow-nb-lg: 6px 6px 0 rgba(255, 255, 255, 0.12);
+}
+
+* {
+  border-radius: 0 !important;
+}
+
+body {
+  background-color: var(--color-nb-bg);
+  font-family: var(--font-body);
+  color: var(--color-nb-text);
+  margin: 0;
+}
+
+::selection {
+  background-color: var(--color-nb-lime);
+  color: #000000;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+}

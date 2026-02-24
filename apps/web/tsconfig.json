@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@botmem/shared": ["../../packages/shared/src"]
+    }
+  },
+  "include": ["src", "vite-env.d.ts", "../../packages/shared/src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
