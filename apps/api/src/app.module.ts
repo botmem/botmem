@@ -13,12 +13,18 @@ import { PluginsModule } from './plugins/plugins.module';
 import { MemoryModule } from './memory/memory.module';
 import { ContactsModule } from './contacts/contacts.module';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 @Module({
   imports: [
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', '..', 'web', 'dist'),
-      exclude: ['/api/{*path}'],
-    }),
+    ...(isDev
+      ? []
+      : [
+          ServeStaticModule.forRoot({
+            rootPath: join(__dirname, '..', '..', 'web', 'dist'),
+            exclude: ['/api/{*path}'],
+          }),
+        ]),
     ConfigModule,
     DbModule,
     ConnectorsModule,

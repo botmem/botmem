@@ -19,7 +19,7 @@ export class ConfigService {
   }
 
   get frontendUrl(): string {
-    return process.env.FRONTEND_URL || 'http://localhost:5173';
+    return process.env.FRONTEND_URL || `http://localhost:${this.port}`;
   }
 
   get ollamaBaseUrl(): string {

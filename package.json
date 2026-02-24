@@ -2,7 +2,7 @@
   "name": "botmem",
   "private": true,
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "turbo dev --concurrency 20",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test"
