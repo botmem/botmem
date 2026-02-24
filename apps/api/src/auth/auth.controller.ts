@@ -1,0 +1,47 @@
+import { Controller, Post, Get, Param, Body, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
+import { AuthService } from './auth.service';
+import { ConfigService } from '../config/config.service';
+
+@Controller('auth')
+export class AuthController {
+  constructor(
+    private authService: AuthService,
+    private config: ConfigService,
+  ) {}
+
+  @Get(':type/has-credentials')
+  async hasCredentials(@Param('type') type: string) {
+    const saved = await this.authService.getSavedCredentials(type);
+    return { hasSavedCredentials: !!saved };
+  }
+
+  @Post(':type/initiate')
+  async initiate(
+    @Param('type') type: string,
+    @Body() body: { config: Record<string, unknown> },
+  ) {
+    return this.authService.initiate(type, body.config || {});
+  }
+
+  @Get(':type/callback')
+  async callback(
+    @Param('type') type: string,
+    @Query() query: Record<string, string>,
+    @Res() res: Response,
+  ) {
+    const { returnTo } = await this.authService.handleCallback(type, query);
+    const target = returnTo
+      ? `${this.config.frontendUrl}${returnTo}`
+      : `${this.config.frontendUrl}/connectors`;
+    res.redirect(`${target}?auth=success&type=${type}`);
+  }
+
+  @Post(':type/complete')
+  async complete(
+    @Param('type') type: string,
+    @Body() body: { accountId?: string; params: Record<string, unknown> },
+  ) {
+    return this.authService.complete(type, body);
+  }
+}
