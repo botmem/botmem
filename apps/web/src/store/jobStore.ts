@@ -58,6 +58,7 @@ export const useJobStore = create<JobState>((set, get) => ({
           timestamp: l.timestamp,
           level: l.level,
           connector: l.connectorType || l.connector,
+          stage: l.stage || undefined,
           message: l.message,
         })),
       });
@@ -111,6 +112,7 @@ export const useJobStore = create<JobState>((set, get) => ({
             timestamp: data.data.timestamp,
             level: data.data.level,
             connector: data.data.connectorType,
+            stage: data.data.stage || undefined,
             message: data.data.message,
           });
         }

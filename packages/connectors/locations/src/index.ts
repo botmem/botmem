@@ -99,7 +99,7 @@ export class LocationsConnector extends BaseConnector {
   async sync(ctx: SyncContext): Promise<SyncResult> {
     return syncLocations(
       ctx,
-      (event) => this.emit('data', event),
+      (event) => this.emitData(event),
       (p) => this.emit('progress', p),
     );
   }

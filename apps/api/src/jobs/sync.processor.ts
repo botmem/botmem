@@ -3,6 +3,7 @@ import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { AuthService } from '../auth/auth.service';
 import { JobsService } from './jobs.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
@@ -15,6 +16,7 @@ export class SyncProcessor extends WorkerHost {
   constructor(
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
+    private authService: AuthService,
     private jobsService: JobsService,
     private logsService: LogsService,
     private events: EventsService,
@@ -87,23 +89,36 @@ export class SyncProcessor extends WorkerHost {
 
     try {
       let hasMore = true;
+      connector.resetSyncLimit();
 
       while (hasMore) {
         if (abortController.signal.aborted) break;
 
-        const ctx: SyncContext = {
+        const auth = account.authContext ? JSON.parse(account.authContext) : {};
+        try {
+          const saved = await this.authService.getSavedCredentials(connectorType);
+          if (saved && typeof saved === 'object') {
+            const existingRaw = auth?.raw && typeof auth.raw === 'object' ? auth.raw : {};
+            auth.raw = { ...saved, ...existingRaw };
+          }
+        } catch {
+          // Proceed without merging saved credentials (e.g. redirectUri)
+        }
+
+        const rawCtx: SyncContext = {
           accountId,
-          auth: account.authContext ? JSON.parse(account.authContext) : {},
+          auth,
           cursor,
           jobId,
           logger,
           signal: abortController.signal,
         };
 
+        const ctx = connector.wrapSyncContext(rawCtx);
         const result = await connector.sync(ctx);
         totalProcessed += result.processed;
         cursor = result.cursor;
-        hasMore = result.hasMore;
+        hasMore = result.hasMore && !connector.isLimitReached;
 
         // Update cursor after each page so we can resume if interrupted
         await this.accountsService.update(accountId, {
@@ -129,6 +144,22 @@ export class SyncProcessor extends WorkerHost {
 
       this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
     } catch (err: any) {
+      // If the error is from hitting the sync limit, treat as success
+      if (connector.isLimitReached) {
+        await this.accountsService.update(accountId, {
+          lastSyncAt: new Date().toISOString(),
+          status: 'connected',
+          lastError: null,
+        });
+        await this.jobsService.updateJob(jobId, {
+          status: 'done',
+          progress: totalProcessed,
+          completedAt: new Date().toISOString(),
+        });
+        this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+        return;
+      }
+
       await this.jobsService.updateJob(jobId, {
         status: 'failed',
         error: err.message,
@@ -143,7 +174,8 @@ export class SyncProcessor extends WorkerHost {
   }
 
   private addLog(jobId: string, connectorType: string, accountId: string, level: string, message: string) {
-    this.logsService.add({ jobId, connectorType, accountId, level, message });
-    this.events.emitToChannel('logs', 'log', { jobId, connectorType, accountId, level, message, timestamp: new Date().toISOString() });
+    const stage = 'sync';
+    this.logsService.add({ jobId, connectorType, accountId, stage, level, message });
+    this.events.emitToChannel('logs', 'log', { jobId, connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
   }
 }

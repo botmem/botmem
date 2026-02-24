@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { AccountsModule } from '../accounts/accounts.module';
+import { AuthModule } from '../auth/auth.module';
 import { JobsController } from './jobs.controller';
 import { JobsService } from './jobs.service';
 import { SyncProcessor } from './sync.processor';
@@ -20,6 +21,7 @@ import { ConfigService } from '../config/config.service';
     BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'backfill' }),
     AccountsModule,
+    forwardRef(() => AuthModule),
   ],
   controllers: [JobsController],
   providers: [JobsService, SyncProcessor, SchedulerService],

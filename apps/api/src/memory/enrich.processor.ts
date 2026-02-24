@@ -7,6 +7,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
+import { EventsService } from '../events/events.service';
 import { memories, memoryLinks } from '../db/schema';
 import { entityExtractionPrompt, factualityPrompt, photoDescriptionPrompt } from './prompts';
 
@@ -21,6 +22,7 @@ export class EnrichProcessor extends WorkerHost {
     private ollama: OllamaService,
     private qdrant: QdrantService,
     private logsService: LogsService,
+    private events: EventsService,
   ) {
     super();
   }
@@ -36,12 +38,8 @@ export class EnrichProcessor extends WorkerHost {
     if (!rows.length) return;
     let memory = rows[0];
 
-    await this.logsService.add({
-      connectorType: memory.connectorType,
-      accountId: memory.accountId ?? undefined,
-      level: 'info',
-      message: `Enriching ${memory.sourceType} memory ${memoryId.slice(0, 8)}`,
-    });
+    this.addLog(memory.connectorType, memory.accountId, 'info',
+      `Enriching ${memory.sourceType} memory ${memoryId.slice(0, 8)}`);
 
     // Entity extraction
     let entities = await this.extractEntities(memory.text);
@@ -85,20 +83,12 @@ export class EnrichProcessor extends WorkerHost {
             .where(eq(memories.id, memoryId));
           if (updated.length) memory = updated[0];
 
-          await this.logsService.add({
-            connectorType: memory.connectorType,
-            accountId: memory.accountId ?? undefined,
-            level: 'info',
-            message: `VL description generated for photo ${memoryId.slice(0, 8)}`,
-          });
+          this.addLog(memory.connectorType, memory.accountId, 'info',
+            `VL description generated for photo ${memoryId.slice(0, 8)}`);
         }
       } catch (err: any) {
-        await this.logsService.add({
-          connectorType: memory.connectorType,
-          accountId: memory.accountId ?? undefined,
-          level: 'warn',
-          message: `Photo VL description failed for ${memoryId.slice(0, 8)}: ${err?.message || err}`,
-        });
+        this.addLog(memory.connectorType, memory.accountId, 'warn',
+          `Photo VL description failed for ${memoryId.slice(0, 8)}: ${err?.message || err}`);
         // Non-fatal — continue with factuality and linking
       }
     }
@@ -121,12 +111,14 @@ export class EnrichProcessor extends WorkerHost {
 
     const entityCount = entities.length;
     const factLabel = factuality?.label || 'unclassified';
-    await this.logsService.add({
-      connectorType: memory.connectorType,
-      accountId: memory.accountId ?? undefined,
-      level: 'info',
-      message: `Enriched memory ${memoryId.slice(0, 8)}: ${entityCount} entities, factuality=${factLabel}`,
-    });
+    this.addLog(memory.connectorType, memory.accountId, 'info',
+      `Enriched memory ${memoryId.slice(0, 8)}: ${entityCount} entities, factuality=${factLabel}`);
+  }
+
+  private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
+    const stage = 'enrich';
+    this.logsService.add({ connectorType, accountId: accountId ?? undefined, stage, level, message });
+    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
   }
 
   private async describePhoto(memory: any): Promise<string | null> {

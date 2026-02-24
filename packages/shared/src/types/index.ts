@@ -51,11 +51,14 @@ export interface Job {
   error: string | null;
 }
 
+export type PipelineStage = 'sync' | 'embed' | 'enrich' | 'backfill';
+
 export interface LogEntry {
   id: string;
   timestamp: string;
   level: 'info' | 'warn' | 'error' | 'debug';
   connector: ConnectorType;
+  stage?: PipelineStage;
   message: string;
 }
 

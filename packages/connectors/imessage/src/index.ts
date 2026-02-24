@@ -45,7 +45,7 @@ export class IMessageConnector extends BaseConnector {
 
   async sync(ctx: SyncContext): Promise<SyncResult> {
     ctx.logger.info('Starting iMessage export');
-    const processed = await exportMessages(ctx.signal, (event) => this.emit('data', event));
+    const processed = await exportMessages(ctx.signal, (event) => this.emitData(event));
     this.emit('progress', { processed });
     ctx.logger.info(`Exported ${processed} iMessages`);
     return { cursor: null, hasMore: false, processed };

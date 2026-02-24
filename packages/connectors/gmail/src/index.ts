@@ -60,7 +60,7 @@ export class GmailConnector extends BaseConnector {
       refreshToken: tokens.refresh_token || undefined,
       expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : undefined,
       identifier: email,
-      raw: { clientId, clientSecret, email },
+      raw: { clientId, clientSecret, redirectUri, email },
     };
   }
 
@@ -82,7 +82,7 @@ export class GmailConnector extends BaseConnector {
     // Sync emails
     const emailResult = await syncGmail(
       ctx,
-      (event) => this.emit('data', event),
+      (event) => this.emitData(event),
       (progress) => this.emit('progress', progress),
     );
 
@@ -91,7 +91,7 @@ export class GmailConnector extends BaseConnector {
     try {
       const contactsResult = await syncContacts(
         ctx,
-        (event) => this.emit('data', event),
+        (event) => this.emitData(event),
         (progress) => this.emit('progress', {
           processed: emailResult.processed + progress.processed,
           total: (emailResult.processed) + (progress.total || 0),

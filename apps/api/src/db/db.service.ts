@@ -59,6 +59,7 @@ export class DbService implements OnModuleInit {
         job_id TEXT,
         connector_type TEXT NOT NULL,
         account_id TEXT,
+        stage TEXT,
         level TEXT NOT NULL,
         message TEXT NOT NULL,
         timestamp TEXT NOT NULL
@@ -135,5 +136,12 @@ export class DbService implements OnModuleInit {
         role TEXT NOT NULL
       );
     `);
+
+    // Migrations for existing databases
+    try {
+      this.sqlite.exec(`ALTER TABLE logs ADD COLUMN stage TEXT`);
+    } catch {
+      // Column already exists
+    }
   }
 }

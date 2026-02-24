@@ -35,6 +35,7 @@ export const logs = sqliteTable('logs', {
   jobId: text('job_id'),
   connectorType: text('connector_type').notNull(),
   accountId: text('account_id'),
+  stage: text('stage'),
   level: text('level').notNull(),
   message: text('message').notNull(),
   timestamp: text('timestamp').notNull(),

@@ -134,7 +134,7 @@ export class WhatsAppConnector extends BaseConnector {
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {
-    const result = await syncWhatsApp(ctx, (event) => this.emit('data', event));
+    const result = await syncWhatsApp(ctx, (event) => this.emitData(event));
     this.emit('progress', { processed: result.processed });
     return result;
   }

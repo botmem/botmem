@@ -55,12 +55,8 @@ export class EmbedProcessor extends WorkerHost {
     const text = event.content?.text || '';
     if (!text.trim()) return;
 
-    await this.logsService.add({
-      connectorType: rawEvent.connectorType,
-      accountId: rawEvent.accountId,
-      level: 'info',
-      message: `Embedding ${event.sourceType} (${text.slice(0, 60)}${text.length > 60 ? '…' : ''})`,
-    });
+    this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
+      `Embedding ${event.sourceType} (${text.slice(0, 60)}${text.length > 60 ? '…' : ''})`);
 
     // 3. Create memory record
     const memoryId = randomUUID();
@@ -112,12 +108,8 @@ export class EmbedProcessor extends WorkerHost {
         .set({ embeddingStatus: 'done' })
         .where(eq(memories.id, memoryId));
 
-      await this.logsService.add({
-        connectorType: rawEvent.connectorType,
-        accountId: rawEvent.accountId,
-        level: 'info',
-        message: `Embedded ${event.sourceType} → memory ${memoryId.slice(0, 8)}`,
-      });
+      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
+        `Embedded ${event.sourceType} → memory ${memoryId.slice(0, 8)}`);
 
       // 8. Enqueue enrichment
       await this.enrichQueue.add(
@@ -138,14 +130,16 @@ export class EmbedProcessor extends WorkerHost {
         .update(memories)
         .set({ embeddingStatus: 'failed' })
         .where(eq(memories.id, memoryId));
-      await this.logsService.add({
-        connectorType: rawEvent.connectorType,
-        accountId: rawEvent.accountId,
-        level: 'error',
-        message: `Embedding failed for ${event.sourceType}: ${err?.message || err}`,
-      });
+      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'error',
+        `Embedding failed for ${event.sourceType}: ${err?.message || err}`);
       throw err;
     }
+  }
+
+  private addLog(connectorType: string, accountId: string, level: string, message: string) {
+    const stage = 'embed';
+    this.logsService.add({ connectorType, accountId, stage, level, message });
+    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
   }
 
   private async resolveContacts(

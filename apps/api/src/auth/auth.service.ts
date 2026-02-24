@@ -20,12 +20,18 @@ export class AuthService {
   ) {}
 
   async getSavedCredentials(connectorType: string): Promise<Record<string, unknown> | null> {
-    const row = this.dbService.db
-      .select()
-      .from(connectorCredentials)
-      .where(eq(connectorCredentials.connectorType, connectorType))
-      .get();
-    return row ? JSON.parse(row.credentials) : null;
+    try {
+      const row = this.dbService.db
+        .select()
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.connectorType, connectorType))
+        .get();
+      if (!row) return null;
+      const parsed = JSON.parse(row.credentials);
+      return typeof parsed === 'object' && parsed !== null ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   private saveCredentials(connectorType: string, config: Record<string, unknown>) {

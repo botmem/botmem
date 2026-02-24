@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { ConnectorLogFeed } from '../components/dashboard/ConnectorLogFeed';
+import { PipelineLogFeed } from '../components/dashboard/PipelineLogFeed';
 import { JobTable } from '../components/dashboard/JobTable';
 import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
@@ -50,7 +51,7 @@ export function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <ConnectorLogFeed logs={logs} />
         <div className="flex flex-col gap-4">
           <JobTable
@@ -97,6 +98,9 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Full-width pipeline activity log */}
+      <PipelineLogFeed logs={logs} />
     </PageContainer>
   );
 }

@@ -11,13 +11,14 @@ export class LogsService {
     return this.dbService.db;
   }
 
-  async add(data: { jobId?: string; connectorType: string; accountId?: string; level: string; message: string }) {
+  async add(data: { jobId?: string; connectorType: string; accountId?: string; stage?: string; level: string; message: string }) {
     const id = crypto.randomUUID();
     await this.db.insert(logs).values({
       id,
       jobId: data.jobId || null,
       connectorType: data.connectorType,
       accountId: data.accountId || null,
+      stage: data.stage || null,
       level: data.level,
       message: data.message,
       timestamp: new Date().toISOString(),

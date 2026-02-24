@@ -11,8 +11,10 @@ export default defineConfig({
     },
   },
   server: {
-    hmr: {
-      path: '/__vite_hmr',
+    port: 5173,
+    proxy: {
+      '/api': 'http://localhost:3001',
+      '/events': { target: 'http://localhost:3001', ws: true },
     },
   },
 });
