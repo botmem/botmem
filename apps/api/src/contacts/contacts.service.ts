@@ -10,6 +10,32 @@ export interface IdentifierInput {
   connectorType?: string;
 }
 
+/**
+ * Normalize a phone number to E.164 format.
+ * Strips spaces, dashes, parens, dots. Converts leading 00 to +.
+ * Returns the cleaned number with + prefix, or original if not parseable.
+ */
+export function normalizePhone(raw: string): string {
+  // Strip all non-digit characters except leading +
+  let digits = raw.replace(/[\s\-().]/g, '');
+
+  // Convert leading 00 to +
+  if (digits.startsWith('00')) {
+    digits = '+' + digits.slice(2);
+  }
+
+  // Ensure + prefix
+  if (!digits.startsWith('+')) {
+    // If it's already 10+ digits, assume it has country code
+    const justDigits = digits.replace(/\D/g, '');
+    if (justDigits.length >= 10) {
+      digits = '+' + justDigits;
+    }
+  }
+
+  return digits;
+}
+
 export interface ContactWithIdentifiers {
   id: string;
   displayName: string;
@@ -32,6 +58,13 @@ export class ContactsService {
 
   async resolveContact(identifiers: IdentifierInput[]): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
+
+    // Normalize phone numbers to E.164 before matching/storing
+    for (const ident of identifiers) {
+      if (ident.type === 'phone') {
+        ident.value = normalizePhone(ident.value);
+      }
+    }
 
     // Find all existing contacts matching any of the provided identifiers
     const matchedContactIds = new Set<string>();

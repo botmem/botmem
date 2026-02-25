@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ContactsService } from '../contacts.service';
+import { ContactsService, normalizePhone } from '../contacts.service';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
 import { accounts, contacts, contactIdentifiers, memoryContacts, memories } from '../../db/schema';
 import { eq } from 'drizzle-orm';
@@ -7,6 +7,28 @@ import { eq } from 'drizzle-orm';
 function makeDbService(db: any) {
   return { db } as any;
 }
+
+describe('normalizePhone', () => {
+  it('converts 00 prefix to +', () => {
+    expect(normalizePhone('00201027755722')).toBe('+201027755722');
+  });
+
+  it('preserves existing + prefix', () => {
+    expect(normalizePhone('+971502284498')).toBe('+971502284498');
+  });
+
+  it('strips spaces, dashes, and parens', () => {
+    expect(normalizePhone('+1 (555) 123-4567')).toBe('+15551234567');
+  });
+
+  it('adds + to bare digit strings with country code', () => {
+    expect(normalizePhone('201027755722')).toBe('+201027755722');
+  });
+
+  it('strips dots', () => {
+    expect(normalizePhone('+1.555.123.4567')).toBe('+15551234567');
+  });
+});
 
 describe('ContactsService', () => {
   let service: ContactsService;
@@ -111,6 +133,29 @@ describe('ContactsService', () => {
       // The other contact should no longer exist
       const remaining = await db.select().from(contacts);
       expect(remaining).toHaveLength(1);
+    });
+
+    it('normalizes phone numbers to E.164 before storing', async () => {
+      const contact = await service.resolveContact([
+        { type: 'phone', value: '00201027755722', connectorType: 'slack' },
+      ]);
+
+      const identifiers = await db
+        .select()
+        .from(contactIdentifiers)
+        .where(eq(contactIdentifiers.contactId, contact.id));
+      expect(identifiers[0].identifierValue).toBe('+201027755722');
+    });
+
+    it('matches phone numbers regardless of format', async () => {
+      const c1 = await service.resolveContact([
+        { type: 'phone', value: '+201027755722', connectorType: 'whatsapp' },
+      ]);
+      const c2 = await service.resolveContact([
+        { type: 'phone', value: '00201027755722', connectorType: 'slack' },
+      ]);
+
+      expect(c2.id).toBe(c1.id);
     });
   });
 
