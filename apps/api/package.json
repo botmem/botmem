@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "dev": "nest start --watch",
+    "dev": "nest build --watch & nodemon",
     "start": "node dist/main.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -31,17 +31,23 @@
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.38.0",
     "ioredis": "^5.0.0",
+    "mammoth": "^1.11.0",
+    "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
+    "@swc/cli": "^0.8.0",
     "@swc/core": "^1.10.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/express": "^5.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "@types/ws": "^8.0.0",
     "drizzle-kit": "^0.30.0",
+    "nodemon": "^3.1.14",
     "typescript": "^5.7.0",
     "unplugin-swc": "^1.5.0",
     "vite": "^6.1.0",
