@@ -8,7 +8,7 @@ import { QdrantService } from './qdrant.service';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
-import { rawEvents, memories } from '../db/schema';
+import { rawEvents, memories, accounts } from '../db/schema';
 
 export interface SlackProfile {
   name: string;
@@ -118,6 +118,14 @@ export class EmbedProcessor extends WorkerHost {
     if (event.sourceType === 'file') {
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
         `[embed:file-route] ${mid} → file queue for content extraction`);
+
+      // Resolve contacts before routing to file processor (e.g. Immich people tags)
+      try {
+        await this.resolveContacts(memoryId, rawEvent.connectorType, event, rawEvent.accountId);
+      } catch (err) {
+        console.error('Contact resolution failed for file event:', err);
+      }
+
       await this.fileQueue.add(
         'file',
         { memoryId },
@@ -130,7 +138,7 @@ export class EmbedProcessor extends WorkerHost {
     t0 = Date.now();
     let contactCount = 0;
     try {
-      await this.resolveContacts(memoryId, rawEvent.connectorType, event);
+      await this.resolveContacts(memoryId, rawEvent.connectorType, event, rawEvent.accountId);
       contactCount = (event.content?.participants || []).length;
     } catch (err) {
       console.error('Contact resolution failed:', err);
@@ -199,6 +207,7 @@ export class EmbedProcessor extends WorkerHost {
     memoryId: string,
     connectorType: string,
     event: ConnectorDataEvent,
+    accountId?: string,
   ): Promise<void> {
     const metadata = event.content?.metadata || {};
     const participants = event.content?.participants || [];
@@ -217,7 +226,7 @@ export class EmbedProcessor extends WorkerHost {
         await this.resolveIMessageContacts(memoryId, metadata, participants);
         break;
       case 'photos':
-        await this.resolvePhotosContacts(memoryId, metadata, participants);
+        await this.resolvePhotosContacts(memoryId, metadata, participants, accountId);
         break;
     }
   }
@@ -389,10 +398,27 @@ export class EmbedProcessor extends WorkerHost {
     memoryId: string,
     metadata: Record<string, unknown>,
     participants: string[],
+    accountId?: string,
   ): Promise<void> {
     // Immich people from facial recognition stored in metadata.people
     const people = (metadata.people as Array<{ id: string; name: string; birthDate?: string }>) || [];
     const resolvedNames = new Set<string>();
+
+    // Look up Immich host + API key from account auth for avatar download
+    let immichHost: string | null = null;
+    let immichApiKey: string | null = null;
+    if (accountId) {
+      try {
+        const accRows = await this.dbService.db.select().from(accounts).where(eq(accounts.id, accountId));
+        if (accRows.length && accRows[0].authContext) {
+          const auth = JSON.parse(accRows[0].authContext);
+          immichHost = auth.raw?.host as string;
+          immichApiKey = auth.accessToken as string;
+        }
+      } catch {
+        // Non-fatal
+      }
+    }
 
     for (const person of people) {
       if (!person.name) continue;
@@ -405,6 +431,27 @@ export class EmbedProcessor extends WorkerHost {
       const contact = await this.contactsService.resolveContact(identifiers);
       await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
       resolvedNames.add(person.name);
+
+      // Download and store avatar if not already present
+      if (immichHost && immichApiKey) {
+        try {
+          const existingAvatars: Array<{ url: string; source: string }> = JSON.parse(contact.avatars || '[]');
+          const hasImmichAvatar = existingAvatars.some((a) => a.source === 'immich');
+          if (!hasImmichAvatar) {
+            const thumbUrl = `${immichHost}/api/people/${person.id}/thumbnail`;
+            const res = await fetch(thumbUrl, { headers: { 'x-api-key': immichApiKey } });
+            if (res.ok) {
+              const buffer = await res.arrayBuffer();
+              const base64 = Buffer.from(buffer).toString('base64');
+              const contentType = res.headers.get('content-type') || 'image/jpeg';
+              existingAvatars.push({ url: `data:${contentType};base64,${base64}`, source: 'immich' });
+              await this.contactsService.updateContact(contact.id, { avatars: existingAvatars });
+            }
+          }
+        } catch {
+          // Avatar download is best-effort
+        }
+      }
     }
 
     // Also resolve any participants not already handled via the people array
