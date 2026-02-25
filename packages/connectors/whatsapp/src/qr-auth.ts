@@ -5,7 +5,6 @@ import type { AuthContext } from '@botmem/connector-sdk';
 
 const logger = pino({ level: 'warn' }) as any;
 
-// Cache the fetched version for 1 hour to avoid hitting the API on every warm-up
 let cachedVersion: { version: [number, number, number]; fetchedAt: number } | null = null;
 const VERSION_TTL = 60 * 60 * 1000;
 
@@ -18,30 +17,27 @@ async function getWhatsAppVersion(): Promise<[number, number, number]> {
     cachedVersion = { version: version as [number, number, number], fetchedAt: Date.now() };
     return cachedVersion.version;
   } catch {
-    // Fallback to cached or default
     return cachedVersion?.version ?? [2, 3000, 1033846690];
   }
 }
 
 export interface QrAuthCallbacks {
   onQrCode: (qrDataUrl: string) => void;
-  onConnected: (auth: AuthContext) => void;
+  onConnected: (auth: AuthContext, sock: ReturnType<typeof makeWASocket>) => void;
   onError: (error: Error) => void;
 }
 
-// Fatal status codes that should not trigger a reconnect
 const FATAL_CODES = new Set([
   DisconnectReason.loggedOut,
   DisconnectReason.badSession,
   DisconnectReason.multideviceMismatch,
 ]);
 
-// Codes that mean "reconnect needed" — expected after QR scan
 const RECONNECT_CODES = new Set([
-  DisconnectReason.restartRequired,    // 515 — expected after QR scan
-  DisconnectReason.connectionClosed,   // 428
-  DisconnectReason.connectionReplaced, // 440
-  DisconnectReason.timedOut,           // 408
+  DisconnectReason.restartRequired,
+  DisconnectReason.connectionClosed,
+  DisconnectReason.connectionReplaced,
+  DisconnectReason.timedOut,
 ]);
 
 export async function startQrAuth(
@@ -51,10 +47,10 @@ export async function startQrAuth(
 ): Promise<void> {
   let retries = 0;
   let qrShown = false;
-  let connected = false; // guard: onConnected must fire at most once
+  let connected = false;
 
   const attempt = async () => {
-    if (connected) return; // already done
+    if (connected) return;
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const version = await getWhatsAppVersion();
@@ -67,11 +63,10 @@ export async function startQrAuth(
       version,
       printQRInTerminal: false,
       logger,
-      syncFullHistory: false,
+      syncFullHistory: true,
       markOnlineOnConnect: false,
     });
 
-    // Prevent unhandled WebSocket errors from crashing the process
     if (sock.ws && typeof (sock.ws as any).on === 'function') {
       (sock.ws as any).on('error', (err: Error) => {
         console.error('[WhatsApp] WebSocket error:', err.message);
@@ -91,25 +86,23 @@ export async function startQrAuth(
 
       if (connection === 'open' && !connected) {
         connected = true;
-        callbacks.onConnected({
-          raw: { sessionDir, jid: sock.user?.id },
-        });
-        // Session files are saved — this socket's job is done.
-        // Don't end() immediately; let Baileys finish its handshake.
+        // Pass the socket to the caller so it can capture history sync events
+        callbacks.onConnected(
+          { raw: { sessionDir, jid: sock.user?.id } },
+          sock,
+        );
       }
 
       if (connection === 'close') {
-        if (connected) return; // success already reported, ignore post-connect closes
+        if (connected) return;
 
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
 
-        // Fatal error — stop retrying
         if (FATAL_CODES.has(statusCode)) {
           callbacks.onError(new Error(`WhatsApp authentication failed (${statusCode})`));
           return;
         }
 
-        // Reconnectable codes — retry even after QR was shown (e.g. 515 after scan)
         if (RECONNECT_CODES.has(statusCode) && retries < maxRetries) {
           retries++;
           const delay = Math.min(500 * Math.pow(2, retries - 1), 10_000);
@@ -117,13 +110,11 @@ export async function startQrAuth(
           return;
         }
 
-        // If QR was already shown and it's not a reconnectable code, it's a real failure
         if (qrShown) {
           callbacks.onError(new Error('WhatsApp connection closed'));
           return;
         }
 
-        // Transient failure before QR appeared — back off and retry quickly
         if (retries < maxRetries) {
           retries++;
           const delay = Math.min(500 * Math.pow(2, retries - 1), 10_000);
