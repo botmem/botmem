@@ -30,16 +30,16 @@ function extractText(msg: any): string {
   );
 }
 
-// Hard deadline for history sync
+/** Extract phone number from a WhatsApp JID, stripping @suffix and :device */
+function phoneFromJid(jid: string): string {
+  return jid.split('@')[0]?.split(':')[0] || '';
+}
+
 const MAX_SYNC_MS = 5 * 60_000;
-// Close early if no new batches arrive
 const IDLE_TIMEOUT_MS = 30_000;
 
 type WaSock = ReturnType<typeof makeWASocket>;
 
-/**
- * Create a fresh Baileys socket for subsequent syncs (not the first one).
- */
 async function createSyncSocket(sessionDir: string): Promise<WaSock> {
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
   const version = await getWhatsAppVersion();
@@ -72,19 +72,12 @@ export async function syncWhatsApp(
   if (!sessionDir) throw new Error('No WhatsApp session found');
 
   let sock: WaSock;
-  let ownsSocket: boolean;
 
   if (existingSock) {
-    // Reuse the socket from QR auth — it's already connected and receiving history
     sock = existingSock;
-    ownsSocket = true;
     ctx.logger.info('Reusing auth socket for first sync (history capture)');
   } else {
-    // Create a fresh socket for subsequent syncs
     sock = await createSyncSocket(sessionDir);
-    ownsSocket = true;
-
-    // Wait for connection
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('WhatsApp connection timeout')), 30_000);
       sock.ev.on('connection.update', (update: any) => {
@@ -94,10 +87,17 @@ export async function syncWhatsApp(
     });
   }
 
-  ctx.logger.info('WhatsApp connected, waiting for history sync...');
+  // The user's own phone number and JID
+  const selfJid = (sock as any).user?.id || '';
+  const selfPhone = phoneFromJid(selfJid);
+  ctx.logger.info(`WhatsApp connected as ${selfPhone}, waiting for history sync...`);
 
   let processed = 0;
   let historyBatches = 0;
+
+  // Build a lookup of chat names and contact names from history sync data
+  const chatNames = new Map<string, string>();  // chatJid → name
+  const contactNames = new Map<string, string>(); // phoneNumber → name
 
   await new Promise<void>((resolve) => {
     let idleTimer: ReturnType<typeof setTimeout>;
@@ -134,9 +134,33 @@ export async function syncWhatsApp(
 
       const remoteJid = msg.key?.remoteJid || '';
       const participant = msg.key?.participant || '';
-      const sender = msg.key?.fromMe
-        ? (sock as any).user?.id?.split(':')[0] || 'me'
-        : (participant || remoteJid).split('@')[0];
+      const isGroup = remoteJid.endsWith('@g.us');
+      const fromMe = msg.key?.fromMe ?? false;
+
+      // Determine sender phone and name
+      let senderPhone: string;
+      let senderName: string;
+      if (fromMe) {
+        senderPhone = selfPhone;
+        senderName = 'me';
+      } else if (isGroup) {
+        senderPhone = phoneFromJid(participant);
+        senderName = msg.pushName || contactNames.get(senderPhone) || senderPhone;
+      } else {
+        senderPhone = phoneFromJid(remoteJid);
+        senderName = msg.pushName || contactNames.get(senderPhone) || senderPhone;
+      }
+
+      // Track contact names for future lookups
+      if (msg.pushName && senderPhone) {
+        contactNames.set(senderPhone, msg.pushName);
+      }
+
+      // Build chat context
+      const chatName = chatNames.get(remoteJid) || (isGroup ? remoteJid : senderName);
+
+      // Build all participants for this message (sender + chat context)
+      const participants: string[] = [senderPhone];
 
       emit({
         sourceType: 'message',
@@ -146,27 +170,49 @@ export async function syncWhatsApp(
           : new Date().toISOString(),
         content: {
           text,
-          participants: [sender].filter(Boolean),
+          participants,
           metadata: {
             chatId: remoteJid,
+            chatName,
+            senderPhone,
+            senderName,
             pushName: msg.pushName || '',
-            fromMe: msg.key?.fromMe,
-            isGroup: remoteJid.endsWith('@g.us'),
+            fromMe,
+            isGroup,
             source,
+            selfPhone,
           },
         },
       });
       processed++;
     };
 
-    // History sync — bulk messages delivered by WhatsApp servers after linking
+    // History sync — bulk data from WhatsApp servers
     sock.ev.on('messaging-history.set', (data: any) => {
       historyBatches++;
       const messages = data.messages || [];
+      const chats = data.chats || [];
+      const contacts = data.contacts || [];
       const progress = data.progress ?? null;
       const isLatest = data.isLatest ?? false;
 
-      ctx.logger.info(`History batch #${historyBatches}: ${messages.length} messages (progress: ${progress}, isLatest: ${isLatest})`);
+      // Index chat names (group names, contact names)
+      for (const chat of chats) {
+        if (chat.id && chat.name) {
+          chatNames.set(chat.id, chat.name);
+        }
+      }
+
+      // Index contact names from the contacts array
+      for (const contact of contacts) {
+        const phone = phoneFromJid(contact.id || '');
+        const name = contact.notify || contact.name || '';
+        if (phone && name) {
+          contactNames.set(phone, name);
+        }
+      }
+
+      ctx.logger.info(`History batch #${historyBatches}: ${messages.length} msgs, ${chats.length} chats, ${contacts.length} contacts (progress: ${progress}, isLatest: ${isLatest})`);
 
       for (const msg of messages) {
         processMessage(msg, 'history');
@@ -192,10 +238,8 @@ export async function syncWhatsApp(
     resetIdle();
   });
 
-  if (ownsSocket) {
-    try { sock.ws?.close(); } catch { /* ignore */ }
-  }
+  try { sock.ws?.close(); } catch { /* ignore */ }
 
-  ctx.logger.info(`Synced ${processed} WhatsApp messages from ${historyBatches} history batches`);
+  ctx.logger.info(`Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${chatNames.size} chats, ${contactNames.size} contacts indexed)`);
   return { cursor: null, hasMore: false, processed };
 }

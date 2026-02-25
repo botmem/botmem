@@ -176,13 +176,7 @@ export class EmbedProcessor extends WorkerHost {
         { attempts: 2, backoff: { type: 'exponential', delay: 1000 } },
       );
 
-      // 9. Emit real-time event
-      this.events.emitToChannel('memories', 'memory:new', {
-        memoryId,
-        sourceType: event.sourceType,
-        connectorType: rawEvent.connectorType,
-        text: text.slice(0, 100),
-      });
+      // Real-time event omitted — frontend uses polling instead
     } catch (err: any) {
       const totalMs = Date.now() - pipelineStart;
       await this.dbService.db
@@ -292,6 +286,29 @@ export class EmbedProcessor extends WorkerHost {
     metadata: Record<string, unknown>,
     participants: string[],
   ): Promise<void> {
+    const isContact = metadata.type === 'contact';
+
+    if (isContact) {
+      const identifiers: IdentifierInput[] = [];
+      if (metadata.name) {
+        identifiers.push({ type: 'name', value: metadata.name as string, connectorType: 'slack' });
+      }
+      if (metadata.slackId) {
+        identifiers.push({ type: 'slack_id', value: metadata.slackId as string, connectorType: 'slack' });
+      }
+      for (const email of (metadata.emails as string[]) || []) {
+        identifiers.push({ type: 'email', value: email, connectorType: 'slack' });
+      }
+      for (const phone of (metadata.phones as string[]) || []) {
+        identifiers.push({ type: 'phone', value: phone, connectorType: 'slack' });
+      }
+      if (identifiers.length) {
+        const contact = await this.contactsService.resolveContact(identifiers);
+        await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
+      }
+      return;
+    }
+
     const profiles = (metadata.participantProfiles || undefined) as
       Record<string, SlackProfile> | undefined;
 
@@ -308,23 +325,36 @@ export class EmbedProcessor extends WorkerHost {
     metadata: Record<string, unknown>,
     participants: string[],
   ): Promise<void> {
-    // WhatsApp participants are JIDs like "1234567890@s.whatsapp.net"
-    const pushName = metadata.pushName as string | undefined;
+    const senderPhone = metadata.senderPhone as string | undefined;
+    const senderName = metadata.senderName as string | undefined;
+    const selfPhone = metadata.selfPhone as string | undefined;
+    const fromMe = metadata.fromMe as boolean | undefined;
 
-    for (const jid of participants) {
-      if (!jid) continue;
-      // Extract phone number from JID
-      const phone = jid.replace(/@.*$/, '');
-      if (!phone || phone.includes('-')) continue; // Skip group IDs
+    // Resolve sender
+    const phone = senderPhone || (participants[0] || '').replace(/@.*$/, '').split(':')[0];
+    if (!phone || phone.includes('-')) return; // Skip group JIDs
 
-      const identifiers: IdentifierInput[] = [
-        { type: 'phone', value: phone, connectorType: 'whatsapp' },
-      ];
-      if (pushName) {
-        identifiers.push({ type: 'name', value: pushName, connectorType: 'whatsapp' });
+    const senderIdentifiers: IdentifierInput[] = [
+      { type: 'phone', value: phone, connectorType: 'whatsapp' },
+    ];
+    if (senderName && senderName !== 'me' && senderName !== phone) {
+      senderIdentifiers.push({ type: 'name', value: senderName, connectorType: 'whatsapp' });
+    }
+    const senderContact = await this.contactsService.resolveContact(senderIdentifiers);
+    await this.contactsService.linkMemory(memoryId, senderContact.id, 'sender');
+
+    // For DMs, also resolve the other party as recipient
+    const isGroup = metadata.isGroup as boolean | undefined;
+    if (!isGroup && selfPhone) {
+      const otherPhone = fromMe ? phone : selfPhone;
+      // Only create recipient if different from sender
+      if (otherPhone !== phone) {
+        const recipientIdentifiers: IdentifierInput[] = [
+          { type: 'phone', value: otherPhone, connectorType: 'whatsapp' },
+        ];
+        const recipientContact = await this.contactsService.resolveContact(recipientIdentifiers);
+        await this.contactsService.linkMemory(memoryId, recipientContact.id, 'recipient');
       }
-      const contact = await this.contactsService.resolveContact(identifiers);
-      await this.contactsService.linkMemory(memoryId, contact.id, 'sender');
     }
   }
 
