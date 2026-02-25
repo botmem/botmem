@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import type { ConnectorType, ConnectorManifest } from '@botmem/shared';
+import { useEffect, useReducer, useRef, useCallback } from 'react';
+import type { ConnectorType } from '@botmem/shared';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
@@ -13,7 +13,6 @@ interface ConnectorSetupModalProps {
   onConnect: (identifier: string) => void;
 }
 
-// Fallback fields when API is not available
 const fallbackFields: Record<string, Array<{ name: string; label: string; placeholder: string }>> = {
   gmail: [{ name: 'email', label: 'Gmail Address', placeholder: 'you@gmail.com' }],
   slack: [{ name: 'workspace', label: 'Workspace Name', placeholder: 'my-workspace' }],
@@ -36,6 +35,74 @@ interface AuthMethod {
   fields: string[];
 }
 
+interface ModalState {
+  values: Record<string, string>;
+  fields: SchemaField[];
+  authMethods: AuthMethod[];
+  selectedMethod: string | null;
+  loading: boolean;
+  checkingCredentials: boolean;
+  qrData: string | null;
+  qrError: string | null;
+  error: string | null;
+}
+
+type ModalAction =
+  | { type: 'SET_VALUE'; name: string; value: string }
+  | { type: 'RESET_VALUES' }
+  | { type: 'SET_FIELDS'; fields: SchemaField[]; authMethods?: AuthMethod[] }
+  | { type: 'SET_METHOD'; method: string }
+  | { type: 'SET_LOADING'; loading: boolean }
+  | { type: 'CREDENTIALS_CHECKED' }
+  | { type: 'QR_RECEIVED'; qrData: string }
+  | { type: 'QR_ERROR'; error: string }
+  | { type: 'QR_RETRY' }
+  | { type: 'SET_ERROR'; error: string }
+  | { type: 'RESET' };
+
+const initialState: ModalState = {
+  values: {},
+  fields: [],
+  authMethods: [],
+  selectedMethod: null,
+  loading: false,
+  checkingCredentials: true,
+  qrData: null,
+  qrError: null,
+  error: null,
+};
+
+function reducer(state: ModalState, action: ModalAction): ModalState {
+  switch (action.type) {
+    case 'SET_VALUE':
+      return { ...state, values: { ...state.values, [action.name]: action.value }, error: null };
+    case 'RESET_VALUES':
+      return { ...state, values: {} };
+    case 'SET_FIELDS': {
+      const authMethods = action.authMethods || [];
+      return { ...state, fields: action.fields, authMethods, selectedMethod: authMethods[0]?.id || null };
+    }
+    case 'SET_METHOD':
+      return { ...state, selectedMethod: action.method, values: {} };
+    case 'SET_LOADING':
+      return { ...state, loading: action.loading };
+    case 'CREDENTIALS_CHECKED':
+      return { ...state, checkingCredentials: false };
+    case 'QR_RECEIVED':
+      return { ...state, qrData: action.qrData, loading: false, qrError: null };
+    case 'QR_ERROR':
+      return { ...state, qrError: action.error, loading: false };
+    case 'QR_RETRY':
+      return { ...state, qrError: null, qrData: null, loading: true };
+    case 'SET_ERROR':
+      return { ...state, error: action.error, loading: false };
+    case 'RESET':
+      return initialState;
+    default:
+      return state;
+  }
+}
+
 function schemaToFields(schema: Record<string, any>): SchemaField[] {
   if (!schema?.properties) return [];
   const requiredFields: string[] = schema.required || [];
@@ -49,54 +116,34 @@ function schemaToFields(schema: Record<string, any>): SchemaField[] {
   }));
 }
 
-export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }: ConnectorSetupModalProps) {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [fields, setFields] = useState<SchemaField[]>([]);
-  const [authMethods, setAuthMethods] = useState<AuthMethod[]>([]);
-  const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [checkingCredentials, setCheckingCredentials] = useState(true);
-  const [qrData, setQrData] = useState<string | null>(null);
-  const [qrError, setQrError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const manifests = useConnectorStore((s) => s.manifests);
+// --- Sub-components ---
 
-  const isQrAuth = manifests.find((m) => m.id === connectorType)?.authType === 'qr-code';
-
-  // Clean up WebSocket on unmount or close
-  const cleanupWs = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return cleanupWs;
-  }, [cleanupWs]);
-
-  // For QR code auth, auto-initiate when modal opens
-  useEffect(() => {
-    if (!open || !isQrAuth) return;
-
-    setLoading(true);
-    setQrData(null);
-    setQrError(null);
-
+function QrAuthView({
+  state,
+  dispatch,
+  connectorType,
+  wsRef,
+  cleanupWs,
+  onConnect,
+  onClose,
+}: {
+  state: ModalState;
+  dispatch: React.Dispatch<ModalAction>;
+  connectorType: ConnectorType;
+  wsRef: React.MutableRefObject<WebSocket | null>;
+  cleanupWs: () => void;
+  onConnect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const initiateQr = useCallback(() => {
+    dispatch({ type: 'QR_RETRY' });
     api.initiateAuth(connectorType, {})
       .then((result) => {
         if (result.type === 'qr-code') {
-          setQrData(result.qrData);
-          setLoading(false);
-
-          // Subscribe to WebSocket channel for completion
+          dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
           const ws = createWsConnection();
           wsRef.current = ws;
-
-          ws.onopen = () => {
-            subscribeToChannel(ws, result.wsChannel);
-          };
-
+          ws.onopen = () => subscribeToChannel(ws, result.wsChannel);
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
@@ -105,102 +152,77 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
                 onConnect(msg.data.identifier || connectorType);
                 onClose();
               } else if (msg.event === 'auth:error') {
-                setQrError(msg.data.error || 'Authentication failed');
+                dispatch({ type: 'QR_ERROR', error: msg.data.error || 'Authentication failed' });
                 cleanupWs();
+              } else if (msg.event === 'qr:update') {
+                dispatch({ type: 'QR_RECEIVED', qrData: msg.data.qrData });
               }
-            } catch {
-              // ignore parse errors
-            }
+            } catch { /* ignore parse errors */ }
           };
-
-          ws.onerror = () => {
-            setQrError('WebSocket connection failed');
-          };
+          ws.onerror = () => dispatch({ type: 'QR_ERROR', error: 'WebSocket connection failed' });
         }
       })
-      .catch((err) => {
-        setQrError(err.message || 'Failed to generate QR code');
-        setLoading(false);
-      });
+      .catch((err) => dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }));
+  }, [connectorType, wsRef, cleanupWs, onConnect, onClose, dispatch]);
 
-    return cleanupWs;
-  }, [open, isQrAuth, connectorType]);
+  return (
+    <Modal open onClose={() => { cleanupWs(); onClose(); }} title={`Connect ${connectorType.toUpperCase()}`}>
+      <div className="flex flex-col items-center gap-4 py-4">
+        {state.loading && !state.qrData && !state.qrError && (
+          <p className="font-mono text-sm text-nb-muted uppercase animate-pulse">
+            Generating QR code...
+          </p>
+        )}
 
-  // Check for saved credentials (OAuth only)
-  useEffect(() => {
-    if (isQrAuth) {
-      setCheckingCredentials(false);
-      return;
-    }
+        {state.qrData && (
+          <>
+            <p className="font-mono text-xs text-nb-muted uppercase text-center">
+              Scan this QR code with WhatsApp on your phone
+            </p>
+            <div className="bg-white p-3 rounded">
+              <img src={state.qrData} alt="WhatsApp QR Code" className="w-64 h-64" />
+            </div>
+            <p className="font-mono text-[10px] text-nb-muted text-center">
+              Open WhatsApp → Settings → Linked Devices → Link a Device
+            </p>
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-2 h-2 bg-nb-lime rounded-full animate-pulse" />
+              <p className="font-mono text-xs text-nb-muted uppercase">Waiting for scan...</p>
+            </div>
+          </>
+        )}
 
-    const manifest = manifests.find((m) => m.id === connectorType);
-    const isOAuth = manifest?.authType === 'oauth2';
+        {state.qrError && (
+          <div className="text-center">
+            <p className="font-mono text-sm text-nb-red mb-3">{state.qrError}</p>
+            <Button onClick={initiateQr}>RETRY</Button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
-    if (isOAuth) {
-      api.hasCredentials(connectorType)
-        .then(({ hasSavedCredentials }) => {
-          if (hasSavedCredentials) {
-            initiateWithSavedCredentials();
-          } else {
-            setCheckingCredentials(false);
-          }
-        })
-        .catch(() => setCheckingCredentials(false));
-    } else {
-      setCheckingCredentials(false);
-    }
-  }, [connectorType, manifests, isQrAuth]);
-
-  useEffect(() => {
-    if (isQrAuth) return; // QR auth doesn't need form fields
-
-    const manifest = manifests.find((m) => m.id === connectorType);
-    if (manifest?.configSchema) {
-      const schema = manifest.configSchema as Record<string, any>;
-      setFields(schemaToFields(schema));
-      if (schema.authMethods) {
-        setAuthMethods(schema.authMethods);
-        setSelectedMethod(schema.authMethods[0]?.id || null);
-      }
-    } else {
-      api.getConnectorSchema(connectorType)
-        .then(({ schema }) => {
-          setFields(schemaToFields(schema));
-          if (schema.authMethods) {
-            setAuthMethods(schema.authMethods);
-            setSelectedMethod(schema.authMethods[0]?.id || null);
-          }
-        })
-        .catch(() => {
-          const fb = fallbackFields[connectorType] || [];
-          setFields(fb.map((f) => ({ ...f, type: 'string', required: true })));
-        });
-    }
-  }, [connectorType, manifests, isQrAuth]);
-
-  const initiateWithSavedCredentials = async () => {
-    setLoading(true);
-    try {
-      const result = await api.initiateAuth(connectorType, {
-        returnTo: window.location.pathname,
-      });
-      if (result.type === 'redirect') {
-        window.location.href = result.url;
-        return;
-      }
-    } catch {
-      setCheckingCredentials(false);
-      setLoading(false);
-    }
-  };
-
+function FormView({
+  state,
+  dispatch,
+  connectorType,
+  onConnect,
+  onClose,
+}: {
+  state: ModalState;
+  dispatch: React.Dispatch<ModalAction>;
+  connectorType: ConnectorType;
+  onConnect: (id: string) => void;
+  onClose: () => void;
+}) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    dispatch({ type: 'SET_LOADING', loading: true });
 
     try {
       const result = await api.initiateAuth(connectorType, {
-        ...values,
+        ...state.values,
         returnTo: window.location.pathname,
       });
 
@@ -210,130 +232,43 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
       }
 
       if (result.type === 'complete') {
-        const identifier = Object.values(values)[0] || connectorType;
-        onConnect(identifier);
-        setValues({});
+        onConnect(result.account?.identifier || connectorType);
+        dispatch({ type: 'RESET_VALUES' });
         onClose();
         return;
       }
 
       onClose();
-    } catch {
-      const identifier = Object.values(values)[0] || '';
-      if (identifier) {
-        onConnect(identifier);
-        setValues({});
-        onClose();
+    } catch (err: any) {
+      let msg = 'Connection failed — check your configuration';
+      const raw = err?.message || '';
+      // Parse NestJS error body from "API 400: {json}"
+      const jsonMatch = raw.match(/API \d+: (.+)/s);
+      if (jsonMatch) {
+        try { msg = JSON.parse(jsonMatch[1]).message || msg; } catch { msg = jsonMatch[1]; }
       }
+      dispatch({ type: 'SET_ERROR', error: msg });
     } finally {
-      setLoading(false);
+      dispatch({ type: 'SET_LOADING', loading: false });
     }
   };
 
-  // QR code auth UI
-  if (isQrAuth) {
-    return (
-      <Modal open={open} onClose={() => { cleanupWs(); onClose(); }} title={`Connect ${connectorType.toUpperCase()}`}>
-        <div className="flex flex-col items-center gap-4 py-4">
-          {loading && !qrData && !qrError && (
-            <p className="font-mono text-sm text-nb-muted uppercase animate-pulse">
-              Generating QR code...
-            </p>
-          )}
-
-          {qrData && (
-            <>
-              <p className="font-mono text-xs text-nb-muted uppercase text-center">
-                Scan this QR code with WhatsApp on your phone
-              </p>
-              <div className="bg-white p-3 rounded">
-                <img src={qrData} alt="WhatsApp QR Code" className="w-64 h-64" />
-              </div>
-              <p className="font-mono text-[10px] text-nb-muted text-center">
-                Open WhatsApp → Settings → Linked Devices → Link a Device
-              </p>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-2 h-2 bg-nb-lime rounded-full animate-pulse" />
-                <p className="font-mono text-xs text-nb-muted uppercase">
-                  Waiting for scan...
-                </p>
-              </div>
-            </>
-          )}
-
-          {qrError && (
-            <div className="text-center">
-              <p className="font-mono text-sm text-nb-red mb-3">{qrError}</p>
-              <Button onClick={() => {
-                setQrError(null);
-                setLoading(true);
-                setQrData(null);
-                api.initiateAuth(connectorType, {})
-                  .then((result) => {
-                    if (result.type === 'qr-code') {
-                      setQrData(result.qrData);
-                      setLoading(false);
-                      const ws = createWsConnection();
-                      wsRef.current = ws;
-                      ws.onopen = () => subscribeToChannel(ws, result.wsChannel);
-                      ws.onmessage = (evt) => {
-                        try {
-                          const msg = JSON.parse(evt.data);
-                          if (msg.event === 'auth:complete') {
-                            cleanupWs();
-                            onConnect(msg.data.identifier || connectorType);
-                            onClose();
-                          } else if (msg.event === 'auth:error') {
-                            setQrError(msg.data.error || 'Authentication failed');
-                            cleanupWs();
-                          }
-                        } catch {}
-                      };
-                    }
-                  })
-                  .catch((err) => {
-                    setQrError(err.message || 'Failed to generate QR code');
-                    setLoading(false);
-                  });
-              }}>
-                RETRY
-              </Button>
-            </div>
-          )}
-        </div>
-      </Modal>
-    );
-  }
-
-  if (checkingCredentials || (loading && checkingCredentials !== false)) {
-    return (
-      <Modal open={open} onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
-        <div className="flex flex-col items-center gap-3 py-6">
-          <p className="font-mono text-sm text-nb-muted uppercase">
-            {loading ? 'Redirecting to authorization...' : 'Checking saved credentials...'}
-          </p>
-        </div>
-      </Modal>
-    );
-  }
-
-  // Filter fields based on selected auth method
-  const activeMethod = authMethods.find((m) => m.id === selectedMethod);
+  const activeMethod = state.authMethods.find((m) => m.id === state.selectedMethod);
   const visibleFields = activeMethod
-    ? fields.filter((f) => activeMethod.fields.includes(f.name))
-    : fields;
+    ? state.fields.filter((f) => activeMethod.fields.includes(f.name))
+    : state.fields;
 
   return (
-    <Modal open={open} onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
-      {authMethods.length > 1 && (
+    <Modal open onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
+      {state.authMethods.length > 1 && (
         <div className="flex gap-0 mb-4 border-3 border-nb-border">
-          {authMethods.map((method) => (
+          {state.authMethods.map((method) => (
             <button
               key={method.id}
               type="button"
-              onClick={() => { setSelectedMethod(method.id); setValues({}); }}
+              onClick={() => dispatch({ type: 'SET_METHOD', method: method.id })}
               className={`flex-1 py-3 px-3 font-display text-sm font-bold uppercase transition-colors cursor-pointer border-r-3 border-nb-border last:border-r-0 ${
-                selectedMethod === method.id
+                state.selectedMethod === method.id
                   ? 'bg-nb-lime text-black'
                   : 'bg-nb-surface text-nb-muted hover:text-nb-text hover:bg-nb-border/30'
               }`}
@@ -341,6 +276,12 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
               {method.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {state.error && (
+        <div className="border-3 border-red-500 bg-red-500/10 p-3 font-mono text-sm text-red-400">
+          {state.error}
         </div>
       )}
 
@@ -356,16 +297,159 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
               label={field.label}
               placeholder={field.placeholder}
               type={field.type === 'string' ? 'text' : field.type}
-              value={values[field.name] || ''}
-              onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
-              required
+              value={state.values[field.name] || ''}
+              onChange={(e) => dispatch({ type: 'SET_VALUE', name: field.name, value: e.target.value })}
+              required={field.required}
             />
           ),
         )}
-        <Button type="submit" disabled={loading}>
-          {loading ? 'CONNECTING...' : 'CONNECT'}
+        <Button type="submit" disabled={state.loading}>
+          {state.loading ? 'CONNECTING...' : 'CONNECT'}
         </Button>
       </form>
     </Modal>
+  );
+}
+
+// --- Main component ---
+
+export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }: ConnectorSetupModalProps) {
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const wsRef = useRef<WebSocket | null>(null);
+  const manifests = useConnectorStore((s) => s.manifests);
+
+  const isQrAuth = manifests.find((m) => m.id === connectorType)?.authType === 'qr-code';
+
+  const cleanupWs = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => cleanupWs, [cleanupWs]);
+
+  // QR code auth: auto-initiate
+  useEffect(() => {
+    if (!open || !isQrAuth) return;
+    dispatch({ type: 'QR_RETRY' });
+
+    api.initiateAuth(connectorType, {})
+      .then((result) => {
+        if (result.type === 'qr-code') {
+          dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
+          const ws = createWsConnection();
+          wsRef.current = ws;
+          ws.onopen = () => subscribeToChannel(ws, result.wsChannel);
+          ws.onmessage = (evt) => {
+            try {
+              const msg = JSON.parse(evt.data);
+              if (msg.event === 'auth:complete') {
+                cleanupWs();
+                onConnect(msg.data.identifier || connectorType);
+                onClose();
+              } else if (msg.event === 'auth:error') {
+                dispatch({ type: 'QR_ERROR', error: msg.data.error || 'Authentication failed' });
+                cleanupWs();
+              } else if (msg.event === 'qr:update') {
+                dispatch({ type: 'QR_RECEIVED', qrData: msg.data.qrData });
+              }
+            } catch { /* ignore */ }
+          };
+          ws.onerror = () => dispatch({ type: 'QR_ERROR', error: 'WebSocket connection failed' });
+        }
+      })
+      .catch((err) => dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }));
+
+    return cleanupWs;
+  }, [open, isQrAuth, connectorType, cleanupWs, onConnect, onClose]);
+
+  // Check saved credentials (OAuth only)
+  useEffect(() => {
+    if (isQrAuth) {
+      dispatch({ type: 'CREDENTIALS_CHECKED' });
+      return;
+    }
+
+    const manifest = manifests.find((m) => m.id === connectorType);
+    if (manifest?.authType === 'oauth2') {
+      api.hasCredentials(connectorType)
+        .then(({ hasSavedCredentials }) => {
+          if (hasSavedCredentials) {
+            dispatch({ type: 'SET_LOADING', loading: true });
+            api.initiateAuth(connectorType, { returnTo: window.location.pathname })
+              .then((result) => {
+                if (result.type === 'redirect') window.location.href = result.url;
+              })
+              .catch(() => {
+                dispatch({ type: 'CREDENTIALS_CHECKED' });
+                dispatch({ type: 'SET_LOADING', loading: false });
+              });
+          } else {
+            dispatch({ type: 'CREDENTIALS_CHECKED' });
+          }
+        })
+        .catch(() => dispatch({ type: 'CREDENTIALS_CHECKED' }));
+    } else {
+      dispatch({ type: 'CREDENTIALS_CHECKED' });
+    }
+  }, [connectorType, manifests, isQrAuth]);
+
+  // Load form schema
+  useEffect(() => {
+    if (isQrAuth) return;
+
+    const manifest = manifests.find((m) => m.id === connectorType);
+    if (manifest?.configSchema) {
+      const schema = manifest.configSchema as Record<string, any>;
+      dispatch({ type: 'SET_FIELDS', fields: schemaToFields(schema), authMethods: schema.authMethods });
+    } else {
+      api.getConnectorSchema(connectorType)
+        .then(({ schema }) => {
+          dispatch({ type: 'SET_FIELDS', fields: schemaToFields(schema), authMethods: schema.authMethods });
+        })
+        .catch(() => {
+          const fb = fallbackFields[connectorType] || [];
+          dispatch({ type: 'SET_FIELDS', fields: fb.map((f) => ({ ...f, type: 'string', required: true })) });
+        });
+    }
+  }, [connectorType, manifests, isQrAuth]);
+
+  if (!open) return null;
+
+  if (isQrAuth) {
+    return (
+      <QrAuthView
+        state={state}
+        dispatch={dispatch}
+        connectorType={connectorType}
+        wsRef={wsRef}
+        cleanupWs={cleanupWs}
+        onConnect={onConnect}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (state.checkingCredentials || (state.loading && !state.fields.length)) {
+    return (
+      <Modal open onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
+        <div className="flex flex-col items-center gap-3 py-6">
+          <p className="font-mono text-sm text-nb-muted uppercase">
+            {state.loading ? 'Redirecting to authorization...' : 'Checking saved credentials...'}
+          </p>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <FormView
+      state={state}
+      dispatch={dispatch}
+      connectorType={connectorType}
+      onConnect={onConnect}
+      onClose={onClose}
+    />
   );
 }

@@ -55,11 +55,16 @@ export class WhatsAppConnector extends BaseConnector {
     startQrAuth(sessionDir, {
       onQrCode: (qr) => {
         if (this.warm?.sessionId !== sessionId) return;
+        const isRefresh = this.warm.qrData !== null;
         this.warm.qrData = qr;
         this.warmStatus = 'qr_ready';
         // Resolve any callers waiting for the QR
         for (const resolve of this.warm.qrWaiters) resolve(qr);
         this.warm.qrWaiters = [];
+        // Broadcast QR refresh to frontend via WebSocket
+        if (isRefresh) {
+          this.emit('qr:update', { wsChannel, qrData: qr });
+        }
       },
       onConnected: (auth: AuthContext) => {
         if (this.warm?.sessionId !== sessionId) return;

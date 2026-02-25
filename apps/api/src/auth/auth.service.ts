@@ -153,9 +153,18 @@ export class AuthService {
 
     connector.on('connected', handler);
 
-    // Clean up listener after 5 minutes (timeout)
+    // Forward QR refreshes to the frontend
+    const qrHandler = (payload: { wsChannel: string; qrData: string }) => {
+      if (payload.wsChannel === wsChannel) {
+        this.events.emitToChannel(wsChannel, 'qr:update', { qrData: payload.qrData });
+      }
+    };
+    connector.on('qr:update', qrHandler);
+
+    // Clean up listeners after 5 minutes (timeout)
     setTimeout(() => {
       connector.removeListener('connected', handler);
+      connector.removeListener('qr:update', qrHandler);
     }, 5 * 60 * 1000);
   }
 
