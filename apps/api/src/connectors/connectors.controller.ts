@@ -14,4 +14,13 @@ export class ConnectorsController {
   getSchema(@Param('type') type: string) {
     return { schema: this.connectors.getSchema(type) };
   }
+
+  @Get(':type/status')
+  getStatus(@Param('type') type: string) {
+    const connector = this.connectors.get(type);
+    if (typeof (connector as any).getStatus === 'function') {
+      return (connector as any).getStatus();
+    }
+    return { ready: true, status: 'available' };
+  }
 }

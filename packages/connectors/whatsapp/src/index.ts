@@ -27,6 +27,8 @@ export class WhatsAppConnector extends BaseConnector {
 
   private sessionCounter = 0;
   private warm: WarmSession | null = null;
+  private warmStatus: 'warming' | 'qr_ready' | 'error' = 'warming';
+  private warmError: string | null = null;
 
   constructor() {
     super();
@@ -47,11 +49,14 @@ export class WhatsAppConnector extends BaseConnector {
       qrWaiters: [],
     };
     this.warm = session;
+    this.warmStatus = 'warming';
+    this.warmError = null;
 
     startQrAuth(sessionDir, {
       onQrCode: (qr) => {
         if (this.warm?.sessionId !== sessionId) return;
         this.warm.qrData = qr;
+        this.warmStatus = 'qr_ready';
         // Resolve any callers waiting for the QR
         for (const resolve of this.warm.qrWaiters) resolve(qr);
         this.warm.qrWaiters = [];
@@ -66,6 +71,8 @@ export class WhatsAppConnector extends BaseConnector {
       },
       onError: (err) => {
         console.error('[WhatsApp] warm session error:', err.message);
+        this.warmStatus = 'error';
+        this.warmError = err.message;
         if (this.warm?.sessionId !== sessionId) return;
         const pendingWaiters = this.warm.qrWaiters.splice(0);
         this.warm = null;
@@ -86,12 +93,22 @@ export class WhatsAppConnector extends BaseConnector {
       },
     }).catch((err) => {
       console.error('[WhatsApp] startQrAuth failed:', err.message);
+      this.warmStatus = 'error';
+      this.warmError = err.message;
       if (this.warm?.sessionId === sessionId) {
         for (const resolve of this.warm.qrWaiters) resolve('');
         this.warm = null;
       }
       setTimeout(() => this._warm(), 3000);
     });
+  }
+
+  getStatus(): { ready: boolean; status: string; message?: string } {
+    return {
+      ready: this.warmStatus === 'qr_ready',
+      status: this.warmStatus,
+      ...(this.warmError && { message: this.warmError }),
+    };
   }
 
   async initiateAuth(_config: Record<string, unknown>): Promise<AuthInitResult> {
