@@ -159,7 +159,21 @@ export async function syncWhatsApp(
       // Build chat context
       const chatName = chatNames.get(remoteJid) || (isGroup ? remoteJid : senderName);
 
-      // Build all participants for this message (sender + chat context)
+      // Format the sender label: "Name (+phone)" or just phone if no name
+      const senderLabel = senderName && senderName !== senderPhone && senderName !== 'me'
+        ? `${senderName} (+${senderPhone})`
+        : `+${senderPhone}`;
+
+      // Build contextual message text:
+      // Group: "[GroupName] SenderName (+phone): message"
+      // DM:   "SenderName (+phone): message"
+      let contextualText: string;
+      if (isGroup) {
+        contextualText = `[${chatName}] ${senderLabel}: ${text}`;
+      } else {
+        contextualText = `${senderLabel}: ${text}`;
+      }
+
       const participants: string[] = [senderPhone];
 
       emit({
@@ -169,7 +183,7 @@ export async function syncWhatsApp(
           ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
           : new Date().toISOString(),
         content: {
-          text,
+          text: contextualText,
           participants,
           metadata: {
             chatId: remoteJid,
