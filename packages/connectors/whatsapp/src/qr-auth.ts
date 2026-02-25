@@ -1,20 +1,27 @@
-import BaileysDefault, { useMultiFileAuthState, DisconnectReason, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
-// CJS/ESM interop: baileys exports as CommonJS default, which may be nested under .default
-const makeWASocket: typeof BaileysDefault = (BaileysDefault as any).default ?? BaileysDefault;
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import * as QRCode from 'qrcode';
+import pino from 'pino';
 import type { AuthContext } from '@botmem/connector-sdk';
 
-// Silent logger — suppress Baileys' verbose pino output from the API console
-const silentLogger = {
-  level: 'silent',
-  trace: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  fatal: () => {},
-  child: () => silentLogger,
-} as any;
+const logger = pino({ level: 'warn' }) as any;
+
+// Cache the fetched version for 1 hour to avoid hitting the API on every warm-up
+let cachedVersion: { version: [number, number, number]; fetchedAt: number } | null = null;
+const VERSION_TTL = 60 * 60 * 1000;
+
+async function getWhatsAppVersion(): Promise<[number, number, number]> {
+  if (cachedVersion && Date.now() - cachedVersion.fetchedAt < VERSION_TTL) {
+    return cachedVersion.version;
+  }
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    cachedVersion = { version: version as [number, number, number], fetchedAt: Date.now() };
+    return cachedVersion.version;
+  } catch {
+    // Fallback to cached or default
+    return cachedVersion?.version ?? [2, 3000, 1033846690];
+  }
+}
 
 export interface QrAuthCallbacks {
   onQrCode: (qrDataUrl: string) => void;
@@ -39,11 +46,13 @@ export async function startQrAuth(
 
   const attempt = async () => {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const version = await getWhatsAppVersion();
 
     const sock = makeWASocket({
       auth: state,
+      version,
       printQRInTerminal: false,
-      logger: silentLogger,
+      logger,
     });
 
     sock.ev.on('creds.update', saveCreds);

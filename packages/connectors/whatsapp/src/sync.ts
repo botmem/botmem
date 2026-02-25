@@ -1,5 +1,25 @@
-import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import pino from 'pino';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+
+const logger = pino({ level: 'warn' }) as any;
+
+// Cache the fetched version for 1 hour
+let cachedVersion: { version: [number, number, number]; fetchedAt: number } | null = null;
+const VERSION_TTL = 60 * 60 * 1000;
+
+async function getWhatsAppVersion(): Promise<[number, number, number]> {
+  if (cachedVersion && Date.now() - cachedVersion.fetchedAt < VERSION_TTL) {
+    return cachedVersion.version;
+  }
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    cachedVersion = { version: version as [number, number, number], fetchedAt: Date.now() };
+    return cachedVersion.version;
+  } catch {
+    return cachedVersion?.version ?? [2, 3000, 1033846690];
+  }
+}
 
 export async function syncWhatsApp(
   ctx: SyncContext,
@@ -9,7 +29,8 @@ export async function syncWhatsApp(
   if (!sessionDir) throw new Error('No WhatsApp session found');
 
   const { state } = await useMultiFileAuthState(sessionDir);
-  const sock: any = makeWASocket({ auth: state, printQRInTerminal: false });
+  const version = await getWhatsAppVersion();
+  const sock: any = makeWASocket({ auth: state, version, printQRInTerminal: false, logger });
 
   let processed = 0;
 

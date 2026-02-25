@@ -20,6 +20,7 @@
   "dependencies": {
     "@botmem/connector-sdk": "workspace:*",
     "@whiskeysockets/baileys": "^6.0.0",
+    "pino": "^9.6.0",
     "qrcode": "^1.5.0"
   },
   "devDependencies": {

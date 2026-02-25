@@ -64,7 +64,8 @@ export class WhatsAppConnector extends BaseConnector {
         // Pre-warm the next session right away
         this._warm();
       },
-      onError: (_err) => {
+      onError: (err) => {
+        console.error('[WhatsApp] warm session error:', err.message);
         if (this.warm?.sessionId !== sessionId) return;
         const pendingWaiters = this.warm.qrWaiters.splice(0);
         this.warm = null;
@@ -83,7 +84,8 @@ export class WhatsAppConnector extends BaseConnector {
           setTimeout(() => this._warm(), 15_000);
         }
       },
-    }).catch((_err) => {
+    }).catch((err) => {
+      console.error('[WhatsApp] startQrAuth failed:', err.message);
       if (this.warm?.sessionId === sessionId) {
         for (const resolve of this.warm.qrWaiters) resolve('');
         this.warm = null;
