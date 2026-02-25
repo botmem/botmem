@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import * as QRCode from 'qrcode';
 import pino from 'pino';
 import type { AuthContext } from '@botmem/connector-sdk';
@@ -60,11 +60,23 @@ export async function startQrAuth(
     const version = await getWhatsAppVersion();
 
     const sock = makeWASocket({
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, logger),
+      },
       version,
       printQRInTerminal: false,
       logger,
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
     });
+
+    // Prevent unhandled WebSocket errors from crashing the process
+    if (sock.ws && typeof (sock.ws as any).on === 'function') {
+      (sock.ws as any).on('error', (err: Error) => {
+        console.error('[WhatsApp] WebSocket error:', err.message);
+      });
+    }
 
     sock.ev.on('creds.update', saveCreds);
 

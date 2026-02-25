@@ -10,6 +10,7 @@ import { connectorCredentials } from '../db/schema';
 @Injectable()
 export class AuthService {
   private pendingConfigs = new Map<string, { config: Record<string, unknown>; returnTo?: string }>();
+  private creatingAccounts = new Set<string>();
 
   constructor(
     private connectors: ConnectorsService,
@@ -57,28 +58,40 @@ export class AuthService {
 
   /** Create account, validate auth, trigger first sync. Rolls back on failure. */
   private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>) {
+    // Per-connector lock to prevent concurrent createAndSync race conditions
+    // (e.g. multiple WebSocket listeners firing on the same 'connected' event)
+    const lockKey = `${connectorType}:${identifier}`;
+    if (this.creatingAccounts.has(lockKey)) {
+      throw new BadRequestException(`Account ${identifier} is already being created`);
+    }
+
     // Prevent duplicate accounts for the same connector + identifier
     const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
     if (existing) {
       throw new BadRequestException(`Account ${identifier} is already connected`);
     }
 
-    const connector = this.connectors.get(connectorType);
-    const valid = await connector.validateAuth(auth);
-    if (!valid) {
-      throw new BadRequestException('Authentication failed — check your credentials');
+    this.creatingAccounts.add(lockKey);
+    try {
+      const connector = this.connectors.get(connectorType);
+      const valid = await connector.validateAuth(auth);
+      if (!valid) {
+        throw new BadRequestException('Authentication failed — check your credentials');
+      }
+
+      const account = await this.accountsService.create({
+        connectorType,
+        identifier,
+        authContext: JSON.stringify(auth),
+      });
+
+      // Trigger first sync automatically
+      await this.jobsService.triggerSync(account.id, connectorType, identifier);
+
+      return account;
+    } finally {
+      this.creatingAccounts.delete(lockKey);
     }
-
-    const account = await this.accountsService.create({
-      connectorType,
-      identifier,
-      authContext: JSON.stringify(auth),
-    });
-
-    // Trigger first sync automatically
-    await this.jobsService.triggerSync(account.id, connectorType, identifier);
-
-    return account;
   }
 
   async initiate(connectorType: string, config: Record<string, unknown>) {
