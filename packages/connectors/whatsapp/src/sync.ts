@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
 
@@ -30,7 +30,17 @@ export async function syncWhatsApp(
 
   const { state } = await useMultiFileAuthState(sessionDir);
   const version = await getWhatsAppVersion();
-  const sock: any = makeWASocket({ auth: state, version, printQRInTerminal: false, logger });
+  const sock: any = makeWASocket({
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
+    version,
+    printQRInTerminal: false,
+    logger,
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+  });
 
   let processed = 0;
 
