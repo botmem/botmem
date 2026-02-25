@@ -36,6 +36,14 @@ const FATAL_CODES = new Set([
   DisconnectReason.multideviceMismatch,
 ]);
 
+// Codes that mean "reconnect needed" — expected after QR scan
+const RECONNECT_CODES = new Set([
+  DisconnectReason.restartRequired,    // 515 — expected after QR scan
+  DisconnectReason.connectionClosed,   // 428
+  DisconnectReason.connectionReplaced, // 440
+  DisconnectReason.timedOut,           // 408
+]);
+
 export async function startQrAuth(
   sessionDir: string,
   callbacks: QrAuthCallbacks,
@@ -82,14 +90,21 @@ export async function startQrAuth(
           return;
         }
 
-        // If QR was already shown or we connected, a close is a real failure
+        // Reconnectable codes — retry even after QR was shown (e.g. 515 after scan)
+        if (RECONNECT_CODES.has(statusCode) && retries < maxRetries) {
+          retries++;
+          const delay = Math.min(500 * Math.pow(2, retries - 1), 10_000);
+          setTimeout(attempt, delay);
+          return;
+        }
+
+        // If QR was already shown and it's not a reconnectable code, it's a real failure
         if (settled) {
           callbacks.onError(new Error('WhatsApp connection closed'));
           return;
         }
 
         // Transient failure before QR appeared — back off and retry quickly
-        // Use short backoff (500ms base) so the QR appears fast for waiting users
         if (retries < maxRetries) {
           retries++;
           const delay = Math.min(500 * Math.pow(2, retries - 1), 10_000);
