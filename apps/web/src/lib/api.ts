@@ -16,6 +16,7 @@ export const api = {
   // Connectors
   listConnectors: () => request<{ connectors: any[] }>('/connectors'),
   getConnectorSchema: (type: string) => request<{ schema: any }>(`/connectors/${type}/schema`),
+  getConnectorStatus: (type: string) => request<{ ready: boolean; status: string; message?: string }>(`/connectors/${type}/status`),
 
   // Accounts
   listAccounts: () => request<{ accounts: any[] }>('/accounts'),
@@ -59,12 +60,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ query, filters, limit }),
     }),
-  listMemories: (params?: { limit?: number; offset?: number; connectorType?: string; sourceType?: string }) => {
+  listMemories: (params?: { limit?: number; offset?: number; connectorType?: string; sourceType?: string; sortBy?: string }) => {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.connectorType) query.set('connectorType', params.connectorType);
     if (params?.sourceType) query.set('sourceType', params.sourceType);
+    if (params?.sortBy) query.set('sortBy', params.sortBy);
     return request<{ items: any[]; total: number }>(`/memories?${query}`);
   },
   getMemory: (id: string) => request<any>(`/memories/${id}`),
@@ -74,6 +76,8 @@ export const api = {
     request<any>(`/memories/${id}`, { method: 'DELETE' }),
   getMemoryStats: () => request<any>('/memories/stats'),
   getGraphData: () => request<any>('/memories/graph'),
+  getGraphSeeds: () => request<any>('/memories/graph/seeds'),
+  getGraphNeighbors: (nodeId: string) => request<any>(`/memories/graph/neighbors/${nodeId}`),
 
   // Contacts
   listContacts: (params?: { limit?: number; offset?: number }) => {

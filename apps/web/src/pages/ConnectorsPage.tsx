@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ConnectorType } from '@botmem/shared';
 import { cn, CONNECTOR_COLORS } from '@botmem/shared';
@@ -9,6 +9,7 @@ import { ConnectorAccountRow } from '../components/connectors/ConnectorAccountRo
 import { ConnectorSetupModal } from '../components/connectors/ConnectorSetupModal';
 import { connectorConfigs } from '../mock/connectors';
 import { useConnectors } from '../hooks/useConnectors';
+import { api } from '../lib/api';
 
 const connectorIcons: Record<string, string> = {
   gmail: '✉',
@@ -17,6 +18,35 @@ const connectorIcons: Record<string, string> = {
   imessage: '◯',
   photos: '📷',
 };
+
+function ConnectorStatusDot({ type }: { type: string }) {
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const poll = () => {
+      api.getConnectorStatus(type).then((s) => {
+        if (!active) return;
+        setStatus(s.status);
+        if (s.status !== 'qr_ready') setTimeout(poll, 5000);
+      }).catch(() => {});
+    };
+    poll();
+    return () => { active = false; };
+  }, [type]);
+
+  if (!status) return null;
+
+  const color = status === 'qr_ready' ? 'bg-green-400' : status === 'warming' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400';
+  const label = status === 'qr_ready' ? 'Ready' : status === 'warming' ? 'Starting...' : 'Offline';
+
+  return (
+    <span className="inline-flex items-center gap-1 ml-2">
+      <span className={cn('w-2 h-2 rounded-full', color)} />
+      <span className="font-mono text-[10px] text-nb-muted uppercase">{label}</span>
+    </span>
+  );
+}
 
 export function ConnectorsPage() {
   const { accounts, manifests, addAccount, removeAccount, syncNow, fetchAccounts } = useConnectors();
@@ -71,7 +101,12 @@ export function ConnectorsPage() {
                     {connectorIcons[cfg.type] || '⚡'}
                   </div>
                   <div className="text-left">
-                    <h3 className="font-display text-sm font-bold uppercase">{cfg.label}</h3>
+                    <div className="flex items-center">
+                      <h3 className="font-display text-sm font-bold uppercase">{cfg.label}</h3>
+                      {manifests.find((m) => m.id === cfg.type)?.authType === 'qr-code' && (
+                        <ConnectorStatusDot type={cfg.type} />
+                      )}
+                    </div>
                     <p className="font-mono text-xs text-nb-muted">{typeAccounts.length} accounts</p>
                   </div>
                 </div>
