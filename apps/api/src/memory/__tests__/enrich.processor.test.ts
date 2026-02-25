@@ -23,12 +23,15 @@ describe('EnrichProcessor', () => {
 
     qdrantService = {
       search: vi.fn().mockResolvedValue([]),
+      recommend: vi.fn().mockResolvedValue([]),
     };
 
     processor = new EnrichProcessor(
       makeDbService(db),
       ollamaService,
       qdrantService,
+      { add: vi.fn() } as any,
+      { emitToChannel: vi.fn() } as any,
     );
 
     await db.insert(accounts).values({
@@ -117,7 +120,7 @@ describe('EnrichProcessor', () => {
     });
 
     // Qdrant returns a similar memory
-    qdrantService.search.mockResolvedValue([
+    qdrantService.recommend.mockResolvedValue([
       { id: 'mem-2', score: 0.92, payload: {} },
     ]);
 
