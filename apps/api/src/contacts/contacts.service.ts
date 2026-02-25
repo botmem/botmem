@@ -273,22 +273,16 @@ export class ContactsService {
     });
   }
 
-  async getMemories(contactId: string): Promise<any[]> {
+  async getMemories(contactId: string, limit = 50): Promise<any[]> {
     const db = this.dbService.db;
-    const links = await db
-      .select({ memoryId: memoryContacts.memoryId })
-      .from(memoryContacts)
-      .where(eq(memoryContacts.contactId, contactId));
-
-    if (!links.length) return [];
-
-    const memoryIds = links.map((l) => l.memoryId);
     const mems = await db
-      .select()
-      .from(memories)
-      .where(inArray(memories.id, memoryIds));
+      .select({ memory: memories })
+      .from(memoryContacts)
+      .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
+      .where(eq(memoryContacts.contactId, contactId))
+      .limit(limit);
 
-    return mems;
+    return mems.map((r) => r.memory);
   }
 
   async updateContact(
