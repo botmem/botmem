@@ -58,21 +58,20 @@ export class AuthService {
 
   /** Create account, validate auth, trigger first sync. Rolls back on failure. */
   private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>) {
-    // Per-connector lock to prevent concurrent createAndSync race conditions
-    // (e.g. multiple WebSocket listeners firing on the same 'connected' event)
+    // Acquire lock BEFORE any async work — JS is single-threaded so this
+    // synchronous check+set is atomic (no await between has() and add())
     const lockKey = `${connectorType}:${identifier}`;
     if (this.creatingAccounts.has(lockKey)) {
       throw new BadRequestException(`Account ${identifier} is already being created`);
     }
-
-    // Prevent duplicate accounts for the same connector + identifier
-    const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
-    if (existing) {
-      throw new BadRequestException(`Account ${identifier} is already connected`);
-    }
-
     this.creatingAccounts.add(lockKey);
+
     try {
+      // Prevent duplicate accounts for the same connector + identifier
+      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
+      if (existing) {
+        throw new BadRequestException(`Account ${identifier} is already connected`);
+      }
       const connector = this.connectors.get(connectorType);
       const valid = await connector.validateAuth(auth);
       if (!valid) {
