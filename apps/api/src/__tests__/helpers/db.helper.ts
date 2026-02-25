@@ -95,7 +95,7 @@ export function createTestDb(): BetterSQLite3Database<typeof schema> {
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
-      avatar_url TEXT,
+      avatars TEXT NOT NULL DEFAULT '[]',
       metadata TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -116,6 +116,13 @@ export function createTestDb(): BetterSQLite3Database<typeof schema> {
       memory_id TEXT NOT NULL REFERENCES memories(id),
       contact_id TEXT NOT NULL REFERENCES contacts(id),
       role TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS merge_dismissals (
+      id TEXT PRIMARY KEY,
+      contact_id_1 TEXT NOT NULL REFERENCES contacts(id),
+      contact_id_2 TEXT NOT NULL REFERENCES contacts(id),
+      created_at TEXT NOT NULL
     );
   `);
 
