@@ -50,9 +50,12 @@ export async function startQrAuth(
   maxRetries = 10,
 ): Promise<void> {
   let retries = 0;
-  let settled = false; // true once onQrCode or onConnected has been called
+  let qrShown = false;
+  let connected = false; // guard: onConnected must fire at most once
 
   const attempt = async () => {
+    if (connected) return; // already done
+
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const version = await getWhatsAppVersion();
 
@@ -68,20 +71,24 @@ export async function startQrAuth(
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
-      if (qr) {
-        settled = true;
+      if (qr && !connected) {
+        qrShown = true;
         const qrDataUrl = await QRCode.toDataURL(qr);
         callbacks.onQrCode(qrDataUrl);
       }
 
-      if (connection === 'open') {
-        settled = true;
+      if (connection === 'open' && !connected) {
+        connected = true;
         callbacks.onConnected({
           raw: { sessionDir, jid: sock.user?.id },
         });
+        // Session files are saved — this socket's job is done.
+        // Don't end() immediately; let Baileys finish its handshake.
       }
 
       if (connection === 'close') {
+        if (connected) return; // success already reported, ignore post-connect closes
+
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
 
         // Fatal error — stop retrying
@@ -99,7 +106,7 @@ export async function startQrAuth(
         }
 
         // If QR was already shown and it's not a reconnectable code, it's a real failure
-        if (settled) {
+        if (qrShown) {
           callbacks.onError(new Error('WhatsApp connection closed'));
           return;
         }

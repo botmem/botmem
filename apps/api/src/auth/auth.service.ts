@@ -57,6 +57,12 @@ export class AuthService {
 
   /** Create account, validate auth, trigger first sync. Rolls back on failure. */
   private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>) {
+    // Prevent duplicate accounts for the same connector + identifier
+    const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
+    if (existing) {
+      throw new BadRequestException(`Account ${identifier} is already connected`);
+    }
+
     const connector = this.connectors.get(connectorType);
     const valid = await connector.validateAuth(auth);
     if (!valid) {
@@ -82,7 +88,12 @@ export class AuthService {
     const saved = await this.getSavedCredentials(connectorType);
     const mergedConfig = { ...saved, ...connectorConfig };
 
-    const result = await connector.initiateAuth(mergedConfig);
+    let result;
+    try {
+      result = await connector.initiateAuth(mergedConfig);
+    } catch (err: any) {
+      throw new BadRequestException(err.message || 'Failed to connect — check your configuration');
+    }
 
     if (result.type === 'complete') {
       const identifier = result.auth.identifier || (result.auth as any).raw?.email || (config.identifier as string) || connectorType;
@@ -120,7 +131,8 @@ export class AuthService {
         const auth = payload.auth;
         const jid = auth?.raw?.jid || '';
         // Use the JID (WhatsApp phone number) as the identifier
-        const identifier = jid.split('@')[0] || connectorType;
+        // Strip device suffix (e.g. "971502284498:24@s.whatsapp.net" → "971502284498")
+        const identifier = jid.split('@')[0]?.split(':')[0] || connectorType;
 
         const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>);
 
