@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ContactsService, normalizePhone } from '../contacts.service';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
-import { accounts, contacts, contactIdentifiers, memoryContacts, memories } from '../../db/schema';
+import { accounts, contacts, contactIdentifiers, memoryContacts, memories, mergeDismissals } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 function makeDbService(db: any) {
@@ -266,6 +266,186 @@ describe('ContactsService', () => {
       const mems = await service.getMemories(contact.id);
       expect(mems).toHaveLength(1);
       expect(mems[0].id).toBe('mem-2');
+    });
+  });
+
+  describe('updateContact', () => {
+    it('updates displayName', async () => {
+      const contact = await service.resolveContact([
+        { type: 'email', value: 'update@test.com', connectorType: 'gmail' },
+      ]);
+
+      const updated = await service.updateContact(contact.id, { displayName: 'New Name' });
+      expect(updated).not.toBeNull();
+      expect(updated!.displayName).toBe('New Name');
+    });
+
+    it('updates avatars as JSON', async () => {
+      const contact = await service.resolveContact([
+        { type: 'email', value: 'avatar@test.com', connectorType: 'gmail' },
+      ]);
+
+      const avatars = [{ url: 'https://example.com/photo.jpg', source: 'gmail' }];
+      const updated = await service.updateContact(contact.id, { avatars });
+      expect(updated).not.toBeNull();
+      expect(JSON.parse(updated!.avatars)).toEqual(avatars);
+    });
+
+    it('returns null for non-existent contact', async () => {
+      const result = await service.updateContact('non-existent', { displayName: 'Test' });
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('mergeContacts', () => {
+    it('moves identifiers and memory links from source to target', async () => {
+      const c1 = await service.resolveContact([
+        { type: 'email', value: 'target@test.com', connectorType: 'gmail' },
+        { type: 'name', value: 'Target Person', connectorType: 'gmail' },
+      ]);
+      const c2 = await service.resolveContact([
+        { type: 'phone', value: '+1234567890', connectorType: 'whatsapp' },
+        { type: 'name', value: 'Source Person With Long Name', connectorType: 'whatsapp' },
+      ]);
+
+      // Link a memory to the source contact
+      const now = new Date().toISOString();
+      await db.insert(memories).values({
+        id: 'mem-merge',
+        accountId: 'acc-1',
+        connectorType: 'gmail',
+        sourceType: 'email',
+        sourceId: 'src-merge',
+        text: 'Merge test',
+        eventTime: now,
+        ingestTime: now,
+        createdAt: now,
+      });
+      await service.linkMemory('mem-merge', c2.id, 'sender');
+
+      const merged = await service.mergeContacts(c1.id, c2.id);
+
+      // Should have all identifiers
+      expect(merged.identifiers.length).toBeGreaterThanOrEqual(3); // email + phone + names
+
+      // Should keep the longer display name
+      expect(merged.displayName).toBe('Source Person With Long Name');
+
+      // Source contact should be gone
+      const remaining = await db.select().from(contacts);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].id).toBe(c1.id);
+
+      // Memory link should be moved to target
+      const links = await db
+        .select()
+        .from(memoryContacts)
+        .where(eq(memoryContacts.contactId, c1.id));
+      expect(links).toHaveLength(1);
+      expect(links[0].memoryId).toBe('mem-merge');
+    });
+
+    it('deduplicates avatars by url during merge', async () => {
+      const c1 = await service.resolveContact([
+        { type: 'email', value: 'ava1@test.com', connectorType: 'gmail' },
+      ]);
+      const c2 = await service.resolveContact([
+        { type: 'email', value: 'ava2@test.com', connectorType: 'slack' },
+      ]);
+
+      await service.updateContact(c1.id, {
+        avatars: [{ url: 'https://shared.com/photo.jpg', source: 'gmail' }],
+      });
+      await service.updateContact(c2.id, {
+        avatars: [
+          { url: 'https://shared.com/photo.jpg', source: 'slack' },
+          { url: 'https://unique.com/photo.jpg', source: 'slack' },
+        ],
+      });
+
+      const merged = await service.mergeContacts(c1.id, c2.id);
+      const avatars = JSON.parse(merged.avatars);
+      expect(avatars).toHaveLength(2); // shared + unique, not 3
+    });
+  });
+
+  describe('deleteContact', () => {
+    it('removes contact, identifiers, and memory links', async () => {
+      const contact = await service.resolveContact([
+        { type: 'email', value: 'delete@test.com', connectorType: 'gmail' },
+      ]);
+
+      const now = new Date().toISOString();
+      await db.insert(memories).values({
+        id: 'mem-del',
+        accountId: 'acc-1',
+        connectorType: 'gmail',
+        sourceType: 'email',
+        sourceId: 'src-del',
+        text: 'Delete test',
+        eventTime: now,
+        ingestTime: now,
+        createdAt: now,
+      });
+      await service.linkMemory('mem-del', contact.id, 'sender');
+
+      await service.deleteContact(contact.id);
+
+      const remainingContacts = await db.select().from(contacts);
+      expect(remainingContacts).toHaveLength(0);
+
+      const remainingIdents = await db.select().from(contactIdentifiers);
+      expect(remainingIdents).toHaveLength(0);
+
+      const remainingLinks = await db.select().from(memoryContacts);
+      expect(remainingLinks).toHaveLength(0);
+    });
+  });
+
+  describe('getSuggestions', () => {
+    it('finds cross-connector name overlaps', async () => {
+      await service.resolveContact([
+        { type: 'email', value: 'john@gmail.com', connectorType: 'gmail' },
+        { type: 'name', value: 'John Smith', connectorType: 'gmail' },
+      ]);
+      await service.resolveContact([
+        { type: 'phone', value: '+1234567890', connectorType: 'whatsapp' },
+        { type: 'name', value: 'John', connectorType: 'whatsapp' },
+      ]);
+
+      const suggestions = await service.getSuggestions();
+      expect(suggestions).toHaveLength(1);
+      expect(suggestions[0].reason).toContain('John');
+    });
+
+    it('excludes same-connector-only contacts', async () => {
+      await service.resolveContact([
+        { type: 'email', value: 'same1@test.com', connectorType: 'gmail' },
+        { type: 'name', value: 'Same Person', connectorType: 'gmail' },
+      ]);
+      await service.resolveContact([
+        { type: 'email', value: 'same2@test.com', connectorType: 'gmail' },
+        { type: 'name', value: 'Same', connectorType: 'gmail' },
+      ]);
+
+      const suggestions = await service.getSuggestions();
+      expect(suggestions).toHaveLength(0);
+    });
+
+    it('excludes dismissed pairs', async () => {
+      const c1 = await service.resolveContact([
+        { type: 'email', value: 'dismiss1@test.com', connectorType: 'gmail' },
+        { type: 'name', value: 'Dismissed Person', connectorType: 'gmail' },
+      ]);
+      const c2 = await service.resolveContact([
+        { type: 'phone', value: '+9999999999', connectorType: 'whatsapp' },
+        { type: 'name', value: 'Dismissed', connectorType: 'whatsapp' },
+      ]);
+
+      await service.dismissSuggestion(c1.id, c2.id);
+
+      const suggestions = await service.getSuggestions();
+      expect(suggestions).toHaveLength(0);
     });
   });
 });
