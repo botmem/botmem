@@ -51,7 +51,7 @@ export interface Job {
   error: string | null;
 }
 
-export type PipelineStage = 'sync' | 'embed' | 'enrich' | 'backfill';
+export type PipelineStage = 'sync' | 'embed' | 'enrich' | 'backfill' | 'file';
 
 export interface LogEntry {
   id: string;
@@ -70,6 +70,7 @@ export interface Memory {
   id: string;
   source: SourceType;
   sourceConnector: ConnectorType;
+  accountIdentifier: string | null;
   text: string;
   time: string;
   ingestTime: string;

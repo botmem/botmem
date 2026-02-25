@@ -10,6 +10,7 @@ import { QdrantService } from './qdrant.service';
 import { EmbedProcessor } from './embed.processor';
 import { EnrichProcessor } from './enrich.processor';
 import { BackfillProcessor } from './backfill.processor';
+import { FileProcessor } from './file.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
 
@@ -23,6 +24,7 @@ import { MemoryController } from './memory.controller';
     BullModule.registerQueue({ name: 'embed' }),
     BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'backfill' }),
+    BullModule.registerQueue({ name: 'file' }),
   ],
   controllers: [MemoryController],
   providers: [
@@ -31,6 +33,7 @@ import { MemoryController } from './memory.controller';
     EmbedProcessor,
     EnrichProcessor,
     BackfillProcessor,
+    FileProcessor,
     MemoryService,
   ],
   exports: [OllamaService, QdrantService, MemoryService],
