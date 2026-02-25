@@ -51,6 +51,7 @@ export class OllamaService {
     }
 
     const data = await res.json();
-    return data.response;
+    // Strip <think>...</think> reasoning tags from model output
+    return (data.response || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
   }
 }
