@@ -22,7 +22,15 @@ function createMockQdrant(): QdrantService {
   } as unknown as QdrantService;
 }
 
-function createMockEnrichQueue() {
+function createMockContactsService() {
+  return {
+    resolveContact: vi.fn().mockResolvedValue({ id: 'contact-1', name: 'Test' }),
+    linkMemoryContact: vi.fn().mockResolvedValue(undefined),
+    linkMemory: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockQueue() {
   return { add: vi.fn().mockResolvedValue({}) };
 }
 
@@ -30,27 +38,40 @@ function createMockEvents() {
   return { emitToChannel: vi.fn() };
 }
 
+function createMockLogsService() {
+  return { add: vi.fn() };
+}
+
 describe('EmbedProcessor', () => {
   let db: ReturnType<typeof createTestDb>;
   let ollama: ReturnType<typeof createMockOllama>;
   let qdrant: ReturnType<typeof createMockQdrant>;
-  let enrichQueue: ReturnType<typeof createMockEnrichQueue>;
+  let contactsService: ReturnType<typeof createMockContactsService>;
+  let enrichQueue: ReturnType<typeof createMockQueue>;
+  let fileQueue: ReturnType<typeof createMockQueue>;
   let events: ReturnType<typeof createMockEvents>;
+  let logsService: ReturnType<typeof createMockLogsService>;
   let processor: EmbedProcessor;
 
   beforeEach(async () => {
     db = createTestDb();
     ollama = createMockOllama();
     qdrant = createMockQdrant();
-    enrichQueue = createMockEnrichQueue();
+    contactsService = createMockContactsService();
+    enrichQueue = createMockQueue();
+    fileQueue = createMockQueue();
     events = createMockEvents();
+    logsService = createMockLogsService();
 
     processor = new EmbedProcessor(
       { db } as any,
       ollama,
       qdrant,
+      contactsService as any,
       enrichQueue as any,
+      fileQueue as any,
       events as any,
+      logsService as any,
     );
 
     // Seed test data
