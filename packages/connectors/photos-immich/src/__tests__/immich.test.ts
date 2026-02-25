@@ -235,7 +235,7 @@ describe('ImmichConnector', () => {
       expect(dataListener).toHaveBeenCalledTimes(1);
       const event = dataListener.mock.calls[0][0];
 
-      expect(event.sourceType).toBe('photo');
+      expect(event.sourceType).toBe('file');
       expect(event.sourceId).toBe('asset-1');
       expect(event.content.text).toContain('Photo: sunset.jpg');
       expect(event.content.text).toContain('Santa Monica');
