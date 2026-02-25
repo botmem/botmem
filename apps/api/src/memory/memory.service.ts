@@ -6,7 +6,7 @@ import { eq, sql, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService, ScoredPoint } from './qdrant.service';
-import { memories, memoryLinks, memoryContacts, contacts, contactIdentifiers } from '../db/schema';
+import { memories, memoryLinks, memoryContacts, contacts, contactIdentifiers, accounts } from '../db/schema';
 
 interface SearchFilters {
   sourceType?: string;
@@ -23,10 +23,20 @@ export interface SearchResult {
   eventTime: string;
   factuality: string;
   entities: string;
+  metadata: string;
+  accountIdentifier: string | null;
   score: number;
+  weights: {
+    semantic: number;
+    rerank: number;
+    recency: number;
+    importance: number;
+    trust: number;
+    final: number;
+  };
 }
 
-const TRUST_SCORES: Record<string, number> = {
+export const TRUST_SCORES: Record<string, number> = {
   gmail: 0.95,
   slack: 0.9,
   whatsapp: 0.8,
@@ -63,11 +73,15 @@ export class MemoryService {
     const results: SearchResult[] = [];
 
     for (const point of qdrantResults) {
-      const rows = await db.select().from(memories).where(eq(memories.id, point.id));
+      const rows = await db
+        .select({ memory: memories, accountIdentifier: accounts.identifier })
+        .from(memories)
+        .leftJoin(accounts, eq(memories.accountId, accounts.id))
+        .where(eq(memories.id, point.id));
       if (!rows.length) continue;
 
-      const mem = rows[0];
-      const score = this.computeScore(point.score, mem);
+      const mem = rows[0].memory;
+      const { score, weights } = this.computeWeights(point.score, mem);
       results.push({
         id: mem.id,
         text: mem.text,
@@ -76,7 +90,10 @@ export class MemoryService {
         eventTime: mem.eventTime,
         factuality: mem.factuality,
         entities: mem.entities,
+        metadata: mem.metadata,
+        accountIdentifier: rows[0].accountIdentifier,
         score,
+        weights,
       });
     }
 
@@ -109,10 +126,12 @@ export class MemoryService {
     offset?: number;
     connectorType?: string;
     sourceType?: string;
+    sortBy?: 'eventTime' | 'ingestTime';
   } = {}) {
     const db = this.dbService.db;
     const limit = params.limit || 50;
     const offset = params.offset || 0;
+    const sortCol = params.sortBy === 'ingestTime' ? memories.ingestTime : memories.eventTime;
 
     const conditions = [];
     if (params.connectorType) {
@@ -130,10 +149,12 @@ export class MemoryService {
     const totalRows = await countQuery;
     const total = totalRows[0]?.count || 0;
 
+    const baseQuery = db.select({ memory: memories, accountIdentifier: accounts.identifier }).from(memories).leftJoin(accounts, eq(memories.accountId, accounts.id));
     const itemsQuery = where
-      ? db.select().from(memories).where(where).limit(limit).offset(offset)
-      : db.select().from(memories).limit(limit).offset(offset);
-    const items = await itemsQuery;
+      ? baseQuery.where(where).orderBy(sql`${sortCol} DESC`).limit(limit).offset(offset)
+      : baseQuery.orderBy(sql`${sortCol} DESC`).limit(limit).offset(offset);
+    const rows = await itemsQuery;
+    const items = rows.map((r) => ({ ...r.memory, accountIdentifier: r.accountIdentifier }));
 
     return { items, total };
   }
@@ -162,7 +183,7 @@ export class MemoryService {
       createdAt: now,
     });
 
-    return { id, text: data.text, sourceType: data.sourceType, connectorType: data.connectorType };
+    return { id, text: data.text, sourceType: data.sourceType, connectorType: data.connectorType, eventTime: now, createdAt: now };
   }
 
   async delete(id: string) {
@@ -347,7 +368,10 @@ export class MemoryService {
     };
   }
 
-  private computeScore(semanticScore: number, mem: any): number {
+  private computeWeights(semanticScore: number, mem: any): {
+    score: number;
+    weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
+  } {
     const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
     const recency = Math.exp(-0.015 * ageDays);
 
@@ -357,8 +381,12 @@ export class MemoryService {
     } catch {}
     const importance = 0.5 + Math.min(entityCount * 0.1, 0.4);
     const trust = TRUST_SCORES[mem.connectorType] || 0.7;
+    const final = 0.4 * semanticScore + 0.25 * recency + 0.2 * importance + 0.15 * trust;
 
-    return 0.4 * semanticScore + 0.25 * recency + 0.2 * importance + 0.15 * trust;
+    return {
+      score: final,
+      weights: { semantic: semanticScore, rerank: 0, recency, importance, trust, final },
+    };
   }
 
   private buildQdrantFilter(filters: SearchFilters): Record<string, unknown> {

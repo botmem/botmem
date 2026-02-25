@@ -10,6 +10,7 @@ import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { memories, memoryLinks } from '../db/schema';
 import { entityExtractionPrompt, factualityPrompt, photoDescriptionPrompt } from './prompts';
+import { TRUST_SCORES } from './memory.service';
 
 const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
@@ -37,23 +38,31 @@ export class EnrichProcessor extends WorkerHost {
 
     if (!rows.length) return;
     let memory = rows[0];
+    const mid = memoryId.slice(0, 8);
+    const pipelineStart = Date.now();
 
     this.addLog(memory.connectorType, memory.accountId, 'info',
-      `Enriching ${memory.sourceType} memory ${memoryId.slice(0, 8)}`);
+      `[enrich:start] ${memory.sourceType} ${mid} (${memory.text.length} chars)`);
 
     // Entity extraction
+    let t0 = Date.now();
     let entities = await this.extractEntities(memory.text);
+    const entityMs = Date.now() - t0;
     if (entities.length) {
       await this.dbService.db
         .update(memories)
         .set({ entities: JSON.stringify(entities) })
         .where(eq(memories.id, memoryId));
     }
+    this.addLog(memory.connectorType, memory.accountId, 'info',
+      `[enrich:entities] ${mid} → ${entities.length} entities in ${entityMs}ms`);
 
     // Photo-specific: generate visual description via VL model
     if (memory.sourceType === 'photo') {
+      t0 = Date.now();
       try {
         const vlDescription = await this.describePhoto(memory);
+        const vlMs = Date.now() - t0;
         if (vlDescription) {
           const existingMetadata = JSON.parse(memory.metadata);
           const enrichedText = `${memory.text}\nAI Description: ${vlDescription}`;
@@ -76,7 +85,6 @@ export class EnrichProcessor extends WorkerHost {
               .where(eq(memories.id, memoryId));
           }
 
-          // Refresh memory for subsequent steps
           const updated = await this.dbService.db
             .select()
             .from(memories)
@@ -84,35 +92,54 @@ export class EnrichProcessor extends WorkerHost {
           if (updated.length) memory = updated[0];
 
           this.addLog(memory.connectorType, memory.accountId, 'info',
-            `VL description generated for photo ${memoryId.slice(0, 8)}`);
+            `[enrich:photo-vl] ${mid} description in ${vlMs}ms: "${vlDescription.slice(0, 80)}…"`);
         }
       } catch (err: any) {
+        const vlMs = Date.now() - t0;
         this.addLog(memory.connectorType, memory.accountId, 'warn',
-          `Photo VL description failed for ${memoryId.slice(0, 8)}: ${err?.message || err}`);
-        // Non-fatal — continue with factuality and linking
+          `[enrich:photo-vl] ${mid} failed after ${vlMs}ms: ${err?.message || err}`);
       }
     }
 
     // Factuality labeling
+    t0 = Date.now();
     const factuality = await this.classifyFactuality(
       memory.text,
       memory.sourceType,
       memory.connectorType,
     );
+    const factMs = Date.now() - t0;
     if (factuality) {
       await this.dbService.db
         .update(memories)
         .set({ factuality: JSON.stringify(factuality) })
         .where(eq(memories.id, memoryId));
     }
+    const factLabel = factuality?.label || 'unclassified';
+    const factConf = factuality?.confidence?.toFixed(2) || '?';
+    this.addLog(memory.connectorType, memory.accountId, 'info',
+      `[enrich:factuality] ${mid} → ${factLabel} (${factConf}) in ${factMs}ms`);
 
     // Graph link creation — find similar memories via Qdrant
+    t0 = Date.now();
     await this.createLinks(memoryId);
+    const linkMs = Date.now() - t0;
 
-    const entityCount = entities.length;
-    const factLabel = factuality?.label || 'unclassified';
+    // Compute and store base weights
+    const ageDays = (Date.now() - new Date(memory.eventTime).getTime()) / (1000 * 60 * 60 * 24);
+    const recency = Math.exp(-0.015 * ageDays);
+    const importance = 0.5 + Math.min(entities.length * 0.1, 0.4);
+    const trust = TRUST_SCORES[memory.connectorType] || 0.7;
+    const weights = { semantic: 0, rerank: 0, recency, importance, trust, final: 0 };
+
+    await this.dbService.db
+      .update(memories)
+      .set({ weights: JSON.stringify(weights) })
+      .where(eq(memories.id, memoryId));
+
+    const totalMs = Date.now() - pipelineStart;
     this.addLog(memory.connectorType, memory.accountId, 'info',
-      `Enriched memory ${memoryId.slice(0, 8)}: ${entityCount} entities, factuality=${factLabel}`);
+      `[enrich:done] ${mid} in ${totalMs}ms — entities=${entityMs}ms(${entities.length}) factuality=${factMs}ms(${factLabel}) links=${linkMs}ms`);
   }
 
   private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
