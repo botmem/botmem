@@ -64,6 +64,7 @@ export class EmbedProcessor extends WorkerHost {
     private qdrant: QdrantService,
     private contactsService: ContactsService,
     @InjectQueue('enrich') private enrichQueue: Queue,
+    @InjectQueue('file') private fileQueue: Queue,
     private events: EventsService,
     private logsService: LogsService,
   ) {
@@ -112,6 +113,18 @@ export class EmbedProcessor extends WorkerHost {
       createdAt: now,
     });
     const dbInsertMs = Date.now() - t0;
+
+    // Route file events to the file processor for content extraction
+    if (event.sourceType === 'file') {
+      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
+        `[embed:file-route] ${mid} → file queue for content extraction`);
+      await this.fileQueue.add(
+        'file',
+        { memoryId },
+        { attempts: 2, backoff: { type: 'exponential', delay: 2000 } },
+      );
+      return;
+    }
 
     // 4. Resolve contacts from participants
     t0 = Date.now();
