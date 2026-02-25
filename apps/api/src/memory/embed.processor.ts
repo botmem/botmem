@@ -10,6 +10,38 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { rawEvents, memories } from '../db/schema';
 
+export interface SlackProfile {
+  name: string;
+  realName?: string;
+  email?: string;
+  phone?: string;
+  title?: string;
+  avatarUrl?: string;
+}
+
+export function buildSlackIdentifiers(
+  username: string,
+  profiles: Record<string, SlackProfile> | undefined,
+): IdentifierInput[] {
+  const profile = profiles?.[username];
+  const identifiers: IdentifierInput[] = [];
+
+  if (profile) {
+    identifiers.push({ type: 'name', value: profile.realName || username, connectorType: 'slack' });
+    if (profile.email) {
+      identifiers.push({ type: 'email', value: profile.email, connectorType: 'slack' });
+    }
+    if (profile.phone) {
+      identifiers.push({ type: 'phone', value: profile.phone, connectorType: 'slack' });
+    }
+    identifiers.push({ type: 'slack_id', value: username, connectorType: 'slack' });
+  } else {
+    identifiers.push({ type: 'slack_id', value: username, connectorType: 'slack' });
+  }
+
+  return identifiers;
+}
+
 interface ConnectorDataEvent {
   sourceType: string;
   sourceId: string;
@@ -55,13 +87,17 @@ export class EmbedProcessor extends WorkerHost {
     const text = event.content?.text || '';
     if (!text.trim()) return;
 
+    const mid = rawEventId.slice(0, 8);
     this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-      `Embedding ${event.sourceType} (${text.slice(0, 60)}${text.length > 60 ? '…' : ''})`);
+      `[embed:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`);
+
+    const pipelineStart = Date.now();
 
     // 3. Create memory record
     const memoryId = randomUUID();
     const now = new Date().toISOString();
 
+    let t0 = Date.now();
     await this.dbService.db.insert(memories).values({
       id: memoryId,
       accountId: rawEvent.accountId,
@@ -75,18 +111,24 @@ export class EmbedProcessor extends WorkerHost {
       embeddingStatus: 'pending',
       createdAt: now,
     });
+    const dbInsertMs = Date.now() - t0;
 
     // 4. Resolve contacts from participants
+    t0 = Date.now();
+    let contactCount = 0;
     try {
       await this.resolveContacts(memoryId, rawEvent.connectorType, event);
+      contactCount = (event.content?.participants || []).length;
     } catch (err) {
-      // Contact resolution is best-effort — don't block the pipeline
       console.error('Contact resolution failed:', err);
     }
+    const contactMs = Date.now() - t0;
 
     // 5. Generate embedding
     try {
+      t0 = Date.now();
       const vector = await this.ollama.embed(text);
+      const embedMs = Date.now() - t0;
 
       // Ensure Qdrant collection exists on first run
       if (!this.collectionReady) {
@@ -95,12 +137,14 @@ export class EmbedProcessor extends WorkerHost {
       }
 
       // 6. Store in Qdrant
+      t0 = Date.now();
       await this.qdrant.upsert(memoryId, vector, {
         source_type: event.sourceType,
         connector_type: rawEvent.connectorType,
         event_time: event.timestamp,
         account_id: rawEvent.accountId,
       });
+      const qdrantMs = Date.now() - t0;
 
       // 7. Update status
       await this.dbService.db
@@ -108,8 +152,9 @@ export class EmbedProcessor extends WorkerHost {
         .set({ embeddingStatus: 'done' })
         .where(eq(memories.id, memoryId));
 
+      const totalMs = Date.now() - pipelineStart;
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `Embedded ${event.sourceType} → memory ${memoryId.slice(0, 8)}`);
+        `[embed:done] ${memoryId.slice(0, 8)} in ${totalMs}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);
 
       // 8. Enqueue enrichment
       await this.enrichQueue.add(
@@ -126,12 +171,13 @@ export class EmbedProcessor extends WorkerHost {
         text: text.slice(0, 100),
       });
     } catch (err: any) {
+      const totalMs = Date.now() - pipelineStart;
       await this.dbService.db
         .update(memories)
         .set({ embeddingStatus: 'failed' })
         .where(eq(memories.id, memoryId));
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'error',
-        `Embedding failed for ${event.sourceType}: ${err?.message || err}`);
+        `[embed:fail] ${event.sourceType} after ${totalMs}ms: ${err?.message || err}`);
       throw err;
     }
   }
@@ -233,12 +279,12 @@ export class EmbedProcessor extends WorkerHost {
     metadata: Record<string, unknown>,
     participants: string[],
   ): Promise<void> {
-    // Slack participants are user IDs like "U1234567890"
-    for (const userId of participants) {
-      if (!userId) continue;
-      const identifiers: IdentifierInput[] = [
-        { type: 'slack_id', value: userId, connectorType: 'slack' },
-      ];
+    const profiles = (metadata.participantProfiles || undefined) as
+      Record<string, SlackProfile> | undefined;
+
+    for (const username of participants) {
+      if (!username) continue;
+      const identifiers = buildSlackIdentifiers(username, profiles);
       const contact = await this.contactsService.resolveContact(identifiers);
       await this.contactsService.linkMemory(memoryId, contact.id, 'sender');
     }
