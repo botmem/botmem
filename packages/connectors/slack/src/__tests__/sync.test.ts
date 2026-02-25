@@ -188,6 +188,62 @@ describe('syncSlack', () => {
     });
   });
 
+  it('emits separate file events for message attachments', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        {
+          ts: '1700000000.000',
+          text: 'Check this out',
+          user: 'U1',
+          reply_count: 0,
+          files: [
+            {
+              id: 'F1',
+              name: 'report.pdf',
+              mimetype: 'application/pdf',
+              filetype: 'pdf',
+              size: 12345,
+              url_private: 'https://files.slack.com/files-pri/T123/report.pdf',
+            },
+            {
+              id: 'F2',
+              name: 'photo.png',
+              mimetype: 'image/png',
+              filetype: 'png',
+              size: 54321,
+              url_private: 'https://files.slack.com/files-pri/T123/photo.png',
+            },
+          ],
+        },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+
+    // 1 message + 2 file events
+    expect(events.length).toBe(3);
+
+    // The message event
+    expect(events[0].sourceType).toBe('message');
+    expect(events[0].content.text).toContain('[file: report.pdf (pdf)]');
+
+    // File events
+    const fileEvents = events.filter((e) => e.sourceType === 'file');
+    expect(fileEvents.length).toBe(2);
+    expect(fileEvents[0].content.metadata.fileName).toBe('report.pdf');
+    expect(fileEvents[0].content.metadata.mimetype).toBe('application/pdf');
+    expect(fileEvents[0].content.metadata.fileUrl).toBe('https://files.slack.com/files-pri/T123/report.pdf');
+    expect(fileEvents[0].content.metadata.parentMessageId).toBe('C1:1700000000.000');
+    expect(fileEvents[1].content.metadata.fileName).toBe('photo.png');
+    expect(fileEvents[1].content.metadata.mimetype).toBe('image/png');
+  });
+
   it('uses existing cursor state', async () => {
     const cursorState = JSON.stringify({ channels: { C1: '1700000000.000' } });
 

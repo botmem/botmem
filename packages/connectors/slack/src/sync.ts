@@ -234,6 +234,32 @@ export async function syncSlack(
         },
       });
 
+      // Emit separate events for file attachments
+      for (const file of files) {
+        if (!file.url_private || !file.mimetype) continue;
+        emit({
+          sourceType: 'file',
+          sourceId: `${channel.id}:${msg.ts}:${file.id || file.name}`,
+          timestamp: new Date(parseFloat(msg.ts) * 1000).toISOString(),
+          content: {
+            text: `[${convLabel}] ${author} shared: ${file.name || 'untitled'}`,
+            participants: [...participants],
+            metadata: {
+              channel: convLabel,
+              channelId: channel.id,
+              channelType: convType,
+              fileName: file.name,
+              mimetype: file.mimetype,
+              fileUrl: file.url_private,
+              fileSize: file.size,
+              parentMessageId: `${channel.id}:${msg.ts}`,
+              participantProfiles,
+            },
+          },
+        });
+        processed++;
+      }
+
       if (msg.ts > latestTs) latestTs = msg.ts;
       processed++;
     }
