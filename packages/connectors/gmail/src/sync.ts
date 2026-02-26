@@ -112,15 +112,34 @@ export async function syncGmail(
   };
 }
 
+/** Strip HTML tags and decode common entities to plain text. */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
   if (!payload) return '';
 
+  // Single-part message: detect if it's HTML by mimeType or content
   if (payload.body?.data) {
-    return Buffer.from(payload.body.data, 'base64url').toString('utf-8');
+    const decoded = Buffer.from(payload.body.data, 'base64url').toString('utf-8');
+    if (payload.mimeType === 'text/html') return stripHtml(decoded);
+    return decoded;
   }
 
   if (payload.parts) {
-    // Prefer text/plain, fall back to text/html
+    // Prefer text/plain, fall back to text/html (stripped)
     const textPart = payload.parts.find((p) => p.mimeType === 'text/plain');
     if (textPart?.body?.data) {
       return Buffer.from(textPart.body.data, 'base64url').toString('utf-8');
@@ -128,7 +147,8 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
 
     const htmlPart = payload.parts.find((p) => p.mimeType === 'text/html');
     if (htmlPart?.body?.data) {
-      return Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8');
+      const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8');
+      return stripHtml(html);
     }
 
     // Handle multipart/alternative or multipart/mixed nested parts

@@ -29,6 +29,22 @@ export interface OwnTracksLocation {
   isotst?: string;
   /** Display timestamp */
   disptst?: string;
+  /** Regions the device is currently in (from waypoints) */
+  inregions?: string[];
+  /** Region IDs */
+  inrids?: string[];
+  /** Motion activity (stationary, walking, driving, etc.) */
+  motionactivities?: string[];
+  /** Connection type: w=wifi, m=mobile */
+  conn?: string;
+  /** Battery status: 0=unknown, 1=unplugged, 2=charging, 3=full */
+  bs?: number;
+  /** Monitoring mode */
+  m?: number;
+  /** Trigger: p=ping, c=circular, l=location, etc. */
+  t?: string;
+  /** Pressure in kPa */
+  p?: number;
 }
 
 export interface CursorState {

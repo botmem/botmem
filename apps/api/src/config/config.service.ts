@@ -27,11 +27,15 @@ export class ConfigService {
   }
 
   get ollamaEmbedModel(): string {
-    return process.env.OLLAMA_EMBED_MODEL || 'qwen3-embedding:8b';
+    return process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
+  }
+
+  get ollamaTextModel(): string {
+    return process.env.OLLAMA_TEXT_MODEL || 'qwen3:4b';
   }
 
   get ollamaVlModel(): string {
-    return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:8b';
+    return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:4b';
   }
 
   get qdrantUrl(): string {

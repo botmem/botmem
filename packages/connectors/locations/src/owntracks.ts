@@ -1,5 +1,37 @@
 import type { OwnTracksLocation } from './types.js';
 
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
+export const NOMINATIM_DELAY = 1100; // Nominatim rate limit: 1 req/sec
+
+/** Reverse geocode via Nominatim (OSM). Returns short address or null. */
+export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${NOMINATIM_URL}?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`,
+      { headers: { 'User-Agent': 'botmem/1.0', Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.address) return null;
+
+    const a = data.address;
+    // Build a concise address: road/neighbourhood, suburb/city, country
+    const parts: string[] = [];
+    const road = a.road || a.pedestrian || a.neighbourhood || a.residential;
+    if (road) parts.push(road);
+    const area = a.suburb || a.city_district || a.town || a.city || a.village;
+    if (area && area !== road) parts.push(area);
+    const region = a.state || a.county;
+    if (region) parts.push(region);
+    const country = a.country;
+    if (country) parts.push(country);
+
+    return parts.length ? parts.join(', ') : data.display_name || null;
+  } catch {
+    return null;
+  }
+}
+
 export class OwnTracksClient {
   private baseUrl: string;
   private headers: Record<string, string>;

@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { MemoryService, SearchResult } from './memory.service';
 import { DbService } from '../db/db.service';
-import { memories, memoryContacts } from '../db/schema';
+import { memories, memoryContacts, rawEvents } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 
 @Controller('memories')
@@ -12,6 +12,7 @@ export class MemoryController {
     private memoryService: MemoryService,
     private dbService: DbService,
     @InjectQueue('backfill') private backfillQueue: Queue,
+    @InjectQueue('embed') private embedQueue: Queue,
   ) {}
 
   @Get('stats')
@@ -37,6 +38,45 @@ export class MemoryController {
       connectorType,
       sourceType,
     });
+  }
+
+  @Post('retry-failed')
+  async retryFailed() {
+    const db = this.dbService.db;
+
+    // Find all failed and stuck pending memories
+    const failed = await db
+      .select({ id: memories.id, sourceId: memories.sourceId, connectorType: memories.connectorType })
+      .from(memories)
+      .where(sql`${memories.embeddingStatus} IN ('failed', 'pending')`);
+
+    if (!failed.length) return { enqueued: 0, message: 'No failed memories to retry' };
+
+    let enqueued = 0;
+    for (const mem of failed) {
+      // Find the raw event by source_id
+      const rawRows = await db
+        .select({ id: rawEvents.id })
+        .from(rawEvents)
+        .where(eq(rawEvents.sourceId, mem.sourceId))
+        .limit(1);
+
+      if (!rawRows.length) continue;
+
+      // Delete the failed memory (and its contact links) so embed processor can recreate
+      await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
+      await db.delete(memories).where(eq(memories.id, mem.id));
+
+      // Re-enqueue for embedding with generous retries for Ollama availability
+      await this.embedQueue.add(
+        'embed',
+        { rawEventId: rawRows[0].id },
+        { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
+      );
+      enqueued++;
+    }
+
+    return { enqueued, total: failed.length };
   }
 
   @Post('backfill-contacts')
