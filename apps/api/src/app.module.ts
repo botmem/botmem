@@ -13,10 +13,12 @@ import { PluginsModule } from './plugins/plugins.module';
 import { MemoryModule } from './memory/memory.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { SettingsModule } from './settings/settings.module';
+import { VersionController } from './version.controller';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
 @Module({
+  controllers: [VersionController],
   imports: [
     ...(isDev
       ? []
