@@ -489,8 +489,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       const trimmed = part.trim();
       if (!trimmed) continue;
 
-      // "Display Name <email@domain.com>" format
-      const angleMatch = trimmed.match(/^(.+?)\s*<([^>]+)>$/);
+      // "Display Name <email@domain.com>" or bare "<email@domain.com>" format
+      const angleMatch = trimmed.match(/^(.*?)\s*<([^>]+)>$/);
       if (angleMatch) {
         const name = angleMatch[1].replace(/^["']|["']$/g, '').trim();
         results.push({ name: name || null, email: angleMatch[2].toLowerCase() });
