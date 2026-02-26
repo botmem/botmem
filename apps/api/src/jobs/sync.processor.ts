@@ -1,4 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
+import { OnModuleInit } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { ConnectorsService } from '../connectors/connectors.service';
@@ -9,10 +10,11 @@ import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
 import { rawEvents } from '../db/schema';
+import { SettingsService } from '../settings/settings.service';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 @Processor('sync')
-export class SyncProcessor extends WorkerHost {
+export class SyncProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
@@ -22,8 +24,19 @@ export class SyncProcessor extends WorkerHost {
     private events: EventsService,
     private dbService: DbService,
     @InjectQueue('embed') private embedQueue: Queue,
+    private settingsService: SettingsService,
   ) {
     super();
+  }
+
+  onModuleInit() {
+    const concurrency = parseInt(this.settingsService.get('sync_concurrency'), 10) || 2;
+    this.worker.concurrency = concurrency;
+    this.settingsService.onChange((key, value) => {
+      if (key === 'sync_concurrency') {
+        this.worker.concurrency = parseInt(value, 10) || 2;
+      }
+    });
   }
 
   async process(job: Job<{ accountId: string; connectorType: string; jobId: string }>) {

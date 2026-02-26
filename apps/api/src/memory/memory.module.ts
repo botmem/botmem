@@ -5,6 +5,7 @@ import { ConfigModule } from '../config/config.module';
 import { EventsModule } from '../events/events.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { AccountsModule } from '../accounts/accounts.module';
+import { SettingsModule } from '../settings/settings.module';
 import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
 import { EmbedProcessor } from './embed.processor';
@@ -21,6 +22,7 @@ import { MemoryController } from './memory.controller';
     EventsModule,
     ContactsModule,
     AccountsModule,
+    SettingsModule,
     BullModule.registerQueue({ name: 'embed' }),
     BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'backfill' }),

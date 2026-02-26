@@ -1,4 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnModuleInit } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -7,6 +8,7 @@ import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
+import { SettingsService } from '../settings/settings.service';
 import { memories, memoryLinks } from '../db/schema';
 import { entityExtractionPrompt, factualityPrompt } from './prompts';
 import { TRUST_SCORES } from './memory.service';
@@ -15,15 +17,26 @@ const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
 
 @Processor('enrich')
-export class EnrichProcessor extends WorkerHost {
+export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     private dbService: DbService,
     private ollama: OllamaService,
     private qdrant: QdrantService,
     private logsService: LogsService,
     private events: EventsService,
+    private settingsService: SettingsService,
   ) {
     super();
+  }
+
+  onModuleInit() {
+    const concurrency = parseInt(this.settingsService.get('enrich_concurrency'), 10) || 2;
+    this.worker.concurrency = concurrency;
+    this.settingsService.onChange((key, value) => {
+      if (key === 'enrich_concurrency') {
+        this.worker.concurrency = parseInt(value, 10) || 2;
+      }
+    });
   }
 
   async process(job: Job<{ memoryId: string }>) {

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { accounts } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
@@ -50,6 +50,16 @@ export class AccountsService {
       .set({ ...data, updatedAt: new Date().toISOString() })
       .where(eq(accounts.id, id));
     return this.getById(id);
+  }
+
+  async findByTypeAndIdentifier(connectorType: string, identifier: string) {
+    const [account] = await this.db
+      .select()
+      .from(accounts)
+      .where(
+        sql`${accounts.connectorType} = ${connectorType} AND ${accounts.identifier} = ${identifier}`,
+      );
+    return account || null;
   }
 
   async remove(id: string) {

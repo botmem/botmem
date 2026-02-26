@@ -195,9 +195,10 @@ export class FileProcessor extends WorkerHost {
 
     // PDF
     if (mime === 'application/pdf' || ext === 'pdf') {
-      const pdfParse = (await import('pdf-parse')).default;
+      const pdfParseModule = await import('pdf-parse');
+      const pdfParse = pdfParseModule.default || pdfParseModule;
       const buffer = Buffer.from(await res.arrayBuffer());
-      const data = await pdfParse(buffer);
+      const data = await (pdfParse as any)(buffer);
       const text = data.text?.trim();
       if (!text) return null;
       return header ? `${header}\n\n${text}` : text;
@@ -210,7 +211,7 @@ export class FileProcessor extends WorkerHost {
     ) {
       const mammoth = await import('mammoth');
       const buffer = Buffer.from(await res.arrayBuffer());
-      const result = await mammoth.convertToMarkdown({ buffer });
+      const result = await mammoth.extractRawText({ buffer });
       const text = result.value?.trim();
       if (!text) return null;
       return header ? `${header}\n\n${text}` : text;

@@ -183,7 +183,8 @@ export class AuthService {
   async handleCallback(connectorType: string, params: Record<string, unknown>) {
     const connector = this.connectors.get(connectorType);
     const pending = this.pendingConfigs.get(connectorType);
-    const mergedParams = { ...pending?.config, ...params };
+    const saved = await this.getSavedCredentials(connectorType);
+    const mergedParams = { ...saved, ...pending?.config, ...params };
     const auth = await connector.completeAuth(mergedParams);
     this.pendingConfigs.delete(connectorType);
 

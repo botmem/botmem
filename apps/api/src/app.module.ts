@@ -12,6 +12,7 @@ import { EventsModule } from './events/events.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { MemoryModule } from './memory/memory.module';
 import { ContactsModule } from './contacts/contacts.module';
+import { SettingsModule } from './settings/settings.module';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -36,6 +37,7 @@ const isDev = process.env.NODE_ENV !== 'production';
     PluginsModule,
     MemoryModule,
     ContactsModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

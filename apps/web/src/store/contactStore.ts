@@ -37,12 +37,22 @@ interface ContactState {
 }
 
 function parseContact(raw: any): Contact {
+  const identifiers = (raw.identifiers || []).map((i: any) => ({
+    id: i.id,
+    type: i.identifierType || i.type,
+    value: i.identifierValue || i.value,
+    isPrimary: i.isPrimary || false,
+  }));
+  const connectorSources = [...new Set(
+    (raw.identifiers || []).map((i: any) => i.connectorType).filter(Boolean),
+  )] as string[];
+
   return {
     id: raw.id,
     displayName: raw.displayName || '',
     avatars: typeof raw.avatars === 'string' ? JSON.parse(raw.avatars) : (raw.avatars || []),
-    identifiers: raw.identifiers || [],
-    connectorSources: raw.connectorSources || [],
+    identifiers,
+    connectorSources,
     memoryCount: raw.memoryCount || 0,
     createdAt: raw.createdAt || '',
     updatedAt: raw.updatedAt || '',

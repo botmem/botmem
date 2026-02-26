@@ -1,4 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
+import { OnModuleInit } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -8,6 +9,7 @@ import { QdrantService } from './qdrant.service';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
+import { SettingsService } from '../settings/settings.service';
 import { rawEvents, memories, accounts } from '../db/schema';
 
 export interface SlackProfile {
@@ -55,7 +57,7 @@ interface ConnectorDataEvent {
 }
 
 @Processor('embed')
-export class EmbedProcessor extends WorkerHost {
+export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   private collectionReady = false;
 
   constructor(
@@ -67,8 +69,19 @@ export class EmbedProcessor extends WorkerHost {
     @InjectQueue('file') private fileQueue: Queue,
     private events: EventsService,
     private logsService: LogsService,
+    private settingsService: SettingsService,
   ) {
     super();
+  }
+
+  onModuleInit() {
+    const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 4;
+    this.worker.concurrency = concurrency;
+    this.settingsService.onChange((key, value) => {
+      if (key === 'embed_concurrency') {
+        this.worker.concurrency = parseInt(value, 10) || 4;
+      }
+    });
   }
 
   async process(job: Job<{ rawEventId: string }>) {

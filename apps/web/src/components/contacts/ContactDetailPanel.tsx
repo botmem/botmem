@@ -4,15 +4,7 @@ import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { api } from '../../lib/api';
-
-const IDENTIFIER_COLORS: Record<string, string> = {
-  email: '#22D3EE',
-  phone: '#22C55E',
-  slack_id: '#A855F7',
-  immich_person_id: '#FFE66D',
-  imessage_handle: '#4ECDC4',
-  name: '#9CA3AF',
-};
+import { IDENTIFIER_COLORS } from './constants';
 
 interface ContactDetailPanelProps {
   contact: {

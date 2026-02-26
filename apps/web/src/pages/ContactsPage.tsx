@@ -47,9 +47,9 @@ export function ContactsPage() {
 
           {suggestionsOpen && (
             <div className="flex flex-col gap-3 mt-4">
-              {suggestions.map((s, i) => (
+              {suggestions.map((s) => (
                 <MergeSuggestionRow
-                  key={i}
+                  key={`${s.contact1.id}::${s.contact2.id}`}
                   contact1={s.contact1}
                   contact2={s.contact2}
                   reason={s.reason}

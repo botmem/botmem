@@ -1,9 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IMessageConnector } from '../index.js';
 
-vi.mock('../exporter.js', () => ({
-  checkExporter: vi.fn().mockResolvedValue(true),
-  exportMessages: vi.fn().mockResolvedValue(10),
+const mockConnect = vi.fn().mockResolvedValue(undefined);
+const mockDisconnect = vi.fn();
+const mockChatsList = vi.fn().mockResolvedValue([
+  {
+    id: 1,
+    name: 'Chat 1',
+    identifier: '+1234567890',
+    service: 'iMessage',
+    last_message_at: '2025-01-01T00:00:00Z',
+  },
+]);
+const mockMessagesHistory = vi.fn().mockResolvedValue([
+  {
+    id: 101,
+    chat_id: 1,
+    guid: 'guid-1',
+    sender: '+1234567890',
+    is_from_me: false,
+    text: 'Hello',
+    created_at: '2025-01-01T12:00:00Z',
+    attachments: [],
+    reactions: [],
+    chat_identifier: '+1234567890',
+    chat_name: 'Chat 1',
+    participants: ['+1234567890', '+0987654321'],
+    is_group: false,
+  },
+]);
+
+vi.mock('../imsg-client.js', () => ({
+  ImsgClient: vi.fn().mockImplementation(() => ({
+    connect: mockConnect,
+    disconnect: mockDisconnect,
+    chatsList: mockChatsList,
+    messagesHistory: mockMessagesHistory,
+  })),
 }));
 
 describe('IMessageConnector', () => {
@@ -12,6 +45,33 @@ describe('IMessageConnector', () => {
   beforeEach(() => {
     connector = new IMessageConnector();
     vi.clearAllMocks();
+    mockConnect.mockResolvedValue(undefined);
+    mockChatsList.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Chat 1',
+        identifier: '+1234567890',
+        service: 'iMessage',
+        last_message_at: '2025-01-01T00:00:00Z',
+      },
+    ]);
+    mockMessagesHistory.mockResolvedValue([
+      {
+        id: 101,
+        chat_id: 1,
+        guid: 'guid-1',
+        sender: '+1234567890',
+        is_from_me: false,
+        text: 'Hello',
+        created_at: '2025-01-01T12:00:00Z',
+        attachments: [],
+        reactions: [],
+        chat_identifier: '+1234567890',
+        chat_name: 'Chat 1',
+        participants: ['+1234567890', '+0987654321'],
+        is_group: false,
+      },
+    ]);
   });
 
   describe('manifest', () => {
@@ -22,37 +82,95 @@ describe('IMessageConnector', () => {
     it('has local-tool auth type', () => {
       expect(connector.manifest.authType).toBe('local-tool');
     });
+
+    it('has configSchema with imsgHost and imsgPort properties', () => {
+      const schema = connector.manifest.configSchema as any;
+      expect(schema.properties).toHaveProperty('imsgHost');
+      expect(schema.properties).toHaveProperty('imsgPort');
+      expect(schema.properties.imsgHost.type).toBe('string');
+      expect(schema.properties.imsgPort.type).toBe('number');
+    });
   });
 
   describe('initiateAuth', () => {
-    it('returns complete when exporter available', async () => {
-      const result = await connector.initiateAuth({});
+    it('returns complete with auth context containing host and port', async () => {
+      const result = await connector.initiateAuth({
+        imsgHost: '192.168.1.100',
+        imsgPort: 19876,
+      });
+
       expect(result.type).toBe('complete');
       if (result.type === 'complete') {
-        expect(result.auth.raw?.tool).toBe('imessage-exporter');
+        expect(result.auth.raw).toEqual({
+          imsgHost: '192.168.1.100',
+          imsgPort: 19876,
+        });
+      }
+      expect(mockConnect).toHaveBeenCalledOnce();
+      expect(mockChatsList).toHaveBeenCalledWith(1);
+      expect(mockDisconnect).toHaveBeenCalledOnce();
+    });
+
+    it('uses default host and port when not provided', async () => {
+      const result = await connector.initiateAuth({});
+
+      expect(result.type).toBe('complete');
+      if (result.type === 'complete') {
+        expect(result.auth.raw).toEqual({
+          imsgHost: 'host.docker.internal',
+          imsgPort: 19876,
+        });
       }
     });
 
-    it('throws when exporter not available', async () => {
-      const { checkExporter } = await import('../exporter.js');
-      (checkExporter as any).mockResolvedValue(false);
-      await expect(connector.initiateAuth({})).rejects.toThrow('imessage-exporter not found');
+    it('throws when connect fails', async () => {
+      mockConnect.mockRejectedValueOnce(new Error('Connection refused'));
+
+      await expect(connector.initiateAuth({})).rejects.toThrow(
+        /Cannot connect to imsg bridge/,
+      );
     });
   });
 
   describe('completeAuth', () => {
-    it('returns auth context', async () => {
+    it('returns auth with host and port', async () => {
+      const auth = await connector.completeAuth({
+        imsgHost: '10.0.0.1',
+        imsgPort: 9999,
+      });
+
+      expect(auth.raw).toEqual({ imsgHost: '10.0.0.1', imsgPort: 9999 });
+    });
+
+    it('uses defaults when params are empty', async () => {
       const auth = await connector.completeAuth({});
-      expect(auth.raw?.tool).toBe('imessage-exporter');
+      expect(auth.raw).toEqual({
+        imsgHost: 'host.docker.internal',
+        imsgPort: 19876,
+      });
     });
   });
 
   describe('validateAuth', () => {
-    it('checks exporter availability', async () => {
-      const { checkExporter } = await import('../exporter.js');
-      (checkExporter as any).mockResolvedValue(true);
-      const result = await connector.validateAuth({});
+    it('returns true on success', async () => {
+      const result = await connector.validateAuth({
+        raw: { imsgHost: 'localhost', imsgPort: 19876 },
+      });
+
       expect(result).toBe(true);
+      expect(mockConnect).toHaveBeenCalledOnce();
+      expect(mockChatsList).toHaveBeenCalledWith(1);
+      expect(mockDisconnect).toHaveBeenCalledOnce();
+    });
+
+    it('returns false on error', async () => {
+      mockConnect.mockRejectedValueOnce(new Error('Connection refused'));
+
+      const result = await connector.validateAuth({
+        raw: { imsgHost: 'localhost', imsgPort: 19876 },
+      });
+
+      expect(result).toBe(false);
     });
   });
 
@@ -63,29 +181,82 @@ describe('IMessageConnector', () => {
   });
 
   describe('sync', () => {
-    it('exports messages and returns result', async () => {
-      const progressListener = vi.fn();
-      connector.on('progress', progressListener);
+    const makeSyncCtx = (overrides: Record<string, unknown> = {}) => ({
+      accountId: 'acc-1',
+      auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
+      cursor: null as string | null,
+      jobId: 'j1',
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+      signal: AbortSignal.timeout(5000),
+      ...overrides,
+    });
 
-      const ctx = {
-        accountId: 'acc-1',
-        auth: { raw: { tool: 'imessage-exporter' } },
-        cursor: null,
-        jobId: 'j1',
-        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-        signal: AbortSignal.timeout(5000),
-      };
+    it('calls chatsList and messagesHistory, emits events, returns correct result', async () => {
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
 
-      const result = await connector.sync(ctx);
-      expect(result.processed).toBe(10);
+      const ctx = makeSyncCtx();
+      const result = await connector.sync(ctx as any);
+
+      expect(mockConnect).toHaveBeenCalledOnce();
+      expect(mockChatsList).toHaveBeenCalledWith(10_000);
+      expect(mockMessagesHistory).toHaveBeenCalledWith(1, { start: undefined });
+
+      expect(dataListener).toHaveBeenCalledOnce();
+      expect(dataListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceType: 'message',
+          sourceId: 'guid-1',
+          timestamp: '2025-01-01T12:00:00Z',
+          content: expect.objectContaining({
+            text: 'Hello',
+            participants: ['+1234567890', '+0987654321'],
+          }),
+        }),
+      );
+
+      expect(result.processed).toBe(1);
       expect(result.hasMore).toBe(false);
-      expect(progressListener).toHaveBeenCalledWith({ processed: 10 });
+      expect(result.cursor).toBe('2025-01-01T12:00:00Z');
+    });
+
+    it('uses cursor as start param when provided', async () => {
+      const ctx = makeSyncCtx({ cursor: '2025-01-01T00:00:00Z' });
+      await connector.sync(ctx as any);
+
+      expect(mockMessagesHistory).toHaveBeenCalledWith(1, {
+        start: '2025-01-01T00:00:00Z',
+      });
+    });
+
+    it('disconnects even on error (try/finally)', async () => {
+      mockChatsList.mockRejectedValueOnce(new Error('RPC error'));
+
+      const ctx = makeSyncCtx();
+      await expect(connector.sync(ctx as any)).rejects.toThrow('RPC error');
+
+      expect(mockDisconnect).toHaveBeenCalledOnce();
+    });
+
+    it('returns existing cursor when no messages are found', async () => {
+      mockMessagesHistory.mockResolvedValueOnce([]);
+      const ctx = makeSyncCtx({ cursor: '2024-12-01T00:00:00Z' });
+
+      const result = await connector.sync(ctx as any);
+
+      expect(result.cursor).toBe('2024-12-01T00:00:00Z');
+      expect(result.processed).toBe(0);
     });
   });
 });
 
 describe('default export', () => {
-  it('exports factory function', async () => {
+  it('exports factory function that returns IMessageConnector instance', async () => {
     const mod = await import('../index.js');
     expect(typeof mod.default).toBe('function');
     expect(mod.default()).toBeInstanceOf(IMessageConnector);

@@ -104,20 +104,17 @@ export class ContactsService {
       contactId = matchedIds[0];
       const otherIds = matchedIds.slice(1);
 
-      // Move all identifiers from other contacts to primary
       for (const otherId of otherIds) {
         await db
           .update(contactIdentifiers)
           .set({ contactId })
           .where(eq(contactIdentifiers.contactId, otherId));
 
-        // Move all memory links from other contacts to primary
         await db
           .update(memoryContacts)
           .set({ contactId })
           .where(eq(memoryContacts.contactId, otherId));
 
-        // Delete the other contact
         await db.delete(contacts).where(eq(contacts.id, otherId));
       }
     }
@@ -324,18 +321,6 @@ export class ContactsService {
     const target = targetRows[0];
     const source = sourceRows[0];
 
-    // Move all identifiers from source to target
-    await db
-      .update(contactIdentifiers)
-      .set({ contactId: targetId })
-      .where(eq(contactIdentifiers.contactId, sourceId));
-
-    // Move all memory links from source to target
-    await db
-      .update(memoryContacts)
-      .set({ contactId: targetId })
-      .where(eq(memoryContacts.contactId, sourceId));
-
     // Merge avatars (target first, then source, dedup by url)
     const targetAvatars: Array<{ url: string; source: string }> = JSON.parse(target.avatars || '[]');
     const sourceAvatars: Array<{ url: string; source: string }> = JSON.parse(source.avatars || '[]');
@@ -352,6 +337,16 @@ export class ContactsService {
       source.displayName.length > target.displayName.length ? source.displayName : target.displayName;
 
     await db
+      .update(contactIdentifiers)
+      .set({ contactId: targetId })
+      .where(eq(contactIdentifiers.contactId, sourceId));
+
+    await db
+      .update(memoryContacts)
+      .set({ contactId: targetId })
+      .where(eq(memoryContacts.contactId, sourceId));
+
+    await db
       .update(contacts)
       .set({
         displayName,
@@ -360,10 +355,8 @@ export class ContactsService {
       })
       .where(eq(contacts.id, targetId));
 
-    // Delete source contact
     await db.delete(contacts).where(eq(contacts.id, sourceId));
 
-    // Clean up mergeDismissals referencing source
     await db
       .delete(mergeDismissals)
       .where(
@@ -379,13 +372,8 @@ export class ContactsService {
   async deleteContact(id: string): Promise<void> {
     const db = this.dbService.db;
 
-    // Delete memory links
     await db.delete(memoryContacts).where(eq(memoryContacts.contactId, id));
-
-    // Delete identifiers
     await db.delete(contactIdentifiers).where(eq(contactIdentifiers.contactId, id));
-
-    // Delete merge dismissals
     await db
       .delete(mergeDismissals)
       .where(
@@ -394,8 +382,6 @@ export class ContactsService {
           eq(mergeDismissals.contactId2, id),
         )!,
       );
-
-    // Delete the contact
     await db.delete(contacts).where(eq(contacts.id, id));
   }
 
@@ -463,8 +449,13 @@ export class ContactsService {
         }
 
         // Case-insensitive substring match on displayName
+        // Require min 3 chars and shorter name >= 40% of longer to avoid "Google" matching "John (Google Slides)"
         const nameA = c1.displayName.toLowerCase();
         const nameB = c2.displayName.toLowerCase();
+        if (nameA.length < 3 || nameB.length < 3) continue;
+        const shorter = Math.min(nameA.length, nameB.length);
+        const longer = Math.max(nameA.length, nameB.length);
+        if (shorter / longer < 0.4) continue;
         if (nameA.includes(nameB) || nameB.includes(nameA)) {
           const idents1 = contactIdentsMap.get(c1.id) || [];
           const idents2 = contactIdentsMap.get(c2.id) || [];

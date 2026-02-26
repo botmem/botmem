@@ -100,6 +100,11 @@ export const api = {
     request<Array<{ contact1: any; contact2: any; reason: string }>>('/contacts/suggestions'),
   dismissSuggestion: (contactId1: string, contactId2: string) =>
     request<any>('/contacts/suggestions/dismiss', { method: 'POST', body: JSON.stringify({ contactId1, contactId2 }) }),
+
+  // Settings
+  getSettings: () => request<Record<string, string>>('/settings'),
+  updateSettings: (settings: Record<string, string>) =>
+    request<Record<string, string>>('/settings', { method: 'PATCH', body: JSON.stringify(settings) }),
 };
 
 // WebSocket connection

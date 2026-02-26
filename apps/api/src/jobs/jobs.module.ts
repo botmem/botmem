@@ -7,6 +7,7 @@ import { JobsService } from './jobs.service';
 import { SyncProcessor } from './sync.processor';
 import { SchedulerService } from './scheduler.service';
 import { ConfigService } from '../config/config.service';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ConfigService } from '../config/config.service';
     BullModule.registerQueue({ name: 'backfill' }),
     AccountsModule,
     forwardRef(() => AuthModule),
+    SettingsModule,
   ],
   controllers: [JobsController],
   providers: [JobsService, SyncProcessor, SchedulerService],

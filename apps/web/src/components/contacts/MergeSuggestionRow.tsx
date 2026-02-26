@@ -1,9 +1,17 @@
 import { ContactCard } from './ContactCard';
 import { Button } from '../ui/Button';
 
+interface MergeContact {
+  id: string;
+  displayName: string;
+  avatars: Array<{ url: string; source: string }>;
+  identifiers: Array<{ type: string; value: string }>;
+  connectorSources: string[];
+}
+
 interface MergeSuggestionRowProps {
-  contact1: any;
-  contact2: any;
+  contact1: MergeContact;
+  contact2: MergeContact;
   reason: string;
   onMerge: (targetId: string, sourceId: string) => void;
   onDismiss: (id1: string, id2: string) => void;

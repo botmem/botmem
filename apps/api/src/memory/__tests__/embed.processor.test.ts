@@ -166,14 +166,14 @@ describe('EmbedProcessor', () => {
     expect(metadata.from).toBe('khalil@university.edu');
   });
 
-  it('emits memory:new event on success', async () => {
+  it('emits log events during processing', async () => {
     const job = { data: { rawEventId: 'raw-1' } } as any;
     await processor.process(job);
 
     expect(events.emitToChannel).toHaveBeenCalledWith(
-      'memories',
-      'memory:new',
-      expect.objectContaining({ sourceType: 'email' }),
+      'logs',
+      'log',
+      expect.objectContaining({ connectorType: 'gmail', stage: 'embed' }),
     );
   });
 });
