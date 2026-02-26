@@ -98,7 +98,22 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     // 2. Parse payload
     const event: ConnectorDataEvent = JSON.parse(rawEvent.payload);
-    const text = event.content?.text || '';
+    let text = event.content?.text || '';
+    // Strip HTML if present (safety net for connectors that emit raw HTML)
+    if (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<div')) {
+      text = text
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
     if (!text.trim()) return;
 
     const mid = rawEventId.slice(0, 8);
@@ -158,10 +173,13 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
     const contactMs = Date.now() - t0;
 
-    // 5. Generate embedding
+    // 5. Generate embedding (truncate to avoid Ollama 400 on long text)
+    // qwen3-embedding:8b has 4096 token context; ~4 chars/token → 16k chars max, use 8k for safety
+    const maxChars = 8000;
+    const embedText = text.length > maxChars ? text.slice(0, maxChars) : text;
     try {
       t0 = Date.now();
-      const vector = await this.ollama.embed(text);
+      const vector = await this.ollama.embed(embedText);
       const embedMs = Date.now() - t0;
 
       // Ensure Qdrant collection exists on first run

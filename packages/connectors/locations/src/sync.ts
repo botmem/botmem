@@ -1,5 +1,5 @@
 import type { SyncContext, SyncResult, ConnectorDataEvent } from '@botmem/connector-sdk';
-import { OwnTracksClient } from './owntracks.js';
+import { OwnTracksClient, reverseGeocode, NOMINATIM_DELAY } from './owntracks.js';
 import type { CursorState, OwnTracksLocation } from './types.js';
 
 type EmitFn = (event: ConnectorDataEvent) => void;
@@ -8,22 +8,42 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function locationText(loc: OwnTracksLocation): string {
+function locationText(loc: OwnTracksLocation, address?: string | null): string {
   const dt = new Date(loc.tst * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   const coords = `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}`;
+  const resolvedAddr = address || loc.addr;
 
   const parts: string[] = [];
-  if (loc.addr) {
-    parts.push(`At ${loc.addr} (${coords})`);
+
+  // Region label from OwnTracks waypoints (e.g. "Home", "Office")
+  if (loc.inregions?.length) {
+    parts.push(`At ${loc.inregions.join(', ')}`);
+    if (resolvedAddr) parts.push(`(${resolvedAddr})`);
+  } else if (resolvedAddr) {
+    parts.push(`At ${resolvedAddr}`);
+  }
+
+  // Always include coordinates
+  if (parts.length) {
+    parts.push(`[${coords}]`);
   } else {
     parts.push(`Location (${coords})`);
   }
 
   parts.push(`on ${dt}`);
 
+  // Motion activity
+  if (loc.motionactivities?.length) {
+    parts.push(`activity: ${loc.motionactivities.join(', ')}`);
+  }
+
   if (loc.alt != null) parts.push(`altitude ${Math.round(loc.alt)}m`);
   if (loc.vel != null && loc.vel > 0) parts.push(`speed ${loc.vel} km/h`);
   if (loc.batt != null) parts.push(`battery ${loc.batt}%`);
+
+  // Connection type
+  if (loc.conn === 'w') parts.push('wifi');
+  else if (loc.conn === 'm') parts.push('mobile');
 
   return parts.join(', ');
 }
@@ -75,26 +95,50 @@ export async function syncLocations(
 
   ctx.logger.info(`Syncing locations for ${pairKey} (pair ${idx + 1}/${allPairs.length})`);
 
-  // Determine date range: from last cursor date, or all history
+  // Determine date range: from last cursor date, or all history (default to epoch)
   const lastTst = state.pairs[pairKey];
-  const from = lastTst ? formatDate(new Date((lastTst + 1) * 1000)) : undefined;
-  // OwnTracks returns 416 if `to` is set without `from`, so only pass `to` when we have a `from`
-  const to = from ? formatDate(new Date()) : undefined;
+  const from = lastTst ? formatDate(new Date((lastTst + 1) * 1000)) : '2000-01-01';
+  const to = formatDate(new Date());
 
   const locations = await client.getLocations(pair.user, pair.device, from, to, ctx.signal);
 
   ctx.logger.info(`Fetched ${locations.length} location points for ${pairKey}`);
 
+  // Batch reverse geocode unique geohashes to avoid duplicate lookups
+  // Group locations by geohash (nearby points share the same address)
+  const newLocations = locations.filter((loc) => !lastTst || loc.tst > lastTst);
+  const geoCache = new Map<string, string | null>();
+
+  // Pre-fetch addresses for unique geohashes (rate-limited)
+  const uniqueGeos = new Map<string, { lat: number; lon: number }>();
+  for (const loc of newLocations) {
+    const key = loc.ghash || `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
+    if (!loc.addr && !loc.inregions?.length && !uniqueGeos.has(key)) {
+      uniqueGeos.set(key, { lat: loc.lat, lon: loc.lon });
+    }
+  }
+
+  if (uniqueGeos.size > 0) {
+    ctx.logger.info(`Reverse geocoding ${uniqueGeos.size} unique locations`);
+    for (const [key, { lat, lon }] of uniqueGeos) {
+      if (ctx.signal.aborted) break;
+      const addr = await reverseGeocode(lat, lon);
+      geoCache.set(key, addr);
+      // Rate limit: Nominatim allows 1 req/sec
+      if (uniqueGeos.size > 1) await new Promise((r) => setTimeout(r, NOMINATIM_DELAY));
+    }
+  }
+
   let processed = 0;
   let maxTst = lastTst ?? 0;
 
-  for (const loc of locations) {
+  for (const loc of newLocations) {
     if (ctx.signal.aborted) break;
 
-    // Skip already-seen timestamps
-    if (lastTst && loc.tst <= lastTst) continue;
-
-    const text = locationText(loc);
+    // Resolve address: OwnTracks addr > geocache > null
+    const geoKey = loc.ghash || `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
+    const address = loc.addr || geoCache.get(geoKey) || null;
+    const text = locationText(loc, address);
 
     emit({
       sourceType: 'location',
@@ -110,9 +154,12 @@ export async function syncLocations(
           velocity: loc.vel,
           course: loc.cog,
           battery: loc.batt,
-          address: loc.addr,
+          address,
           countryCode: loc.cc,
           geohash: loc.ghash,
+          regions: loc.inregions,
+          activity: loc.motionactivities,
+          connection: loc.conn,
           user: pair.user,
           device: pair.device,
         },
@@ -123,7 +170,7 @@ export async function syncLocations(
     processed++;
 
     if (processed % 50 === 0) {
-      emitProgress({ processed, total: locations.length });
+      emitProgress({ processed, total: newLocations.length });
     }
   }
 

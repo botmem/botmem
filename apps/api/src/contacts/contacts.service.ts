@@ -76,10 +76,12 @@ export class ContactsService {
       }
     }
 
-    // Find all existing contacts matching any of the provided identifiers
+    // Find existing contacts matching structured identifiers only
+    // Names are too ambiguous for matching — only use email, phone, slack_id, etc.
     const matchedContactIds = new Set<string>();
 
     for (const ident of identifiers) {
+      if (ident.type === 'name') continue; // Skip name-based matching
       const rows = await db
         .select({ contactId: contactIdentifiers.contactId })
         .from(contactIdentifiers)
