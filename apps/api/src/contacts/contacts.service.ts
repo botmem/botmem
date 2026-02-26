@@ -15,6 +15,14 @@ export interface IdentifierInput {
  * Strips spaces, dashes, parens, dots. Converts leading 00 to +.
  * Returns the cleaned number with + prefix, or original if not parseable.
  */
+/**
+ * Normalize an email address: lowercase, strip plus-addressing (user+tag@domain → user@domain).
+ */
+export function normalizeEmail(raw: string): string {
+  const email = raw.toLowerCase().trim();
+  return email.replace(/^([^@+]+)\+[^@]*(@.+)$/, '$1$2');
+}
+
 export function normalizePhone(raw: string): string {
   // Strip all non-digit characters except leading +
   let digits = raw.replace(/[\s\-().]/g, '');
@@ -59,10 +67,12 @@ export class ContactsService {
   async resolveContact(identifiers: IdentifierInput[]): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
-    // Normalize phone numbers to E.164 before matching/storing
+    // Normalize identifiers before matching/storing
     for (const ident of identifiers) {
       if (ident.type === 'phone') {
         ident.value = normalizePhone(ident.value);
+      } else if (ident.type === 'email') {
+        ident.value = normalizeEmail(ident.value);
       }
     }
 
