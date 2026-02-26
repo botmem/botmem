@@ -46,7 +46,7 @@ export class LocationsConnector extends BaseConnector {
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
     const host = (config.host as string).replace(/\/+$/, '');
-    const username = config.username as string | undefined;
+    const username = (config.username as string | undefined) || (config.user as string | undefined);
     const password = config.password as string | undefined;
     const user = config.user as string | undefined;
     const device = config.device as string | undefined;
