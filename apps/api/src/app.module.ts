@@ -13,6 +13,7 @@ import { PluginsModule } from './plugins/plugins.module';
 import { MemoryModule } from './memory/memory.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { SettingsModule } from './settings/settings.module';
+import { AgentModule } from './agent/agent.module';
 import { VersionController } from './version.controller';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -40,6 +41,7 @@ const isDev = process.env.NODE_ENV !== 'production';
     MemoryModule,
     ContactsModule,
     SettingsModule,
+    AgentModule,
   ],
 })
 export class AppModule {}

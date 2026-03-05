@@ -1,0 +1,202 @@
+/* ===================================================
+   Botmem -- amber/gold theme on dark background
+   =================================================== */
+
+:root {
+  /* Brand colors */
+  --vp-c-brand-1: #F59E0B;
+  --vp-c-brand-2: #D97706;
+  --vp-c-brand-3: #B45309;
+  --vp-c-brand-soft: rgba(245, 158, 11, 0.14);
+
+  /* Tip / info callouts follow brand */
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+}
+
+.dark {
+  --vp-c-bg: #0F0F0F;
+  --vp-c-bg-alt: #161616;
+  --vp-c-bg-elv: #1A1A1A;
+  --vp-c-bg-soft: #1E1E1E;
+
+  --vp-c-brand-1: #F59E0B;
+  --vp-c-brand-2: #FBBF24;
+  --vp-c-brand-3: #FCD34D;
+  --vp-c-brand-soft: rgba(245, 158, 11, 0.16);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  /* Sidebar */
+  --vp-sidebar-bg-color: #111111;
+
+  /* Code blocks */
+  --vp-code-block-bg: #141414;
+  --vp-code-line-highlight-color: rgba(245, 158, 11, 0.08);
+}
+
+/* ----- Hero section ----- */
+
+.VPHero .main .name {
+  background: linear-gradient(135deg, #F59E0B 0%, #FCD34D 50%, #F59E0B 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.VPHero .main .text {
+  color: #E5E5E5;
+}
+
+.VPHero .main .tagline {
+  color: #A3A3A3;
+}
+
+/* Brand gradient for hero name clip */
+:root {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    135deg,
+    #F59E0B 0%,
+    #FCD34D 50%,
+    #F59E0B 100%
+  );
+}
+
+/* Hero image glow */
+:root {
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    #F59E0B33 50%,
+    #B4530933 50%
+  );
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+/* ----- Heading glow ----- */
+
+.dark .vp-doc h1,
+.dark .vp-doc h2 {
+  text-shadow: 0 0 30px rgba(245, 158, 11, 0.1);
+}
+
+/* ----- Button overrides ----- */
+
+.VPButton.brand {
+  background-color: #F59E0B;
+  border-color: #F59E0B;
+  color: #0F0F0F;
+}
+
+.VPButton.brand:hover {
+  background-color: #D97706;
+  border-color: #D97706;
+}
+
+/* Alt button in dark mode */
+.dark .VPButton.alt {
+  background-color: #1E1E1E;
+  border-color: #333;
+  color: #E5E5E5;
+}
+
+.dark .VPButton.alt:hover {
+  border-color: #F59E0B;
+  color: #F59E0B;
+}
+
+/* ----- Feature cards ----- */
+
+.dark .VPFeature {
+  background-color: #161616;
+  border-color: #222;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.dark .VPFeature:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.06);
+}
+
+.VPFeature .title {
+  color: #F59E0B;
+}
+
+/* ----- Sidebar active link ----- */
+
+.dark .VPSidebarItem.is-active > .item > .link > .text {
+  color: #F59E0B;
+}
+
+/* ----- Inline code ----- */
+
+.dark .vp-doc :not(pre) > code {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #FBBF24;
+}
+
+/* ----- Custom badge for connector type ----- */
+
+.badge-oauth2 {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
+}
+
+.badge-qr {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34D399;
+}
+
+.badge-api-key {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.15);
+  color: #FBBF24;
+}
+
+.badge-local {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(168, 85, 247, 0.15);
+  color: #C084FC;
+}
+
+/* ----- Scrollbar (dark mode) ----- */
+
+.dark ::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0F0F0F;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
