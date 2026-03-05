@@ -10,38 +10,59 @@ export interface IdentifierInput {
   connectorType?: string;
 }
 
-/**
- * Normalize a phone number to E.164 format.
- * Strips spaces, dashes, parens, dots. Converts leading 00 to +.
- * Returns the cleaned number with + prefix, or original if not parseable.
- */
-/**
- * Normalize an email address: lowercase, strip plus-addressing (user+tag@domain → user@domain).
- */
+/** Normalize an email: lowercase, trim, strip plus-addressing. */
 export function normalizeEmail(raw: string): string {
   const email = raw.toLowerCase().trim();
   return email.replace(/^([^@+]+)\+[^@]*(@.+)$/, '$1$2');
 }
 
+/** Normalize a phone number to E.164 format. */
 export function normalizePhone(raw: string): string {
-  // Strip all non-digit characters except leading +
   let digits = raw.replace(/[\s\-().]/g, '');
-
-  // Convert leading 00 to +
-  if (digits.startsWith('00')) {
-    digits = '+' + digits.slice(2);
-  }
-
-  // Ensure + prefix
+  if (digits.startsWith('00')) digits = '+' + digits.slice(2);
   if (!digits.startsWith('+')) {
-    // If it's already 10+ digits, assume it has country code
     const justDigits = digits.replace(/\D/g, '');
-    if (justDigits.length >= 10) {
-      digits = '+' + justDigits;
-    }
+    if (justDigits.length >= 10) digits = '+' + justDigits;
+  }
+  return digits;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Normalize an identifier: trim, lowercase where appropriate, reclassify
+ * email-like values stored as names, and collapse whitespace in names.
+ * Returns null if the identifier should be dropped (empty after normalization).
+ */
+export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | null {
+  let { type, value } = ident;
+  value = value.trim();
+  if (!value) return null;
+
+  // Reclassify: if a "name" looks like an email, treat it as email
+  if (type === 'name' && EMAIL_RE.test(value)) {
+    type = 'email';
   }
 
-  return digits;
+  switch (type) {
+    case 'email':
+      value = normalizeEmail(value);
+      break;
+    case 'phone':
+      value = normalizePhone(value);
+      break;
+    case 'name':
+      // Strip zero-width / directional Unicode chars, collapse whitespace
+      value = value.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
+      break;
+    default:
+      // slack_id, immich_person_id, etc. — lowercase + trim
+      value = value.toLowerCase().trim();
+      break;
+  }
+
+  if (!value) return null;
+  return { ...ident, type, value };
 }
 
 export interface ContactWithIdentifiers {
@@ -64,16 +85,19 @@ export interface ContactWithIdentifiers {
 export class ContactsService {
   constructor(private dbService: DbService) {}
 
-  async resolveContact(identifiers: IdentifierInput[]): Promise<ContactWithIdentifiers> {
+  async resolveContact(rawIdentifiers: IdentifierInput[]): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
-    // Normalize identifiers before matching/storing
-    for (const ident of identifiers) {
-      if (ident.type === 'phone') {
-        ident.value = normalizePhone(ident.value);
-      } else if (ident.type === 'email') {
-        ident.value = normalizeEmail(ident.value);
-      }
+    // Normalize + deduplicate identifiers
+    const seen = new Set<string>();
+    const identifiers: IdentifierInput[] = [];
+    for (const raw of rawIdentifiers) {
+      const norm = normalizeIdentifier(raw);
+      if (!norm) continue;
+      const key = `${norm.type}::${norm.value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      identifiers.push(norm);
     }
 
     // Find existing contacts matching structured identifiers only
@@ -500,6 +524,94 @@ export class ContactsService {
     }
 
     return suggestions;
+  }
+
+  /**
+   * Normalize all existing identifiers in the DB: trim, lowercase, reclassify,
+   * then deduplicate and merge contacts that now share identifiers.
+   */
+  async normalizeAll(): Promise<{ normalized: number; deduped: number; merged: number }> {
+    const db = this.dbService.db;
+    const allIdents = await db.select().from(contactIdentifiers);
+
+    let normalized = 0;
+    let deduped = 0;
+    let merged = 0;
+
+    // Pass 1: Normalize values and reclassify types
+    for (const ident of allIdents) {
+      const norm = normalizeIdentifier({
+        type: ident.identifierType,
+        value: ident.identifierValue,
+      });
+
+      if (!norm) {
+        // Empty after normalization — delete it
+        await db.delete(contactIdentifiers).where(eq(contactIdentifiers.id, ident.id));
+        deduped++;
+        continue;
+      }
+
+      if (norm.type !== ident.identifierType || norm.value !== ident.identifierValue) {
+        await db
+          .update(contactIdentifiers)
+          .set({ identifierType: norm.type, identifierValue: norm.value })
+          .where(eq(contactIdentifiers.id, ident.id));
+        normalized++;
+      }
+    }
+
+    // Pass 2: Remove duplicate identifiers (same contact, same type+value)
+    const remaining = await db.select().from(contactIdentifiers);
+    const seenPerContact = new Map<string, Set<string>>();
+    for (const ident of remaining) {
+      const key = `${ident.contactId}::${ident.identifierType}::${ident.identifierValue}`;
+      const contactSeen = seenPerContact.get(ident.contactId) || new Set();
+      if (contactSeen.has(`${ident.identifierType}::${ident.identifierValue}`)) {
+        await db.delete(contactIdentifiers).where(eq(contactIdentifiers.id, ident.id));
+        deduped++;
+      } else {
+        contactSeen.add(`${ident.identifierType}::${ident.identifierValue}`);
+        seenPerContact.set(ident.contactId, contactSeen);
+      }
+    }
+
+    // Pass 3: Merge contacts that now share non-name identifiers
+    const afterDedup = await db.select().from(contactIdentifiers);
+    // Build value → contactIds map (skip name identifiers)
+    const valueToContacts = new Map<string, Set<string>>();
+    for (const ident of afterDedup) {
+      if (ident.identifierType === 'name') continue;
+      const key = `${ident.identifierType}::${ident.identifierValue}`;
+      const set = valueToContacts.get(key) || new Set();
+      set.add(ident.contactId);
+      valueToContacts.set(key, set);
+    }
+
+    // Merge groups where multiple contacts share an identifier
+    const mergedInto = new Map<string, string>(); // sourceId → targetId
+    for (const [, contactIds] of valueToContacts) {
+      if (contactIds.size <= 1) continue;
+      const ids = Array.from(contactIds).filter((id) => !mergedInto.has(id));
+      if (ids.length <= 1) continue;
+
+      // Resolve chains: find the ultimate target for each id
+      const resolveTarget = (id: string): string => {
+        while (mergedInto.has(id)) id = mergedInto.get(id)!;
+        return id;
+      };
+      const targets = [...new Set(ids.map(resolveTarget))];
+      if (targets.length <= 1) continue;
+
+      const targetId = targets[0];
+      for (const sourceId of targets.slice(1)) {
+        await this.mergeContacts(targetId, sourceId);
+        mergedInto.set(sourceId, targetId);
+        merged++;
+      }
+    }
+
+    return { normalized, deduped, merged };
   }
 
   async dismissSuggestion(contactId1: string, contactId2: string): Promise<void> {

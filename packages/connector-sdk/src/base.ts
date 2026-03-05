@@ -11,7 +11,7 @@ import type {
 } from './types.js';
 
 export abstract class BaseConnector extends EventEmitter {
-  static DEBUG_SYNC_LIMIT = 50;
+  static DEBUG_SYNC_LIMIT = 0;
 
   abstract readonly manifest: ConnectorManifest;
 

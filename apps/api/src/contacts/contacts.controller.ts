@@ -53,6 +53,11 @@ export class ContactsController {
     return this.contactsService.mergeContacts(id, body.sourceId);
   }
 
+  @Post('normalize')
+  async normalize() {
+    return this.contactsService.normalizeAll();
+  }
+
   @Post('suggestions/dismiss')
   async dismissSuggestion(@Body() body: { contactId1: string; contactId2: string }) {
     await this.contactsService.dismissSuggestion(body.contactId1, body.contactId2);

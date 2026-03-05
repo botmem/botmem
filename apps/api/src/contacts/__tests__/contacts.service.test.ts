@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ContactsService, normalizePhone } from '../contacts.service';
+import { ContactsService, normalizePhone, normalizeIdentifier } from '../contacts.service';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
 import { accounts, contacts, contactIdentifiers, memoryContacts, memories, mergeDismissals } from '../../db/schema';
 import { eq } from 'drizzle-orm';
@@ -27,6 +27,53 @@ describe('normalizePhone', () => {
 
   it('strips dots', () => {
     expect(normalizePhone('+1.555.123.4567')).toBe('+15551234567');
+  });
+});
+
+describe('normalizeIdentifier', () => {
+  it('trims whitespace from all types', () => {
+    const result = normalizeIdentifier({ type: 'name', value: '  Amr Essam  ' });
+    expect(result!.value).toBe('Amr Essam');
+  });
+
+  it('collapses multiple spaces in names', () => {
+    const result = normalizeIdentifier({ type: 'name', value: 'Amr   Essam' });
+    expect(result!.value).toBe('Amr Essam');
+  });
+
+  it('reclassifies email-like names as email type', () => {
+    const result = normalizeIdentifier({ type: 'name', value: 'AmroEssamS@gmail.com' });
+    expect(result!.type).toBe('email');
+    expect(result!.value).toBe('amroessams@gmail.com');
+  });
+
+  it('lowercases emails', () => {
+    const result = normalizeIdentifier({ type: 'email', value: 'Amr@Ghanem.SA' });
+    expect(result!.value).toBe('amr@ghanem.sa');
+  });
+
+  it('lowercases slack_id and other generic types', () => {
+    const result = normalizeIdentifier({ type: 'slack_id', value: ' AMR ' });
+    expect(result!.value).toBe('amr');
+  });
+
+  it('strips zero-width and directional Unicode from names', () => {
+    const result = normalizeIdentifier({ type: 'name', value: '\u200E Amr Essam' });
+    expect(result!.value).toBe('Amr Essam');
+  });
+
+  it('returns null for empty values after trim', () => {
+    expect(normalizeIdentifier({ type: 'name', value: '   ' })).toBeNull();
+  });
+
+  it('strips plus-addressing from emails', () => {
+    const result = normalizeIdentifier({ type: 'email', value: 'user+tag@example.com' });
+    expect(result!.value).toBe('user@example.com');
+  });
+
+  it('normalizes phone numbers', () => {
+    const result = normalizeIdentifier({ type: 'phone', value: '00 201 027 755 722' });
+    expect(result!.value).toBe('+201027755722');
   });
 });
 

@@ -272,22 +272,66 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const isContact = metadata.type === 'contact';
 
     if (isContact) {
-      // This is a Google contact, not an email
+      // This is a Google contact — extract all available identifiers and metadata
       const identifiers: IdentifierInput[] = [];
       if (metadata.name) {
         identifiers.push({ type: 'name', value: metadata.name as string, connectorType: 'gmail' });
+      }
+      for (const nick of (metadata.nicknames as string[]) || []) {
+        identifiers.push({ type: 'name', value: nick, connectorType: 'gmail' });
       }
       for (const email of (metadata.emails as string[]) || []) {
         identifiers.push({ type: 'email', value: email, connectorType: 'gmail' });
       }
       for (const phone of (metadata.phones as string[]) || []) {
-        // Strip format like "555-1234 (mobile)" to just the number
         const num = phone.replace(/\s*\(.*\)/, '').trim();
         identifiers.push({ type: 'phone', value: num, connectorType: 'gmail' });
       }
+      for (const sip of (metadata.sipAddresses as string[]) || []) {
+        identifiers.push({ type: 'sip', value: sip, connectorType: 'gmail' });
+      }
+
       if (identifiers.length) {
         const contact = await this.contactsService.resolveContact(identifiers);
         await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
+
+        // Store rich metadata on the contact record
+        const contactMeta: Record<string, unknown> = {};
+        const orgs = metadata.organizations as Array<{ name?: string; title?: string; department?: string }> | undefined;
+        if (orgs?.length) contactMeta.organizations = orgs;
+        if (metadata.addresses) contactMeta.addresses = metadata.addresses;
+        if (metadata.birthday) contactMeta.birthday = metadata.birthday;
+        if (metadata.bio) contactMeta.bio = metadata.bio;
+        if (metadata.urls) contactMeta.urls = metadata.urls;
+        if (metadata.relations) contactMeta.relations = metadata.relations;
+        if (metadata.occupations) contactMeta.occupations = metadata.occupations;
+        if (metadata.interests) contactMeta.interests = metadata.interests;
+        if (metadata.gender) contactMeta.gender = metadata.gender;
+        if (metadata.imClients) contactMeta.imClients = metadata.imClients;
+        if (metadata.events) contactMeta.events = metadata.events;
+        if (metadata.externalIds) contactMeta.externalIds = metadata.externalIds;
+        if (metadata.userDefined) contactMeta.userDefined = metadata.userDefined;
+        if (metadata.givenName) contactMeta.givenName = metadata.givenName;
+        if (metadata.familyName) contactMeta.familyName = metadata.familyName;
+
+        if (Object.keys(contactMeta).length) {
+          // Merge with existing metadata rather than overwrite
+          const existing = contact.metadata ? JSON.parse(contact.metadata) : {};
+          await this.contactsService.updateContact(contact.id, {
+            metadata: { ...existing, ...contactMeta },
+          });
+        }
+
+        // Store Google profile photo as avatar
+        const photoUrl = metadata.photoUrl as string | undefined;
+        if (photoUrl) {
+          const existingAvatars: Array<{ url: string; source: string }> = JSON.parse(contact.avatars || '[]');
+          const hasGoogleAvatar = existingAvatars.some((a) => a.source === 'google');
+          if (!hasGoogleAvatar) {
+            existingAvatars.push({ url: photoUrl, source: 'google' });
+            await this.contactsService.updateContact(contact.id, { avatars: existingAvatars });
+          }
+        }
       }
       return;
     }
