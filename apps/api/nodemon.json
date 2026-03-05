@@ -1,0 +1,17 @@
+{
+  "watch": [
+    "dist",
+    "../../packages/shared/dist",
+    "../../packages/connector-sdk/dist",
+    "../../packages/connectors/gmail/dist",
+    "../../packages/connectors/slack/dist",
+    "../../packages/connectors/whatsapp/dist",
+    "../../packages/connectors/imessage/dist",
+    "../../packages/connectors/photos-immich/dist",
+    "../../packages/connectors/locations/dist"
+  ],
+  "ext": "js,mjs",
+  "exec": "node dist/main.js",
+  "delay": 1500,
+  "signal": "SIGTERM"
+}
