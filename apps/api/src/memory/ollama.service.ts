@@ -7,12 +7,14 @@ export class OllamaService {
   private embedModel: string;
   private textModel: string;
   private vlModel: string;
+  private rerankerModel: string;
 
   constructor(config: ConfigService) {
     this.baseUrl = config.ollamaBaseUrl;
     this.embedModel = config.ollamaEmbedModel;
     this.textModel = config.ollamaTextModel;
     this.vlModel = config.ollamaVlModel;
+    this.rerankerModel = config.ollamaRerankerModel;
   }
 
   async embed(text: string, retries = 3): Promise<number[]> {
@@ -98,5 +100,70 @@ export class OllamaService {
       }
     }
     throw new Error('Unreachable');
+  }
+
+  /**
+   * Rerank documents against a query using Qwen3-Reranker via Ollama generate API.
+   * Returns an array of relevance scores (0-1) in the same order as the input documents.
+   * Gracefully degrades: returns 0 for any document that fails (timeout, model unavailable, etc.).
+   */
+  async rerank(query: string, documents: string[]): Promise<number[]> {
+    const scores: number[] = [];
+
+    for (const doc of documents) {
+      try {
+        const prompt = `<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".\n<|im_end|>\n<|im_start|>user\n<Instruct>: Given a personal memory search query, retrieve relevant memories that answer the query\n<Query>: ${query}\n<Document>: ${doc}\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
+
+        const res = await fetch(`${this.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.rerankerModel,
+            prompt,
+            raw: true,
+            stream: false,
+            options: {
+              temperature: 0,
+              num_predict: 1,
+              logprobs: true,
+              top_logprobs: 5,
+            },
+          }),
+          signal: AbortSignal.timeout(5_000),
+        });
+
+        if (!res.ok) {
+          scores.push(0);
+          continue;
+        }
+
+        const data = await res.json();
+
+        // Try logprobs-based scoring first (preferred)
+        if (data.logprobs?.[0]?.top_logprobs) {
+          const topLogprobs: Array<{ token: string; logprob: number }> = data.logprobs[0].top_logprobs;
+          let yesProb = 0;
+          let noProb = 0;
+
+          for (const entry of topLogprobs) {
+            const token = entry.token.toLowerCase().trim();
+            if (token === 'yes') yesProb += Math.exp(entry.logprob);
+            if (token === 'no') noProb += Math.exp(entry.logprob);
+          }
+
+          // Softmax-style normalization
+          const total = yesProb + noProb;
+          scores.push(total > 0 ? yesProb / total : 0);
+        } else {
+          // Fallback: parse text response for older Ollama versions without logprobs
+          const response = (data.response || '').toLowerCase().trim();
+          scores.push(response.startsWith('yes') ? 0.8 : 0.2);
+        }
+      } catch {
+        scores.push(0);
+      }
+    }
+
+    return scores;
   }
 }
