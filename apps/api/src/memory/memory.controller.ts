@@ -68,42 +68,50 @@ export class MemoryController {
   }
 
   @Post('retry-failed')
-  async retryFailed() {
+  async retryFailed(@Query('limit') limitParam?: string) {
     const db = this.dbService.db;
+    const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 200, 2000) : 200;
 
-    // Find all failed and stuck pending memories
+    // Find failed and stuck pending memories
     const failed = await db
       .select({ id: memories.id, sourceId: memories.sourceId, connectorType: memories.connectorType })
       .from(memories)
-      .where(sql`${memories.embeddingStatus} IN ('failed', 'pending')`);
+      .where(sql`${memories.embeddingStatus} IN ('failed', 'pending')`)
+      .limit(batchLimit);
 
     if (!failed.length) return { enqueued: 0, message: 'No failed memories to retry' };
 
     let enqueued = 0;
+    let errors = 0;
     for (const mem of failed) {
-      // Find the raw event by source_id
-      const rawRows = await db
-        .select({ id: rawEvents.id })
-        .from(rawEvents)
-        .where(eq(rawEvents.sourceId, mem.sourceId))
-        .limit(1);
+      try {
+        // Find the raw event by source_id
+        const rawRows = await db
+          .select({ id: rawEvents.id })
+          .from(rawEvents)
+          .where(eq(rawEvents.sourceId, mem.sourceId))
+          .limit(1);
 
-      if (!rawRows.length) continue;
+        if (!rawRows.length) continue;
 
-      // Delete the failed memory (and its contact links) so embed processor can recreate
-      await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
-      await db.delete(memories).where(eq(memories.id, mem.id));
+        // Delete the failed memory (and its contact links) so embed processor can recreate
+        await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
+        await db.delete(memories).where(eq(memories.id, mem.id));
 
-      // Re-enqueue through pipeline with generous retries
-      await this.cleanQueue.add(
-        'clean',
-        { rawEventId: rawRows[0].id },
-        { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
-      );
-      enqueued++;
+        // Re-enqueue through pipeline with generous retries
+        await this.cleanQueue.add(
+          'clean',
+          { rawEventId: rawRows[0].id },
+          { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
+        );
+        enqueued++;
+      } catch (err: any) {
+        errors++;
+        console.error(`[retry-failed] ${mem.id}: ${err?.message}`);
+      }
     }
 
-    return { enqueued, total: failed.length };
+    return { enqueued, errors, total: failed.length };
   }
 
   @Post('backfill-contacts')
@@ -183,7 +191,7 @@ export class MemoryController {
   @Post('search')
   async search(
     @Body() body: { query: string; filters?: Record<string, string>; limit?: number },
-  ): Promise<SearchResult[]> {
+  ) {
     return this.memoryService.search(body.query, body.filters, body.limit);
   }
 
@@ -209,6 +217,24 @@ export class MemoryController {
       updated: (result1 as any).changes + (result2 as any).changes + (result3 as any).changes,
       message: 'Replaced "Unknown" sender labels with "A member" in WhatsApp memories',
     };
+  }
+
+  @Post(':id/pin')
+  async pin(@Param('id') id: string) {
+    await this.dbService.db.update(memories).set({ pinned: 1 }).where(eq(memories.id, id));
+    return { ok: true };
+  }
+
+  @Delete(':id/pin')
+  async unpin(@Param('id') id: string) {
+    await this.dbService.db.update(memories).set({ pinned: 0 }).where(eq(memories.id, id));
+    return { ok: true };
+  }
+
+  @Post(':id/recall')
+  async recall(@Param('id') id: string) {
+    await this.dbService.db.update(memories).set({ recallCount: sql`recall_count + 1` }).where(eq(memories.id, id));
+    return { ok: true };
   }
 
   @Delete(':id')
