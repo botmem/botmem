@@ -4,7 +4,39 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
 
-const logger = pino({ level: 'warn' }) as any;
+/** Track decrypt failures to surface re-auth warnings */
+let decryptFailCount = 0;
+let decryptFailResetTimer: ReturnType<typeof setTimeout> | null = null;
+const DECRYPT_FAIL_THRESHOLD = 5;
+const DECRYPT_FAIL_WINDOW = 60_000;
+
+let onDecryptFailure: ((count: number) => void) | null = null;
+
+export function setDecryptFailureCallback(cb: (count: number) => void) {
+  onDecryptFailure = cb;
+}
+
+const logger = pino({
+  level: 'warn',
+  hooks: {
+    logMethod(inputArgs: any[], method: any) {
+      const msg = typeof inputArgs[0] === 'string' ? inputArgs[0] : inputArgs[1];
+      if (typeof msg === 'string' && msg.includes('failed to decrypt')) {
+        decryptFailCount++;
+        if (!decryptFailResetTimer) {
+          decryptFailResetTimer = setTimeout(() => {
+            decryptFailCount = 0;
+            decryptFailResetTimer = null;
+          }, DECRYPT_FAIL_WINDOW);
+        }
+        if (decryptFailCount === DECRYPT_FAIL_THRESHOLD && onDecryptFailure) {
+          onDecryptFailure(decryptFailCount);
+        }
+      }
+      method.apply(this, inputArgs);
+    },
+  },
+}) as any;
 
 let cachedVersion: { version: [number, number, number]; fetchedAt: number } | null = null;
 const VERSION_TTL = 60 * 60 * 1000;
@@ -158,10 +190,10 @@ function loadIdentityMaps(sessionDir: string): {
   } catch { return null; }
 }
 
-// Aggressive timeouts to capture full history — WhatsApp sends batches with long gaps
-const MAX_SYNC_MS = 30 * 60_000;  // 30 minutes
-const IDLE_TIMEOUT_FIRST_MS = 3 * 60_000; // 3 minutes for first sync (history batches arrive slowly)
-const IDLE_TIMEOUT_RESYNC_MS = 60_000;    // 60 seconds for re-syncs (offline msgs may arrive)
+// Emit data as it arrives — don't block waiting for more history
+const MAX_SYNC_MS = 10 * 60_000;  // 10 minutes hard deadline
+const IDLE_TIMEOUT_FIRST_MS = 30_000; // 30 seconds — process what we have, don't wait forever
+const IDLE_TIMEOUT_RESYNC_MS = 15_000; // 15 seconds for re-syncs
 
 type WaSock = ReturnType<typeof makeWASocket>;
 

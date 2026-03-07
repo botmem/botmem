@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { resolve, join } from 'path';
 import { readdir, readFile } from 'fs/promises';
+import { eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { ConfigService } from '../config/config.service';
+import { EventsService } from '../events/events.service';
+import { DbService } from '../db/db.service';
+import { accounts } from '../db/schema';
 import { PluginRegistry } from './plugin-registry';
 import type { PluginManifest, HookName } from './plugin.types';
 
@@ -21,6 +25,8 @@ export class PluginsService {
     private connectors: ConnectorsService,
     private config: ConfigService,
     private registry: PluginRegistry,
+    private events: EventsService,
+    private dbService: DbService,
   ) {}
 
   async loadAll() {
@@ -39,6 +45,9 @@ export class PluginsService {
     await this.connectors.registry.loadFromDirectory(dir);
 
     this.logger.log(`Loaded ${this.connectors.list().length} total connectors`);
+
+    // Wire up WhatsApp decrypt-failure notifications
+    this.setupDecryptFailureListener();
 
     // Load lifecycle and scorer plugins from manifest.json files
     await this.loadManifestPlugins(dir);
@@ -114,6 +123,34 @@ export class PluginsService {
       this.logger.log(
         `Loaded ${lifecycleCount} lifecycle and ${scorerCount} scorer plugins`,
       );
+    }
+  }
+
+  private setupDecryptFailureListener() {
+    try {
+      const wa = this.connectors.get('whatsapp');
+      wa.on('decrypt-failure', async ({ message }: { message: string }) => {
+        this.logger.warn(message);
+        // Update all WhatsApp accounts with the error
+        const waAccounts = await this.dbService.db
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(eq(accounts.connectorType, 'whatsapp'));
+        for (const acc of waAccounts) {
+          await this.dbService.db
+            .update(accounts)
+            .set({ lastError: message, updatedAt: new Date().toISOString() })
+            .where(eq(accounts.id, acc.id));
+        }
+        // Broadcast to frontend
+        this.events.emitToChannel('notifications', 'connector:warning', {
+          connectorType: 'whatsapp',
+          message,
+          action: 'reauth',
+        });
+      });
+    } catch {
+      // WhatsApp connector not loaded — skip
     }
   }
 

@@ -2,7 +2,7 @@ import { BaseConnector } from '@botmem/connector-sdk';
 import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, PipelineContext } from '@botmem/connector-sdk';
 import type { makeWASocket } from '@whiskeysockets/baileys';
 import { startQrAuth } from './qr-auth.js';
-import { syncWhatsApp } from './sync.js';
+import { syncWhatsApp, setDecryptFailureCallback } from './sync.js';
 
 interface WarmSession {
   sessionId: string;
@@ -39,6 +39,12 @@ export class WhatsAppConnector extends BaseConnector {
 
   constructor() {
     super();
+    setDecryptFailureCallback((count) => {
+      this.emit('decrypt-failure', {
+        message: `WhatsApp session keys are stale — ${count} messages failed to decrypt. Please re-authenticate (re-scan QR code) to fix.`,
+        count,
+      });
+    });
     this._warm();
   }
 
