@@ -26,6 +26,13 @@ function createMocks() {
   return { connectors, config, registry };
 }
 
+/** Create a PluginsService with loadBuiltin mocked to prevent hanging on WhatsApp warm session */
+function createService(connectors: ConnectorsService, config: ConfigService, registry: PluginRegistry) {
+  const service = new PluginsService(connectors, config, registry);
+  (service as any).loadBuiltin = vi.fn().mockResolvedValue(undefined);
+  return service;
+}
+
 describe('PluginsService', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -35,10 +42,8 @@ describe('PluginsService', () => {
     const { connectors, config, registry } = createMocks();
     vi.mocked(fs.readdir).mockResolvedValue([]);
 
-    const service = new PluginsService(connectors, config, registry);
+    const service = createService(connectors, config, registry);
 
-    // loadAll will try to import packages which will fail in test,
-    // but should not throw - it logs warnings instead
     await service.loadAll();
 
     expect(connectors.registry.loadFromDirectory).toHaveBeenCalled();
@@ -49,7 +54,7 @@ describe('PluginsService', () => {
     const config = { pluginsDir: '/nonexistent' } as unknown as ConfigService;
     vi.mocked(fs.readdir).mockRejectedValue(new Error('ENOENT'));
 
-    const service = new PluginsService(connectors, config, registry);
+    const service = createService(connectors, config, registry);
 
     // Should not throw even though imports will fail
     await expect(service.loadAll()).resolves.toBeUndefined();
@@ -72,8 +77,7 @@ describe('PluginsService', () => {
         }),
       );
 
-      const service = new PluginsService(connectors, config, registry);
-      // Mock the dynamic import
+      const service = createService(connectors, config, registry);
       (service as any)._importPlugin = vi.fn().mockResolvedValue({
         default: {
           afterEnrich: () => {},
@@ -101,7 +105,7 @@ describe('PluginsService', () => {
         }),
       );
 
-      const service = new PluginsService(connectors, config, registry);
+      const service = createService(connectors, config, registry);
       (service as any)._importPlugin = vi.fn().mockResolvedValue({
         default: {
           score: (_mem: any, _w: any) => 0.5,
@@ -129,7 +133,7 @@ describe('PluginsService', () => {
         }),
       );
 
-      const service = new PluginsService(connectors, config, registry);
+      const service = createService(connectors, config, registry);
       await service.loadAll();
 
       expect(lcSpy).not.toHaveBeenCalled();
@@ -143,7 +147,7 @@ describe('PluginsService', () => {
       vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
       vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'));
 
-      const service = new PluginsService(connectors, config, registry);
+      const service = createService(connectors, config, registry);
 
       // Should not throw
       await expect(service.loadAll()).resolves.toBeUndefined();
@@ -163,7 +167,7 @@ describe('PluginsService', () => {
         }),
       );
 
-      const service = new PluginsService(connectors, config, registry);
+      const service = createService(connectors, config, registry);
       (service as any)._importPlugin = vi
         .fn()
         .mockRejectedValue(new Error('Cannot find module'));
