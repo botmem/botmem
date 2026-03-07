@@ -7,6 +7,8 @@ import { ConfigService } from './config/config.service';
 import { join } from 'path';
 import { readFileSync } from 'fs';
 import type { Request, Response, NextFunction } from 'express';
+import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
+import { AnalyticsService } from './analytics/analytics.service';
 
 async function bootstrap() {
   const express = (await import('express')).default;
@@ -38,6 +40,10 @@ async function bootstrap() {
   app.useWebSocketAdapter(new WsAdapter(app));
   app.setGlobalPrefix('api');
   app.enableCors();
+
+  // Global exception filter: sends 5xx errors to PostHog
+  const analyticsService = app.get(AnalyticsService);
+  app.useGlobalFilters(new PostHogExceptionFilter(analyticsService));
 
   // Force-exit if graceful shutdown takes too long (e.g. BullMQ/Redis stalling)
   const forceExit = () => {
