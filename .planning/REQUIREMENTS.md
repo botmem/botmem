@@ -18,11 +18,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Operational
 
-- [ ] **OPS-01**: Nightly decay job recomputes recency scores for all memories via BullMQ job scheduler
-- [ ] **OPS-02**: Decay job processes memories in batches of 500-1000 to avoid SQLite writer contention
-- [ ] **OPS-03**: PostHog analytics tracks pageviews and key user events (search, sync, pin) via cloud free tier
-- [ ] **OPS-04**: PostHog integration is no-op when API key is not configured (safe for dev without PostHog)
-- [ ] **OPS-05**: Backend emits server-side analytics events for sync completions and errors via posthog-node
+- [x] **OPS-01**: Nightly decay job recomputes recency scores for all memories via BullMQ job scheduler
+- [x] **OPS-02**: Decay job processes memories in batches of 500-1000 to avoid SQLite writer contention
+- [x] **OPS-03**: PostHog analytics tracks pageviews and key user events (search, sync, pin) via cloud free tier
+- [x] **OPS-04**: PostHog integration is no-op when API key is not configured (safe for dev without PostHog)
+- [x] **OPS-05**: Backend emits server-side analytics events for sync completions and errors via posthog-node
 
 ### Extensibility
 
@@ -68,11 +68,11 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | SRCH-04 | Phase 1 | Complete |
 | SRCH-05 | Phase 1 | Complete |
 | SRCH-06 | Phase 1 | Complete |
-| OPS-01 | Phase 2 | Pending |
-| OPS-02 | Phase 2 | Pending |
-| OPS-03 | Phase 2 | Pending |
-| OPS-04 | Phase 2 | Pending |
-| OPS-05 | Phase 2 | Pending |
+| OPS-01 | Phase 2 | Complete |
+| OPS-02 | Phase 2 | Complete |
+| OPS-03 | Phase 2 | Complete |
+| OPS-04 | Phase 2 | Complete |
+| OPS-05 | Phase 2 | Complete |
 | EXT-01 | Phase 3 | Pending |
 | EXT-02 | Phase 3 | Pending |
 | EXT-03 | Phase 3 | Pending |

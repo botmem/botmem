@@ -11,7 +11,7 @@ This milestone extends Botmem beyond its working core (6 connectors, full pipeli
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Search Quality** - Reranker scoring, importance reinforcement, and memory pinning
-- [ ] **Phase 2: Operational Maturity** - PostHog analytics and nightly decay job
+- [x] **Phase 2: Operational Maturity** - PostHog analytics and nightly decay job (completed 2026-03-07)
 - [ ] **Phase 3: Extensibility** - Plugin system with connector, scorer, and lifecycle hook types
 
 ## Phase Details
@@ -67,5 +67,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Search Quality | 2/2 | Complete | 2026-03-07 |
-| 2. Operational Maturity | 0/2 | Not started | - |
+| 2. Operational Maturity | 2/2 | Complete   | 2026-03-07 |
 | 3. Extensibility | 0/1 | Not started | - |
