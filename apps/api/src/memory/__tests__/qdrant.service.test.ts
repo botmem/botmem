@@ -32,6 +32,7 @@ describe('QdrantService', () => {
 
       expect(mockClient.createCollection).toHaveBeenCalledWith('memories', {
         vectors: { size: 1024, distance: 'Cosine' },
+        optimizers_config: { indexing_threshold: 1000 },
       });
     });
 

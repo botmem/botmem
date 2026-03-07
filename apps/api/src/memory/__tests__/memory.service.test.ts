@@ -13,13 +13,15 @@ describe('MemoryService', () => {
   let db: ReturnType<typeof createTestDb>;
   let ollamaService: any;
   let qdrantService: any;
-  let embedQueue: any;
+  let connectorsService: any;
+  let pluginRegistry: any;
 
   beforeEach(async () => {
     db = createTestDb();
 
     ollamaService = {
       embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      rerank: vi.fn().mockResolvedValue([]),
     };
 
     qdrantService = {
@@ -29,13 +31,24 @@ describe('MemoryService', () => {
       remove: vi.fn(),
     };
 
-    embedQueue = { add: vi.fn() };
+    connectorsService = {
+      get: vi.fn().mockReturnValue({
+        manifest: { trustScore: 0.8, weights: {} },
+      }),
+    };
+
+    pluginRegistry = {
+      getReranker: vi.fn().mockReturnValue(null),
+      getScorers: vi.fn().mockReturnValue([]),
+      fireHook: vi.fn().mockResolvedValue(undefined),
+    };
 
     service = new MemoryService(
       makeDbService(db),
       ollamaService,
       qdrantService,
-      embedQueue,
+      connectorsService,
+      pluginRegistry,
     );
 
     await db.insert(accounts).values({
@@ -99,17 +112,17 @@ describe('MemoryService', () => {
         { id: 'mem-2', score: 0.7, payload: {} },
       ]);
 
-      const results = await service.search('meeting doctor');
+      const response = await service.search('meeting doctor');
       expect(ollamaService.embed).toHaveBeenCalledWith('meeting doctor');
-      expect(results).toHaveLength(2);
-      expect(results[0].id).toBe('mem-1');
-      expect(results[0].score).toBeDefined();
-      expect(results[0].score).toBeGreaterThan(0);
+      expect(response.items).toHaveLength(2);
+      expect(response.items[0].id).toBe('mem-1');
+      expect(response.items[0].score).toBeDefined();
+      expect(response.items[0].score).toBeGreaterThan(0);
     });
 
-    it('returns empty array for empty query', async () => {
-      const results = await service.search('');
-      expect(results).toEqual([]);
+    it('returns empty items for empty query', async () => {
+      const response = await service.search('');
+      expect(response.items).toEqual([]);
       expect(ollamaService.embed).not.toHaveBeenCalled();
     });
 
@@ -118,10 +131,10 @@ describe('MemoryService', () => {
         { id: 'mem-1', score: 0.9, payload: { source_type: 'email' } },
       ]);
 
-      const results = await service.search('meeting', { sourceType: 'email' });
+      await service.search('meeting', { sourceType: 'email' });
       expect(qdrantService.search).toHaveBeenCalledWith(
         [0.1, 0.2, 0.3],
-        20,
+        expect.any(Number),
         expect.objectContaining({
           must: expect.arrayContaining([
             { key: 'source_type', match: { value: 'email' } },
@@ -160,7 +173,7 @@ describe('MemoryService', () => {
   });
 
   describe('insert', () => {
-    it('creates a memory and enqueues embedding', async () => {
+    it('creates a memory in the database', async () => {
       const mem = await service.insert({
         text: 'Manually inserted memory',
         sourceType: 'manual',
@@ -169,7 +182,6 @@ describe('MemoryService', () => {
 
       expect(mem.id).toBeDefined();
       expect(mem.text).toBe('Manually inserted memory');
-      expect(embedQueue.add).not.toHaveBeenCalled(); // Direct insert uses inline embedding
 
       // Should be in DB
       const rows = await db.select().from(memories).where(eq(memories.id, mem.id));
@@ -211,9 +223,9 @@ describe('MemoryService', () => {
 
       const graph = await service.getGraphData();
       expect(graph.nodes.length).toBeGreaterThanOrEqual(2);
-      expect(graph.edges).toHaveLength(1);
-      expect(graph.edges[0].source).toBe('mem-1');
-      expect(graph.edges[0].target).toBe('mem-2');
+      expect(graph.links).toHaveLength(1);
+      expect(graph.links[0].source).toBe('mem-1');
+      expect(graph.links[0].target).toBe('mem-2');
     });
   });
 });

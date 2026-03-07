@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EnrichProcessor } from '../enrich.processor';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
-import { accounts, memories, memoryLinks } from '../../db/schema';
+import { accounts, memories, rawEvents } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 function makeDbService(db: any) {
@@ -11,27 +11,50 @@ function makeDbService(db: any) {
 describe('EnrichProcessor', () => {
   let processor: EnrichProcessor;
   let db: ReturnType<typeof createTestDb>;
-  let ollamaService: any;
-  let qdrantService: any;
+  let enrichService: any;
+  let eventsService: any;
+  let logsService: any;
+  let jobsService: any;
+  let settingsService: any;
+  let pluginRegistry: any;
 
   beforeEach(async () => {
     db = createTestDb();
 
-    ollamaService = {
-      generate: vi.fn(),
+    enrichService = {
+      enrich: vi.fn().mockResolvedValue(undefined),
     };
 
-    qdrantService = {
-      search: vi.fn().mockResolvedValue([]),
-      recommend: vi.fn().mockResolvedValue([]),
+    eventsService = {
+      emitToChannel: vi.fn(),
+    };
+
+    logsService = {
+      add: vi.fn(),
+    };
+
+    jobsService = {
+      incrementProgress: vi.fn().mockResolvedValue({ progress: 1, total: 10 }),
+      tryCompleteJob: vi.fn().mockResolvedValue(false),
+    };
+
+    settingsService = {
+      get: vi.fn().mockReturnValue(''),
+      onChange: vi.fn(),
+    };
+
+    pluginRegistry = {
+      fireHook: vi.fn().mockResolvedValue(undefined),
     };
 
     processor = new EnrichProcessor(
       makeDbService(db),
-      ollamaService,
-      qdrantService,
-      { add: vi.fn() } as any,
-      { emitToChannel: vi.fn() } as any,
+      enrichService,
+      eventsService,
+      logsService,
+      jobsService,
+      settingsService,
+      pluginRegistry,
     );
 
     await db.insert(accounts).values({
@@ -44,6 +67,18 @@ describe('EnrichProcessor', () => {
     });
 
     const now = new Date().toISOString();
+    await db.insert(rawEvents).values({
+      id: 'raw-1',
+      accountId: 'acc-1',
+      connectorType: 'gmail',
+      sourceId: 'src-1',
+      sourceType: 'email',
+      payload: '{}',
+      timestamp: now,
+      jobId: 'j1',
+      createdAt: now,
+    });
+
     await db.insert(memories).values({
       id: 'mem-1',
       accountId: 'acc-1',
@@ -53,106 +88,52 @@ describe('EnrichProcessor', () => {
       text: 'Meeting with Dr. Khalil at Cairo Hospital on January 15th about the $500 invoice.',
       eventTime: '2025-01-15T10:00:00Z',
       ingestTime: now,
-      embeddingStatus: 'done',
+      embeddingStatus: 'pending',
       createdAt: now,
     });
   });
 
-  it('extracts entities from memory text', async () => {
-    ollamaService.generate.mockResolvedValueOnce(
-      JSON.stringify([
-        { type: 'person', value: 'Dr. Khalil', confidence: 0.95 },
-        { type: 'location', value: 'Cairo Hospital', confidence: 0.9 },
-        { type: 'time', value: 'January 15th', confidence: 0.85 },
-        { type: 'amount', value: '$500', confidence: 0.9 },
-      ]),
-    );
+  it('calls enrichService.enrich and marks memory as done', async () => {
+    await processor.process({ data: { rawEventId: 'raw-1', memoryId: 'mem-1' } } as any);
 
-    ollamaService.generate.mockResolvedValueOnce(
-      JSON.stringify({
-        label: 'UNVERIFIED',
-        confidence: 0.6,
-        rationale: 'Personal message about a meeting — not officially confirmed',
-      }),
-    );
+    expect(enrichService.enrich).toHaveBeenCalledWith('mem-1');
 
-    await processor.process({ data: { memoryId: 'mem-1' } } as any);
-
+    // Memory should be marked as done
     const rows = await db.select().from(memories).where(eq(memories.id, 'mem-1'));
-    const entities = JSON.parse(rows[0].entities);
-    expect(entities).toHaveLength(4);
-    expect(entities[0].type).toBe('person');
-    expect(entities[0].value).toBe('Dr. Khalil');
+    expect(rows[0].embeddingStatus).toBe('done');
   });
 
-  it('sets factuality label from LLM response', async () => {
-    ollamaService.generate.mockResolvedValueOnce(JSON.stringify([]));
-    ollamaService.generate.mockResolvedValueOnce(
-      JSON.stringify({
-        label: 'FACT',
-        confidence: 0.9,
-        rationale: 'Confirmed billing statement',
-      }),
+  it('emits memory:updated event after enrichment', async () => {
+    await processor.process({ data: { rawEventId: 'raw-1', memoryId: 'mem-1' } } as any);
+
+    expect(eventsService.emitToChannel).toHaveBeenCalledWith(
+      'memories',
+      'memory:updated',
+      expect.objectContaining({ memoryId: 'mem-1', connectorType: 'gmail' }),
     );
-
-    await processor.process({ data: { memoryId: 'mem-1' } } as any);
-
-    const rows = await db.select().from(memories).where(eq(memories.id, 'mem-1'));
-    const factuality = JSON.parse(rows[0].factuality);
-    expect(factuality.label).toBe('FACT');
-    expect(factuality.confidence).toBe(0.9);
   });
 
-  it('creates memory links for similar memories', async () => {
-    // Add a second memory
-    const now = new Date().toISOString();
-    await db.insert(memories).values({
-      id: 'mem-2',
-      accountId: 'acc-1',
-      connectorType: 'gmail',
-      sourceType: 'email',
-      sourceId: 'src-2',
-      text: 'Follow up on the meeting with Dr. Khalil',
-      eventTime: '2025-01-16T10:00:00Z',
-      ingestTime: now,
-      embeddingStatus: 'done',
-      createdAt: now,
-    });
+  it('advances parent job progress', async () => {
+    await processor.process({ data: { rawEventId: 'raw-1', memoryId: 'mem-1' } } as any);
 
-    // Qdrant returns a similar memory
-    qdrantService.recommend.mockResolvedValue([
-      { id: 'mem-2', score: 0.92, payload: {} },
-    ]);
+    expect(jobsService.incrementProgress).toHaveBeenCalledWith('j1');
+  });
 
-    ollamaService.generate.mockResolvedValueOnce(JSON.stringify([]));
-    ollamaService.generate.mockResolvedValueOnce(
-      JSON.stringify({ label: 'UNVERIFIED', confidence: 0.5, rationale: 'test' }),
+  it('emits job:complete when job finishes', async () => {
+    jobsService.tryCompleteJob.mockResolvedValue(true);
+
+    await processor.process({ data: { rawEventId: 'raw-1', memoryId: 'mem-1' } } as any);
+
+    expect(eventsService.emitToChannel).toHaveBeenCalledWith(
+      'job:j1',
+      'job:complete',
+      { jobId: 'j1', status: 'done' },
     );
-
-    await processor.process({ data: { memoryId: 'mem-1' } } as any);
-
-    const links = await db.select().from(memoryLinks);
-    expect(links).toHaveLength(1);
-    expect(links[0].srcMemoryId).toBe('mem-1');
-    expect(links[0].dstMemoryId).toBe('mem-2');
-    expect(links[0].linkType).toBe('related');
-    expect(links[0].strength).toBeCloseTo(0.92);
   });
 
-  it('skips non-existent memory', async () => {
-    await processor.process({ data: { memoryId: 'non-existent' } } as any);
-    expect(ollamaService.generate).not.toHaveBeenCalled();
-  });
+  it('skips non-existent memory gracefully', async () => {
+    await processor.process({ data: { rawEventId: 'raw-1', memoryId: 'non-existent' } } as any);
 
-  it('handles malformed LLM response gracefully', async () => {
-    ollamaService.generate.mockResolvedValueOnce('not valid json at all');
-    ollamaService.generate.mockResolvedValueOnce('also not json');
-
-    // Should not throw
-    await processor.process({ data: { memoryId: 'mem-1' } } as any);
-
-    const rows = await db.select().from(memories).where(eq(memories.id, 'mem-1'));
-    // Entities should remain default
-    expect(JSON.parse(rows[0].entities)).toEqual([]);
+    expect(enrichService.enrich).toHaveBeenCalledWith('non-existent');
   });
 });
