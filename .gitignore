@@ -6,3 +6,7 @@ dist
 .env
 .env.local
 coverage/
+apps/api/data/
+apps/web/vite.config.js
+apps/web/vite.config.js.map
+apps/web/vite.config.d.ts

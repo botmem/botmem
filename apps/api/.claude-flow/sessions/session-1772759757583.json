@@ -1,0 +1,23 @@
+{
+  "id": "session-1772759757583",
+  "startedAt": "2026-03-06T01:15:57.583Z",
+  "cwd": "/Users/amr/Projects/botmem/apps/api",
+  "context": {
+    "lastMatchedPatterns": [
+      "mem-MEMORY-worktree-workflow---clean-star",
+      "mem-MEMORY-interaction-model",
+      "mem-MEMORY-product-vision",
+      "mem-MEMORY-workflow-rules",
+      "mem-MEMORY-browser-automation--agent-brow"
+    ]
+  },
+  "metrics": {
+    "edits": 28,
+    "commands": 0,
+    "tasks": 0,
+    "errors": 0
+  },
+  "updatedAt": "2026-03-06T20:40:16.357Z",
+  "endedAt": "2026-03-06T20:40:48.936Z",
+  "duration": 69891353
+}

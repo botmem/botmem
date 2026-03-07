@@ -54,6 +54,7 @@ export const rawEvents = sqliteTable('raw_events', {
   sourceId: text('source_id').notNull(),
   sourceType: text('source_type').notNull(),
   payload: text('payload').notNull(), // JSON
+  cleanedText: text('cleaned_text'), // nullable — set by clean processor
   timestamp: text('timestamp').notNull(),
   jobId: text('job_id'),
   createdAt: text('created_at').notNull(),
@@ -93,6 +94,7 @@ export const memoryLinks = sqliteTable('memory_links', {
 export const contacts = sqliteTable('contacts', {
   id: text('id').primaryKey(),
   displayName: text('display_name').notNull(),
+  entityType: text('entity_type').notNull().default('person'), // person | group | organization | device
   avatars: text('avatars').notNull().default('[]'),
   metadata: text('metadata').notNull().default('{}'), // JSON
   createdAt: text('created_at').notNull(),

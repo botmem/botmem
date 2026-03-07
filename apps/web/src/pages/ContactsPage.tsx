@@ -1,96 +1,88 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
-import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
 import { ContactCard } from '../components/contacts/ContactCard';
 import { ContactDetailPanel } from '../components/contacts/ContactDetailPanel';
-import { MergeSuggestionRow } from '../components/contacts/MergeSuggestionRow';
+import { MergeTinder } from '../components/contacts/MergeTinder';
 import { useContactStore } from '../store/contactStore';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Skeleton } from '../components/ui/Skeleton';
+import { api } from '../lib/api';
 
 export function ContactsPage() {
   const {
     contacts, total, suggestions, selectedId, searchQuery, loading,
     loadContacts, setSearchQuery, loadSuggestions, selectContact,
-    updateContact, mergeContacts, deleteContact, dismissSuggestion,
+    updateContact, mergeContacts, deleteContact, dismissSuggestion, undismissSuggestion, reinsertSuggestion,
   } = useContactStore();
 
-  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const [selfContactId, setSelfContactId] = useState<string | null>(null);
 
   useEffect(() => {
     loadContacts();
     loadSuggestions();
+    api.getMeStatus().then(({ contactId }) => setSelfContactId(contactId)).catch(() => {});
   }, []);
 
   const selectedContact = contacts.find((c) => c.id === selectedId) || null;
 
+  const filteredSuggestions = useMemo(() => {
+    if (!searchQuery.trim()) return suggestions;
+    const term = searchQuery.toLowerCase();
+    return suggestions.filter((s) =>
+      s.contact1.displayName.toLowerCase().includes(term) ||
+      s.contact2.displayName.toLowerCase().includes(term) ||
+      s.contact1.identifiers.some((i) => i.value.toLowerCase().includes(term)) ||
+      s.contact2.identifiers.some((i) => i.value.toLowerCase().includes(term))
+    );
+  }, [suggestions, searchQuery]);
+
   return (
     <PageContainer>
       <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text mb-6">
-        CONTACTS
+        PEOPLE
       </h1>
-
-      {/* Merge suggestions */}
-      {suggestions.length > 0 && (
-        <Card className="mb-4">
-          <button
-            onClick={() => setSuggestionsOpen(!suggestionsOpen)}
-            className="flex items-center gap-2 w-full cursor-pointer"
-          >
-            <h2 className="font-display text-lg font-bold uppercase tracking-wider text-nb-text">
-              SUGGESTED MERGES
-            </h2>
-            <Badge color="#FFE66D">{suggestions.length}</Badge>
-            <span className="font-mono text-sm text-nb-muted ml-auto">
-              {suggestionsOpen ? '▼' : '▶'}
-            </span>
-          </button>
-
-          {suggestionsOpen && (
-            <div className="flex flex-col gap-3 mt-4">
-              {suggestions.map((s) => (
-                <MergeSuggestionRow
-                  key={`${s.contact1.id}::${s.contact2.id}`}
-                  contact1={s.contact1}
-                  contact2={s.contact2}
-                  reason={s.reason}
-                  onMerge={mergeContacts}
-                  onDismiss={dismissSuggestion}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
 
       {/* Search */}
       <input
         type="text"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Search contacts..."
+        placeholder="Search people..."
         className="w-full border-3 border-nb-border bg-nb-surface font-mono text-sm text-nb-text px-4 py-3 mb-4 shadow-nb placeholder:text-nb-muted"
       />
 
+      {/* Merge suggestions — Tinder-style card review */}
+      <MergeTinder
+        suggestions={filteredSuggestions}
+        onMerge={mergeContacts}
+        onDismiss={dismissSuggestion}
+        onUndismiss={undismissSuggestion}
+        onReinsertSuggestion={reinsertSuggestion}
+      />
+
       <p className="font-mono text-xs text-nb-muted uppercase mb-3">
-        {loading ? 'LOADING...' : `${total} contacts`}
+        {loading ? 'LOADING...' : `${total} people`}
       </p>
 
       <div className="flex gap-4">
         {/* Contact list */}
         <div className="flex-1 flex flex-col gap-2">
-          {contacts.map((c) => (
+          {loading && <Skeleton variant="avatar" count={5} className="mb-2" />}
+          {!loading && contacts.map((c) => (
             <ContactCard
               key={c.id}
               contact={c}
               selected={selectedId === c.id}
+              isSelf={selfContactId === c.id}
               onClick={() => selectContact(selectedId === c.id ? null : c.id)}
             />
           ))}
           {contacts.length === 0 && !loading && (
-            <div className="border-3 border-nb-border p-8 text-center bg-nb-surface">
-              <p className="font-display text-xl font-bold uppercase text-nb-text">NO CONTACTS FOUND</p>
-              <p className="font-mono text-sm text-nb-muted mt-2">TRY ADJUSTING YOUR SEARCH</p>
-            </div>
+            <EmptyState
+              icon="◎"
+              title="No People Found"
+              subtitle="Try adjusting your search"
+            />
           )}
         </div>
 
@@ -99,6 +91,7 @@ export function ContactsPage() {
           <div className="w-96 shrink-0">
             <ContactDetailPanel
               contact={selectedContact}
+              isSelf={selfContactId === selectedContact.id}
               onClose={() => selectContact(null)}
               onUpdate={updateContact}
               onDelete={deleteContact}

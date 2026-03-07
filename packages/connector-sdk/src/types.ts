@@ -8,6 +8,27 @@ export interface ConnectorManifest {
   icon: string;
   authType: AuthType;
   configSchema: Record<string, unknown>;
+
+  /** Entity types this connector produces */
+  entities: string[];
+
+  /** Pipeline stages this connector uses. Omitted stages default to true. */
+  pipeline: {
+    clean?: boolean;
+    embed?: boolean;
+    enrich?: boolean;
+  };
+
+  /** Base trust score for memories from this connector (0-1) */
+  trustScore: number;
+
+  /** Weight coefficients for scoring formula. Defaults: semantic=0.40, recency=0.25, importance=0.20, trust=0.15 */
+  weights?: {
+    semantic?: number;
+    recency?: number;
+    importance?: number;
+    trust?: number;
+  };
 }
 
 export interface AuthContext {
@@ -65,4 +86,32 @@ export interface ProgressEvent {
 export interface LogEvent {
   level: 'info' | 'warn' | 'error' | 'debug';
   message: string;
+}
+
+/** Result from a connector's clean step */
+export interface CleanResult {
+  text: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Result from a connector's embed step */
+export interface EmbedResult {
+  text: string;
+  entities: Array<{ type: string; id: string; role: string }>;
+  metadata?: Record<string, unknown>;
+}
+
+/** Result from a connector's enrich step */
+export interface EnrichResult {
+  entities?: Array<{ type: string; value: string }>;
+  claims?: string[];
+  factuality?: { label: string; confidence: number; rationale: string };
+  metadata?: Record<string, unknown>;
+}
+
+/** Context passed to pipeline methods */
+export interface PipelineContext {
+  accountId: string;
+  auth: AuthContext;
+  logger: ConnectorLogger;
 }

@@ -1,5 +1,5 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '@botmem/connector-sdk';
+import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, PipelineContext } from '@botmem/connector-sdk';
 import { getSlackAuthUrl, exchangeSlackCode } from './oauth.js';
 import { syncSlack } from './sync.js';
 
@@ -48,6 +48,9 @@ export class SlackConnector extends BaseConnector {
       },
       required: [],
     },
+    entities: ['person', 'channel', 'message', 'file'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.90,
   };
 
   private config: Record<string, string> = {};
@@ -116,9 +119,72 @@ export class SlackConnector extends BaseConnector {
     }
   }
 
+  embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {
+    const entities: EmbedResult['entities'] = [];
+    const metadata = event.content?.metadata || {};
+    const participants = event.content?.participants || [];
+
+    // Contact events — compound ID per person
+    if (metadata.type === 'contact') {
+      const parts: string[] = [];
+      if (metadata.name) parts.push(`name:${metadata.name}`);
+      if (metadata.slackId) parts.push(`slack_id:${metadata.slackId}`);
+      for (const email of (metadata.emails as string[]) || []) parts.push(`email:${email}`);
+      for (const phone of (metadata.phones as string[]) || []) parts.push(`phone:${phone}`);
+      if (parts.length) entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
+      return { text: cleanedText, entities, metadata: { isContact: true, ...metadata } };
+    }
+
+    const profiles = (metadata.participantProfiles || undefined) as
+      Record<string, { name: string; realName?: string; email?: string; phone?: string }> | undefined;
+    const participantRoles = (metadata.participantRoles || {}) as Record<string, string[]>;
+
+    for (const username of participants) {
+      if (!username) continue;
+      const profile = profiles?.[username];
+      const roles = participantRoles[username] || ['sender'];
+      let role = 'participant';
+      if (roles.includes('sender')) role = 'sender';
+      else if (roles.includes('recipient')) role = 'recipient';
+      else if (roles.includes('mentioned')) role = 'mentioned';
+
+      const parts = [`slack_id:${username}`];
+      if (profile) {
+        if (profile.realName) parts.push(`name:${profile.realName}`);
+        if (profile.email) parts.push(`email:${profile.email}`);
+        if (profile.phone) parts.push(`phone:${profile.phone}`);
+      }
+      entities.push({ type: 'person', id: parts.join('|'), role });
+    }
+
+    // Channel — compound ID
+    if (metadata.channelId || metadata.channelName) {
+      const chParts: string[] = [];
+      if (metadata.channelId) chParts.push(`slack_channel:${metadata.channelId}`);
+      if (metadata.channelName) chParts.push(`name:${metadata.channelName}`);
+      entities.push({ type: 'channel', id: chParts.join('|'), role: 'channel' });
+    }
+
+    // Thread
+    if (metadata.threadTs) {
+      entities.push({ type: 'message', id: `slack_thread:${metadata.channelId || ''}:${metadata.threadTs}`, role: 'thread' });
+    }
+
+    // Files
+    for (const att of event.content?.attachments || []) {
+      entities.push({ type: 'file', id: `file:${(att as any).filename || att.uri}`, role: 'attachment' });
+    }
+
+    return { text: cleanedText, entities };
+  }
+
   async sync(ctx: SyncContext): Promise<SyncResult> {
-    const result = await syncSlack(ctx, (event) => this.emitData(event));
-    this.emit('progress', { processed: result.processed });
+    const result = await syncSlack(
+      ctx,
+      (event) => this.emitData(event),
+      (processed) => this.emit('progress', { processed, total: processed }),
+    );
+    this.emit('progress', { processed: result.processed, total: result.processed });
     return result;
   }
 }

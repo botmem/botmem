@@ -2,84 +2,50 @@ import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { OnModuleInit } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
+import { ConnectorsService } from '../connectors/connectors.service';
+import { AccountsService } from '../accounts/accounts.service';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
+import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
-import { rawEvents, memories, accounts } from '../db/schema';
+import { rawEvents, memories, memoryLinks } from '../db/schema';
+import { photoDescriptionPrompt } from './prompts';
+import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
-export interface SlackProfile {
-  name: string;
-  realName?: string;
-  email?: string;
-  phone?: string;
-  title?: string;
-  avatarUrl?: string;
-}
-
-export function buildSlackIdentifiers(
-  username: string,
-  profiles: Record<string, SlackProfile> | undefined,
-): IdentifierInput[] {
-  const profile = profiles?.[username];
-  const identifiers: IdentifierInput[] = [];
-
-  if (profile) {
-    identifiers.push({ type: 'name', value: profile.realName || username, connectorType: 'slack' });
-    if (profile.email) {
-      identifiers.push({ type: 'email', value: profile.email, connectorType: 'slack' });
-    }
-    if (profile.phone) {
-      identifiers.push({ type: 'phone', value: profile.phone, connectorType: 'slack' });
-    }
-    identifiers.push({ type: 'slack_id', value: username, connectorType: 'slack' });
-  } else {
-    identifiers.push({ type: 'slack_id', value: username, connectorType: 'slack' });
-  }
-
-  return identifiers;
-}
-
-interface ConnectorDataEvent {
-  sourceType: string;
-  sourceId: string;
-  timestamp: string;
-  content: {
-    text?: string;
-    participants?: string[];
-    attachments?: unknown[];
-    metadata?: Record<string, unknown>;
-  };
-}
+const MAX_CONTENT_LENGTH = 10_000;
+const TRUNCATION_SUFFIX = '\n\n---\n*[Truncated]*';
 
 @Processor('embed')
 export class EmbedProcessor extends WorkerHost implements OnModuleInit {
-  private collectionReady = false;
-
   constructor(
     private dbService: DbService,
     private ollama: OllamaService,
     private qdrant: QdrantService,
+    private connectors: ConnectorsService,
+    private accountsService: AccountsService,
     private contactsService: ContactsService,
-    @InjectQueue('enrich') private enrichQueue: Queue,
-    @InjectQueue('file') private fileQueue: Queue,
     private events: EventsService,
     private logsService: LogsService,
+    private jobsService: JobsService,
     private settingsService: SettingsService,
+    @InjectQueue('enrich') private enrichQueue: Queue,
   ) {
     super();
   }
 
   onModuleInit() {
-    const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 4;
+    this.worker.on('error', (err) => console.warn('[embed worker]', err.message));
+    const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 16;
     this.worker.concurrency = concurrency;
+    this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'embed_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 4;
+        this.worker.concurrency = parseInt(value, 10) || 16;
       }
     });
   }
@@ -87,7 +53,6 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   async process(job: Job<{ rawEventId: string }>) {
     const { rawEventId } = job.data;
 
-    // 1. Read raw event
     const rows = await this.dbService.db
       .select()
       .from(rawEvents)
@@ -95,36 +60,39 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     if (!rows.length) return;
     const rawEvent = rows[0];
-
-    // 2. Parse payload
-    const event: ConnectorDataEvent = JSON.parse(rawEvent.payload);
-    let text = event.content?.text || '';
-    // Strip HTML if present (safety net for connectors that emit raw HTML)
-    if (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<div')) {
-      text = text
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-    }
-    if (!text.trim()) return;
-
+    const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
+
+    const event: ConnectorDataEvent = JSON.parse(rawEvent.payload);
+    const connector = this.connectors.get(rawEvent.connectorType);
+    const text = rawEvent.cleanedText || event.content?.text || '';
+
+    if (!text) {
+      await this.advanceAndComplete(parentJobId);
+      return;
+    }
+
+    const metadata = event.content?.metadata || {};
+    const attachments = event.content?.attachments;
+    if (attachments?.length) {
+      metadata.attachments = attachments;
+    }
+
+    const ctx = await this.buildPipelineContext(rawEvent.accountId, rawEvent.connectorType);
+
     this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
       `[embed:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`);
 
     const pipelineStart = Date.now();
 
-    // 3. Create memory record
+    // Call connector.embed() for entity extraction
+    const embedResult = await connector.embed(event, text, ctx);
+    const embedText = embedResult.text || text;
+
+    // Create memory record
     const memoryId = randomUUID();
     const now = new Date().toISOString();
+    const mergedMetadata = { ...metadata, ...(embedResult.metadata || {}) };
 
     let t0 = Date.now();
     await this.dbService.db.insert(memories).values({
@@ -133,62 +101,74 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       connectorType: rawEvent.connectorType,
       sourceType: event.sourceType,
       sourceId: event.sourceId,
-      text,
+      text: embedText,
       eventTime: event.timestamp,
       ingestTime: now,
-      metadata: JSON.stringify(event.content?.metadata || {}),
+      metadata: JSON.stringify(mergedMetadata),
       embeddingStatus: 'pending',
       createdAt: now,
     });
     const dbInsertMs = Date.now() - t0;
 
-    // Route file events to the file processor for content extraction
-    if (event.sourceType === 'file') {
-      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `[embed:file-route] ${mid} → file queue for content extraction`);
-
-      // Resolve contacts before routing to file processor (e.g. Immich people tags)
-      try {
-        await this.resolveContacts(memoryId, rawEvent.connectorType, event, rawEvent.accountId);
-      } catch (err) {
-        console.error('Contact resolution failed for file event:', err);
-      }
-
-      await this.fileQueue.add(
-        'file',
-        { memoryId },
-        { attempts: 2, backoff: { type: 'exponential', delay: 2000 } },
-      );
-      return;
-    }
-
-    // 4. Resolve contacts from participants
+    // Contact resolution + linking
     t0 = Date.now();
     let contactCount = 0;
     try {
-      await this.resolveContacts(memoryId, rawEvent.connectorType, event, rawEvent.accountId);
-      contactCount = (event.content?.participants || []).length;
+      const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> = [];
+
+      for (const entity of embedResult.entities) {
+        if (entity.type === 'person' || entity.type === 'group' || entity.type === 'device') {
+          const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
+          let merged = false;
+          for (const bucket of buckets) {
+            if (bucket.entityType !== entity.type || bucket.role !== entity.role) continue;
+            const bucketValues = new Set(bucket.identifiers.map((i) => i.value));
+            if (identifiers.some((id) => bucketValues.has(id.value))) {
+              bucket.identifiers.push(...identifiers);
+              merged = true;
+              break;
+            }
+          }
+          if (!merged) {
+            buckets.push({ entityType: entity.type, role: entity.role, identifiers: [...identifiers] });
+          }
+        }
+        if (entity.type === 'message' && entity.id.startsWith('thread:')) {
+          await this.linkThread(memoryId, entity.id.replace('thread:', ''), rawEvent.connectorType);
+        }
+      }
+
+      for (const { entityType, role, identifiers } of buckets) {
+        const resolveType = entityType === 'person' ? undefined : entityType;
+        const contact = await this.contactsService.resolveContact(identifiers, resolveType as any);
+        if (contact) {
+          await this.contactsService.linkMemory(memoryId, contact.id, role);
+          contactCount++;
+        }
+      }
     } catch (err) {
       console.error('Contact resolution failed:', err);
     }
     const contactMs = Date.now() - t0;
 
-    // 5. Generate embedding (truncate to avoid Ollama 400 on long text)
-    // qwen3-embedding:8b has 4096 token context; ~4 chars/token → 16k chars max, use 8k for safety
-    const maxChars = 8000;
-    const embedText = text.length > maxChars ? text.slice(0, maxChars) : text;
+    // Thread linking from metadata
+    if (mergedMetadata.threadId) {
+      try {
+        await this.linkThread(memoryId, mergedMetadata.threadId as string, rawEvent.connectorType);
+      } catch {
+        // Thread linking is best-effort
+      }
+    }
+
+    // Generate embedding + store in Qdrant
+    const maxChars = 6000;
+    let currentText = embedText;
+    const truncatedText = currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
     try {
       t0 = Date.now();
-      const vector = await this.ollama.embed(embedText);
+      let vector = await this.ollama.embed(truncatedText);
       const embedMs = Date.now() - t0;
 
-      // Ensure Qdrant collection exists on first run
-      if (!this.collectionReady) {
-        await this.qdrant.ensureCollection(vector.length);
-        this.collectionReady = true;
-      }
-
-      // 6. Store in Qdrant
       t0 = Date.now();
       await this.qdrant.upsert(memoryId, vector, {
         source_type: event.sourceType,
@@ -198,24 +178,56 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       });
       const qdrantMs = Date.now() - t0;
 
-      // 7. Update status
-      await this.dbService.db
-        .update(memories)
-        .set({ embeddingStatus: 'done' })
-        .where(eq(memories.id, memoryId));
-
-      const totalMs = Date.now() - pipelineStart;
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `[embed:done] ${memoryId.slice(0, 8)} in ${totalMs}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);
+        `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);
 
-      // 8. Enqueue enrichment
-      await this.enrichQueue.add(
-        'enrich',
-        { memoryId },
-        { attempts: 2, backoff: { type: 'exponential', delay: 1000 } },
-      );
+      // File processing (image → VL model description → re-embed)
+      if (mergedMetadata.fileUrl && (mergedMetadata.mimetype as string)?.startsWith('image/')) {
+        try {
+          const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
+          if (fileContent) {
+            currentText = fileContent + '\n\n' + currentText;
+            await this.dbService.db
+              .update(memories)
+              .set({ text: currentText })
+              .where(eq(memories.id, memoryId));
 
-      // Real-time event omitted — frontend uses polling instead
+            const reEmbedText = currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+            vector = await this.ollama.embed(reEmbedText);
+            await this.qdrant.upsert(memoryId, vector, {
+              source_type: event.sourceType,
+              connector_type: rawEvent.connectorType,
+              event_time: event.timestamp,
+              account_id: rawEvent.accountId,
+            });
+          }
+        } catch (err: any) {
+          this.addLog(rawEvent.connectorType, rawEvent.accountId, 'warn',
+            `[embed:file] ${mid} file processing failed: ${err?.message}`);
+        }
+      }
+
+      // Enqueue to enrich stage
+      const pipelineEnrich = connector.manifest.pipeline?.enrich !== false;
+      if (pipelineEnrich) {
+        await this.enrichQueue.add(
+          'enrich',
+          { rawEventId, memoryId },
+          { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+        );
+      } else {
+        // No enrich — mark done directly
+        await this.dbService.db.update(memories)
+          .set({ embeddingStatus: 'done' })
+          .where(eq(memories.id, memoryId));
+        this.events.emitToChannel('memories', 'memory:updated', {
+          memoryId,
+          sourceType: event.sourceType,
+          connectorType: rawEvent.connectorType,
+          text: currentText.slice(0, 100),
+        });
+        await this.advanceAndComplete(parentJobId);
+      }
     } catch (err: any) {
       const totalMs = Date.now() - pipelineStart;
       await this.dbService.db
@@ -228,340 +240,231 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  private addLog(connectorType: string, accountId: string, level: string, message: string) {
-    const stage = 'embed';
-    this.logsService.add({ connectorType, accountId, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
-  }
-
-  private async resolveContacts(
+  private async processFile(
     memoryId: string,
-    connectorType: string,
-    event: ConnectorDataEvent,
-    accountId?: string,
-  ): Promise<void> {
-    const metadata = event.content?.metadata || {};
-    const participants = event.content?.participants || [];
+    metadata: Record<string, any>,
+    rawEvent: any,
+  ): Promise<string | null> {
+    const fileUrl: string = metadata.fileUrl;
+    const mimetype: string = metadata.mimetype || '';
+    const fileName: string = metadata.fileName || '';
+    const mid = memoryId.slice(0, 8);
 
-    switch (connectorType) {
-      case 'gmail':
-        await this.resolveGmailContacts(memoryId, metadata, participants);
-        break;
-      case 'slack':
-        await this.resolveSlackContacts(memoryId, metadata, participants);
-        break;
-      case 'whatsapp':
-        await this.resolveWhatsAppContacts(memoryId, metadata, participants);
-        break;
-      case 'imessage':
-        await this.resolveIMessageContacts(memoryId, metadata, participants);
-        break;
-      case 'photos':
-        await this.resolvePhotosContacts(memoryId, metadata, participants, accountId);
-        break;
+    this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
+      `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'})`);
+
+    const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
+
+    const res = await fetch(fileUrl, {
+      headers,
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok) {
+      throw new Error(`File download failed: ${res.status} ${res.statusText}`);
     }
+
+    const mime = mimetype.toLowerCase();
+    const ext = fileName.toLowerCase().split('.').pop() || '';
+    const header = fileName ? `# ${fileName}` : '';
+
+    if (mime.startsWith('image/')) {
+      const [memory] = await this.dbService.db
+        .select({ text: memories.text })
+        .from(memories)
+        .where(eq(memories.id, memoryId));
+      const buffer = await res.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const description = await this.ollama.generate(
+        photoDescriptionPrompt(memory?.text || ''),
+        [base64],
+      );
+      return description.trim() || null;
+    }
+
+    if (mime === 'application/pdf' || ext === 'pdf') {
+      const pdfParseModule = await import('pdf-parse');
+      const pdfParse = pdfParseModule.default || pdfParseModule;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const data = await (pdfParse as any)(buffer);
+      const text = data.text?.trim();
+      if (!text) return null;
+      let content = header ? `${header}\n\n${text}` : text;
+      if (content.length > MAX_CONTENT_LENGTH) {
+        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+      }
+      return content;
+    }
+
+    if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx') {
+      const mammoth = await import('mammoth');
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const result = await mammoth.extractRawText({ buffer });
+      const text = result.value?.trim();
+      if (!text) return null;
+      let content = header ? `${header}\n\n${text}` : text;
+      if (content.length > MAX_CONTENT_LENGTH) {
+        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+      }
+      return content;
+    }
+
+    if (
+      mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mime === 'application/vnd.ms-excel' ||
+      mime === 'text/csv' ||
+      ext === 'xlsx' || ext === 'xls' || ext === 'csv'
+    ) {
+      const XLSX = await import('xlsx');
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sections: string[] = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        if (!csv.trim()) continue;
+        const lines = csv.split('\n').filter((l: string) => l.trim());
+        if (!lines.length) continue;
+        const mdLines: string[] = [`## ${sheetName}`];
+        const headerCols = lines[0].split(',');
+        mdLines.push(`| ${headerCols.join(' | ')} |`);
+        mdLines.push(`| ${headerCols.map(() => '---').join(' | ')} |`);
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          mdLines.push(`| ${cols.join(' | ')} |`);
+        }
+        sections.push(mdLines.join('\n'));
+      }
+
+      if (!sections.length) return null;
+      let content = header ? `${header}\n\n${sections.join('\n\n')}` : sections.join('\n\n');
+      if (content.length > MAX_CONTENT_LENGTH) {
+        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+      }
+      return content;
+    }
+
+    if (mime.startsWith('text/') && ext !== 'csv') {
+      const text = await res.text();
+      if (!text.trim()) return null;
+      let content = header ? `${header}\n\n${text.trim()}` : text.trim();
+      if (content.length > MAX_CONTENT_LENGTH) {
+        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+      }
+      return content;
+    }
+
+    return null;
   }
 
-  private async resolveGmailContacts(
-    memoryId: string,
-    metadata: Record<string, unknown>,
-    participants: string[],
-  ): Promise<void> {
-    // Gmail metadata has: from, to, cc (raw email headers)
-    // Gmail contact events have: metadata.emails, metadata.phones, metadata.name
-    const isContact = metadata.type === 'contact';
+  private parseEntityIdentifiers(entity: { type: string; id: string; role: string }, connectorType: string): IdentifierInput[] {
+    const identifiers: IdentifierInput[] = [];
+    const parts = entity.id.split('|');
+    for (const part of parts) {
+      const colonIdx = part.indexOf(':');
+      if (colonIdx === -1) {
+        identifiers.push({ type: entity.type, value: part, connectorType });
+      } else {
+        identifiers.push({ type: part.slice(0, colonIdx), value: part.slice(colonIdx + 1), connectorType });
+      }
+    }
+    return identifiers;
+  }
 
-    if (isContact) {
-      // This is a Google contact — extract all available identifiers and metadata
-      const identifiers: IdentifierInput[] = [];
-      if (metadata.name) {
-        identifiers.push({ type: 'name', value: metadata.name as string, connectorType: 'gmail' });
-      }
-      for (const nick of (metadata.nicknames as string[]) || []) {
-        identifiers.push({ type: 'name', value: nick, connectorType: 'gmail' });
-      }
-      for (const email of (metadata.emails as string[]) || []) {
-        identifiers.push({ type: 'email', value: email, connectorType: 'gmail' });
-      }
-      for (const phone of (metadata.phones as string[]) || []) {
-        const num = phone.replace(/\s*\(.*\)/, '').trim();
-        identifiers.push({ type: 'phone', value: num, connectorType: 'gmail' });
-      }
-      for (const sip of (metadata.sipAddresses as string[]) || []) {
-        identifiers.push({ type: 'sip', value: sip, connectorType: 'gmail' });
-      }
-
-      if (identifiers.length) {
-        const contact = await this.contactsService.resolveContact(identifiers);
-        await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
-
-        // Store rich metadata on the contact record
-        const contactMeta: Record<string, unknown> = {};
-        const orgs = metadata.organizations as Array<{ name?: string; title?: string; department?: string }> | undefined;
-        if (orgs?.length) contactMeta.organizations = orgs;
-        if (metadata.addresses) contactMeta.addresses = metadata.addresses;
-        if (metadata.birthday) contactMeta.birthday = metadata.birthday;
-        if (metadata.bio) contactMeta.bio = metadata.bio;
-        if (metadata.urls) contactMeta.urls = metadata.urls;
-        if (metadata.relations) contactMeta.relations = metadata.relations;
-        if (metadata.occupations) contactMeta.occupations = metadata.occupations;
-        if (metadata.interests) contactMeta.interests = metadata.interests;
-        if (metadata.gender) contactMeta.gender = metadata.gender;
-        if (metadata.imClients) contactMeta.imClients = metadata.imClients;
-        if (metadata.events) contactMeta.events = metadata.events;
-        if (metadata.externalIds) contactMeta.externalIds = metadata.externalIds;
-        if (metadata.userDefined) contactMeta.userDefined = metadata.userDefined;
-        if (metadata.givenName) contactMeta.givenName = metadata.givenName;
-        if (metadata.familyName) contactMeta.familyName = metadata.familyName;
-
-        if (Object.keys(contactMeta).length) {
-          // Merge with existing metadata rather than overwrite
-          const existing = contact.metadata ? JSON.parse(contact.metadata) : {};
-          await this.contactsService.updateContact(contact.id, {
-            metadata: { ...existing, ...contactMeta },
+  private async linkThread(memoryId: string, threadId: string, connectorType: string) {
+    const threadSiblings = await this.dbService.db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(and(
+        eq(memories.connectorType, connectorType),
+        sql`json_extract(${memories.metadata}, '$.threadId') = ${threadId}`,
+      ))
+      .limit(20);
+    const siblings = threadSiblings.filter(s => s.id !== memoryId);
+    if (siblings.length) {
+      const now = new Date().toISOString();
+      for (const sib of siblings) {
+        const existingLink = await this.dbService.db
+          .select({ id: memoryLinks.id })
+          .from(memoryLinks)
+          .where(and(
+            eq(memoryLinks.srcMemoryId, sib.id),
+            eq(memoryLinks.dstMemoryId, memoryId),
+          ))
+          .limit(1);
+        if (!existingLink.length) {
+          await this.dbService.db.insert(memoryLinks).values({
+            id: randomUUID(),
+            srcMemoryId: sib.id,
+            dstMemoryId: memoryId,
+            linkType: 'related',
+            strength: 0.8,
+            createdAt: now,
           });
         }
-
-        // Store Google profile photo as avatar
-        const photoUrl = metadata.photoUrl as string | undefined;
-        if (photoUrl) {
-          const existingAvatars: Array<{ url: string; source: string }> = JSON.parse(contact.avatars || '[]');
-          const hasGoogleAvatar = existingAvatars.some((a) => a.source === 'google');
-          if (!hasGoogleAvatar) {
-            existingAvatars.push({ url: photoUrl, source: 'google' });
-            await this.contactsService.updateContact(contact.id, { avatars: existingAvatars });
-          }
-        }
-      }
-      return;
-    }
-
-    // Regular email — parse from/to/cc headers
-    const fromHeader = (metadata.from as string) || '';
-    const toHeader = (metadata.to as string) || '';
-    const ccHeader = (metadata.cc as string) || '';
-
-    const fromEmails = this.parseEmailAddresses(fromHeader);
-    for (const { name, email } of fromEmails) {
-      const identifiers: IdentifierInput[] = [
-        { type: 'email', value: email, connectorType: 'gmail' },
-      ];
-      if (name) identifiers.push({ type: 'name', value: name, connectorType: 'gmail' });
-      const contact = await this.contactsService.resolveContact(identifiers);
-      await this.contactsService.linkMemory(memoryId, contact.id, 'sender');
-    }
-
-    const recipientEmails = [
-      ...this.parseEmailAddresses(toHeader),
-      ...this.parseEmailAddresses(ccHeader),
-    ];
-    for (const { name, email } of recipientEmails) {
-      const identifiers: IdentifierInput[] = [
-        { type: 'email', value: email, connectorType: 'gmail' },
-      ];
-      if (name) identifiers.push({ type: 'name', value: name, connectorType: 'gmail' });
-      const contact = await this.contactsService.resolveContact(identifiers);
-      await this.contactsService.linkMemory(memoryId, contact.id, 'recipient');
-    }
-  }
-
-  private async resolveSlackContacts(
-    memoryId: string,
-    metadata: Record<string, unknown>,
-    participants: string[],
-  ): Promise<void> {
-    const isContact = metadata.type === 'contact';
-
-    if (isContact) {
-      const identifiers: IdentifierInput[] = [];
-      if (metadata.name) {
-        identifiers.push({ type: 'name', value: metadata.name as string, connectorType: 'slack' });
-      }
-      if (metadata.slackId) {
-        identifiers.push({ type: 'slack_id', value: metadata.slackId as string, connectorType: 'slack' });
-      }
-      for (const email of (metadata.emails as string[]) || []) {
-        identifiers.push({ type: 'email', value: email, connectorType: 'slack' });
-      }
-      for (const phone of (metadata.phones as string[]) || []) {
-        identifiers.push({ type: 'phone', value: phone, connectorType: 'slack' });
-      }
-      if (identifiers.length) {
-        const contact = await this.contactsService.resolveContact(identifiers);
-        await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
-      }
-      return;
-    }
-
-    const profiles = (metadata.participantProfiles || undefined) as
-      Record<string, SlackProfile> | undefined;
-
-    for (const username of participants) {
-      if (!username) continue;
-      const identifiers = buildSlackIdentifiers(username, profiles);
-      const contact = await this.contactsService.resolveContact(identifiers);
-      await this.contactsService.linkMemory(memoryId, contact.id, 'sender');
-    }
-  }
-
-  private async resolveWhatsAppContacts(
-    memoryId: string,
-    metadata: Record<string, unknown>,
-    participants: string[],
-  ): Promise<void> {
-    const senderPhone = metadata.senderPhone as string | undefined;
-    const senderName = metadata.senderName as string | undefined;
-    const selfPhone = metadata.selfPhone as string | undefined;
-    const fromMe = metadata.fromMe as boolean | undefined;
-
-    // Resolve sender
-    const phone = senderPhone || (participants[0] || '').replace(/@.*$/, '').split(':')[0];
-    if (!phone || phone.includes('-')) return; // Skip group JIDs
-
-    const senderIdentifiers: IdentifierInput[] = [
-      { type: 'phone', value: phone, connectorType: 'whatsapp' },
-    ];
-    if (senderName && senderName !== 'me' && senderName !== phone) {
-      senderIdentifiers.push({ type: 'name', value: senderName, connectorType: 'whatsapp' });
-    }
-    const senderContact = await this.contactsService.resolveContact(senderIdentifiers);
-    await this.contactsService.linkMemory(memoryId, senderContact.id, 'sender');
-
-    // For DMs, also resolve the other party as recipient
-    const isGroup = metadata.isGroup as boolean | undefined;
-    if (!isGroup && selfPhone) {
-      const otherPhone = fromMe ? phone : selfPhone;
-      // Only create recipient if different from sender
-      if (otherPhone !== phone) {
-        const recipientIdentifiers: IdentifierInput[] = [
-          { type: 'phone', value: otherPhone, connectorType: 'whatsapp' },
-        ];
-        const recipientContact = await this.contactsService.resolveContact(recipientIdentifiers);
-        await this.contactsService.linkMemory(memoryId, recipientContact.id, 'recipient');
       }
     }
   }
 
-  private async resolveIMessageContacts(
-    memoryId: string,
-    metadata: Record<string, unknown>,
-    participants: string[],
-  ): Promise<void> {
-    // iMessage participants can be emails or phone numbers
-    const isFromMe = metadata.isFromMe as boolean | undefined;
-
-    for (const participant of participants) {
-      if (!participant) continue;
-      const identifiers: IdentifierInput[] = [];
-
-      if (participant.includes('@')) {
-        identifiers.push({ type: 'email', value: participant, connectorType: 'imessage' });
-        identifiers.push({ type: 'imessage_handle', value: participant, connectorType: 'imessage' });
-      } else {
-        // Phone number
-        identifiers.push({ type: 'phone', value: participant, connectorType: 'imessage' });
-        identifiers.push({ type: 'imessage_handle', value: participant, connectorType: 'imessage' });
+  private async advanceAndComplete(jobId: string | null | undefined) {
+    if (!jobId) return;
+    try {
+      const result = await this.jobsService.incrementProgress(jobId);
+      this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
+        jobId,
+        processed: result.progress,
+        total: result.total,
+      });
+      const done = await this.jobsService.tryCompleteJob(jobId);
+      if (done) {
+        this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
       }
-
-      const contact = await this.contactsService.resolveContact(identifiers);
-      const role = isFromMe ? 'recipient' : 'sender';
-      await this.contactsService.linkMemory(memoryId, contact.id, role);
+    } catch {
+      // Non-fatal
     }
   }
 
-  private async resolvePhotosContacts(
-    memoryId: string,
-    metadata: Record<string, unknown>,
-    participants: string[],
-    accountId?: string,
-  ): Promise<void> {
-    // Immich people from facial recognition stored in metadata.people
-    const people = (metadata.people as Array<{ id: string; name: string; birthDate?: string }>) || [];
-    const resolvedNames = new Set<string>();
+  private async buildPipelineContext(accountId: string, connectorType: string): Promise<PipelineContext> {
+    let auth: any = {};
+    try {
+      const account = await this.accountsService.getById(accountId);
+      if (account.authContext) auth = JSON.parse(account.authContext);
+    } catch {}
+    const logger: ConnectorLogger = {
+      info: (msg) => this.addLog(connectorType, accountId, 'info', msg),
+      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg),
+      error: (msg) => this.addLog(connectorType, accountId, 'error', msg),
+      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg),
+    };
+    return { accountId, auth, logger };
+  }
 
-    // Look up Immich host + API key from account auth for avatar download
-    let immichHost: string | null = null;
-    let immichApiKey: string | null = null;
-    if (accountId) {
-      try {
-        const accRows = await this.dbService.db.select().from(accounts).where(eq(accounts.id, accountId));
-        if (accRows.length && accRows[0].authContext) {
-          const auth = JSON.parse(accRows[0].authContext);
-          immichHost = auth.raw?.host as string;
-          immichApiKey = auth.accessToken as string;
-        }
-      } catch {
-        // Non-fatal
-      }
+  private async buildAuthHeaders(
+    accountId: string | null,
+    connectorType: string,
+  ): Promise<Record<string, string>> {
+    if (!accountId) return {};
+    let account;
+    try {
+      account = await this.accountsService.getById(accountId);
+    } catch {
+      return {};
     }
-
-    for (const person of people) {
-      if (!person.name) continue;
-
-      const identifiers: IdentifierInput[] = [
-        { type: 'name', value: person.name, connectorType: 'photos' },
-        { type: 'immich_person_id', value: person.id, connectorType: 'photos' },
-      ];
-
-      const contact = await this.contactsService.resolveContact(identifiers);
-      await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
-      resolvedNames.add(person.name);
-
-      // Download and store avatar if not already present
-      if (immichHost && immichApiKey) {
-        try {
-          const existingAvatars: Array<{ url: string; source: string }> = JSON.parse(contact.avatars || '[]');
-          const hasImmichAvatar = existingAvatars.some((a) => a.source === 'immich');
-          if (!hasImmichAvatar) {
-            const thumbUrl = `${immichHost}/api/people/${person.id}/thumbnail`;
-            const res = await fetch(thumbUrl, { headers: { 'x-api-key': immichApiKey } });
-            if (res.ok) {
-              const buffer = await res.arrayBuffer();
-              const base64 = Buffer.from(buffer).toString('base64');
-              const contentType = res.headers.get('content-type') || 'image/jpeg';
-              existingAvatars.push({ url: `data:${contentType};base64,${base64}`, source: 'immich' });
-              await this.contactsService.updateContact(contact.id, { avatars: existingAvatars });
-            }
-          }
-        } catch {
-          // Avatar download is best-effort
-        }
-      }
-    }
-
-    // Also resolve any participants not already handled via the people array
-    for (const name of participants) {
-      if (!name || resolvedNames.has(name)) continue;
-
-      const identifiers: IdentifierInput[] = [
-        { type: 'name', value: name, connectorType: 'photos' },
-      ];
-      const contact = await this.contactsService.resolveContact(identifiers);
-      await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
+    const authContext = account.authContext ? JSON.parse(account.authContext) : null;
+    if (!authContext?.accessToken) return {};
+    switch (connectorType) {
+      case 'slack':
+        return { Authorization: `Bearer ${authContext.accessToken}` };
+      case 'photos':
+        return { 'x-api-key': authContext.accessToken };
+      default:
+        return { Authorization: `Bearer ${authContext.accessToken}` };
     }
   }
 
-  private parseEmailAddresses(header: string): Array<{ name: string | null; email: string }> {
-    if (!header) return [];
-    const results: Array<{ name: string | null; email: string }> = [];
-
-    // Split by comma, handle "Name <email>" and bare "email" formats
-    const parts = header.split(',');
-    for (const part of parts) {
-      const trimmed = part.trim();
-      if (!trimmed) continue;
-
-      // "Display Name <email@domain.com>" or bare "<email@domain.com>" format
-      const angleMatch = trimmed.match(/^(.*?)\s*<([^>]+)>$/);
-      if (angleMatch) {
-        const name = angleMatch[1].replace(/^["']|["']$/g, '').trim();
-        results.push({ name: name || null, email: angleMatch[2].toLowerCase() });
-      } else if (trimmed.includes('@')) {
-        // Bare email
-        results.push({ name: null, email: trimmed.toLowerCase() });
-      }
-    }
-
-    return results;
+  private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
+    const stage = 'embed';
+    this.logsService.add({ connectorType, accountId: accountId ?? undefined, stage, level, message });
+    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
   }
 }

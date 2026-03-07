@@ -1,6 +1,7 @@
 import { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import * as QRCode from 'qrcode';
 import pino from 'pino';
+import { mkdirSync } from 'fs';
 import type { AuthContext } from '@botmem/connector-sdk';
 
 const logger = pino({ level: 'warn' }) as any;
@@ -52,6 +53,7 @@ export async function startQrAuth(
   const attempt = async () => {
     if (connected) return;
 
+    mkdirSync(sessionDir, { recursive: true });
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const version = await getWhatsAppVersion();
 

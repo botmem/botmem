@@ -21,6 +21,7 @@ interface JobState {
   cancelJob: (id: string) => Promise<void>;
   reprioritize: (id: string, direction: 'up' | 'down') => void;
   addLog: (log: LogEntry) => void;
+  clearLogs: () => void;
   connectWs: () => void;
   tickJobs: () => void;
 }
@@ -98,6 +99,8 @@ export const useJobStore = create<JobState>((set, get) => ({
       logs: [log, ...state.logs].slice(0, 100),
     })),
 
+  clearLogs: () => set({ logs: [] }),
+
   connectWs: () => {
     try {
       const ws = createWsConnection();
@@ -127,6 +130,7 @@ export const useJobStore = create<JobState>((set, get) => ({
         }
         if (data.event === 'job:complete') {
           get().fetchJobs();
+          get().fetchQueueStats();
         }
       };
       set({ ws });

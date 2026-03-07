@@ -56,12 +56,18 @@ export class AuthService {
       .run();
   }
 
-  /** Create account, validate auth, trigger first sync. Rolls back on failure. */
+  /** Create account, validate auth, trigger first sync. Returns existing account if already connected. */
   private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>) {
+    console.log(`[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}`);
     // Acquire lock BEFORE any async work — JS is single-threaded so this
     // synchronous check+set is atomic (no await between has() and add())
     const lockKey = `${connectorType}:${identifier}`;
     if (this.creatingAccounts.has(lockKey)) {
+      console.warn(`[Auth] createAndSync: lock already held for ${lockKey}, waiting...`);
+      // Instead of throwing, wait briefly and return existing account
+      await new Promise((r) => setTimeout(r, 2000));
+      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
+      if (existing) return existing;
       throw new BadRequestException(`Account ${identifier} is already being created`);
     }
     this.creatingAccounts.add(lockKey);
@@ -70,8 +76,15 @@ export class AuthService {
       // Prevent duplicate accounts for the same connector + identifier
       const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
       if (existing) {
-        throw new BadRequestException(`Account ${identifier} is already connected`);
+        // Update auth context and re-sync instead of throwing
+        await this.accountsService.update(existing.id, {
+          authContext: JSON.stringify(auth),
+          status: 'connected',
+          lastError: null,
+        });
+        return this.accountsService.getById(existing.id);
       }
+
       const connector = this.connectors.get(connectorType);
       const valid = await connector.validateAuth(auth);
       if (!valid) {
@@ -83,6 +96,10 @@ export class AuthService {
         identifier,
         authContext: JSON.stringify(auth),
       });
+
+      // Small delay before triggering sync — gives WhatsApp auth socket time to be stored
+      // so the sync processor can pick it up for history capture
+      await new Promise((r) => setTimeout(r, 1000));
 
       // Trigger first sync automatically
       await this.jobsService.triggerSync(account.id, connectorType, identifier);
@@ -134,9 +151,27 @@ export class AuthService {
     return { type: 'redirect' as const, url: result.url };
   }
 
+  // Track active QR listeners per connector to prevent duplicate account creation
+  private activeQrListeners = new Map<string, boolean>();
+
   /** After returning QR to frontend, listen for the connector's 'connected' event */
   private listenForQrCompletion(connector: any, connectorType: string, wsChannel: string) {
+    // Remove any previous listeners for this connector type
+    if (this.activeQrListeners.get(connectorType)) {
+      connector.removeAllListeners('connected');
+    }
+    this.activeQrListeners.set(connectorType, true);
+
+    let handled = false;
     const handler = async (payload: { wsChannel: string; sessionDir: string; auth: any }) => {
+      console.log(`[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`);
+      // Guard against duplicate connected events
+      if (handled) {
+        console.warn(`[Auth] Ignoring duplicate 'connected' event for ${connectorType}`);
+        return;
+      }
+      handled = true;
+      this.activeQrListeners.delete(connectorType);
       connector.removeListener('connected', handler);
 
       try {
@@ -145,8 +180,10 @@ export class AuthService {
         // Use the JID (WhatsApp phone number) as the identifier
         // Strip device suffix (e.g. "971502284498:24@s.whatsapp.net" → "971502284498")
         const identifier = jid.split('@')[0]?.split(':')[0] || connectorType;
+        console.log(`[Auth] Creating account for ${connectorType} identifier=${identifier}`);
 
         const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>);
+        console.log(`[Auth] Account created: id=${account.id}, identifier=${identifier}`);
 
         // Broadcast completion to the frontend via WebSocket
         this.events.emitToChannel(wsChannel, 'auth:complete', {
@@ -155,6 +192,7 @@ export class AuthService {
           identifier,
         });
       } catch (err: any) {
+        console.error(`[Auth] QR completion error for ${connectorType}:`, err.message);
         // Broadcast error to the frontend
         this.events.emitToChannel(wsChannel, 'auth:error', {
           connectorType,

@@ -14,8 +14,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "test": "vitest run"
+    "dev": "tsc --watch"
   },
   "dependencies": {
     "@botmem/connector-sdk": "workspace:*"

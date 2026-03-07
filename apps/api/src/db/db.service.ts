@@ -168,5 +168,44 @@ export class DbService implements OnModuleInit {
     } catch {
       // Migration already applied or avatar_url doesn't exist
     }
+
+    try {
+      this.sqlite.exec(`ALTER TABLE raw_events ADD COLUMN cleaned_text TEXT`);
+    } catch {
+      // Column already exists
+    }
+
+    // Indexes for performance
+    this.sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_contact_identifiers_contact_id ON contact_identifiers(contact_id);
+      CREATE INDEX IF NOT EXISTS idx_contact_identifiers_value ON contact_identifiers(identifier_type, identifier_value);
+      CREATE INDEX IF NOT EXISTS idx_memory_contacts_contact_id ON memory_contacts(contact_id);
+      CREATE INDEX IF NOT EXISTS idx_memory_contacts_memory_id ON memory_contacts(memory_id);
+      CREATE INDEX IF NOT EXISTS idx_merge_dismissals_pair ON merge_dismissals(contact_id_1, contact_id_2);
+      CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name);
+      CREATE INDEX IF NOT EXISTS idx_memories_embedding_status ON memories(embedding_status);
+      CREATE INDEX IF NOT EXISTS idx_memories_event_time ON memories(event_time);
+      CREATE INDEX IF NOT EXISTS idx_memories_connector_type ON memories(connector_type);
+      CREATE INDEX IF NOT EXISTS idx_raw_events_source_id ON raw_events(source_id);
+      CREATE INDEX IF NOT EXISTS idx_raw_events_job_id ON raw_events(job_id);
+      CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
+    `);
+
+    // Unique index on memories(source_id, connector_type) for dedup enforcement
+    try {
+      this.sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_source_dedup ON memories(source_id, connector_type)`);
+    } catch {
+      // Index may conflict with existing duplicates — clean up first
+      try {
+        this.sqlite.exec(`
+          DELETE FROM memories WHERE rowid NOT IN (
+            SELECT MIN(rowid) FROM memories GROUP BY source_id, connector_type
+          )
+        `);
+        this.sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_source_dedup ON memories(source_id, connector_type)`);
+      } catch {
+        // Best-effort — app-level dedup will still work
+      }
+    }
   }
 }

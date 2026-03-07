@@ -60,7 +60,7 @@ export async function syncGmail(
     );
 
     for (const detail of details) {
-      if (ctx.signal.aborted) break;
+      if (ctx.signal?.aborted) break;
 
       const headers = detail.data.payload?.headers || [];
       const subject = headers.find((h) => h.name === 'Subject')?.value || '';
@@ -74,12 +74,23 @@ export async function syncGmail(
       const body = extractBody(detail.data.payload);
       const attachments = extractAttachments(detail.data.payload);
 
+      // Prefer Gmail internalDate (epoch ms, always reliable) over parsed Date header
+      let timestamp: string;
+      if (detail.data.internalDate) {
+        timestamp = new Date(Number(detail.data.internalDate)).toISOString();
+      } else if (date) {
+        const parsed = new Date(date);
+        timestamp = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+      } else {
+        timestamp = new Date().toISOString();
+      }
+
       emit({
         sourceType: 'email',
         sourceId: detail.data.id!,
-        timestamp: date ? new Date(date).toISOString() : new Date().toISOString(),
+        timestamp,
         content: {
-          text: `Subject: ${subject}\n\n${body}`,
+          text: `${subject}\n\n${body}`,
           participants: [from, to, cc].filter(Boolean),
           attachments: attachments.length > 0 ? attachments : undefined,
           metadata: {

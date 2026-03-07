@@ -1,0 +1,23 @@
+{
+  "id": "session-1772749724728",
+  "startedAt": "2026-03-05T22:28:44.728Z",
+  "cwd": "/Users/amr/Projects/botmem/apps/api",
+  "context": {
+    "lastMatchedPatterns": [
+      "mem-MEMORY-workflow-rules",
+      "mem-MEMORY-tool-usage-rules",
+      "mem-MEMORY-linear-ticket-management",
+      "mem-gh586-postmortem-handoff-what-needs-to-be-done",
+      "mem-MEMORY-browser-automation--agent-brow"
+    ]
+  },
+  "metrics": {
+    "edits": 5,
+    "commands": 0,
+    "tasks": 0,
+    "errors": 0
+  },
+  "updatedAt": "2026-03-05T23:11:39.242Z",
+  "endedAt": "2026-03-05T23:13:00.732Z",
+  "duration": 2656005
+}

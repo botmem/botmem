@@ -1,4 +1,4 @@
-export type BuiltinConnectorType = 'gmail' | 'whatsapp' | 'slack' | 'imessage' | 'photos';
+export type BuiltinConnectorType = 'gmail' | 'whatsapp' | 'slack' | 'imessage' | 'photos' | 'locations';
 export type ConnectorType = BuiltinConnectorType | (string & {});
 
 export type AuthType = 'oauth2' | 'qr-code' | 'api-key' | 'local-tool';
@@ -15,6 +15,19 @@ export interface ConnectorManifest {
   icon: string;
   authType: AuthType;
   configSchema: Record<string, unknown>;
+  entities: string[];
+  pipeline: {
+    clean?: boolean;
+    embed?: boolean;
+    enrich?: boolean;
+  };
+  trustScore: number;
+  weights?: {
+    semantic?: number;
+    recency?: number;
+    importance?: number;
+    trust?: number;
+  };
 }
 
 export interface ConnectorAccount {
@@ -70,7 +83,7 @@ export interface Memory {
   id: string;
   source: SourceType;
   sourceConnector: ConnectorType;
-  accountIdentifier: string | null;
+  accountIdentifier?: string | null;
   text: string;
   time: string;
   ingestTime: string;
@@ -100,15 +113,19 @@ export interface GraphNode {
   importance: number;
   factuality: FactualityLabel;
   cluster: number;
-  nodeType?: 'memory' | 'contact';
+  nodeType?: 'memory' | 'contact' | 'group' | 'file' | 'connector' | 'device';
   entities?: string[];
   connectors?: string[];
+  text?: string;
+  weights?: Record<string, number>;
+  eventTime?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GraphEdge {
   source: string;
   target: string;
-  linkType: 'related' | 'supports' | 'contradicts';
+  linkType: 'related' | 'supports' | 'contradicts' | 'attachment' | string;
   strength: number;
 }
 

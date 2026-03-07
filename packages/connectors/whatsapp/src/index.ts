@@ -1,5 +1,5 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '@botmem/connector-sdk';
+import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, PipelineContext } from '@botmem/connector-sdk';
 import type { makeWASocket } from '@whiskeysockets/baileys';
 import { startQrAuth } from './qr-auth.js';
 import { syncWhatsApp } from './sync.js';
@@ -24,6 +24,9 @@ export class WhatsAppConnector extends BaseConnector {
       type: 'object',
       properties: {},
     },
+    entities: ['person', 'message'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.80,
   };
 
   private sessionCounter = 0;
@@ -75,20 +78,29 @@ export class WhatsAppConnector extends BaseConnector {
         }
       },
       onConnected: (auth: AuthContext, sock) => {
-        if (this.warm?.sessionId !== sessionId) return;
+        console.log(`[WhatsApp] onConnected sessionId=${sessionId} jid=${auth.raw?.jid}`);
+        if (this.warm?.sessionId !== sessionId) {
+          console.warn(`[WhatsApp] onConnected: warm session mismatch (warm=${this.warm?.sessionId}, got=${sessionId}) — ignoring`);
+          return;
+        }
         const { wsChannel: ch, sessionDir: sd } = this.warm;
         this.warm = null;
 
-        // Store the socket so the first sync can reuse it for history capture
+        // Buffer events so history isn't lost before sync attaches handlers.
+        // creds.update is NOT bufferable (Baileys fires it immediately), so this is safe.
+        console.log(`[WhatsApp] Buffering events on auth socket for sessionDir=${sd}`);
+        sock.ev.buffer();
         this.authSockets.set(sd, sock);
         // Auto-cleanup after 10 minutes if sync never picks it up
         setTimeout(() => {
           if (this.authSockets.has(sd)) {
+            console.warn(`[WhatsApp] Auth socket for ${sd} expired (never picked up by sync)`);
             this.authSockets.delete(sd);
             try { sock.ws?.close(); } catch { /* ignore */ }
           }
         }, 10 * 60_000);
 
+        console.log(`[WhatsApp] Emitting 'connected' event on channel=${ch}`);
         this.emit('connected', { wsChannel: ch, sessionDir: sd, auth });
         this._warm();
       },
@@ -167,6 +179,82 @@ export class WhatsAppConnector extends BaseConnector {
 
   async revokeAuth(_auth: AuthContext): Promise<void> {
     // Could delete session files
+  }
+
+  embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {
+    const entities: EmbedResult['entities'] = [];
+    const metadata = event.content?.metadata || {};
+    const participants = event.content?.participants || [];
+
+    const senderPhone = metadata.senderPhone as string | undefined;
+    const senderName = metadata.senderName as string | undefined;
+    const senderLid = metadata.senderLid as string | undefined;
+    const selfPhone = metadata.selfPhone as string | undefined;
+    const fromMe = metadata.fromMe as boolean | undefined;
+    const isGroup = metadata.isGroup as boolean | undefined;
+    const chatId = metadata.chatId as string | undefined;
+    const chatName = metadata.chatName as string | undefined;
+
+    // Group entity
+    if (isGroup && chatId) {
+      const groupJid = chatId.replace(/@.*$/, '');
+      const groupParts = [`whatsapp_group_jid:${groupJid}`];
+      if (chatName) groupParts.push(`name:${chatName}`);
+      entities.push({ type: 'person', id: groupParts.join('|'), role: 'group' });
+    }
+
+    // Sender — compound ID with all known identifiers
+    const phone = senderPhone || (participants[0] || '').replace(/@.*$/, '').split(':')[0];
+    if (phone && !phone.includes('-')) {
+      const senderParts = [`phone:${phone}`];
+      if (senderName && senderName !== 'me' && senderName !== 'Me' && senderName !== phone) {
+        senderParts.push(`name:${senderName}`);
+      }
+      if (senderLid) senderParts.push(`whatsapp_lid:${senderLid}`);
+      entities.push({ type: 'person', id: senderParts.join('|'), role: 'sender' });
+    } else if (senderLid) {
+      const senderParts = [`whatsapp_lid:${senderLid}`];
+      if (senderName && senderName !== 'me' && senderName !== 'Me') {
+        senderParts.push(`name:${senderName}`);
+      }
+      entities.push({ type: 'person', id: senderParts.join('|'), role: 'sender' });
+    }
+
+    // DM recipient
+    if (!isGroup && selfPhone) {
+      const otherPhone = fromMe ? phone : selfPhone;
+      if (otherPhone && otherPhone !== phone) {
+        entities.push({ type: 'person', id: `phone:${otherPhone}`, role: 'recipient' });
+      }
+    }
+
+    // Mentions — compound ID per person
+    const mentions = (metadata.mentions as Array<{ phone: string; name: string }>) || [];
+    for (const m of mentions) {
+      if (!m.phone) continue;
+      const mentionParts = [`phone:${m.phone}`];
+      if (m.name) mentionParts.push(`name:${m.name}`);
+      entities.push({ type: 'person', id: mentionParts.join('|'), role: 'mentioned' });
+    }
+
+    // Shared contacts from vCards — compound ID per person
+    const sharedContacts = (metadata.sharedContacts as Array<{ name: string; phones: string[] }>) || [];
+    for (const sc of sharedContacts) {
+      const scParts: string[] = [];
+      if (sc.name) scParts.push(`name:${sc.name}`);
+      for (const p of sc.phones) scParts.push(`phone:${p.replace(/^\+/, '')}`);
+      if (scParts.length) entities.push({ type: 'person', id: scParts.join('|'), role: 'mentioned' });
+    }
+
+    // Remaining participants
+    const handledPhones = new Set([phone, selfPhone, ...mentions.map(m => m.phone), ...sharedContacts.flatMap(sc => sc.phones.map(p => p.replace(/^\+/, '')))]);
+    for (const p of participants) {
+      if (!p || p.includes('-')) continue;
+      if (handledPhones.has(p)) continue;
+      entities.push({ type: 'person', id: `phone:${p}`, role: 'participant' });
+    }
+
+    return { text: cleanedText, entities };
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {

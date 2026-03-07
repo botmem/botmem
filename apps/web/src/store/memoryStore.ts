@@ -1,10 +1,9 @@
 import { create } from 'zustand';
-import type { Memory, SourceType, FactualityLabel, GraphData } from '@botmem/shared';
+import type { Memory, SourceType, GraphData } from '@botmem/shared';
 import { api } from '../lib/api';
 
 interface Filters {
   source: SourceType | null;
-  factuality: FactualityLabel | null;
   minImportance: number;
 }
 
@@ -16,10 +15,9 @@ interface MemoryState {
   loading: boolean;
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
-  insertMemory: (m: Memory) => void;
   getFiltered: () => Memory[];
   loadMemories: () => Promise<void>;
-  loadGraph: () => Promise<void>;
+  loadGraph: (params?: { memoryLimit?: number; linkLimit?: number }) => Promise<void>;
   searchMemories: (query: string) => Promise<void>;
 }
 
@@ -28,6 +26,7 @@ function apiMemoryToShared(raw: any): Memory {
     id: raw.id,
     source: raw.sourceType || 'message',
     sourceConnector: raw.connectorType || 'gmail',
+    accountIdentifier: raw.accountIdentifier || null,
     text: raw.text || '',
     time: raw.eventTime || raw.createdAt || '',
     ingestTime: raw.ingestTime || raw.createdAt || '',
@@ -44,7 +43,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 export const useMemoryStore = create<MemoryState>((set, get) => ({
   memories: [],
   query: '',
-  filters: { source: null, factuality: null, minImportance: 0 },
+  filters: { source: null, minImportance: 0 },
   graphData: { nodes: [], links: [] },
   loading: false,
 
@@ -64,25 +63,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   setFilters: (f) =>
     set((state) => ({ filters: { ...state.filters, ...f } })),
 
-  insertMemory: async (m: Memory) => {
-    try {
-      const result = await api.insertMemory({
-        text: m.text,
-        sourceType: m.source,
-        connectorType: m.sourceConnector,
-      });
-      const newMem = apiMemoryToShared(result);
-      set((state) => ({ memories: [newMem, ...state.memories] }));
-    } catch (err) {
-      console.error('Failed to insert memory:', err);
-    }
-  },
-
   getFiltered: () => {
     const { memories, filters } = get();
     return memories.filter((m) => {
       if (filters.source && m.source !== filters.source) return false;
-      if (filters.factuality && m.factuality.label !== filters.factuality) return false;
       if (m.weights.importance < filters.minImportance) return false;
       return true;
     });
@@ -112,9 +96,9 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
   },
 
-  loadGraph: async () => {
+  loadGraph: async (params) => {
     try {
-      const data = await api.getGraphData();
+      const data = await api.getGraphData(params);
       const graphData: GraphData = {
         nodes: (data.nodes || []).map((n: any) => ({
           id: n.id,
@@ -127,6 +111,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           nodeType: n.nodeType || 'memory',
           entities: n.entities || [],
           connectors: n.connectors || [],
+          text: n.text || '',
+          weights: n.weights || {},
+          eventTime: n.eventTime || '',
+          metadata: n.metadata || {},
         })),
         links: (data.edges || []).map((e: any) => ({
           source: e.source,

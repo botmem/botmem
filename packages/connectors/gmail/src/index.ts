@@ -1,8 +1,26 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '@botmem/connector-sdk';
+import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, CleanResult, PipelineContext } from '@botmem/connector-sdk';
 import { createOAuth2Client, getAuthUrl, exchangeCode } from './oauth.js';
 import { syncGmail } from './sync.js';
 import { syncContacts } from './contacts.js';
+
+function parseEmailAddresses(header: string): Array<{ name: string | null; email: string }> {
+  if (!header) return [];
+  const results: Array<{ name: string | null; email: string }> = [];
+  const parts = header.split(',');
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const angleMatch = trimmed.match(/^(.*?)\s*<([^>]+)>$/);
+    if (angleMatch) {
+      const name = angleMatch[1].replace(/^["']|["']$/g, '').trim();
+      results.push({ name: name || null, email: angleMatch[2].toLowerCase() });
+    } else if (trimmed.includes('@')) {
+      results.push({ name: null, email: trimmed.toLowerCase() });
+    }
+  }
+  return results;
+}
 
 export class GmailConnector extends BaseConnector {
   readonly manifest: ConnectorManifest = {
@@ -21,6 +39,9 @@ export class GmailConnector extends BaseConnector {
       },
       required: ['clientId', 'clientSecret'],
     },
+    entities: ['person', 'message', 'file'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.95,
   };
 
   private config: Record<string, string> = {};
@@ -76,6 +97,69 @@ export class GmailConnector extends BaseConnector {
         // Best effort
       }
     }
+  }
+
+  clean(event: ConnectorDataEvent, ctx: PipelineContext): CleanResult {
+    // Run base clean first (HTML strip, invisible chars, tracking URLs)
+    const base = super.clean(event, ctx) as CleanResult;
+    let text = base.text;
+
+    // Strip remaining long encoded URLs (parenthesized markdown-style links)
+    text = text.replace(/\(\s*https?:\/\/\S{80,}\s*\)/g, '');
+    // Strip standalone long URLs (tracking redirects, email pixels)
+    text = text.replace(/https?:\/\/\S{80,}/g, '');
+    // Strip email image alt text artifacts like "Logo" on its own line
+    text = text.replace(/^\s*Logo\s*$/gm, '');
+    // Strip unsubscribe/footer boilerplate
+    text = text.replace(/©\s*\d{4}[^\n]*/g, '');
+    text = text.replace(/Unsubscribe\s*\(?\s*https?:\/\/\S*\s*\)?\s*/gi, '');
+    // Strip repeated whitespace/newlines
+    text = text.replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim();
+
+    return { text };
+  }
+
+  embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {
+    const entities: EmbedResult['entities'] = [];
+    const metadata = event.content?.metadata || {};
+
+    // Contact events — extract identifiers (compound ID per person)
+    if (metadata.type === 'contact') {
+      const parts: string[] = [];
+      if (metadata.name) parts.push(`name:${metadata.name}`);
+      for (const email of (metadata.emails as string[]) || []) parts.push(`email:${email}`);
+      for (const phone of (metadata.phones as string[]) || []) parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
+      if (parts.length) entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
+      return { text: cleanedText, entities, metadata: { isContact: true, ...metadata } };
+    }
+
+    // Parse from/to/cc headers
+    const fromHeader = (metadata.from as string) || '';
+    const toHeader = (metadata.to as string) || '';
+    const ccHeader = (metadata.cc as string) || '';
+
+    for (const { name, email } of parseEmailAddresses(fromHeader)) {
+      const parts = [`email:${email}`];
+      if (name) parts.push(`name:${name}`);
+      entities.push({ type: 'person', id: parts.join('|'), role: 'sender' });
+    }
+    for (const { name, email } of [...parseEmailAddresses(toHeader), ...parseEmailAddresses(ccHeader)]) {
+      const parts = [`email:${email}`];
+      if (name) parts.push(`name:${name}`);
+      entities.push({ type: 'person', id: parts.join('|'), role: 'recipient' });
+    }
+
+    // Thread linking
+    if (metadata.threadId) {
+      entities.push({ type: 'message', id: `thread:${metadata.threadId}`, role: 'thread' });
+    }
+
+    // Attachments
+    for (const att of event.content?.attachments || []) {
+      entities.push({ type: 'file', id: `file:${(att as any).filename || att.uri}`, role: 'attachment' });
+    }
+
+    return { text: cleanedText, entities };
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {

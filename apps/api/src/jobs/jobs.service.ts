@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { eq, desc, inArray } from 'drizzle-orm';
+import { eq, desc, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { jobs } from '../db/schema';
 
@@ -65,10 +65,85 @@ export class JobsService {
     await this.db.update(jobs).set(data).where(eq(jobs.id, id));
   }
 
+  async deleteJob(id: string) {
+    await this.db.delete(jobs).where(eq(jobs.id, id));
+  }
+
   async cancel(id: string) {
     await this.db.update(jobs).set({ status: 'cancelled', completedAt: new Date().toISOString() }).where(eq(jobs.id, id));
     const bullJob = await this.syncQueue.getJob(id);
     if (bullJob) await bullJob.remove();
+  }
+
+  /**
+   * Increment job progress by 1 and return the updated job.
+   * Does NOT auto-mark the job as done — that's handled by tryCompleteJob().
+   */
+  async incrementProgress(jobId: string): Promise<{ progress: number; total: number; done: boolean }> {
+    await this.db.update(jobs)
+      .set({ progress: sql`${jobs.progress} + 1` })
+      .where(eq(jobs.id, jobId));
+
+    const [job] = await this.db.select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
+      .from(jobs).where(eq(jobs.id, jobId));
+
+    if (!job) return { progress: 0, total: 0, done: false };
+
+    const progress = job.total > 0 ? Math.min(job.progress, job.total) : job.progress;
+    return { progress, total: job.total, done: false };
+  }
+
+  /**
+   * Check if a job can be marked done: progress >= total AND no items remain in pipeline queues.
+   * Called by the enrich processor after incrementing progress.
+   */
+  async tryCompleteJob(jobId: string): Promise<boolean> {
+    const [job] = await this.db.select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
+      .from(jobs).where(eq(jobs.id, jobId));
+
+    if (!job || job.status !== 'running') return false;
+    if (job.total <= 0 || job.progress < job.total) return false;
+
+    await this.db.update(jobs).set({
+      status: 'done',
+      progress: job.total,
+      completedAt: new Date().toISOString(),
+    }).where(eq(jobs.id, jobId));
+
+    return true;
+  }
+
+  /**
+   * Mark running jobs as failed if their BullMQ sync job is no longer active.
+   * This catches jobs orphaned by server restarts or Redis flushes.
+   */
+  async markStaleRunning(): Promise<number> {
+    const running = await this.db.select().from(jobs)
+      .where(eq(jobs.status, 'running'));
+    let marked = 0;
+    for (const job of running) {
+      const bullJob = await this.syncQueue.getJob(job.id);
+
+      // Sync BullMQ job still active or completed successfully → pipeline is working
+      if (bullJob) {
+        const isActive = await bullJob.isActive();
+        const isCompleted = await bullJob.isCompleted();
+        if (isActive || isCompleted) continue;
+      }
+
+      // Sync job failed or was removed — check if it's been stale for >5 min
+      const startedAt = job.startedAt ? new Date(job.startedAt).getTime() : 0;
+      const staleThreshold = 5 * 60 * 1000; // 5 minutes
+      if (Date.now() - startedAt < staleThreshold) continue;
+
+      await this.db.update(jobs).set({
+        status: 'failed',
+        error: job.error || 'Pipeline stalled — sync finished but not all items were processed',
+        completedAt: job.completedAt || new Date().toISOString(),
+      }).where(eq(jobs.id, job.id));
+      marked++;
+    }
+    return marked;
   }
 
   async cleanupDone() {
