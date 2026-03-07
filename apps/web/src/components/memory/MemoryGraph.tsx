@@ -907,7 +907,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     // Wait for simulation to settle slightly before fitting
     const timer = setTimeout(() => {
       if (graphRef.current) {
-        graphRef.current.zoomToFit(400, 40);
+        graphRef.current.zoomToFit(400, 80);
       }
     }, 300);
     return () => clearTimeout(timer);
