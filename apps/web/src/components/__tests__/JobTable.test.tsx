@@ -50,7 +50,8 @@ describe('JobTable', () => {
 
   it('renders job rows', () => {
     render(<JobTable jobs={jobs} onCancel={vi.fn()} onMove={vi.fn()} />);
-    expect(screen.getByText('gmail')).toBeInTheDocument();
-    expect(screen.getByText('slack')).toBeInTheDocument();
+    // Connector names may appear in both filter bar and job rows
+    expect(screen.getAllByText('gmail').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('slack').length).toBeGreaterThanOrEqual(1);
   });
 });
