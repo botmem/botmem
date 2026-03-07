@@ -339,14 +339,6 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
       }
     }
 
-    const nodes = data.nodes
-      .filter((n) => keepNodes.has(n.id))
-      .map((n) => {
-        // Restore positions from previous render
-        const pos = nodePositionsRef.current.get(n.id);
-        if (pos) return { ...n, x: pos.x, y: pos.y, vx: pos.vx, vy: pos.vy };
-        return { ...n };
-      });
     const links = data.links.filter((l) => {
       const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
       const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
@@ -355,6 +347,24 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
       if (hiddenEdgeTypes.has(type)) return false;
       return true;
     });
+
+    // Remove orphan nodes (nodes with no visible links after filtering)
+    const linkedNodes = new Set<string>();
+    for (const l of links) {
+      const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
+      const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+      linkedNodes.add(src);
+      linkedNodes.add(tgt);
+    }
+
+    const nodes = data.nodes
+      .filter((n) => keepNodes.has(n.id) && linkedNodes.has(n.id))
+      .map((n) => {
+        // Restore positions from previous render
+        const pos = nodePositionsRef.current.get(n.id);
+        if (pos) return { ...n, x: pos.x, y: pos.y, vx: pos.vx, vy: pos.vy };
+        return { ...n };
+      });
     return { nodes, links };
   }, [data, connectionCounts, minConnections, hiddenSourceTypes, hideContacts, hideGroups, hideFiles, hideDevices, hiddenEdgeTypes, contactFilterIds, highlightedIds]);
 
