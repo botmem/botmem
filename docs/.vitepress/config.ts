@@ -37,10 +37,10 @@ export default defineConfig({
         ],
       },
       {
-        text: 'Agent API (MCP)',
+        text: 'Agent API & CLI',
         items: [
           { text: 'Overview', link: '/agent-api/' },
-          { text: 'MCP Server', link: '/agent-api/mcp-server' },
+          { text: 'CLI Reference', link: '/agent-api/cli' },
           { text: 'Tools Reference', link: '/agent-api/tools-reference' },
           { text: 'Examples', link: '/agent-api/examples' },
         ],

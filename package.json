@@ -2,7 +2,8 @@
   "name": "botmem",
   "private": true,
   "scripts": {
-    "dev": "turbo dev --concurrency 20",
+    "dev": "turbo build --filter='./packages/connectors/*' --filter=@botmem/connector-sdk --filter=@botmem/cli && turbo dev --filter=@botmem/shared --filter=@botmem/api --concurrency 10",
+    "dev:all": "turbo dev --concurrency 20",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test"

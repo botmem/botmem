@@ -1,6 +1,5 @@
 /**
  * Typed HTTP client for the Botmem REST API.
- * All methods return parsed JSON responses with error handling.
  */
 
 export interface Memory {
@@ -73,13 +72,15 @@ export interface Contact {
   [key: string]: unknown;
 }
 
-export interface ConnectorManifest {
+export interface ConnectorAccount {
   id: string;
-  name: string;
-  description: string;
-  authType: string;
-  configSchema: unknown;
-  [key: string]: unknown;
+  type: string;
+  identifier: string;
+  status: string;
+  schedule: string | null;
+  lastSync: string | null;
+  memoriesIngested: number | null;
+  lastError: string | null;
 }
 
 export interface Job {
@@ -119,7 +120,6 @@ export class BotmemApiError extends Error {
 
 export class BotmemClient {
   constructor(private baseUrl: string) {
-    // Strip trailing slash
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
@@ -189,13 +189,6 @@ export class BotmemClient {
     return this.request<Memory>(`/memories/${encodeURIComponent(id)}`);
   }
 
-  async insertMemory(text: string, sourceType?: string, connectorType?: string): Promise<Memory> {
-    return this.request<Memory>('/memories', {
-      method: 'POST',
-      body: JSON.stringify({ text, sourceType, connectorType }),
-    });
-  }
-
   async deleteMemory(id: string): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>(`/memories/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -206,44 +199,76 @@ export class BotmemClient {
     return this.request<MemoryStats>('/memories/stats');
   }
 
-  async getMemoryGraph(): Promise<GraphData> {
-    return this.request<GraphData>('/memories/graph');
-  }
-
   // --- Contacts ---
 
+  async listContacts(params?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: Contact[]; total: number }> {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const query = qs.toString();
+    return this.request<{ items: Contact[]; total: number }>(`/people${query ? '?' + query : ''}`);
+  }
+
   async searchContacts(query: string): Promise<Contact[]> {
-    return this.request<Contact[]>('/contacts/search', {
+    return this.request<Contact[]>('/people/search', {
       method: 'POST',
       body: JSON.stringify({ query }),
     });
   }
 
   async getContact(id: string): Promise<Contact> {
-    return this.request<Contact>(`/contacts/${encodeURIComponent(id)}`);
+    return this.request<Contact>(`/people/${encodeURIComponent(id)}`);
   }
 
   async getContactMemories(id: string): Promise<Memory[]> {
-    return this.request<Memory[]>(`/contacts/${encodeURIComponent(id)}/memories`);
+    return this.request<Memory[]>(`/people/${encodeURIComponent(id)}/memories`);
   }
 
-  // --- Connectors ---
+  // --- Accounts ---
 
-  async listConnectors(): Promise<ConnectorManifest[]> {
-    const result = await this.request<{ connectors: ConnectorManifest[] }>('/connectors');
-    return result.connectors;
+  async listAccounts(): Promise<{ accounts: ConnectorAccount[] }> {
+    return this.request<{ accounts: ConnectorAccount[] }>('/accounts');
   }
 
   // --- Jobs ---
 
-  async triggerSync(accountId: string): Promise<Job> {
-    const result = await this.request<{ job: Job }>(`/jobs/sync/${encodeURIComponent(accountId)}`, {
+  async listJobs(accountId?: string): Promise<{ jobs: Job[] }> {
+    const qs = accountId ? `?accountId=${encodeURIComponent(accountId)}` : '';
+    return this.request<{ jobs: Job[] }>(`/jobs${qs}`);
+  }
+
+  async triggerSync(accountId: string): Promise<{ job: Job }> {
+    return this.request<{ job: Job }>(`/jobs/sync/${encodeURIComponent(accountId)}`, {
       method: 'POST',
     });
-    return result.job;
+  }
+
+  async cancelJob(id: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(`/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async retryFailedJobs(): Promise<{ ok: boolean; retried: number }> {
+    return this.request<{ ok: boolean; retried: number }>('/jobs/retry-failed', {
+      method: 'POST',
+    });
+  }
+
+  async retryFailedMemories(): Promise<{ enqueued: number; total: number }> {
+    return this.request<{ enqueued: number; total: number }>('/memories/retry-failed', {
+      method: 'POST',
+    });
   }
 
   async getQueueStats(): Promise<QueueStats> {
     return this.request<QueueStats>('/jobs/queues');
+  }
+
+  async getVersion(): Promise<{ version: string }> {
+    return this.request<{ version: string }>('/version');
   }
 }
