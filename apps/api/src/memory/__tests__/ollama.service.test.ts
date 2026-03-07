@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OllamaService } from '../ollama.service';
 import { ConfigService } from '../../config/config.service';
 
@@ -6,7 +6,9 @@ function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService
   return {
     ollamaBaseUrl: 'http://localhost:11434',
     ollamaEmbedModel: 'qwen3-embedding:8b',
+    ollamaTextModel: 'qwen3:0.6b',
     ollamaVlModel: 'qwen3-vl:8b',
+    ollamaRerankerModel: '',
     ...overrides,
   } as ConfigService;
 }
@@ -50,45 +52,50 @@ describe('OllamaService', () => {
         text: () => Promise.resolve('model not found'),
       });
 
-      await expect(service.embed('test')).rejects.toThrow();
+      // Pass retries=0 to avoid retry delays
+      await expect(service.embed('test', 0)).rejects.toThrow();
     });
 
     it('throws on network error', async () => {
       fetchSpy.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      await expect(service.embed('test')).rejects.toThrow('ECONNREFUSED');
+      // Pass retries=0 to avoid retry delays
+      await expect(service.embed('test', 0)).rejects.toThrow('ECONNREFUSED');
     });
   });
 
   describe('generate', () => {
-    it('calls Ollama generate endpoint with prompt', async () => {
+    it('calls Ollama chat endpoint with prompt', async () => {
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ response: '{"entities": []}' }),
+        json: () => Promise.resolve({ message: { content: '{"entities": []}' } }),
       });
 
       const result = await service.generate('extract entities from: hello');
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:11434/api/generate',
+        'http://localhost:11434/api/chat',
         expect.objectContaining({
           method: 'POST',
-          body: expect.stringContaining('qwen3-vl:8b'),
         }),
       );
+      // Text-only prompts use the text model
+      const callBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(callBody.model).toBe('qwen3:0.6b');
       expect(result).toBe('{"entities": []}');
     });
 
-    it('passes images when provided', async () => {
+    it('passes images when provided and uses VL model', async () => {
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ response: 'a sunset photo' }),
+        json: () => Promise.resolve({ message: { content: 'a sunset photo' } }),
       });
 
       await service.generate('describe this image', ['base64data']);
 
       const callBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      expect(callBody.images).toEqual(['base64data']);
+      expect(callBody.messages[0].images).toEqual(['base64data']);
+      expect(callBody.model).toBe('qwen3-vl:8b');
     });
 
     it('throws on non-ok response', async () => {
@@ -99,7 +106,8 @@ describe('OllamaService', () => {
         text: () => Promise.resolve('model loading'),
       });
 
-      await expect(service.generate('test')).rejects.toThrow();
+      // Pass retries=0 to avoid retry delays
+      await expect(service.generate('test', undefined, 0)).rejects.toThrow();
     });
   });
 });
