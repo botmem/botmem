@@ -14,6 +14,7 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
+import { PluginRegistry } from '../plugins/plugin-registry';
 import { rawEvents, memories, memoryLinks } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
@@ -79,6 +80,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private logsService: LogsService,
     private jobsService: JobsService,
     private settingsService: SettingsService,
+    private pluginRegistry: PluginRegistry,
   ) {
     super();
   }
@@ -256,6 +258,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     });
     const dbInsertMs = Date.now() - t0;
 
+    // Fire afterIngest hook (fire-and-forget)
+    void this.pluginRegistry.fireHook('afterIngest', {
+      id: memoryId, text: embedText, sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+    });
+
     // 9. Contact resolution + linking
     t0 = Date.now();
     let contactCount = 0;
@@ -324,6 +332,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       });
       const qdrantMs = Date.now() - t0;
 
+      // Fire afterEmbed hook (fire-and-forget)
+      void this.pluginRegistry.fireHook('afterEmbed', {
+        id: memoryId, text: embedText, sourceType: event.sourceType,
+        connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+      });
+
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
         `[memory:embedded] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);
 
@@ -360,6 +374,17 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       const pipelineEnrich = connector.manifest.pipeline?.enrich !== false;
       if (pipelineEnrich) {
         await this.enrichService.enrich(memoryId);
+
+        // Fire afterEnrich hook (fire-and-forget)
+        const [enrichedMem] = await this.dbService.db
+          .select({ entities: memories.entities, factuality: memories.factuality })
+          .from(memories)
+          .where(eq(memories.id, memoryId));
+        void this.pluginRegistry.fireHook('afterEnrich', {
+          id: memoryId, text: currentText, sourceType: event.sourceType,
+          connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+          entities: enrichedMem?.entities, factuality: enrichedMem?.factuality,
+        });
       }
 
       // 14. Mark done

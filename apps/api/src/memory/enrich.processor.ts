@@ -8,6 +8,7 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
+import { PluginRegistry } from '../plugins/plugin-registry';
 import { rawEvents, memories } from '../db/schema';
 
 @Processor('enrich')
@@ -19,6 +20,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     private logsService: LogsService,
     private jobsService: JobsService,
     private settingsService: SettingsService,
+    private pluginRegistry: PluginRegistry,
   ) {
     super();
   }
@@ -51,15 +53,22 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     // Run enrichment
     await this.enrichService.enrich(memoryId);
 
+    // Read enriched memory for hook and event
+    const [mem] = await this.dbService.db
+      .select({ text: memories.text, sourceType: memories.sourceType, entities: memories.entities, factuality: memories.factuality })
+      .from(memories)
+      .where(eq(memories.id, memoryId));
+
+    // Fire afterEnrich hook (fire-and-forget)
+    void this.pluginRegistry.fireHook('afterEnrich', {
+      id: memoryId, text: mem?.text, sourceType: mem?.sourceType,
+      connectorType, eventTime: undefined,
+      entities: mem?.entities, factuality: mem?.factuality,
+    });
+
     // Mark memory as done
     await this.dbService.db.update(memories)
       .set({ embeddingStatus: 'done' })
-      .where(eq(memories.id, memoryId));
-
-    // Read current text for the event
-    const [mem] = await this.dbService.db
-      .select({ text: memories.text, sourceType: memories.sourceType })
-      .from(memories)
       .where(eq(memories.id, memoryId));
 
     this.events.emitToChannel('memories', 'memory:updated', {

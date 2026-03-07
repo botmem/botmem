@@ -13,6 +13,7 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
+import { PluginRegistry } from '../plugins/plugin-registry';
 import { rawEvents, memories, memoryLinks } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
@@ -33,6 +34,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private logsService: LogsService,
     private jobsService: JobsService,
     private settingsService: SettingsService,
+    private pluginRegistry: PluginRegistry,
     @InjectQueue('enrich') private enrichQueue: Queue,
   ) {
     super();
@@ -40,12 +42,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
   onModuleInit() {
     this.worker.on('error', (err) => console.warn('[embed worker]', err.message));
-    const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 16;
+    const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 8;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'embed_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 16;
+        this.worker.concurrency = parseInt(value, 10) || 8;
       }
     });
   }
@@ -109,6 +111,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       createdAt: now,
     });
     const dbInsertMs = Date.now() - t0;
+
+    // Fire afterIngest hook (fire-and-forget)
+    void this.pluginRegistry.fireHook('afterIngest', {
+      id: memoryId, text: embedText, sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+    });
 
     // Contact resolution + linking
     t0 = Date.now();
@@ -177,6 +185,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         account_id: rawEvent.accountId,
       });
       const qdrantMs = Date.now() - t0;
+
+      // Fire afterEmbed hook (fire-and-forget)
+      void this.pluginRegistry.fireHook('afterEmbed', {
+        id: memoryId, text: embedText, sourceType: event.sourceType,
+        connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+      });
 
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
         `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);

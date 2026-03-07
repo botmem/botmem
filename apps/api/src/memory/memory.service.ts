@@ -5,6 +5,7 @@ import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService, ScoredPoint } from './qdrant.service';
 import { ConnectorsService } from '../connectors/connectors.service';
+import { PluginRegistry } from '../plugins/plugin-registry';
 import { memories, memoryLinks, memoryContacts, contacts, contactIdentifiers, accounts } from '../db/schema';
 
 interface SearchFilters {
@@ -77,6 +78,7 @@ export class MemoryService {
     private ollama: OllamaService,
     private qdrant: QdrantService,
     private connectors: ConnectorsService,
+    private pluginRegistry: PluginRegistry,
   ) {}
 
   private getTrustScore(connectorType: string): number {
@@ -178,7 +180,12 @@ export class MemoryService {
         results.push(this.toSearchResult(row, score, weights));
         if (results.length >= limit) break;
       }
-      return { items: results.sort((a, b) => b.score - a.score), fallback: false };
+      const sorted = results.sort((a, b) => b.score - a.score);
+      // Fire afterSearch hook (fire-and-forget)
+      void this.pluginRegistry.fireHook('afterSearch', {
+        query, resultCount: sorted.length, topScore: sorted[0]?.score,
+      });
+      return { items: sorted, fallback: false };
     }
 
     // --- Entity-aware hybrid search ---
@@ -323,9 +330,15 @@ export class MemoryService {
 
     const MIN_SCORE = 0.35;
     const scored = results.filter((r) => r.score >= MIN_SCORE);
+    const finalItems = scored.sort((a, b) => b.score - a.score).slice(0, limit);
+
+    // Fire afterSearch hook (fire-and-forget)
+    void this.pluginRegistry.fireHook('afterSearch', {
+      query, resultCount: finalItems.length, topScore: finalItems[0]?.score,
+    });
 
     return {
-      items: scored.sort((a, b) => b.score - a.score).slice(0, limit),
+      items: finalItems,
       fallback: !hasExactMatches,
       resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
     };
@@ -740,6 +753,17 @@ export class MemoryService {
     let final = rerankScore > 0
       ? 0.40 * semanticScore + 0.30 * rerankScore + 0.15 * recency + 0.10 * importance + 0.05 * trust
       : 0.70 * semanticScore + 0.15 * recency + 0.10 * importance + 0.05 * trust;
+
+    // Scorer plugin bonus (clamped to +/-0.05, averaged across plugins)
+    const scorers = this.pluginRegistry.getScorers();
+    if (scorers.length > 0) {
+      let pluginBonus = 0;
+      for (const scorer of scorers) {
+        try { pluginBonus += scorer.score(mem, { semantic: semanticScore, rerank: rerankScore, recency, importance, trust }); } catch { /* ignore */ }
+      }
+      pluginBonus = Math.max(-0.05, Math.min(0.05, pluginBonus / scorers.length));
+      final = Math.max(0, Math.min(1, final + pluginBonus));
+    }
 
     // Pinned memories get a score floor of 0.75
     if (isPinned) final = Math.max(final, 0.75);
