@@ -8,7 +8,7 @@ import { IDENTIFIER_COLORS } from '../contacts/constants';
 
 interface MemoryGraphProps {
   data: GraphData;
-  onReload?: (params: { memoryLimit: number; linkLimit: number }) => void;
+  onReload?: () => void;
 }
 
 const CONTACT_COLOR = '#60A5FA';
@@ -101,8 +101,6 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
   const [minConnections, setMinConnections] = useState(2);
-  const [memoryLimit, setMemoryLimit] = useState(500);
-  const [linkLimit, setLinkLimit] = useState(2000);
   const [searchTerm, setSearchTerm] = useState('');
   const [hiddenSourceTypes, setHiddenSourceTypes] = useState<Set<string>>(new Set());
   const [hideContacts, setHideContacts] = useState(false);
@@ -130,26 +128,14 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     }).catch(() => {});
   }, []);
 
-  // Auto-reload when nodes/links sliders change (debounced) + periodic refresh
-  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!onReload) return;
-    if (isInitialRender.current) return;
-    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-    reloadTimerRef.current = setTimeout(() => {
-      onReload({ memoryLimit, linkLimit });
-    }, 500);
-    return () => { if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current); };
-  }, [memoryLimit, linkLimit]);
-
-  // Periodic graph refresh every 15s using current slider values
+  // Periodic graph refresh every 15s
   useEffect(() => {
     if (!onReload) return;
     const interval = setInterval(() => {
-      onReload({ memoryLimit, linkLimit });
+      onReload();
     }, 15000);
     return () => clearInterval(interval);
-  }, [onReload, memoryLimit, linkLimit]);
+  }, [onReload]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -348,13 +334,21 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
       return true;
     });
 
-    // Remove orphan nodes (nodes with no visible links after filtering)
+    // Remove orphan nodes — only count meaningful links (not 'source' type which are nearly invisible)
     const linkedNodes = new Set<string>();
     for (const l of links) {
+      const linkType = l.linkType || 'related';
+      if (linkType === 'source') continue; // source links just connect to connector hubs — not meaningful connections
       const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
       const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
       linkedNodes.add(src);
       linkedNodes.add(tgt);
+    }
+    // Always keep contact/group/device/connector nodes (they're meaningful even with only source links)
+    for (const node of data.nodes) {
+      if (keepNodes.has(node.id) && node.nodeType !== 'memory') {
+        linkedNodes.add(node.id);
+      }
     }
 
     const nodes = data.nodes
@@ -960,34 +954,6 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
             max={10}
             value={minConnections}
             onChange={(e) => setMinConnections(Number(e.target.value))}
-            className="w-full accent-[#A3E635]"
-          />
-        </div>
-        <div className="w-28">
-          <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
-            Nodes: {memoryLimit}
-          </label>
-          <input
-            type="range"
-            min={100}
-            max={5000}
-            step={100}
-            value={memoryLimit}
-            onChange={(e) => setMemoryLimit(Number(e.target.value))}
-            className="w-full accent-[#A3E635]"
-          />
-        </div>
-        <div className="w-28">
-          <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
-            Links: {linkLimit}
-          </label>
-          <input
-            type="range"
-            min={500}
-            max={50000}
-            step={500}
-            value={linkLimit}
-            onChange={(e) => setLinkLimit(Number(e.target.value))}
             className="w-full accent-[#A3E635]"
           />
         </div>
