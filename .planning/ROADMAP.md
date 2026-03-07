@@ -10,7 +10,7 @@ This milestone extends Botmem beyond its working core (6 connectors, full pipeli
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Search Quality** - Reranker scoring, importance reinforcement, and memory pinning
+- [x] **Phase 1: Search Quality** - Reranker scoring, importance reinforcement, and memory pinning
 - [ ] **Phase 2: Operational Maturity** - PostHog analytics and nightly decay job
 - [ ] **Phase 3: Extensibility** - Plugin system with connector, scorer, and lifecycle hook types
 
@@ -29,7 +29,7 @@ This milestone extends Botmem beyond its working core (6 connectors, full pipeli
 
 Plans:
 - [x] 01-01: Reranker integration (SRCH-01, SRCH-02)
-- [ ] 01-02: Pinning and importance reinforcement (SRCH-03, SRCH-04, SRCH-05, SRCH-06)
+- [x] 01-02: Pinning and importance reinforcement (SRCH-03, SRCH-04, SRCH-05, SRCH-06)
 
 ### Phase 2: Operational Maturity
 **Goal**: The system maintains accurate scores over time through automated decay, and usage is tracked via PostHog so search and sync patterns are observable
@@ -66,6 +66,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Search Quality | 1/2 | In progress | - |
+| 1. Search Quality | 2/2 | Complete | 2026-03-07 |
 | 2. Operational Maturity | 0/2 | Not started | - |
 | 3. Extensibility | 0/1 | Not started | - |
