@@ -1,11 +1,14 @@
 import { Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
-import { BaseExceptionFilter } from '@nestjs/core';
+import { BaseExceptionFilter, HttpAdapterHost } from '@nestjs/core';
 import { AnalyticsService } from './analytics.service';
 
 @Catch()
 export class PostHogExceptionFilter extends BaseExceptionFilter {
-  constructor(private readonly analytics: AnalyticsService) {
-    super();
+  private readonly analytics: AnalyticsService;
+
+  constructor(analytics: AnalyticsService, httpAdapterHost: HttpAdapterHost) {
+    super(httpAdapterHost.httpAdapter);
+    this.analytics = analytics;
   }
 
   catch(exception: unknown, host: ArgumentsHost) {

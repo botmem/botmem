@@ -9,6 +9,7 @@ import { readFileSync } from 'fs';
 import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
 import { AnalyticsService } from './analytics/analytics.service';
+import { HttpAdapterHost } from '@nestjs/core';
 
 async function bootstrap() {
   const express = (await import('express')).default;
@@ -43,7 +44,8 @@ async function bootstrap() {
 
   // Global exception filter: sends 5xx errors to PostHog
   const analyticsService = app.get(AnalyticsService);
-  app.useGlobalFilters(new PostHogExceptionFilter(analyticsService));
+  const httpAdapterHost = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new PostHogExceptionFilter(analyticsService, httpAdapterHost));
 
   // Force-exit if graceful shutdown takes too long (e.g. BullMQ/Redis stalling)
   const forceExit = () => {
