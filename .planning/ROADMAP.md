@@ -79,10 +79,11 @@ Plans:
   2. PostHog dashboard shows search, pin/unpin, sync_complete, and sync_error events with correct properties (query_length, result_count, connector type, action)
   3. Connector setup completions and graph view interactions appear as tracked events in PostHog with appropriate metadata
   4. Removing API keys from environment variables causes zero errors and zero network calls to PostHog
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md -- Config + coverage gaps (CFG-02, COV-01, COV-02)
+- [ ] 04-02-PLAN.md -- API key setup + end-to-end verification (CFG-01, VER-01, VER-02, VER-03, VER-04, VER-05)
 
 ## Progress
 
@@ -94,4 +95,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Search Quality | v1.0 | 2/2 | Complete | 2026-03-07 |
 | 2. Operational Maturity | v1.0 | 2/2 | Complete | 2026-03-07 |
 | 3. Extensibility | v1.0 | 2/2 | Complete | 2026-03-07 |
-| 4. PostHog Analytics Activation | v1.1 | 0/1 | Not started | - |
+| 4. PostHog Analytics Activation | v1.1 | 0/2 | Not started | - |
