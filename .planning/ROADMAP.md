@@ -25,7 +25,7 @@ This milestone extends Botmem beyond its working core (6 connectors, full pipeli
   2. User can pin a memory from the UI, and that memory consistently appears in relevant searches regardless of age
   3. Viewing a search result multiple times causes it to rank higher in future searches for similar queries
   4. Reranking completes within 3 seconds for a typical search (no perceptible freeze)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 01-01: Reranker integration (SRCH-01, SRCH-02)
