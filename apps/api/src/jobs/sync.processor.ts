@@ -13,6 +13,7 @@ import { rawEvents } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
+import { AnalyticsService } from '../analytics/analytics.service';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 @Processor('sync')
@@ -28,6 +29,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     @InjectQueue('clean') private cleanQueue: Queue,
     private settingsService: SettingsService,
     private configService: ConfigService,
+    private analytics: AnalyticsService,
   ) {
     super();
   }
@@ -46,6 +48,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
   async process(job: Job<{ accountId: string; connectorType: string; jobId: string }>) {
     const { accountId, connectorType, jobId } = job.data;
+    const syncStartTime = Date.now();
     const connector = this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
 
@@ -175,6 +178,11 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         await this.jobsService.updateJob(jobId, { total: totalProcessed });
         logger.info(`Sync complete, ${totalProcessed} items now in pipeline`);
       }
+      this.analytics.capture('sync_complete', {
+        connector_type: connectorType,
+        duration_ms: Date.now() - syncStartTime,
+        item_count: totalProcessed,
+      });
     } catch (err: any) {
       // If the error is from hitting the sync limit, treat as success
       if (connector.isLimitReached) {
@@ -192,6 +200,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         return;
       }
 
+      this.analytics.capture('sync_error', {
+        connector_type: connectorType,
+        error_type: err.name,
+      });
       await this.jobsService.updateJob(jobId, {
         status: 'failed',
         error: err.message,

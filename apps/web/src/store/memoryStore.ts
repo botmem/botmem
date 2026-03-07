@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Memory, SourceType, GraphData } from '@botmem/shared';
 import { api } from '../lib/api';
+import { trackEvent } from '../lib/posthog';
 
 interface Filters {
   source: SourceType | null;
@@ -103,6 +104,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     try {
       const result = await api.searchMemories(query);
       const mems = result.items.map(apiMemoryToShared);
+      trackEvent('search', { query_length: query.length, result_count: mems.length, fallback: result.fallback });
       set({ memories: mems, loading: false, searchFallback: result.fallback, resolvedEntities: result.resolvedEntities || null });
     } catch (err) {
       console.error('Failed to search memories:', err);
@@ -113,6 +115,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   pinMemory: async (id: string) => {
     try {
       await api.pinMemory(id);
+      trackEvent('memory_pin', { action: 'pin' });
       set((state) => ({
         memories: state.memories.map((m) =>
           m.id === id ? { ...m, pinned: true } : m,
@@ -126,6 +129,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   unpinMemory: async (id: string) => {
     try {
       await api.unpinMemory(id);
+      trackEvent('memory_pin', { action: 'unpin' });
       set((state) => ({
         memories: state.memories.map((m) =>
           m.id === id ? { ...m, pinned: false } : m,
