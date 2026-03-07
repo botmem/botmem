@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: PostHog Analytics Activation
-status: planning
-stopped_at: Phase 4 context gathered
-last_updated: "2026-03-07T18:19:03.064Z"
-last_activity: 2026-03-07 -- Roadmap created for v1.1 milestone
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-07T18:35:38.594Z"
+last_activity: 2026-03-07 -- Completed plan 04-01 (config + coverage gaps)
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 0
 ---
 
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 4 of 4 (PostHog Analytics Activation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
+Plan: 1 of 2 in current phase
+Status: Executing
 Last activity: 2026-03-07 -- Roadmap created for v1.1 milestone
 
-Progress: [##########] v1.0 complete | [..........] 0% v1.1
+Progress: [##########] v1.0 complete | [#####.....] 50% v1.1
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: 4min
-- Total execution time: 0.40 hours
+- Total execution time: 0.45 hours
 
 **By Phase:**
 
@@ -46,10 +46,10 @@ Progress: [##########] v1.0 complete | [..........] 0% v1.1
 | 01-search-quality | 2/2 | 7min | 3.5min |
 | 02-operational-maturity | 2/2 | 8min | 4min |
 | 03-extensibility | 2/2 | 9min | 4.5min |
-| 04-posthog-activation | 0/TBD | - | - |
+| 04-posthog-activation | 1/2 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02 (4min), 02-01 (4min), 02-02 (4min), 03-01 (4min), 03-02 (5min)
+- Last 5 plans: 02-01 (4min), 02-02 (4min), 03-01 (4min), 03-02 (5min), 04-01 (3min)
 - Trend: Consistent
 
 *Updated after each plan completion*
@@ -61,6 +61,8 @@ Progress: [##########] v1.0 complete | [..........] 0% v1.1
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 04]: connector_setup fires only on new account creation, not re-auth
+- [Phase 04]: graph_view uses ref guard to fire only once per mount
 - [Phase 02]: AnalyticsModule is @Global() so all modules can inject without explicit imports
 - [Phase 02]: distinctId='server' for all backend analytics events to avoid PII
 - [v1.0]: PostHog cloud over self-hosted (16GB RAM disproportionate for single-user)
@@ -76,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-07T18:19:03.047Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-posthog-analytics-activation/04-CONTEXT.md
+Last session: 2026-03-07T18:35:16Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: .planning/phases/04-posthog-analytics-activation/04-01-SUMMARY.md

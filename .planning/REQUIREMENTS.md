@@ -10,7 +10,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Configuration
 
 - [ ] **CFG-01**: PostHog cloud API keys are configured in environment variables for both frontend (VITE_POSTHOG_API_KEY) and backend (POSTHOG_API_KEY)
-- [ ] **CFG-02**: PostHog host URL is configurable via VITE_POSTHOG_HOST (frontend) and POSTHOG_HOST (backend), defaulting to PostHog cloud (https://us.i.posthog.com)
+- [x] **CFG-02**: PostHog host URL is configurable via VITE_POSTHOG_HOST (frontend) and POSTHOG_HOST (backend), defaulting to PostHog cloud (https://us.i.posthog.com)
 
 ### Verification
 
@@ -22,8 +22,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Coverage
 
-- [ ] **COV-01**: Connector setup/OAuth completion is tracked as an event (connector_setup with connector type)
-- [ ] **COV-02**: Graph view interactions are tracked (graph_view with node/link counts)
+- [x] **COV-01**: Connector setup/OAuth completion is tracked as an event (connector_setup with connector type)
+- [x] **COV-02**: Graph view interactions are tracked (graph_view with node/link counts)
 
 ## v2 Requirements
 
@@ -49,14 +49,14 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CFG-01 | Phase 4 | Pending |
-| CFG-02 | Phase 4 | Pending |
+| CFG-02 | Phase 4 | Complete |
 | VER-01 | Phase 4 | Pending |
 | VER-02 | Phase 4 | Pending |
 | VER-03 | Phase 4 | Pending |
 | VER-04 | Phase 4 | Pending |
 | VER-05 | Phase 4 | Pending |
-| COV-01 | Phase 4 | Pending |
-| COV-02 | Phase 4 | Pending |
+| COV-01 | Phase 4 | Complete |
+| COV-02 | Phase 4 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 9 total
