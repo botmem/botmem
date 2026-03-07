@@ -9,16 +9,16 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Configuration
 
-- [ ] **CFG-01**: PostHog cloud API keys are configured in environment variables for both frontend (VITE_POSTHOG_API_KEY) and backend (POSTHOG_API_KEY)
+- [x] **CFG-01**: PostHog cloud API keys are configured in environment variables for both frontend (VITE_POSTHOG_API_KEY) and backend (POSTHOG_API_KEY)
 - [x] **CFG-02**: PostHog host URL is configurable via VITE_POSTHOG_HOST (frontend) and POSTHOG_HOST (backend), defaulting to PostHog cloud (https://us.i.posthog.com)
 
 ### Verification
 
-- [ ] **VER-01**: Frontend pageview events appear in PostHog dashboard when navigating between pages
-- [ ] **VER-02**: Frontend search events appear in PostHog with query_length, result_count, and fallback properties
-- [ ] **VER-03**: Frontend pin/unpin events appear in PostHog with action property
-- [ ] **VER-04**: Backend sync_complete and sync_error events appear in PostHog with connector metadata
-- [ ] **VER-05**: All tracking is confirmed no-op when API keys are removed (no errors, no network calls)
+- [x] **VER-01**: Frontend pageview events appear in PostHog dashboard when navigating between pages
+- [x] **VER-02**: Frontend search events appear in PostHog with query_length, result_count, and fallback properties
+- [x] **VER-03**: Frontend pin/unpin events appear in PostHog with action property
+- [x] **VER-04**: Backend sync_complete and sync_error events appear in PostHog with connector metadata
+- [x] **VER-05**: All tracking is confirmed no-op when API keys are removed (no errors, no network calls)
 
 ### Coverage
 
@@ -48,13 +48,13 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CFG-01 | Phase 4 | Pending |
+| CFG-01 | Phase 4 | Complete |
 | CFG-02 | Phase 4 | Complete |
-| VER-01 | Phase 4 | Pending |
-| VER-02 | Phase 4 | Pending |
-| VER-03 | Phase 4 | Pending |
-| VER-04 | Phase 4 | Pending |
-| VER-05 | Phase 4 | Pending |
+| VER-01 | Phase 4 | Complete |
+| VER-02 | Phase 4 | Complete |
+| VER-03 | Phase 4 | Complete |
+| VER-04 | Phase 4 | Complete |
+| VER-05 | Phase 4 | Complete |
 | COV-01 | Phase 4 | Complete |
 | COV-02 | Phase 4 | Complete |
 
