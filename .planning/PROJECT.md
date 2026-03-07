@@ -30,17 +30,29 @@ Every piece of personal communication and digital interaction is searchable, con
 - ✓ BullMQ job pipeline: sync → embed → enrich — existing
 - ✓ Real-time WebSocket updates for job progress — existing
 - ✓ Docker Compose infrastructure (Redis + Qdrant) — existing
+- ✓ Reranker integration for second-pass scoring (logprobs yes/no) — v1.0
+- ✓ Importance reinforcement (repeated recall boosts rank, capped +0.2) — v1.0
+- ✓ Nightly decay job for recency/importance score refresh — v1.0
+- ✓ Memory pinning with score floor 0.75 — v1.0
+- ✓ Plugin/extension system (3 types: connector, scorer, lifecycle) — v1.0
+- ✓ PostHog SDK integration (frontend + backend, no-op when unconfigured) — v1.0
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] PostHog product analytics integration (frontend SDK integrated, needs API key + running instance)
-- [ ] Reranker integration for second-pass scoring
-- [ ] Importance reinforcement (repeated recall boosts rank)
-- [ ] Nightly decay job for recency/importance score refresh
-- [ ] Memory pinning by user
-- [ ] Plugin/extension system (stub exists)
+- [ ] PostHog cloud analytics activation and verification
+- [ ] Additional product tracking events for comprehensive usage insights
+
+## Current Milestone: v1.1 PostHog Analytics Activation
+
+**Goal:** Configure PostHog cloud, wire API keys into the existing SDK integration, verify events flow end-to-end, and ensure comprehensive product tracking across frontend and backend.
+
+**Target features:**
+- PostHog cloud project setup and API key configuration
+- End-to-end verification of frontend events (pageviews, search, pin)
+- End-to-end verification of backend events (sync completions, errors)
+- Any missing tracking events identified and added
 
 ### Out of Scope
 
@@ -84,7 +96,8 @@ Every piece of personal communication and digital interaction is searchable, con
 | nomic-embed-text over Qwen embedding | Available on Ollama, 768d vectors, good quality | ✓ Good |
 | Contacts as first-class entities | Rich cross-connector identity needed for meaningful search | ✓ Good |
 | Store all memories, label factuality | Never lose data, let user filter by confidence | ✓ Good |
-| PostHog for analytics | Self-hostable, privacy-respecting, generous free tier | — Pending |
+| PostHog for analytics | Self-hostable, privacy-respecting, generous free tier | ✓ Good |
+| PostHog cloud over self-hosted | 16GB RAM requirement disproportionate for single-user | ✓ Good |
 
 ---
-*Last updated: 2026-03-07 after initialization*
+*Last updated: 2026-03-07 after v1.1 milestone start*
