@@ -17,6 +17,7 @@ apps/
   api/          NestJS 11 backend (REST + WebSocket)
   web/          React 19 + React Router 7 + Zustand 5 + Tailwind 4
 packages/
+  cli/             CLI tool (`botmem`) — human + JSON output for querying memories
   connector-sdk/   BaseConnector abstract class + ConnectorRegistry
   connectors/
     gmail/         OAuth2, imports emails + contacts
@@ -33,7 +34,7 @@ packages/
 - **Backend**: NestJS 11, Drizzle ORM + SQLite (better-sqlite3, WAL mode)
 - **Queue**: BullMQ on Redis
 - **Vector DB**: Qdrant (cosine similarity, auto-created collection)
-- **AI**: Ollama (remote) — `nomic-embed-text` for embeddings, `qwen3:4b` for text enrichment, `qwen3-vl:4b` for vision
+- **AI**: Ollama (remote) — `nomic-embed-text` for embeddings, `qwen3:0.6b` for text enrichment, `qwen3-vl:2b` for vision
 - **Frontend**: React 19, Vite 6, Zustand 5, Tailwind 4, react-force-graph-2d
 - **Tooling**: pnpm 9.15 workspaces, Turbo 2.4, Vitest 3
 
@@ -47,8 +48,8 @@ packages/
 | `QDRANT_URL` | `http://localhost:6333` | Vector DB |
 | `OLLAMA_BASE_URL` | `http://192.168.10.250:11434` | Remote Ollama inference |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model (768d) |
-| `OLLAMA_TEXT_MODEL` | `qwen3:4b` | Text enrichment model (uses /no_think) |
-| `OLLAMA_VL_MODEL` | `qwen3-vl:4b` | Vision-language model (photo enrichment) |
+| `OLLAMA_TEXT_MODEL` | `qwen3:0.6b` | Text enrichment model (uses /no_think) |
+| `OLLAMA_VL_MODEL` | `qwen3-vl:2b` | Vision-language model (photo enrichment) |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS / OAuth redirect origin |
 | `PLUGINS_DIR` | `./plugins` | External plugin directory |
 

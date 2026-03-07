@@ -1,25 +1,24 @@
-# Agent API
+# Agent API & CLI
 
-Botmem is designed to be the memory layer for your AI agents. Through the **Model Context Protocol (MCP)**, any MCP-compatible agent -- Claude, GPT, or custom agents -- can query your personal memory, find contacts, build timelines, and store new information.
+Botmem is designed to be the memory layer for your AI agents. The **`botmem` CLI** provides both human-readable and JSON output for querying and managing your memory system.
 
 ## How It Works
 
 ```
-+------------------+     +------------------+     +------------------+
-|   AI Agent       |     |   MCP Server     |     |   Botmem API     |
-|   (Claude, etc.) +---->+   (stdio/SSE)    +---->+   port 3001      |
-|                  |     |                  |     |                  |
-|   "What did John |     |   Translates     |     |   Semantic search|
-|    say about     |     |   tool calls     |     |   Contact lookup |
-|    the budget?"  |     |   to REST calls  |     |   Memory insert  |
-+------------------+     +------------------+     +------------------+
++------------------+     +------------------+
+|   Human / Agent  |     |   Botmem API     |
+|                  +---->+   port 3001      |
+|   botmem search  |     |                  |
+|   botmem status  |     |   Semantic search|
+|   botmem --json  |     |   Contact lookup |
++------------------+     +------------------+
 ```
 
-The MCP server acts as a bridge between your AI agent and the Botmem REST API. It exposes a set of tools that agents can call to interact with your memory store.
+The `botmem` CLI talks directly to the Botmem REST API. Use `--json` for machine-readable output (pipe to `jq` or use from scripts/agents).
 
-## What Agents Can Do
+## What You Can Do
 
-With Botmem's MCP tools, your agents can:
+With the `botmem` CLI, you can:
 
 - **Search memories** -- "Find emails about the Q3 budget" returns semantically ranked results with scores
 - **Recall specific events** -- "What happened at the coffee meeting on Tuesday?" pulls context from all connected sources
@@ -47,6 +46,6 @@ See the [Tools Reference](/agent-api/tools-reference) for complete schemas and e
 
 ## Next Steps
 
-- [Set up the MCP server](/agent-api/mcp-server) for Claude Desktop or other agents
-- [Browse the tools reference](/agent-api/tools-reference) for input/output schemas
-- [See example workflows](/agent-api/examples) for common agent use cases
+- [CLI Reference](/agent-api/cli) for all commands and options
+- [Browse the tools reference](/agent-api/tools-reference) for REST API schemas
+- [See example workflows](/agent-api/examples) for common use cases
