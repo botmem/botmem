@@ -199,7 +199,7 @@ describe('ImmichConnector', () => {
       );
       expect(searchCall).toBeDefined();
       const body = JSON.parse(searchCall![1].body);
-      expect(body.order).toBe('asc');
+      expect(body.order).toBe('desc');
       expect(body.type).toBe('IMAGE');
       expect(body.page).toBe(1);
       expect(body.size).toBe(100);
