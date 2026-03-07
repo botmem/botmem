@@ -1,106 +1,117 @@
 import { useEffect, useState } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
+import { Tabs } from '../components/ui/Tabs';
 import { ConnectorLogFeed } from '../components/dashboard/ConnectorLogFeed';
-import { PipelineLogFeed } from '../components/dashboard/PipelineLogFeed';
 import { JobTable } from '../components/dashboard/JobTable';
+import { PipelineView } from '../components/dashboard/PipelineView';
+import { MemoryGraph } from '../components/memory/MemoryGraph';
 import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
+import { useMemories } from '../hooks/useMemories';
 import { api } from '../lib/api';
 
+const dashTabs = [
+  { id: 'overview', label: 'OVERVIEW' },
+  { id: 'logs', label: 'LOGS' },
+];
+
 export function DashboardPage() {
-  const { jobs, logs, queueStats, cancelJob, reprioritize } = useJobs();
+  const { jobs, logs, queueStats, cancelJob, reprioritize, clearLogs, fetchJobs, fetchQueueStats } = useJobs();
   const { accounts } = useConnectors();
+  const { graphData, loadGraph } = useMemories();
   const [memoryStats, setMemoryStats] = useState<{ total: number; bySource: Record<string, number>; byConnector: Record<string, number> } | null>(null);
+  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
-    const fetchStats = () => {
+    loadGraph();
+    api.getMemoryStats().then(setMemoryStats).catch(() => {});
+    // Poll memory stats at the same 3s cadence as queue stats (via useJobs)
+    const interval = setInterval(() => {
       api.getMemoryStats().then(setMemoryStats).catch(() => {});
-    };
-    fetchStats();
-    const interval = setInterval(fetchStats, 10000);
-    return () => clearInterval(interval);
+    }, 3000);
+    return () => { clearInterval(interval); };
   }, []);
 
   const totalMemories = memoryStats?.total ?? 0;
-
-  // Today's count: memories created today
-  // We'll derive from the stats API — for now show total by connector as a proxy
-  // until we add a today filter. The API already gives us bySource/byConnector.
   const activeConnectors = accounts.filter((a) => a.status === 'connected' || a.status === 'syncing').length;
-  const failedJobs = jobs.filter((j) => j.status === 'failed').length;
+  const failedSyncJobs = jobs.filter((j) => j.status === 'failed').length;
+  const failedPipeline = queueStats
+    ? Object.values(queueStats).reduce((sum, s) => sum + (s.failed ?? 0), 0)
+    : 0;
+  const failedJobs = failedSyncJobs + failedPipeline;
 
-  // Embed queue pending
-  const embedPending = queueStats ? (queueStats.embed?.waiting ?? 0) + (queueStats.embed?.active ?? 0) + (queueStats.embed?.delayed ?? 0) : 0;
+  // Pending = items still in BullMQ queues (waiting + active + delayed) across pipeline stages
+  const pipelinePending = queueStats
+    ? Object.entries(queueStats)
+        .filter(([name]) => name !== 'sync')
+        .reduce((sum, [, s]) => sum + (s.waiting ?? 0) + (s.active ?? 0) + (s.delayed ?? 0), 0)
+    : 0;
 
   const stats = [
     { label: 'TOTAL MEMORIES', value: totalMemories.toLocaleString(), color: '#C4F53A' },
-    { label: 'EMBED QUEUE', value: embedPending.toLocaleString(), color: '#FF6B9D' },
-    { label: 'ACTIVE CONNECTORS', value: String(activeConnectors), color: '#4ECDC4' },
+    { label: 'PENDING', value: pipelinePending.toLocaleString(), color: '#FF6B9D' },
+    { label: 'CONNECTORS', value: String(activeConnectors), color: '#4ECDC4' },
     { label: 'FAILED JOBS', value: String(failedJobs), color: '#EF4444' },
   ];
 
   return (
     <PageContainer>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {stats.map((s) => (
-          <Card key={s.label} className="text-center p-4" style={{ borderLeftColor: s.color, borderLeftWidth: '6px' }}>
-            <p className="font-display text-3xl font-bold text-nb-text">{s.value}</p>
-            <p className="font-mono text-xs text-nb-muted uppercase mt-1">{s.label}</p>
-          </Card>
-        ))}
+      {/* Tabs: Overview / Logs */}
+      <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
+
+      <div className="mt-4" style={{ minHeight: 560 }}>
+        {activeTab === 'overview' && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              {stats.map((s) => (
+                <Card key={s.label} className="p-0 overflow-hidden">
+                  <div
+                    className="px-4 py-1.5 font-display text-xs font-bold uppercase tracking-wider text-black"
+                    style={{ backgroundColor: s.color }}
+                  >
+                    {s.label}
+                  </div>
+                  <div className="px-4 py-4 flex items-center justify-between">
+                    <p className="font-display text-4xl font-bold text-nb-text">{s.value}</p>
+                    {s.label === 'FAILED JOBS' && failedJobs > 0 && (
+                      <button
+                        onClick={() => {
+                          api.retryFailedJobs().then(() => { fetchJobs(); fetchQueueStats(); }).catch(() => {});
+                        }}
+                        className="font-mono text-[10px] font-bold uppercase px-2 py-1 border-2 border-nb-red text-nb-red cursor-pointer hover:bg-nb-red hover:text-black transition-colors"
+                      >
+                        RETRY ALL
+                      </button>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {queueStats && (
+              <div className="mb-6">
+                <PipelineView queueStats={queueStats} />
+              </div>
+            )}
+
+            <JobTable
+              jobs={jobs}
+              onCancel={cancelJob}
+              onMove={reprioritize}
+            />
+          </>
+        )}
+
+        {activeTab === 'logs' && (
+          <ConnectorLogFeed logs={logs} onClear={clearLogs} />
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <ConnectorLogFeed logs={logs} />
-        <div className="flex flex-col gap-4">
-          <JobTable
-            jobs={jobs}
-            onCancel={cancelJob}
-            onMove={reprioritize}
-          />
-          {queueStats && (
-            <Card className="p-0 overflow-hidden">
-              <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase">
-                PIPELINE QUEUES
-              </div>
-              <div className="p-3 grid grid-cols-2 gap-2">
-                {Object.entries(queueStats).map(([name, s]) => {
-                  const total = s.waiting + s.active + s.delayed;
-                  return (
-                    <div key={name} className="border-2 border-nb-border p-2">
-                      <p className="font-display text-xs font-bold uppercase text-nb-text">{name}</p>
-                      <div className="font-mono text-[10px] text-nb-muted mt-1 space-y-0.5">
-                        {s.active > 0 && (
-                          <p><span className="text-nb-lime font-bold">{s.active}</span> active</p>
-                        )}
-                        {s.waiting > 0 && (
-                          <p><span className="text-nb-yellow font-bold">{s.waiting.toLocaleString()}</span> waiting</p>
-                        )}
-                        {s.delayed > 0 && (
-                          <p><span className="text-nb-muted font-bold">{s.delayed}</span> delayed</p>
-                        )}
-                        {s.failed > 0 && (
-                          <p><span className="text-nb-red font-bold">{s.failed}</span> failed</p>
-                        )}
-                        {s.completed > 0 && (
-                          <p><span className="text-nb-muted">{s.completed.toLocaleString()}</span> done</p>
-                        )}
-                        {total === 0 && s.completed === 0 && s.failed === 0 && (
-                          <p className="text-nb-muted">idle</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-        </div>
+      {/* Graph */}
+      <div className="mt-6">
+        <MemoryGraph data={graphData} onReload={loadGraph} />
       </div>
-
-      {/* Full-width pipeline activity log */}
-      <PipelineLogFeed logs={logs} />
     </PageContainer>
   );
 }

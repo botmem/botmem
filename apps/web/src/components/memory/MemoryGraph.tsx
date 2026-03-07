@@ -92,6 +92,8 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number; vx: number; vy: number }>>(new Map());
+  const isInitialRender = useRef(true);
   const [ForceGraph, setForceGraph] = useState<any>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
@@ -124,6 +126,27 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
       if (contactId) setSelfNodeId(`contact-${contactId}`);
     }).catch(() => {});
   }, []);
+
+  // Auto-reload when nodes/links sliders change (debounced) + periodic refresh
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!onReload) return;
+    if (isInitialRender.current) return;
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      onReload({ memoryLimit, linkLimit });
+    }, 500);
+    return () => { if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current); };
+  }, [memoryLimit, linkLimit]);
+
+  // Periodic graph refresh every 15s using current slider values
+  useEffect(() => {
+    if (!onReload) return;
+    const interval = setInterval(() => {
+      onReload({ memoryLimit, linkLimit });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [onReload, memoryLimit, linkLimit]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -271,6 +294,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
   }, [data.links]);
 
   // Filter graph data by min connections + legend toggles
+  // Preserve node positions across data updates to prevent graph from resetting
   const filteredData = useMemo(() => {
     const keepNodes = new Set<string>();
     for (const node of data.nodes) {
@@ -287,7 +311,27 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
         keepNodes.add(node.id);
       }
     }
-    const nodes = data.nodes.filter((n) => keepNodes.has(n.id));
+
+    // Save current node positions before computing new filtered data
+    if (graphRef.current) {
+      const currentNodes = graphRef.current.graphData?.()?.nodes;
+      if (currentNodes) {
+        for (const n of currentNodes) {
+          if (n.id && n.x !== undefined) {
+            nodePositionsRef.current.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
+          }
+        }
+      }
+    }
+
+    const nodes = data.nodes
+      .filter((n) => keepNodes.has(n.id))
+      .map((n) => {
+        // Restore positions from previous render
+        const pos = nodePositionsRef.current.get(n.id);
+        if (pos) return { ...n, x: pos.x, y: pos.y, vx: pos.vx, vy: pos.vy };
+        return { ...n };
+      });
     const links = data.links.filter((l) => {
       const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
       const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
@@ -298,6 +342,33 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     });
     return { nodes, links };
   }, [data, connectionCounts, minConnections, hiddenSourceTypes, hideContacts, hideGroups, hideFiles, hideDevices, hiddenEdgeTypes]);
+
+  // Track camera state via onZoom callback — restored after data updates
+  const cameraRef = useRef<{ k: number; x: number; y: number } | null>(null);
+  const handleZoom = useCallback((transform: { k: number; x: number; y: number }) => {
+    if (!isInitialRender.current) {
+      cameraRef.current = transform;
+    }
+  }, []);
+
+  // Restore camera position after data update (prevent auto-recenter)
+  useEffect(() => {
+    if (!graphRef.current || isInitialRender.current) return;
+    if (cameraRef.current) {
+      const { k, x, y } = cameraRef.current;
+      requestAnimationFrame(() => {
+        if (graphRef.current) {
+          // Restore zoom + pan via the d3 zoom transform
+          graphRef.current.zoom(k, 0);
+          graphRef.current.centerAt(
+            -x / k + dimensions.width / (2 * k),
+            -y / k + dimensions.height / (2 * k),
+            0
+          );
+        }
+      });
+    }
+  }, [filteredData, dimensions]);
 
   // Focus mode: double-click a node to show only its connections, sorted by strength
   const focusVisibleIds = useMemo(() => {
@@ -851,44 +922,34 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
             className="w-full accent-[#A3E635]"
           />
         </div>
-        {onReload && (
-          <>
-            <div className="w-28">
-              <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
-                Nodes: {memoryLimit}
-              </label>
-              <input
-                type="range"
-                min={100}
-                max={5000}
-                step={100}
-                value={memoryLimit}
-                onChange={(e) => setMemoryLimit(Number(e.target.value))}
-                className="w-full accent-[#A3E635]"
-              />
-            </div>
-            <div className="w-28">
-              <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
-                Links: {linkLimit}
-              </label>
-              <input
-                type="range"
-                min={500}
-                max={50000}
-                step={500}
-                value={linkLimit}
-                onChange={(e) => setLinkLimit(Number(e.target.value))}
-                className="w-full accent-[#A3E635]"
-              />
-            </div>
-            <button
-              onClick={() => onReload({ memoryLimit, linkLimit })}
-              className="border-2 border-nb-border px-3 py-1 font-mono text-[10px] font-bold uppercase bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
-            >
-              Reload
-            </button>
-          </>
-        )}
+        <div className="w-28">
+          <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
+            Nodes: {memoryLimit}
+          </label>
+          <input
+            type="range"
+            min={100}
+            max={5000}
+            step={100}
+            value={memoryLimit}
+            onChange={(e) => setMemoryLimit(Number(e.target.value))}
+            className="w-full accent-[#A3E635]"
+          />
+        </div>
+        <div className="w-28">
+          <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
+            Links: {linkLimit}
+          </label>
+          <input
+            type="range"
+            min={500}
+            max={50000}
+            step={500}
+            value={linkLimit}
+            onChange={(e) => setLinkLimit(Number(e.target.value))}
+            className="w-full accent-[#A3E635]"
+          />
+        </div>
       </div>
 
       {/* Status bar */}
@@ -912,7 +973,10 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
           onNodeClick={(node: any) => setSelectedNode(node)}
           onNodeDoubleClick={handleNodeDoubleClick}
           onBackgroundClick={() => { setFocusedNodeId(null); setFocusExpansion(1); }}
-          cooldownTicks={100}
+          cooldownTicks={isInitialRender.current ? 100 : 0}
+          warmupTicks={isInitialRender.current ? 0 : 1}
+          onEngineStop={() => { isInitialRender.current = false; }}
+          onZoom={handleZoom}
           backgroundColor="#1A1A2E"
         />
 
