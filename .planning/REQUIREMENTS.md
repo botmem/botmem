@@ -39,8 +39,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### User Identity
 
-- [ ] **ID-01**: PostHog identify() is called with a stable user identifier so sessions are linked across page reloads
-- [ ] **ID-02**: User properties (connectors_count, memories_count) are set as person properties in PostHog for segmentation
+- [x] **ID-01**: PostHog identify() is called with a stable user identifier so sessions are linked across page reloads
+- [x] **ID-02**: User properties (connectors_count, memories_count) are set as person properties in PostHog for segmentation
 
 ## Previous Milestones (Completed)
 
@@ -81,8 +81,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 | PROD-01 | Phase 6 | Pending |
 | PROD-02 | Phase 6 | Pending |
 | PROD-03 | Phase 6 | Pending |
-| ID-01 | Phase 5 | Pending |
-| ID-02 | Phase 5 | Pending |
+| ID-01 | Phase 5 | Complete |
+| ID-02 | Phase 5 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 17 total
