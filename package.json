@@ -6,7 +6,8 @@
     "dev:all": "turbo dev --concurrency 20",
     "build": "turbo build",
     "lint": "turbo lint",
-    "test": "turbo test"
+    "test": "turbo test",
+    "test:coverage": "turbo test:coverage"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",
