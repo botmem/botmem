@@ -53,4 +53,8 @@ export class ConfigService {
   get posthogApiKey(): string {
     return process.env.POSTHOG_API_KEY || '';
   }
+
+  get decayCron(): string {
+    return process.env.DECAY_CRON || '0 3 * * *';
+  }
 }

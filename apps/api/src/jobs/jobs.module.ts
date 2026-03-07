@@ -13,7 +13,12 @@ import { SettingsModule } from '../settings/settings.module';
   imports: [
     BullModule.forRootAsync({
       useFactory: (config: ConfigService) => ({
-        connection: { url: config.redisUrl },
+        connection: {
+          url: config.redisUrl,
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+          retryStrategy: (times: number) => Math.min(times * 500, 5000),
+        },
         defaultJobOptions: {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -28,6 +33,7 @@ import { SettingsModule } from '../settings/settings.module';
     BullModule.registerQueue({ name: 'embed' }),
     BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'backfill' }),
+    BullModule.registerQueue({ name: 'maintenance' }),
     AccountsModule,
     forwardRef(() => AuthModule),
     SettingsModule,

@@ -14,6 +14,7 @@ import { CleanProcessor } from './clean.processor';
 import { EmbedProcessor } from './embed.processor';
 import { EnrichProcessor } from './enrich.processor';
 import { BackfillProcessor } from './backfill.processor';
+import { DecayProcessor } from './decay.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
 
@@ -30,6 +31,7 @@ import { MemoryController } from './memory.controller';
     BullModule.registerQueue({ name: 'embed' }),
     BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'backfill' }),
+    BullModule.registerQueue({ name: 'maintenance' }),
   ],
   controllers: [MemoryController],
   providers: [
@@ -40,6 +42,7 @@ import { MemoryController } from './memory.controller';
     EmbedProcessor,
     EnrichProcessor,
     BackfillProcessor,
+    DecayProcessor,
     MemoryService,
   ],
   exports: [OllamaService, QdrantService, EnrichService, MemoryService],
