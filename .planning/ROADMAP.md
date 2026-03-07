@@ -54,10 +54,11 @@ Plans:
   1. A sample enricher plugin in the plugins directory runs automatically during the enrich pipeline
   2. Lifecycle hooks fire at documented points (afterIngest, afterEmbed, afterEnrich, afterSearch) and plugin code can observe memory events
   3. Plugin interface is documented with working example that a developer can copy and modify
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: Plugin system and lifecycle hooks (EXT-01, EXT-02, EXT-03, EXT-04)
+- [ ] 03-01-PLAN.md -- Plugin registry and loading infrastructure (EXT-01, EXT-03)
+- [ ] 03-02-PLAN.md -- Hook wiring, scorer integration, and sample plugin (EXT-02, EXT-04)
 
 ## Progress
 
@@ -68,4 +69,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Search Quality | 2/2 | Complete | 2026-03-07 |
 | 2. Operational Maturity | 2/2 | Complete   | 2026-03-07 |
-| 3. Extensibility | 0/1 | Not started | - |
+| 3. Extensibility | 0/2 | Not started | - |
