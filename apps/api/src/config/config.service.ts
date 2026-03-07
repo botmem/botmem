@@ -23,7 +23,7 @@ export class ConfigService {
   }
 
   get ollamaBaseUrl(): string {
-    return process.env.OLLAMA_BASE_URL || 'http://192.168.10.250:11434';
+    return process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
   }
 
   get ollamaEmbedModel(): string {
@@ -36,6 +36,10 @@ export class ConfigService {
 
   get ollamaVlModel(): string {
     return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:2b';
+  }
+
+  get ollamaRerankerModel(): string {
+    return process.env.OLLAMA_RERANKER_MODEL || 'sam860/qwen3-reranker:0.6b-Q8_0';
   }
 
   get qdrantUrl(): string {
