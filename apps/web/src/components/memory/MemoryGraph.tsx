@@ -95,6 +95,8 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
   const nodePositionsRef = useRef<Map<string, { x: number; y: number; vx: number; vy: number }>>(new Map());
   const isInitialRender = useRef(true);
   const prevFilteredRef = useRef<{ nodes: any[]; links: any[] } | null>(null);
+  const prevDataRef = useRef(data);  // Track when upstream data changes vs filter changes
+  const isDataRefresh = useRef(false);
   const [ForceGraph, setForceGraph] = useState<any>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
@@ -353,9 +355,18 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     return { nodes, links };
   }, [data, connectionCounts, minConnections, hiddenSourceTypes, hideContacts, hideGroups, hideFiles, hideDevices, hiddenEdgeTypes, contactFilterIds, highlightedIds]);
 
-  // After data updates (not initial render), restore camera position
-  // React will pass new filteredData to ForceGraph via the graphData prop,
-  // which reheats the simulation. We immediately stop it and restore camera.
+  // Detect whether filteredData changed due to upstream data refresh or user filter change
+  useEffect(() => {
+    if (data !== prevDataRef.current) {
+      isDataRefresh.current = true;
+      prevDataRef.current = data;
+    } else {
+      isDataRefresh.current = false;
+    }
+  });
+
+  // After data updates (not initial render), restore camera for data refreshes only.
+  // For filter changes (min connections, search), let the simulation animate naturally.
   useEffect(() => {
     if (isInitialRender.current) {
       prevFilteredRef.current = filteredData;
@@ -366,28 +377,23 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
       return;
     }
 
-    const fg = graphRef.current;
+    // Only restore camera for periodic data refreshes, not user filter changes
+    if (isDataRefresh.current) {
+      const fg = graphRef.current;
+      const canvas = containerRef.current?.querySelector('canvas');
+      const d3Zoom = canvas && (canvas as any).__zoom;
+      const savedK = d3Zoom?.k;
+      const savedX = d3Zoom?.x;
+      const savedY = d3Zoom?.y;
 
-    // Read d3 zoom transform BEFORE the re-render triggers force-graph update
-    const canvas = containerRef.current?.querySelector('canvas');
-    const d3Zoom = canvas && (canvas as any).__zoom;
-    const savedK = d3Zoom?.k;
-    const savedX = d3Zoom?.x;
-    const savedY = d3Zoom?.y;
-
-    // After React passes new graphData to ForceGraph, it will reheat.
-    // Use rAF to restore camera after the update is processed.
-    requestAnimationFrame(() => {
-      if (!fg || savedK === undefined) return;
-      // Restore camera transform
-      fg.zoom(savedK, 0);
-      const cx = (dimensions.width / 2 - savedX) / savedK;
-      const cy = (dimensions.height / 2 - savedY) / savedK;
-      fg.centerAt(cx, cy, 0);
-      // Stop the simulation so nodes don't drift
-      fg.pauseAnimation?.();
-      fg.resumeAnimation?.();
-    });
+      requestAnimationFrame(() => {
+        if (!fg || savedK === undefined) return;
+        fg.zoom(savedK, 0);
+        const cx = (dimensions.width / 2 - savedX) / savedK;
+        const cy = (dimensions.height / 2 - savedY) / savedK;
+        fg.centerAt(cx, cy, 0);
+      });
+    }
 
     prevFilteredRef.current = filteredData;
   }, [filteredData, dimensions]);
@@ -995,8 +1001,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
           onNodeClick={(node: any) => setSelectedNode(node)}
           onNodeDoubleClick={handleNodeDoubleClick}
           onBackgroundClick={() => { setFocusedNodeId(null); setFocusExpansion(1); }}
-          cooldownTicks={isInitialRender.current ? 100 : 0}
-          warmupTicks={isInitialRender.current ? 0 : 50}
+          cooldownTicks={100}
           onEngineStop={() => { isInitialRender.current = false; }}
           backgroundColor="#1A1A2E"
         />
