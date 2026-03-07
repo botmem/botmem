@@ -36,23 +36,32 @@ Every piece of personal communication and digital interaction is searchable, con
 - ✓ Memory pinning with score floor 0.75 — v1.0
 - ✓ Plugin/extension system (3 types: connector, scorer, lifecycle) — v1.0
 - ✓ PostHog SDK integration (frontend + backend, no-op when unconfigured) — v1.0
+- ✓ PostHog cloud analytics activation and end-to-end event verification — v1.1
+- ✓ Configurable PostHog host (EU/US) via POSTHOG_HOST env var — v1.1
+- ✓ connector_setup, graph_view, graph_node_click tracking events — v1.1
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] PostHog cloud analytics activation and verification
-- [ ] Additional product tracking events for comprehensive usage insights
+- [ ] Session replay recording for user interaction debugging
+- [ ] Heatmaps for click/scroll behavior analysis
+- [ ] Error tracking for frontend JS exceptions
+- [ ] Web analytics dashboard for traffic and navigation patterns
+- [ ] Product analytics dashboards (funnels, retention, user paths)
+- [ ] User identification for cross-session tracking
 
-## Current Milestone: v1.1 PostHog Analytics Activation
+## Current Milestone: v1.2 PostHog Deep Analytics
 
-**Goal:** Configure PostHog cloud, wire API keys into the existing SDK integration, verify events flow end-to-end, and ensure comprehensive product tracking across frontend and backend.
+**Goal:** Enable all valuable free PostHog features — session replay, heatmaps, error tracking, web analytics, and product analytics dashboards — to get comprehensive usage insights on Botmem.
 
 **Target features:**
-- PostHog cloud project setup and API key configuration
-- End-to-end verification of frontend events (pageviews, search, pin)
-- End-to-end verification of backend events (sync completions, errors)
-- Any missing tracking events identified and added
+- Session replay with privacy-safe recording (mask sensitive data)
+- Heatmap tracking for click and scroll behavior
+- Automatic JS error capture and reporting
+- Web analytics (traffic, navigation paths, referrers)
+- Product analytics dashboards in PostHog (funnels, retention)
+- User identification linking anonymous and authenticated sessions
 
 ### Out of Scope
 
@@ -100,4 +109,4 @@ Every piece of personal communication and digital interaction is searchable, con
 | PostHog cloud over self-hosted | 16GB RAM requirement disproportionate for single-user | ✓ Good |
 
 ---
-*Last updated: 2026-03-07 after v1.1 milestone start*
+*Last updated: 2026-03-08 after v1.2 milestone start*
