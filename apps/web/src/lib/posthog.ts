@@ -41,6 +41,14 @@ export function initPostHog() {
   });
 }
 
+export function identifyUser(
+  userId: string,
+  properties?: Record<string, unknown>,
+): void {
+  if (!apiKey) return;
+  posthog.identify(userId, properties);
+}
+
 export function trackEvent(event: string, properties?: Record<string, unknown>): void {
   posthog.capture(event, properties);
 }
