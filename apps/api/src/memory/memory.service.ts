@@ -109,14 +109,17 @@ export class MemoryService {
     const qdrantFilter = filters ? this.buildQdrantFilter(filters) : undefined;
     const qdrantResults = await this.qdrant.search(vector, limit * 2, qdrantFilter);
 
-    // 2. Text search (SQL LIKE) — catches exact name/keyword matches vector misses
-    // Use both the original query and accent-stripped version for broad matching
+    // 2. Text search (SQL LIKE) — split query into words, match ALL words (AND logic)
     const queryLower = query.toLowerCase();
     const queryNorm = stripAccents(queryLower);
-    const textConditions = [
+    const queryWords = queryLower.split(/\s+/).filter((w) => w.length >= 2);
+    const queryWordsNorm = queryWords.map(stripAccents);
+    const textConditions: any[] = [
       eq(memories.embeddingStatus, 'done'),
-      sql`LOWER(${memories.text}) LIKE ${'%' + queryLower + '%'}`,
     ];
+    for (const word of queryWords) {
+      textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}` as any);
+    }
     if (filters?.sourceType) textConditions.push(eq(memories.sourceType, filters.sourceType));
     if (filters?.connectorType) textConditions.push(eq(memories.connectorType, filters.connectorType));
     const textMatches = await db
@@ -126,26 +129,24 @@ export class MemoryService {
       .limit(limit * 2);
     const textMatchIds = new Set(textMatches.map((r) => r.id));
 
-    // 3. Contact name search — find contacts matching query, then their linked memories
+    // 3. Contact name search — find contacts matching ANY query word
     // Match both accented and stripped versions (amélie matches amelie and vice versa)
-    const matchingContacts = await db
-      .select({ id: contacts.id, displayName: contacts.displayName })
-      .from(contacts)
-      .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryLower + '%'}`);
-    // Also match accent-stripped: if query is "amelie", match "Amélie"
-    if (queryNorm !== queryLower) {
-      const normMatches = await db
+    const seenContactIds = new Set<string>();
+    const matchingContacts: { id: string; displayName: string }[] = [];
+    for (const word of queryWordsNorm) {
+      const rows = await db
         .select({ id: contacts.id, displayName: contacts.displayName })
         .from(contacts)
-        .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryNorm + '%'}`);
-      const existingIds = new Set(matchingContacts.map((c) => c.id));
-      for (const c of normMatches) if (!existingIds.has(c.id)) matchingContacts.push(c);
+        .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + word + '%'}`);
+      for (const c of rows) {
+        if (!seenContactIds.has(c.id)) { seenContactIds.add(c.id); matchingContacts.push(c); }
+      }
     }
     // Fallback: fetch all contacts and match with accent stripping (SQLite can't do NFD)
     if (!matchingContacts.length) {
       const allContactRows = await db.select({ id: contacts.id, displayName: contacts.displayName }).from(contacts);
       for (const c of allContactRows) {
-        if (stripAccents(c.displayName.toLowerCase()).includes(queryNorm)) {
+        if (queryWordsNorm.some((w) => stripAccents(c.displayName.toLowerCase()).includes(w)) && !seenContactIds.has(c.id)) {
           matchingContacts.push(c);
         }
       }
@@ -161,19 +162,14 @@ export class MemoryService {
       for (const r of linked) contactMatchIds.add(r.memoryId);
     }
 
-    // 4. Also check contact identifiers (email, phone, handle) with accent stripping
-    const matchingIdents = await db
-      .select({ contactId: contactIdentifiers.contactId })
-      .from(contactIdentifiers)
-      .where(sql`LOWER(${contactIdentifiers.identifierValue}) LIKE ${'%' + queryLower + '%'}`);
-    if (!matchingIdents.length && queryNorm !== queryLower) {
-      // Accent-stripped fallback for identifiers
-      const allIdents = await db.select({ contactId: contactIdentifiers.contactId, identifierValue: contactIdentifiers.identifierValue }).from(contactIdentifiers);
-      for (const r of allIdents) {
-        if (stripAccents(r.identifierValue.toLowerCase()).includes(queryNorm)) {
-          matchingIdents.push(r);
-        }
-      }
+    // 4. Also check contact identifiers (email, phone, handle) — match ANY word
+    const matchingIdents: { contactId: string }[] = [];
+    for (const word of queryWords) {
+      const rows = await db
+        .select({ contactId: contactIdentifiers.contactId })
+        .from(contactIdentifiers)
+        .where(sql`LOWER(${contactIdentifiers.identifierValue}) LIKE ${'%' + word + '%'}`);
+      for (const r of rows) matchingIdents.push(r);
     }
     if (matchingIdents.length) {
       const identContactIds = [...new Set(matchingIdents.map((r) => r.contactId))];

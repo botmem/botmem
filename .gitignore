@@ -6,7 +6,27 @@ dist
 .env
 .env.local
 coverage/
+
+# Data / databases
 apps/api/data/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Build artifacts
 apps/web/vite.config.js
 apps/web/vite.config.js.map
 apps/web/vite.config.d.ts
+apps/web/tsconfig.tsbuildinfo
+apps/web/tsconfig.node.tsbuildinfo
+docs/.vitepress/cache/
+
+# Screenshots / images (not source)
+*.png
+
+# Tooling state
+.claude-flow/
+.hive-mind/
+.agents/
+.playwright-cli/
+scripts/
