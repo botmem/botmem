@@ -110,6 +110,6 @@ curl -X POST http://localhost:3001/api/memories/search \
 
 ## What Next?
 
-- [Set up the MCP server](/agent-api/mcp-server) to let AI agents query your memory
+- [Install the CLI](/agent-api/cli) to query your memory from the terminal
 - [Configure all environment variables](/guide/configuration) for production
 - [Understand the pipeline](/architecture/pipeline) to know how data flows through the system
