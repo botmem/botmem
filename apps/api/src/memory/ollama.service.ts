@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 
 @Injectable()
-export class OllamaService {
+export class OllamaService implements OnModuleInit {
+  private readonly logger = new Logger(OllamaService.name);
   private baseUrl: string;
   private embedModel: string;
   private textModel: string;
@@ -17,8 +18,24 @@ export class OllamaService {
     this.rerankerModel = config.ollamaRerankerModel;
   }
 
+  async onModuleInit() {
+    // Pre-warm embedding model so first search isn't slow
+    try {
+      await fetch(`${this.baseUrl}/api/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: this.embedModel, input: 'warmup' }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      this.logger.log(`Pre-warmed embedding model: ${this.embedModel}`);
+    } catch {
+      this.logger.warn('Failed to pre-warm embedding model');
+    }
+  }
+
   async embed(text: string, retries = 3): Promise<number[]> {
-    let input = text;
+    // nomic-embed-text has 2048 token context (~8K chars); truncate upfront
+    let input = text.length > 8000 ? text.slice(0, 8000) : text;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const res = await fetch(`${this.baseUrl}/api/embed`, {
@@ -60,23 +77,25 @@ export class OllamaService {
   }
 
   async generate(prompt: string, images?: string[], retries = 2): Promise<string> {
-    // Use VL model for images, text model with /no_think for text-only
+    // Use VL model for images, text model for text-only; always disable thinking
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
-    const finalPrompt = hasImages ? prompt : `${prompt} /no_think`;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const body: Record<string, unknown> = {
-          model,
-          prompt: finalPrompt,
-          stream: false,
-        };
+        const message: Record<string, unknown> = { role: 'user', content: prompt };
         if (hasImages) {
-          body.images = images;
+          message.images = images;
         }
 
-        const res = await fetch(`${this.baseUrl}/api/generate`, {
+        const body: Record<string, unknown> = {
+          model,
+          messages: [message],
+          stream: false,
+          think: false,
+        };
+
+        const res = await fetch(`${this.baseUrl}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -89,8 +108,8 @@ export class OllamaService {
         }
 
         const data = await res.json();
-        // Strip <think>...</think> reasoning tags from model output
-        return (data.response || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+        // Strip <think>...</think> reasoning tags just in case
+        return (data.message?.content || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
       } catch (err) {
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
@@ -108,62 +127,55 @@ export class OllamaService {
    * Gracefully degrades: returns 0 for any document that fails (timeout, model unavailable, etc.).
    */
   async rerank(query: string, documents: string[]): Promise<number[]> {
-    const scores: number[] = [];
+    const results = await Promise.allSettled(
+      documents.map(doc => this.rerankOne(query, doc)),
+    );
+    return results.map(r => r.status === 'fulfilled' ? r.value : 0);
+  }
 
-    for (const doc of documents) {
-      try {
-        const prompt = `<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".\n<|im_end|>\n<|im_start|>user\n<Instruct>: Given a personal memory search query, retrieve relevant memories that answer the query\n<Query>: ${query}\n<Document>: ${doc}\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
+  private async rerankOne(query: string, doc: string): Promise<number> {
+    const prompt = `<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".\n<|im_end|>\n<|im_start|>user\n<Instruct>: Given a personal memory search query, retrieve relevant memories that answer the query\n<Query>: ${query}\n<Document>: ${doc}\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
 
-        const res = await fetch(`${this.baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: this.rerankerModel,
-            prompt,
-            raw: true,
-            stream: false,
-            options: {
-              temperature: 0,
-              num_predict: 1,
-              logprobs: true,
-              top_logprobs: 5,
-            },
-          }),
-          signal: AbortSignal.timeout(5_000),
-        });
+    try {
+      const res = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.rerankerModel,
+          prompt,
+          raw: true,
+          stream: false,
+          options: {
+            temperature: 0,
+            num_predict: 1,
+            logprobs: true,
+            top_logprobs: 5,
+          },
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
 
-        if (!res.ok) {
-          scores.push(0);
-          continue;
+      if (!res.ok) return 0;
+
+      const data = await res.json();
+
+      if (data.logprobs?.[0]?.top_logprobs) {
+        const topLogprobs: Array<{ token: string; logprob: number }> = data.logprobs[0].top_logprobs;
+        let yesProb = 0;
+        let noProb = 0;
+        for (const entry of topLogprobs) {
+          const token = entry.token.toLowerCase().trim();
+          if (token === 'yes') yesProb += Math.exp(entry.logprob);
+          if (token === 'no') noProb += Math.exp(entry.logprob);
         }
-
-        const data = await res.json();
-
-        // Try logprobs-based scoring first (preferred)
-        if (data.logprobs?.[0]?.top_logprobs) {
-          const topLogprobs: Array<{ token: string; logprob: number }> = data.logprobs[0].top_logprobs;
-          let yesProb = 0;
-          let noProb = 0;
-
-          for (const entry of topLogprobs) {
-            const token = entry.token.toLowerCase().trim();
-            if (token === 'yes') yesProb += Math.exp(entry.logprob);
-            if (token === 'no') noProb += Math.exp(entry.logprob);
-          }
-
-          // Softmax-style normalization
-          const total = yesProb + noProb;
-          scores.push(total > 0 ? yesProb / total : 0);
-        } else {
-          // Fallback: parse text response for older Ollama versions without logprobs
-          const response = (data.response || '').toLowerCase().trim();
-          scores.push(response.startsWith('yes') ? 0.8 : 0.2);
-        }
-      } catch {
-        scores.push(0);
+        const total = yesProb + noProb;
+        return total > 0 ? yesProb / total : 0;
       }
-    }
 
-    return scores;
+      const response = (data.response || '').toLowerCase().trim();
+      return response.startsWith('yes') ? 0.8 : 0.2;
+    } catch {
+      return 0;
+    }
   }
 }
