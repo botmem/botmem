@@ -7,6 +7,8 @@ export default defineConfig({
     globals: true,
     coverage: {
       provider: 'v8',
+      reporter: ['text', 'lcov'],
+      reportsDirectory: './coverage',
       thresholds: {
         statements: 80,
         branches: 75,
