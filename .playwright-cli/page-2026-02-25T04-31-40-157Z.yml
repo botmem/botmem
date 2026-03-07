@@ -1,0 +1,19 @@
+- generic [ref=e23]:
+  - heading "BOTMEM SETUP" [level=1] [ref=e25]
+  - generic [ref=e72]:
+    - heading "Sync Schedule" [level=2] [ref=e73]
+    - paragraph [ref=e74]: How often should we check for new data?
+    - generic [ref=e75]:
+      - button "EVERY 15M Near real-time" [ref=e76] [cursor=pointer]:
+        - generic [ref=e77]: EVERY 15M
+        - generic [ref=e78]: Near real-time
+      - button "HOURLY Balanced" [ref=e79] [cursor=pointer]:
+        - generic [ref=e80]: HOURLY
+        - generic [ref=e81]: Balanced
+      - button "DAILY Low bandwidth" [ref=e82] [cursor=pointer]:
+        - generic [ref=e83]: DAILY
+        - generic [ref=e84]: Low bandwidth
+      - button "MANUAL On demand only" [ref=e85] [cursor=pointer]:
+        - generic [ref=e86]: MANUAL
+        - generic [ref=e87]: On demand only
+    - button "FINISH SETUP" [ref=e88] [cursor=pointer]

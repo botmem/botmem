@@ -14,7 +14,7 @@ export function useJobs() {
     const interval = setInterval(() => {
       store.fetchJobs();
       store.fetchQueueStats();
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, []);

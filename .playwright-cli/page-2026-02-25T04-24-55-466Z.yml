@@ -1,0 +1,42 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - heading "BOTMEM" [level=1] [ref=e6]
+      - button "←" [ref=e7] [cursor=pointer]
+    - navigation [ref=e8]:
+      - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e10]: ◈
+        - generic [ref=e11]: DASHBOARD
+      - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+        - /url: /connectors
+        - generic [ref=e13]: ⚡
+        - generic [ref=e14]: CONNECTORS
+      - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+        - /url: /memories
+        - generic [ref=e16]: ◉
+        - generic [ref=e17]: MEMORIES
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - paragraph [ref=e20]: Amr Essam
+        - paragraph [ref=e21]: amroessams@gmail.com
+      - button "LOGOUT" [ref=e22] [cursor=pointer]
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - generic [ref=e25]:
+        - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+        - generic [ref=e27]: Wed, Feb 25
+      - generic [ref=e29]:
+        - generic [ref=e30]: 2 MEMORIES INDEXED •
+        - generic [ref=e31]: 2 MEMORIES INDEXED •
+    - main [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - button "SEARCH" [ref=e35] [cursor=pointer]
+          - button "INSERT" [ref=e36] [cursor=pointer]
+          - button "GRAPH" [active] [ref=e37] [cursor=pointer]
+        - generic [ref=e165]:
+          - generic [ref=e166]: contact
+          - generic [ref=e168]: related
+          - generic [ref=e170]: supports
+          - generic [ref=e172]: contradicts

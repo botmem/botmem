@@ -11,11 +11,12 @@ export function photoDescriptionPrompt(existingText: string): string {
 - What is happening in the scene
 - Notable objects, landmarks, or features
 - The mood and atmosphere
+- If people are listed in the metadata, refer to them by name instead of generic terms like "a woman" or "a man". Match names to visible people by position (e.g. left to right) when multiple people are present.
 
 Context from metadata:
 ${existingText}
 
-Return a concise 2-3 sentence description. Add NEW visual information not already present in the metadata. Do not repeat metadata fields.`;
+Return a concise 2-3 sentence description. Add NEW visual information not already present in the metadata. Do not repeat metadata fields like dates, locations, or camera info — but DO use people's names from the metadata when describing them.`;
 }
 
 export function factualityPrompt(

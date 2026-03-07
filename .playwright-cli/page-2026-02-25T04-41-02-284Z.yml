@@ -1,0 +1,82 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - heading "BOTMEM" [level=1] [ref=e6]
+        - button "←" [ref=e7] [cursor=pointer]
+      - navigation [ref=e8]:
+        - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [ref=e10]: ◈
+          - generic [ref=e11]: DASHBOARD
+        - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+          - /url: /connectors
+          - generic [ref=e13]: ⚡
+          - generic [ref=e14]: CONNECTORS
+        - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+          - /url: /memories
+          - generic [ref=e16]: ◉
+          - generic [ref=e17]: MEMORIES
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - paragraph [ref=e20]: Amr Essam
+          - paragraph [ref=e21]: amroessams@gmail.com
+        - button "LOGOUT" [ref=e22] [cursor=pointer]
+    - generic [ref=e23]:
+      - banner [ref=e24]:
+        - generic [ref=e25]:
+          - heading "CONNECTORS" [level=2] [ref=e26]
+          - generic [ref=e27]: Wed, Feb 25
+        - generic [ref=e29]:
+          - generic [ref=e30]: 2 MEMORIES INDEXED •
+          - generic [ref=e31]: 2 MEMORIES INDEXED •
+      - main [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - heading "All Connectors" [level=2] [ref=e35]
+            - button "+ ADD CONNECTOR" [ref=e36] [cursor=pointer]
+          - generic [ref=e37]:
+            - button "📷 Photos (Immich) 0 accounts +" [ref=e39] [cursor=pointer]:
+              - generic [ref=e40]:
+                - generic [ref=e41]: 📷
+                - generic [ref=e42]:
+                  - heading "Photos (Immich)" [level=3] [ref=e43]
+                  - paragraph [ref=e44]: 0 accounts
+              - generic [ref=e45]: +
+            - button "✉ Google 0 accounts +" [ref=e47] [cursor=pointer]:
+              - generic [ref=e48]:
+                - generic [ref=e49]: ✉
+                - generic [ref=e50]:
+                  - heading "Google" [level=3] [ref=e51]
+                  - paragraph [ref=e52]: 0 accounts
+              - generic [ref=e53]: +
+            - button "# Slack 0 accounts +" [ref=e55] [cursor=pointer]:
+              - generic [ref=e56]:
+                - generic [ref=e57]: "#"
+                - generic [ref=e58]:
+                  - heading "Slack" [level=3] [ref=e59]
+                  - paragraph [ref=e60]: 0 accounts
+              - generic [ref=e61]: +
+            - button "💬 WhatsApp 0 accounts +" [ref=e63] [cursor=pointer]:
+              - generic [ref=e64]:
+                - generic [ref=e65]: 💬
+                - generic [ref=e66]:
+                  - heading "WhatsApp" [level=3] [ref=e67]
+                  - paragraph [ref=e68]: 0 accounts
+              - generic [ref=e69]: +
+            - button "◯ iMessage 0 accounts +" [ref=e71] [cursor=pointer]:
+              - generic [ref=e72]:
+                - generic [ref=e73]: ◯
+                - generic [ref=e74]:
+                  - heading "iMessage" [level=3] [ref=e75]
+                  - paragraph [ref=e76]: 0 accounts
+              - generic [ref=e77]: +
+            - button "⚡ Locations (OwnTracks) 0 accounts +" [ref=e79] [cursor=pointer]:
+              - generic [ref=e80]:
+                - generic [ref=e81]: ⚡
+                - generic [ref=e82]:
+                  - heading "Locations (OwnTracks)" [level=3] [ref=e83]
+                  - paragraph [ref=e84]: 0 accounts
+              - generic [ref=e85]: +
+  - generic:
+    - document

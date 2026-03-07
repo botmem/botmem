@@ -1,0 +1,25 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - heading "Create Account" [level=2] [ref=e6]
+    - generic [ref=e7]:
+      - generic [ref=e8]: Name
+      - textbox "Name" [ref=e9]:
+        - /placeholder: Your name
+    - generic [ref=e10]:
+      - generic [ref=e11]: Email
+      - textbox "Email" [ref=e12]:
+        - /placeholder: your@email.com
+    - generic [ref=e13]:
+      - generic [ref=e14]: Password
+      - textbox "Password" [ref=e15]:
+        - /placeholder: ••••••••
+    - button "CREATE ACCOUNT" [ref=e16] [cursor=pointer]
+    - paragraph [ref=e17]:
+      - text: Already have an account?
+      - link "SIGN IN" [ref=e18] [cursor=pointer]:
+        - /url: /login
+  - heading "YOUR MEMORY. YOUR RULES." [level=1] [ref=e21]:
+    - text: YOUR
+    - text: MEMORY.
+    - text: YOUR
+    - text: RULES.

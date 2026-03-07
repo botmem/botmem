@@ -117,14 +117,17 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
         )}
       </div>
 
-      <div>
+      <div className="max-h-[360px] overflow-y-auto">
         {filtered.map((job) => (
           <JobRow key={job.id} job={job} onCancel={onCancel} onMove={onMove} />
         ))}
         {filtered.length === 0 && (
-          <p className="font-mono text-sm text-nb-muted text-center py-8 uppercase">
-            {jobs.length === 0 ? 'NO JOBS IN QUEUE' : 'NO MATCHING JOBS'}
-          </p>
+          <div className="py-8 text-center">
+            <span className="inline-block text-2xl mb-2 opacity-30">[ ]</span>
+            <p className="font-display text-sm font-bold uppercase text-nb-muted">
+              {jobs.length === 0 ? 'NO JOBS IN QUEUE' : 'NO MATCHING JOBS'}
+            </p>
+          </div>
         )}
       </div>
     </Card>

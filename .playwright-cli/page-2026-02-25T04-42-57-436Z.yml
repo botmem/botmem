@@ -1,0 +1,168 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - heading "BOTMEM" [level=1] [ref=e6]
+        - button "←" [ref=e7] [cursor=pointer]
+      - navigation [ref=e8]:
+        - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [ref=e10]: ◈
+          - generic [ref=e11]: DASHBOARD
+        - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+          - /url: /connectors
+          - generic [ref=e13]: ⚡
+          - generic [ref=e14]: CONNECTORS
+        - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+          - /url: /memories
+          - generic [ref=e16]: ◉
+          - generic [ref=e17]: MEMORIES
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - paragraph [ref=e20]: Amr Essam
+          - paragraph [ref=e21]: amroessams@gmail.com
+        - button "LOGOUT" [ref=e22] [cursor=pointer]
+    - generic [ref=e23]:
+      - banner [ref=e24]:
+        - generic [ref=e25]:
+          - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+          - generic [ref=e27]: Wed, Feb 25
+        - generic [ref=e29]:
+          - generic [ref=e30]: 11 MEMORIES INDEXED •
+          - generic [ref=e31]: 11 MEMORIES INDEXED •
+      - main [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - button "SEARCH" [ref=e35] [cursor=pointer]
+            - button "INSERT" [ref=e36] [cursor=pointer]
+            - button "GRAPH" [ref=e37] [cursor=pointer]
+          - generic [ref=e39]:
+            - generic [ref=e40]:
+              - textbox "SEARCH YOUR MEMORIES..." [ref=e42]
+              - generic [ref=e43]:
+                - button "gmail" [ref=e44] [cursor=pointer]
+                - button "manual" [ref=e45] [cursor=pointer]
+                - button "UNVERIFIED" [ref=e47] [cursor=pointer]
+            - generic [ref=e49]:
+              - paragraph [ref=e50]: 11 memories found
+              - generic [ref=e51] [cursor=pointer]:
+                - generic [ref=e52]:
+                  - generic [ref=e53]:
+                    - generic [ref=e54]: 💬
+                    - generic [ref=e55]: manual
+                  - generic [ref=e56]: UNVERIFIED
+                - paragraph [ref=e57]: I had a coffee with Ahmed at Starbucks in Downtown Dubai today. We talked about the new project launch.
+                - generic [ref=e58]:
+                  - generic [ref=e59]: 21m ago
+                  - generic [ref=e61]: "IMP:"
+              - generic [ref=e64] [cursor=pointer]:
+                - generic [ref=e65]:
+                  - generic [ref=e66]:
+                    - generic [ref=e67]: 💬
+                    - generic [ref=e68]: manual
+                  - generic [ref=e69]: UNVERIFIED
+                - paragraph [ref=e70]: My birthday is on March 15th, 1990. I was born in Cairo, Egypt.
+                - generic [ref=e71]:
+                  - generic [ref=e72]: 19m ago
+                  - generic [ref=e74]: "IMP:"
+              - generic [ref=e77] [cursor=pointer]:
+                - generic [ref=e78]:
+                  - generic [ref=e79]:
+                    - generic [ref=e80]: ✉
+                    - generic [ref=e81]: amroessams@gmail.com
+                    - generic [ref=e82]: ↓ RECV
+                  - generic [ref=e83]: UNVERIFIED
+                - paragraph [ref=e84]: "Subject: Automatic reply: Account Closure Request - Emirates ID Attached Dear User, Thank you for contacting e& money. This auto-reply is to let ..."
+                - generic [ref=e85]:
+                  - generic [ref=e86]: 3h ago
+                  - generic [ref=e88]: "IMP:"
+              - generic [ref=e91] [cursor=pointer]:
+                - generic [ref=e92]:
+                  - generic [ref=e93]:
+                    - generic [ref=e94]: ✉
+                    - generic [ref=e95]: amroessams@gmail.com
+                    - generic [ref=e96]: ↑ SENT
+                  - generic [ref=e97]: UNVERIFIED
+                - paragraph [ref=e98]: "Subject: Re: Account Closure Request - Emirates ID Attached Dear e& money Support Team, Further to my account closure request sent earlier today, ..."
+                - generic [ref=e99]:
+                  - generic [ref=e100]: 3h ago
+                  - generic [ref=e102]: "IMP:"
+              - generic [ref=e105] [cursor=pointer]:
+                - generic [ref=e106]:
+                  - generic [ref=e107]:
+                    - generic [ref=e108]: ✉
+                    - generic [ref=e109]: amroessams@gmail.com
+                    - generic [ref=e110]: ↓ RECV
+                  - generic [ref=e111]: UNVERIFIED
+                - paragraph [ref=e112]: "Subject: Delivery Status Notification (Failure) ** Recipient inbox full ** Your message couldn't be delivered to support@eandmoney.com. Their in..."
+                - generic [ref=e113]:
+                  - generic [ref=e114]: 3h ago
+                  - generic [ref=e116]: "IMP:"
+              - generic [ref=e119] [cursor=pointer]:
+                - generic [ref=e120]:
+                  - generic [ref=e121]:
+                    - generic [ref=e122]: ✉
+                    - generic [ref=e123]: amroessams@gmail.com
+                    - generic [ref=e124]: ↑ SENT
+                  - generic [ref=e125]: UNVERIFIED
+                - paragraph [ref=e126]: "Subject: Account Closure Request - AMR ESSAM MOHAMED FARAJ Dear e& money Support Team, I am writing to request the permanent closure of my e& money ..."
+                - generic [ref=e127]:
+                  - generic [ref=e128]: 3h ago
+                  - generic [ref=e130]: "IMP:"
+              - generic [ref=e133] [cursor=pointer]:
+                - generic [ref=e134]:
+                  - generic [ref=e135]:
+                    - generic [ref=e136]: ✉
+                    - generic [ref=e137]: amroessams@gmail.com
+                    - generic [ref=e138]: ↓ RECV
+                  - generic [ref=e139]: UNVERIFIED
+                - paragraph [ref=e140]: "Subject: Important Notice Regarding Inactivity Fees Dear AMR ESSAM MOHAMED FARAJ, To ensure the ongoing security and efficiency of your e& money expe..."
+                - generic [ref=e141]:
+                  - generic [ref=e142]: 4h ago
+                  - generic [ref=e144]: "IMP:"
+              - generic [ref=e147] [cursor=pointer]:
+                - generic [ref=e148]:
+                  - generic [ref=e149]:
+                    - generic [ref=e150]: ✉
+                    - generic [ref=e151]: amroessams@gmail.com
+                    - generic [ref=e152]: ↑ SENT
+                  - generic [ref=e153]: UNVERIFIED
+                - paragraph [ref=e154]: "Subject: request unsubscribe ME6VQRDQGJDTKJTDHUYDCS2KGEZTINZRJNJVMQRSKFCEEWSOJJGVQNZQKJFCM2Z5GIYTCNJWGQZGMMTFGZTDOY3GMVQTGYZZG44DANJTGBRGEZDFMEYSM3J5K..."
+                - generic [ref=e155]:
+                  - generic [ref=e156]: 4h ago
+                  - generic [ref=e158]: "IMP:"
+              - generic [ref=e161] [cursor=pointer]:
+                - generic [ref=e162]:
+                  - generic [ref=e163]:
+                    - generic [ref=e164]: ✉
+                    - generic [ref=e165]: amroessams@gmail.com
+                    - generic [ref=e166]: ↓ RECV
+                  - generic [ref=e167]: UNVERIFIED
+                - paragraph [ref=e168]: "Subject: 83% Of Retro Camera Holders Order A Second One 📷 I Wanna Double Up With Code REORDER20 (https://thatonestreet.com/products/tos-digifilm-re..."
+                - generic [ref=e169]:
+                  - generic [ref=e170]: 6h ago
+                  - generic [ref=e172]: "IMP:"
+              - generic [ref=e175] [cursor=pointer]:
+                - generic [ref=e176]:
+                  - generic [ref=e177]:
+                    - generic [ref=e178]: ✉
+                    - generic [ref=e179]: amroessams@gmail.com
+                    - generic [ref=e180]: ↓ RECV
+                  - generic [ref=e181]: UNVERIFIED
+                - paragraph [ref=e182]: "Subject: Mobbin Awards Mobbin Awards is our inaugural design award, celebrating the best in UI craftsmanship across iOS, Web, Sites, Animation, and I..."
+                - generic [ref=e183]:
+                  - generic [ref=e184]: 6h ago
+                  - generic [ref=e186]: "IMP:"
+              - generic [ref=e189] [cursor=pointer]:
+                - generic [ref=e190]:
+                  - generic [ref=e191]:
+                    - generic [ref=e192]: ✉
+                    - generic [ref=e193]: amroessams@gmail.com
+                    - generic [ref=e194]: ↓ RECV
+                  - generic [ref=e195]: UNVERIFIED
+                - paragraph [ref=e196]: "Subject: New Cloud Agents with Computer Use Agents can now interact with the software they are creating to verify and demo their work. Hi Amr, ..."
+                - generic [ref=e197]:
+                  - generic [ref=e198]: 7h ago
+                  - generic [ref=e200]: "IMP:"
+  - generic:
+    - document

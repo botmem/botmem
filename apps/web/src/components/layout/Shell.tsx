@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { IdentityPrompt } from '../identity/IdentityPrompt';
 
 export function Shell() {
   return (
@@ -12,6 +13,7 @@ export function Shell() {
           <Outlet />
         </main>
       </div>
+      <IdentityPrompt />
     </div>
   );
 }

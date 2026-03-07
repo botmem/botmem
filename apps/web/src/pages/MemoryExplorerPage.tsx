@@ -1,51 +1,53 @@
-import { useState } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { Memory } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
-import { Tabs } from '../components/ui/Tabs';
 import { MemorySearchBar } from '../components/memory/MemorySearchBar';
 import { MemoryCard } from '../components/memory/MemoryCard';
 import { MemoryDetailPanel } from '../components/memory/MemoryDetailPanel';
-import { MemoryInsertForm } from '../components/memory/MemoryInsertForm';
-import { MemoryGraph } from '../components/memory/MemoryGraph';
 import { useMemories } from '../hooks/useMemories';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Skeleton } from '../components/ui/Skeleton';
 
-const tabs = [
-  { id: 'search', label: 'SEARCH' },
-  { id: 'insert', label: 'INSERT' },
-  { id: 'graph', label: 'GRAPH' },
-];
+const PAGE_SIZE = 20;
 
 export function MemoryExplorerPage() {
-  const [activeTab, setActiveTab] = useState('search');
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    if (tab === 'graph') loadGraph();
-  };
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
-  const { filtered, query, filters, setQuery, setFilters, insertMemory, graphData, loadGraph, loading } = useMemories();
+  const [page, setPage] = useState(1);
+  const listRef = useRef<HTMLDivElement>(null);
+  const { filtered, query, filters, setQuery, setFilters, loading } = useMemories();
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  );
+
+  // Reset to page 1 when filters/query change
+  useEffect(() => { setPage(1); }, [filters.source, query]);
+
+  // Scroll list to top on page change
+  useEffect(() => { listRef.current?.scrollTo(0, 0); }, [page]);
 
   return (
     <PageContainer>
-      <Tabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
-
-      <div className="mt-4">
-        {activeTab === 'search' && (
-          <div>
+      <div className="mt-4 flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
+          <div className="flex flex-col min-h-0 h-full">
             <MemorySearchBar
               query={query}
               onQueryChange={setQuery}
               sourceFilter={filters.source}
               onSourceChange={(s) => setFilters({ source: s })}
-              factualityFilter={filters.factuality}
-              onFactualityChange={(f) => setFilters({ factuality: f })}
+              resultCount={filtered.length}
+              loading={loading}
             />
 
-            <div className="mt-4 flex gap-4">
-              <div className="flex-1 flex flex-col gap-3">
-                <p className="font-mono text-xs text-nb-muted uppercase">
-                  {loading ? 'SEARCHING...' : `${filtered.length} memories found`}
-                </p>
-                {filtered.map((m) => (
+            <div className="mt-4 flex gap-4 min-h-0 flex-1">
+              <div
+                ref={listRef}
+                className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2"
+              >
+                {loading && <Skeleton variant="card" count={3} />}
+                {!loading && paged.map((m) => (
                   <MemoryCard
                     key={m.id}
                     memory={m}
@@ -53,16 +55,17 @@ export function MemoryExplorerPage() {
                     selected={selectedMemory?.id === m.id}
                   />
                 ))}
-                {filtered.length === 0 && (
-                  <div className="border-3 border-nb-border p-8 text-center bg-nb-surface">
-                    <p className="font-display text-xl font-bold uppercase text-nb-text">NO MEMORIES FOUND</p>
-                    <p className="font-mono text-sm text-nb-muted mt-2">TRY ADJUSTING YOUR FILTERS</p>
-                  </div>
+                {!loading && filtered.length === 0 && (
+                  <EmptyState
+                    icon="◉"
+                    title="No Memories Found"
+                    subtitle="Try adjusting your filters"
+                  />
                 )}
               </div>
 
               {selectedMemory && (
-                <div className="w-96 shrink-0">
+                <div className="w-96 shrink-0 overflow-y-auto">
                   <MemoryDetailPanel
                     memory={selectedMemory}
                     onClose={() => setSelectedMemory(null)}
@@ -70,16 +73,30 @@ export function MemoryExplorerPage() {
                 </div>
               )}
             </div>
-          </div>
-        )}
 
-        {activeTab === 'insert' && (
-          <div className="max-w-2xl">
-            <MemoryInsertForm onInsert={insertMemory} />
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-3 border-t-2 border-nb-border mt-3 shrink-0">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="border-2 border-nb-border px-3 py-1 font-mono text-xs font-bold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-nb-surface-hover transition-colors"
+                >
+                  ← PREV
+                </button>
+                <span className="font-mono text-xs text-nb-muted px-2">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="border-2 border-nb-border px-3 py-1 font-mono text-xs font-bold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-nb-surface-hover transition-colors"
+                >
+                  NEXT →
+                </button>
+              </div>
+            )}
           </div>
-        )}
-
-        {activeTab === 'graph' && <MemoryGraph data={graphData} />}
       </div>
     </PageContainer>
   );

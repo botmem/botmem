@@ -1,0 +1,84 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - heading "BOTMEM" [level=1] [ref=e6]
+      - button "←" [ref=e7] [cursor=pointer]
+    - navigation [ref=e8]:
+      - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e10]: ◈
+        - generic [ref=e11]: DASHBOARD
+      - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+        - /url: /connectors
+        - generic [ref=e13]: ⚡
+        - generic [ref=e14]: CONNECTORS
+      - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+        - /url: /memories
+        - generic [ref=e16]: ◉
+        - generic [ref=e17]: MEMORIES
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - paragraph [ref=e20]: Amr Essam
+        - paragraph [ref=e21]: amroessams@gmail.com
+      - button "LOGOUT" [ref=e22] [cursor=pointer]
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - generic [ref=e25]:
+        - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+        - generic [ref=e27]: Wed, Feb 25
+      - generic [ref=e29]:
+        - generic [ref=e30]: 2 MEMORIES INDEXED •
+        - generic [ref=e31]: 2 MEMORIES INDEXED •
+    - main [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - button "SEARCH" [ref=e35] [cursor=pointer]
+          - button "INSERT" [ref=e36] [cursor=pointer]
+          - button "GRAPH" [ref=e37] [cursor=pointer]
+        - generic [ref=e157]:
+          - generic [ref=e165]:
+            - generic [ref=e166]: contact
+            - generic [ref=e168]: related
+            - generic [ref=e170]: supports
+            - generic [ref=e172]: contradicts
+          - generic [ref=e175]:
+            - generic [ref=e176]:
+              - heading "Memory Detail" [level=3] [ref=e177]
+              - button "X" [ref=e178] [cursor=pointer]
+            - generic [ref=e179]:
+              - generic [ref=e180]:
+                - generic [ref=e181]: manual
+                - generic [ref=e182]: message
+                - generic [ref=e183]: UNVERIFIED
+              - paragraph [ref=e185]: My birthday is on March 15th, 1990. I was born in Cairo, Egypt.
+              - generic [ref=e186]:
+                - generic [ref=e187]:
+                  - text: "Event:"
+                  - generic [ref=e188]: Feb 25, 2026 08:23:53
+                - generic [ref=e189]: "Ingested: Feb 25, 2026"
+              - generic [ref=e190]:
+                - heading "Weight Breakdown" [level=4] [ref=e191]
+                - generic [ref=e192]:
+                  - generic [ref=e193]:
+                    - generic [ref=e194]: semantic
+                    - generic [ref=e196]: 0%
+                  - generic [ref=e197]:
+                    - generic [ref=e198]: rerank
+                    - generic [ref=e200]: 0%
+                  - generic [ref=e201]:
+                    - generic [ref=e202]: recency
+                    - generic [ref=e204]: 0%
+                  - generic [ref=e205]:
+                    - generic [ref=e206]: importance
+                    - generic [ref=e209]: 50%
+                  - generic [ref=e210]:
+                    - generic [ref=e211]: trust
+                    - generic [ref=e214]: 50%
+                  - generic [ref=e215]:
+                    - generic [ref=e216]: final
+                    - generic [ref=e218]: 0%
+              - generic [ref=e219]:
+                - heading "Factuality" [level=4] [ref=e220]
+                - generic [ref=e221]:
+                  - paragraph [ref=e222]: "Confidence: 50%"
+                  - paragraph [ref=e223]: Pending evaluation

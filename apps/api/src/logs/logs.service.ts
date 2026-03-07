@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { desc } from 'drizzle-orm';
+import { desc, eq, and, type SQL } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { logs } from '../db/schema';
 
@@ -27,17 +27,21 @@ export class LogsService {
 
   async query(filters?: { jobId?: string; accountId?: string; level?: string; limit?: number; offset?: number }) {
     const limit = filters?.limit || 50;
-    const results = await this.db
+    const conditions: SQL[] = [];
+    if (filters?.jobId) conditions.push(eq(logs.jobId, filters.jobId));
+    if (filters?.accountId) conditions.push(eq(logs.accountId, filters.accountId));
+    if (filters?.level) conditions.push(eq(logs.level, filters.level));
+
+    const query = this.db
       .select()
       .from(logs)
       .orderBy(desc(logs.timestamp))
       .limit(limit);
 
-    let filtered = results;
-    if (filters?.jobId) filtered = filtered.filter((l) => l.jobId === filters.jobId);
-    if (filters?.accountId) filtered = filtered.filter((l) => l.accountId === filters.accountId);
-    if (filters?.level) filtered = filtered.filter((l) => l.level === filters.level);
+    const results = conditions.length > 0
+      ? await query.where(and(...conditions))
+      : await query;
 
-    return { logs: filtered, total: filtered.length };
+    return { logs: results, total: results.length };
   }
 }

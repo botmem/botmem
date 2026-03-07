@@ -1,0 +1,23 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - heading "Sign In" [level=2] [ref=e6]
+    - generic [ref=e20]: No account found. Sign up first.
+    - generic [ref=e7]:
+      - generic [ref=e8]: Email
+      - textbox "Email" [ref=e9]:
+        - /placeholder: your@email.com
+        - text: amroessams@gmail.com
+    - generic [ref=e10]:
+      - generic [ref=e11]: Password
+      - textbox "Password" [ref=e12]:
+        - /placeholder: ••••••••
+        - text: password123
+    - button "SIGN IN" [active] [ref=e13] [cursor=pointer]
+    - paragraph [ref=e14]:
+      - text: No account?
+      - link "SIGN UP" [ref=e15] [cursor=pointer]:
+        - /url: /signup
+  - heading "WELCOME BACK, HUMAN." [level=1] [ref=e18]:
+    - text: WELCOME
+    - text: BACK,
+    - text: HUMAN.

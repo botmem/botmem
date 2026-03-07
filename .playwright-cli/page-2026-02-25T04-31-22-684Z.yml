@@ -1,0 +1,36 @@
+- generic [ref=e23]:
+  - heading "BOTMEM SETUP" [level=1] [ref=e25]
+  - generic [ref=e31]:
+    - heading "Connect Your Sources" [level=2] [ref=e32]
+    - paragraph [ref=e33]: Choose which services to import memories from. You can add more later.
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - generic [ref=e36]: 📷
+        - heading "Photos (Immich)" [level=3] [ref=e37]
+        - paragraph [ref=e38]: Import photo metadata from Immich
+        - button "CONNECT" [ref=e40] [cursor=pointer]
+      - generic [ref=e41]:
+        - generic [ref=e42]: ✉
+        - heading "Google" [level=3] [ref=e43]
+        - paragraph [ref=e44]: Import emails, contacts, and attachments from Google
+        - button "CONNECT" [ref=e46] [cursor=pointer]
+      - generic [ref=e47]:
+        - generic [ref=e48]: "#"
+        - heading "Slack" [level=3] [ref=e49]
+        - paragraph [ref=e50]: Import workspace messages from Slack
+        - button "CONNECT" [ref=e52] [cursor=pointer]
+      - generic [ref=e53]:
+        - generic [ref=e54]: 💬
+        - heading "WhatsApp" [level=3] [ref=e55]
+        - paragraph [ref=e56]: Import chat messages from WhatsApp
+        - button "CONNECT" [ref=e58] [cursor=pointer]
+      - generic [ref=e59]:
+        - generic [ref=e60]: ◯
+        - heading "iMessage" [level=3] [ref=e61]
+        - paragraph [ref=e62]: Import iMessage conversations (macOS only)
+        - button "CONNECT" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]:
+        - heading "Locations (OwnTracks)" [level=3] [ref=e67]
+        - paragraph [ref=e68]: Import location history from OwnTracks Recorder
+        - button "CONNECT" [ref=e70] [cursor=pointer]
+    - button "SKIP FOR NOW" [ref=e71] [cursor=pointer]

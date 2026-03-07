@@ -1,0 +1,500 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - heading "BOTMEM" [level=1] [ref=e6]
+        - button "←" [ref=e7] [cursor=pointer]
+      - navigation [ref=e8]:
+        - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [ref=e10]: ◈
+          - generic [ref=e11]: DASHBOARD
+        - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+          - /url: /connectors
+          - generic [ref=e13]: ⚡
+          - generic [ref=e14]: CONNECTORS
+        - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+          - /url: /memories
+          - generic [ref=e16]: ◉
+          - generic [ref=e17]: MEMORIES
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - paragraph [ref=e20]: Amr Essam
+          - paragraph [ref=e21]: amroessams@gmail.com
+        - button "LOGOUT" [ref=e22] [cursor=pointer]
+    - generic [ref=e23]:
+      - banner [ref=e24]:
+        - generic [ref=e25]:
+          - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+          - generic [ref=e27]: Wed, Feb 25
+        - generic [ref=e29]:
+          - generic [ref=e30]: 42 MEMORIES INDEXED •
+          - generic [ref=e31]: 42 MEMORIES INDEXED •
+      - main [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - button "SEARCH" [ref=e35] [cursor=pointer]
+            - button "INSERT" [ref=e36] [cursor=pointer]
+            - button "GRAPH" [ref=e37] [cursor=pointer]
+          - generic [ref=e39]:
+            - generic [ref=e40]:
+              - textbox "SEARCH YOUR MEMORIES..." [ref=e42]
+              - generic [ref=e43]:
+                - button "gmail" [ref=e44] [cursor=pointer]
+                - button "manual" [ref=e45] [cursor=pointer]
+                - button "UNVERIFIED" [ref=e47] [cursor=pointer]
+                - generic [ref=e48]:
+                  - button "BY DATE" [ref=e49] [cursor=pointer]
+                  - button "BY SYNCED" [ref=e50] [cursor=pointer]
+            - generic [ref=e51]:
+              - generic [ref=e52]:
+                - paragraph [ref=e53]: 37 memories found
+                - generic [ref=e918] [cursor=pointer]:
+                  - generic [ref=e919]:
+                    - generic [ref=e920]:
+                      - generic [ref=e921]: ✉
+                      - generic [ref=e922]: amroessams@gmail.com
+                      - generic [ref=e923]: ↓ RECV
+                    - generic [ref=e924]: UNVERIFIED
+                  - paragraph [ref=e925]: "Subject: Your expense has been approved No Text Available"
+                  - generic [ref=e926]:
+                    - generic [ref=e927]: 1d ago
+                    - generic [ref=e929]: "IMP:"
+                - generic [ref=e932] [cursor=pointer]:
+                  - generic [ref=e933]:
+                    - generic [ref=e934]:
+                      - generic [ref=e935]: ✉
+                      - generic [ref=e936]: amroessams@gmail.com
+                      - generic [ref=e937]: ↓ RECV
+                    - generic [ref=e938]: UNVERIFIED
+                  - paragraph [ref=e939]: "Subject: Your expense has been approved No Text Available"
+                  - generic [ref=e940]:
+                    - generic [ref=e941]: 1d ago
+                    - generic [ref=e943]: "IMP:"
+                - generic [ref=e946] [cursor=pointer]:
+                  - generic [ref=e947]:
+                    - generic [ref=e948]:
+                      - generic [ref=e949]: ✉
+                      - generic [ref=e950]: amroessams@gmail.com
+                      - generic [ref=e951]: ↓ RECV
+                    - generic [ref=e952]: UNVERIFIED
+                  - paragraph [ref=e953]: "Subject: Final reminder: Write a review for Yousef Your feedback helps make Airbnb better ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ͏ ..."
+                  - generic [ref=e954]:
+                    - generic [ref=e955]: 1d ago
+                    - generic [ref=e957]: "IMP:"
+                - generic [ref=e960] [cursor=pointer]:
+                  - generic [ref=e961]:
+                    - generic [ref=e962]:
+                      - generic [ref=e963]: ✉
+                      - generic [ref=e964]: amroessams@gmail.com
+                      - generic [ref=e965]: ↓ RECV
+                    - generic [ref=e966]: UNVERIFIED
+                  - paragraph [ref=e967]: "Subject: Be Cautious of Fake Ramadan Offers During Ramadan, promotional messages tend to increase, from shopping deals and prize draws to vehicle off..."
+                  - generic [ref=e968]:
+                    - generic [ref=e969]: 1d ago
+                    - generic [ref=e971]: "IMP:"
+                - generic [ref=e974] [cursor=pointer]:
+                  - generic [ref=e975]:
+                    - generic [ref=e976]:
+                      - generic [ref=e977]: ✉
+                      - generic [ref=e978]: amroessams@gmail.com
+                      - generic [ref=e979]: ↓ RECV
+                    - generic [ref=e980]: UNVERIFIED
+                  - paragraph [ref=e981]: "Subject: Enjoy 20% off on du Home Hello, As one of our valued customers, we are offering you an exclusive 20% discount on our du Home plans for 24 mo..."
+                  - generic [ref=e982]:
+                    - generic [ref=e983]: 18h ago
+                    - generic [ref=e985]: "IMP:"
+                - generic [ref=e988] [cursor=pointer]:
+                  - generic [ref=e989]:
+                    - generic [ref=e990]:
+                      - generic [ref=e991]: ✉
+                      - generic [ref=e992]: amroessams@gmail.com
+                      - generic [ref=e993]: ↓ RECV
+                    - generic [ref=e994]: UNVERIFIED
+                  - paragraph [ref=e995]: "Subject: [GitHub] Your Dependabot alerts for the week of Feb 17 - Feb 24 Dependabot alerts on GitHub Dependabot alerts this week Feb 17 - Feb 24 ..."
+                  - generic [ref=e996]:
+                    - generic [ref=e997]: 20h ago
+                    - generic [ref=e999]: "IMP:"
+                - generic [ref=e750] [cursor=pointer]:
+                  - generic [ref=e751]:
+                    - generic [ref=e752]:
+                      - generic [ref=e753]: ✉
+                      - generic [ref=e754]: amroessams@gmail.com
+                      - generic [ref=e755]: ↓ RECV
+                    - generic [ref=e756]: UNVERIFIED
+                  - paragraph [ref=e757]: "Subject: Ready for Iftar Evenings? 🌙 Book a professional Salon service at the comfort of your home & enjoy up to 80% off your first 2 sessions. 🫶 ..."
+                  - generic [ref=e758]:
+                    - generic [ref=e759]: 20h ago
+                    - generic [ref=e761]: "IMP:"
+                - generic [ref=e778] [cursor=pointer]:
+                  - generic [ref=e779]:
+                    - generic [ref=e780]:
+                      - generic [ref=e781]: ✉
+                      - generic [ref=e782]: amroessams@gmail.com
+                      - generic [ref=e783]: ↓ RECV
+                    - generic [ref=e784]: UNVERIFIED
+                  - paragraph [ref=e785]: "Subject: ‎, last week your posts got 289 views! https://www.linkedin.com/comm/feed/?lipi=urn%3Ali%3Apage%3Aemail_email_weekly_analytics_recap_v2%3Bd3..."
+                  - generic [ref=e786]:
+                    - generic [ref=e787]: 21h ago
+                    - generic [ref=e789]: "IMP:"
+                - generic [ref=e806] [cursor=pointer]:
+                  - generic [ref=e807]:
+                    - generic [ref=e808]:
+                      - generic [ref=e809]: ✉
+                      - generic [ref=e810]: amroessams@gmail.com
+                      - generic [ref=e811]: ↓ RECV
+                    - generic [ref=e812]: UNVERIFIED
+                  - paragraph [ref=e813]: "Subject: Unfortunately, we couldn't process your payment WE COULDN'T PROCESS YOUR PAYMENT Hey Amr, Your order IAEG2N862Y76A48QYA could not be placed..."
+                  - generic [ref=e814]:
+                    - generic [ref=e815]: 1d ago
+                    - generic [ref=e817]: "IMP:"
+                - generic [ref=e848] [cursor=pointer]:
+                  - generic [ref=e849]:
+                    - generic [ref=e850]:
+                      - generic [ref=e851]: ✉
+                      - generic [ref=e852]: amroessams@gmail.com
+                      - generic [ref=e853]: ↓ RECV
+                    - generic [ref=e854]: UNVERIFIED
+                  - paragraph [ref=e855]: "Subject: A sound was played on Amr’s iPhone A sound was played on Amr’s iPhone A sound was played on Amr’s iPhone at 00:13 GST on 2..."
+                  - generic [ref=e856]:
+                    - generic [ref=e857]: 1d ago
+                    - generic [ref=e859]: "IMP:"
+                - generic [ref=e904] [cursor=pointer]:
+                  - generic [ref=e905]:
+                    - generic [ref=e906]:
+                      - generic [ref=e907]: ✉
+                      - generic [ref=e908]: amroessams@gmail.com
+                      - generic [ref=e909]: ↓ RECV
+                    - generic [ref=e910]: UNVERIFIED
+                  - paragraph [ref=e911]: "Subject: Monday Mobile Drop New mobile apps on Mobbin this week. Featuring Tesla Robotaxi, alias, Viator, and 3 more. ‌‍‎‏ ‌‍‎‏ ‌‍‎‏ ‌‍‎‏ ‌..."
+                  - generic [ref=e912]:
+                    - generic [ref=e913]: 1d ago
+                    - generic [ref=e915]: "IMP:"
+                - generic [ref=e890] [cursor=pointer]:
+                  - generic [ref=e891]:
+                    - generic [ref=e892]:
+                      - generic [ref=e893]: ✉
+                      - generic [ref=e894]: amroessams@gmail.com
+                      - generic [ref=e895]: ↓ RECV
+                    - generic [ref=e896]: UNVERIFIED
+                  - paragraph [ref=e897]: "Subject: 🔍 The Danger of Forgotten Routers: Inside CVE-2025-14528 Here’s your Monday report on immediate and emerging threats. Powered by the pow..."
+                  - generic [ref=e898]:
+                    - generic [ref=e899]: 1d ago
+                    - generic [ref=e901]: "IMP:"
+                - generic [ref=e876] [cursor=pointer]:
+                  - generic [ref=e877]:
+                    - generic [ref=e878]:
+                      - generic [ref=e879]: ✉
+                      - generic [ref=e880]: amroessams@gmail.com
+                      - generic [ref=e881]: ↓ RECV
+                    - generic [ref=e882]: UNVERIFIED
+                  - paragraph [ref=e883]: "Subject: Wispr Flow is now on Android 🚀 Flow logo ( https://wisprflow.ai/ ) *********************************************************************..."
+                  - generic [ref=e884]:
+                    - generic [ref=e885]: 1d ago
+                    - generic [ref=e887]: "IMP:"
+                - generic [ref=e862] [cursor=pointer]:
+                  - generic [ref=e863]:
+                    - generic [ref=e864]:
+                      - generic [ref=e865]: ✉
+                      - generic [ref=e866]: amroessams@gmail.com
+                      - generic [ref=e867]: ↓ RECV
+                    - generic [ref=e868]: UNVERIFIED
+                  - paragraph [ref=e869]: "Subject: MFA Login Authentication Your Ubiquiti verification code is: 643107. This code is only valid for 10 minutes. Requested by Home - Rout..."
+                  - generic [ref=e870]:
+                    - generic [ref=e871]: 1d ago
+                    - generic [ref=e873]: "IMP:"
+                - generic [ref=e834] [cursor=pointer]:
+                  - generic [ref=e835]:
+                    - generic [ref=e836]:
+                      - generic [ref=e837]: ✉
+                      - generic [ref=e838]: amroessams@gmail.com
+                      - generic [ref=e839]: ↓ RECV
+                    - generic [ref=e840]: UNVERIFIED
+                  - paragraph [ref=e841]: "Subject: A sound was played on Amr’s iPhone A sound was played on Amr’s iPhone A sound was played on Amr’s iPhone at 00:13 GST on 2..."
+                  - generic [ref=e842]:
+                    - generic [ref=e843]: 1d ago
+                    - generic [ref=e845]: "IMP:"
+                - generic [ref=e820] [cursor=pointer]:
+                  - generic [ref=e821]:
+                    - generic [ref=e822]:
+                      - generic [ref=e823]: ✉
+                      - generic [ref=e824]: amroessams@gmail.com
+                      - generic [ref=e825]: ↓ RECV
+                    - generic [ref=e826]: UNVERIFIED
+                  - paragraph [ref=e827]: "Subject: Welcome to HTTP Toolkit Your HTTP Toolkit login code is: 941385"
+                  - generic [ref=e828]:
+                    - generic [ref=e829]: 1d ago
+                    - generic [ref=e831]: "IMP:"
+                - generic [ref=e792] [cursor=pointer]:
+                  - generic [ref=e793]:
+                    - generic [ref=e794]:
+                      - generic [ref=e795]: ✉
+                      - generic [ref=e796]: amroessams@gmail.com
+                      - generic [ref=e797]: ↓ RECV
+                    - generic [ref=e798]: UNVERIFIED
+                  - paragraph [ref=e799]: "Subject: Unfortunately, we couldn't process your payment WE COULDN'T PROCESS YOUR PAYMENT Hey Amr, Your order IAEG2N862Y76A48QYA could not be placed..."
+                  - generic [ref=e800]:
+                    - generic [ref=e801]: 1d ago
+                    - generic [ref=e803]: "IMP:"
+                - generic [ref=e764] [cursor=pointer]:
+                  - generic [ref=e765]:
+                    - generic [ref=e766]:
+                      - generic [ref=e767]: ✉
+                      - generic [ref=e768]: amroessams@gmail.com
+                      - generic [ref=e769]: ↓ RECV
+                    - generic [ref=e770]: UNVERIFIED
+                  - paragraph [ref=e771]: "Subject: ‎, last week your posts got 289 views! https://www.linkedin.com/comm/feed/?lipi=urn%3Ali%3Apage%3Aemail_email_weekly_analytics_recap_v2%3Bd3..."
+                  - generic [ref=e772]:
+                    - generic [ref=e773]: 21h ago
+                    - generic [ref=e775]: "IMP:"
+                - generic [ref=e736] [cursor=pointer]:
+                  - generic [ref=e737]:
+                    - generic [ref=e738]:
+                      - generic [ref=e739]: ✉
+                      - generic [ref=e740]: amroessams@gmail.com
+                      - generic [ref=e741]: ↓ RECV
+                    - generic [ref=e742]: UNVERIFIED
+                  - paragraph [ref=e743]: "Subject: Ready for Iftar Evenings? 🌙 Book a professional Salon service at the comfort of your home & enjoy up to 80% off your first 2 sessions. 🫶 ..."
+                  - generic [ref=e744]:
+                    - generic [ref=e745]: 20h ago
+                    - generic [ref=e747]: "IMP:"
+                - generic [ref=e722] [cursor=pointer]:
+                  - generic [ref=e723]:
+                    - generic [ref=e724]:
+                      - generic [ref=e725]: ✉
+                      - generic [ref=e726]: amroessams@gmail.com
+                      - generic [ref=e727]: ↓ RECV
+                    - generic [ref=e728]: UNVERIFIED
+                  - paragraph [ref=e729]: "Subject: You can now review your recent order on noon TELL US ABOUT YOUR RECENT PURCHASE Hi Amr, If you can spare a moment, please take a bit of ti..."
+                  - generic [ref=e730]:
+                    - generic [ref=e731]: 20h ago
+                    - generic [ref=e733]: "IMP:"
+                - generic [ref=e708] [cursor=pointer]:
+                  - generic [ref=e709]:
+                    - generic [ref=e710]:
+                      - generic [ref=e711]: ✉
+                      - generic [ref=e712]: amroessams@gmail.com
+                      - generic [ref=e713]: ↓ RECV
+                    - generic [ref=e714]: UNVERIFIED
+                  - paragraph [ref=e715]: "Subject: [GitHub] Your Dependabot alerts for the week of Feb 17 - Feb 24 Dependabot alerts on GitHub Dependabot alerts this week Feb 17 - Feb 24 ..."
+                  - generic [ref=e716]:
+                    - generic [ref=e717]: 20h ago
+                    - generic [ref=e719]: "IMP:"
+                - generic [ref=e694] [cursor=pointer]:
+                  - generic [ref=e695]:
+                    - generic [ref=e696]:
+                      - generic [ref=e697]: ✉
+                      - generic [ref=e698]: amroessams@gmail.com
+                      - generic [ref=e699]: ↓ RECV
+                    - generic [ref=e700]: UNVERIFIED
+                  - paragraph [ref=e701]: "Subject: Enjoy 20% off on du Home Hello, As one of our valued customers, we are offering you an exclusive 20% discount on our du Home plans for 24 mo..."
+                  - generic [ref=e702]:
+                    - generic [ref=e703]: 18h ago
+                    - generic [ref=e705]: "IMP:"
+                - generic [ref=e680] [cursor=pointer]:
+                  - generic [ref=e681]:
+                    - generic [ref=e682]:
+                      - generic [ref=e683]: ✉
+                      - generic [ref=e684]: amroessams@gmail.com
+                      - generic [ref=e685]: ↓ RECV
+                    - generic [ref=e686]: UNVERIFIED
+                  - paragraph [ref=e687]: "Subject: 🛡️Upgrade Your NGINX Defense: Enable The CrowdSec WAF In Minutes You’re just a few lines of config away from activating our free built-in W..."
+                  - generic [ref=e688]:
+                    - generic [ref=e689]: 17h ago
+                    - generic [ref=e691]: "IMP:"
+                - generic [ref=e666] [cursor=pointer]:
+                  - generic [ref=e667]:
+                    - generic [ref=e668]:
+                      - generic [ref=e669]: ✉
+                      - generic [ref=e670]: amroessams@gmail.com
+                      - generic [ref=e671]: ↓ RECV
+                    - generic [ref=e672]: UNVERIFIED
+                  - paragraph [ref=e673]: "Subject: Zakat Calculator Dear AMR , National Bonds wishes you and your family a spiritual and joyful Ramadan. This is also the time during whic..."
+                  - generic [ref=e674]:
+                    - generic [ref=e675]: 17h ago
+                    - generic [ref=e677]: "IMP:"
+                - generic [ref=e652] [cursor=pointer]:
+                  - generic [ref=e653]:
+                    - generic [ref=e654]:
+                      - generic [ref=e655]: ✉
+                      - generic [ref=e656]: amroessams@gmail.com
+                      - generic [ref=e657]: ↓ RECV
+                    - generic [ref=e658]: UNVERIFIED
+                  - paragraph [ref=e659]: "Subject: Your Tuesday ride with Captain Ranjeet kumar Your ride fare: AED 51.00 24 February, 05:35 PM Hi Amr, Thanks for your Hala ride Your ride f..."
+                  - generic [ref=e660]:
+                    - generic [ref=e661]: 14h ago
+                    - generic [ref=e663]: "IMP:"
+                - generic [ref=e638] [cursor=pointer]:
+                  - generic [ref=e639]:
+                    - generic [ref=e640]:
+                      - generic [ref=e641]: ✉
+                      - generic [ref=e642]: amroessams@gmail.com
+                      - generic [ref=e643]: ↓ RECV
+                    - generic [ref=e644]: UNVERIFIED
+                  - paragraph [ref=e645]: "Subject: Invest in real estate markets without buying a property How listed real estate funds can provide property exposure with flexibility ‌ ‌ ‌ ..."
+                  - generic [ref=e646]:
+                    - generic [ref=e647]: 14h ago
+                    - generic [ref=e649]: "IMP:"
+                - generic [ref=e624] [cursor=pointer]:
+                  - generic [ref=e625]:
+                    - generic [ref=e626]:
+                      - generic [ref=e627]: ✉
+                      - generic [ref=e628]: amroessams@gmail.com
+                      - generic [ref=e629]: ↓ RECV
+                    - generic [ref=e630]: UNVERIFIED
+                  - paragraph [ref=e631]: "Subject: New Cloud Agents with Computer Use Agents can now interact with the software they are creating to verify and demo their work. Hi Amr, ..."
+                  - generic [ref=e632]:
+                    - generic [ref=e633]: 7h ago
+                    - generic [ref=e635]: "IMP:"
+                - generic [ref=e610] [cursor=pointer]:
+                  - generic [ref=e611]:
+                    - generic [ref=e612]:
+                      - generic [ref=e613]: ✉
+                      - generic [ref=e614]: amroessams@gmail.com
+                      - generic [ref=e615]: ↓ RECV
+                    - generic [ref=e616]: UNVERIFIED
+                  - paragraph [ref=e617]: "Subject: Mobbin Awards Mobbin Awards is our inaugural design award, celebrating the best in UI craftsmanship across iOS, Web, Sites, Animation, and I..."
+                  - generic [ref=e618]:
+                    - generic [ref=e619]: 7h ago
+                    - generic [ref=e621]: "IMP:"
+                - generic [ref=e596] [cursor=pointer]:
+                  - generic [ref=e597]:
+                    - generic [ref=e598]:
+                      - generic [ref=e599]: ✉
+                      - generic [ref=e600]: amroessams@gmail.com
+                      - generic [ref=e601]: ↓ RECV
+                    - generic [ref=e602]: FICTION
+                  - paragraph [ref=e603]: "Subject: 83% Of Retro Camera Holders Order A Second One 📷 I Wanna Double Up With Code REORDER20 (https://thatonestreet.com/products/tos-digifilm-re..."
+                  - generic [ref=e604]:
+                    - generic [ref=e605]: 6h ago
+                    - generic [ref=e607]: "IMP:"
+                - generic [ref=e582] [cursor=pointer]:
+                  - generic [ref=e583]:
+                    - generic [ref=e584]:
+                      - generic [ref=e585]: ✉
+                      - generic [ref=e586]: amroessams@gmail.com
+                      - generic [ref=e587]: ↑ SENT
+                    - generic [ref=e588]: UNVERIFIED
+                  - paragraph [ref=e589]: "Subject: request unsubscribe ME6VQRDQGJDTKJTDHUYDCS2KGEZTINZRJNJVMQRSKFCEEWSOJJGVQNZQKJFCM2Z5GIYTCNJWGQZGMMTFGZTDOY3GMVQTGYZZG44DANJTGBRGEZDFMEYSM3J5K..."
+                  - generic [ref=e590]:
+                    - generic [ref=e591]: 4h ago
+                    - generic [ref=e593]: "IMP:"
+                - generic [ref=e568] [cursor=pointer]:
+                  - generic [ref=e569]:
+                    - generic [ref=e570]:
+                      - generic [ref=e571]: ✉
+                      - generic [ref=e572]: amroessams@gmail.com
+                      - generic [ref=e573]: ↓ RECV
+                    - generic [ref=e574]: UNVERIFIED
+                  - paragraph [ref=e575]: "Subject: Important Notice Regarding Inactivity Fees Dear AMR ESSAM MOHAMED FARAJ, To ensure the ongoing security and efficiency of your e& money expe..."
+                  - generic [ref=e576]:
+                    - generic [ref=e577]: 4h ago
+                    - generic [ref=e579]: "IMP:"
+                - generic [ref=e554] [cursor=pointer]:
+                  - generic [ref=e555]:
+                    - generic [ref=e556]:
+                      - generic [ref=e557]: ✉
+                      - generic [ref=e558]: amroessams@gmail.com
+                      - generic [ref=e559]: ↑ SENT
+                    - generic [ref=e560]: UNVERIFIED
+                  - paragraph [ref=e561]: "Subject: Account Closure Request - AMR ESSAM MOHAMED FARAJ Dear e& money Support Team, I am writing to request the permanent closure of my e& money ..."
+                  - generic [ref=e562]:
+                    - generic [ref=e563]: 3h ago
+                    - generic [ref=e565]: "IMP:"
+                - generic [ref=e540] [cursor=pointer]:
+                  - generic [ref=e541]:
+                    - generic [ref=e542]:
+                      - generic [ref=e543]: ✉
+                      - generic [ref=e544]: amroessams@gmail.com
+                      - generic [ref=e545]: ↓ RECV
+                    - generic [ref=e546]: UNVERIFIED
+                  - paragraph [ref=e547]: "Subject: Delivery Status Notification (Failure) ** Recipient inbox full ** Your message couldn't be delivered to support@eandmoney.com. Their in..."
+                  - generic [ref=e548]:
+                    - generic [ref=e549]: 3h ago
+                    - generic [ref=e551]: "IMP:"
+                - generic [ref=e526] [cursor=pointer]:
+                  - generic [ref=e527]:
+                    - generic [ref=e528]:
+                      - generic [ref=e529]: ✉
+                      - generic [ref=e530]: amroessams@gmail.com
+                      - generic [ref=e531]: ↑ SENT
+                    - generic [ref=e532]: UNVERIFIED
+                  - paragraph [ref=e533]: "Subject: Re: Account Closure Request - Emirates ID Attached Dear e& money Support Team, Further to my account closure request sent earlier today, ..."
+                  - generic [ref=e534]:
+                    - generic [ref=e535]: 3h ago
+                    - generic [ref=e537]: "IMP:"
+                - generic [ref=e512] [cursor=pointer]:
+                  - generic [ref=e513]:
+                    - generic [ref=e514]:
+                      - generic [ref=e515]: ✉
+                      - generic [ref=e516]: amroessams@gmail.com
+                      - generic [ref=e517]: ↓ RECV
+                    - generic [ref=e518]: UNVERIFIED
+                  - paragraph [ref=e519]: "Subject: Automatic reply: Account Closure Request - Emirates ID Attached Dear User, Thank you for contacting e& money. This auto-reply is to let ..."
+                  - generic [ref=e520]:
+                    - generic [ref=e521]: 3h ago
+                    - generic [ref=e523]: "IMP:"
+                - generic [ref=e486] [cursor=pointer]:
+                  - generic [ref=e487]:
+                    - generic [ref=e488]:
+                      - generic [ref=e489]: 💬
+                      - generic [ref=e490]: manual
+                    - generic [ref=e491]: UNVERIFIED
+                  - paragraph [ref=e492]: My birthday is on March 15th, 1990. I was born in Cairo, Egypt.
+                  - generic [ref=e493]:
+                    - generic [ref=e494]: 30m ago
+                    - generic [ref=e496]: "IMP:"
+                - generic [ref=e499] [cursor=pointer]:
+                  - generic [ref=e500]:
+                    - generic [ref=e501]:
+                      - generic [ref=e502]: 💬
+                      - generic [ref=e503]: manual
+                    - generic [ref=e504]: UNVERIFIED
+                  - paragraph [ref=e505]: I had a coffee with Ahmed at Starbucks in Downtown Dubai today. We talked about the new project launch.
+                  - generic [ref=e506]:
+                    - generic [ref=e507]: 32m ago
+                    - generic [ref=e509]: "IMP:"
+              - generic [ref=e1003]:
+                - generic [ref=e1004]:
+                  - heading "Memory Detail" [level=3] [ref=e1005]
+                  - button "X" [ref=e1006] [cursor=pointer]
+                - generic [ref=e1007]:
+                  - generic [ref=e1008]:
+                    - generic [ref=e1009]: amroessams@gmail.com
+                    - generic [ref=e1010]: email
+                    - generic [ref=e1011]: ↓ RECV
+                    - generic [ref=e1012]: UNVERIFIED
+                  - paragraph [ref=e1014]: "Subject: Be Cautious of Fake Ramadan Offers During Ramadan, promotional messages tend to increase, from shopping deals and prize draws to vehicle offers and seasonal promotions. Unfortunately, scammers often use this period to push fake offers that appear genuine. To view in Arabic, click here \"This e-mail message including any of its attachments is intended solely for the addressee(s) and may contain privileged information. If you are not the addressee or you have received this email message in error, please notify the sender who will remove your details from its database. You are not authorized to read, copy, disseminate, distribute or use this e-mail message or any attachment to it in any manner and must delete the email and destroy any hard copies of it. This e-mail message does not contain financial instructions or commitments of any kind. Any views expressed in this message are those of the individual sender and do not necessarily reflect the views of Emirates Islamic Bank PJSC, or any other related subsidiaries, entities or persons.\" Emirates Islamic Bank (P.J.S.C.) is licensed by the Central Bank of the UAE. مصرف الإمارات الإسلامي (ش.م.ع.) هو مصرف مرخّص من قبل مصرف الإمارات العربية المتحدة المركزي"
+                  - generic [ref=e1015]:
+                    - generic [ref=e1016]:
+                      - text: "Event:"
+                      - generic [ref=e1017]: Feb 23, 2026 17:02:05
+                    - generic [ref=e1018]: "Ingested: Feb 25, 2026"
+                  - generic [ref=e1019]:
+                    - heading "Weight Breakdown" [level=4] [ref=e1020]
+                    - generic [ref=e1021]:
+                      - generic [ref=e1022]:
+                        - generic [ref=e1023]: semantic
+                        - generic [ref=e1025]: 0%
+                      - generic [ref=e1026]:
+                        - generic [ref=e1027]: rerank
+                        - generic [ref=e1029]: 0%
+                      - generic [ref=e1030]:
+                        - generic [ref=e1031]: recency
+                        - generic [ref=e1033]: 0%
+                      - generic [ref=e1034]:
+                        - generic [ref=e1035]: importance
+                        - generic [ref=e1038]: 50%
+                      - generic [ref=e1039]:
+                        - generic [ref=e1040]: trust
+                        - generic [ref=e1043]: 50%
+                      - generic [ref=e1044]:
+                        - generic [ref=e1045]: final
+                        - generic [ref=e1047]: 0%
+                  - generic [ref=e1048]:
+                    - heading "Factuality" [level=4] [ref=e1049]
+                    - generic [ref=e1050]:
+                      - paragraph [ref=e1051]: "Confidence: 50%"
+                      - paragraph [ref=e1052]: Pending evaluation
+  - generic:
+    - document

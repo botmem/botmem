@@ -1,15 +1,53 @@
 import { useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Marquee } from '../ui/Marquee';
+import { useConnectors } from '../../hooks/useConnectors';
+import { api } from '../../lib/api';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'DASHBOARD',
   '/connectors': 'CONNECTORS',
   '/memories': 'MEMORY EXPLORER',
+  '/contacts': 'PEOPLE',
+  '/settings': 'SETTINGS',
 };
+
+function useMarqueeText() {
+  const { accounts } = useConnectors();
+  const [memoryCount, setMemoryCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const fetch = () => {
+      api.getMemoryStats().then((s) => setMemoryCount(s.total)).catch(() => {});
+    };
+    fetch();
+    const interval = setInterval(fetch, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const parts: string[] = [];
+
+  for (const acc of accounts) {
+    const name = acc.type.toUpperCase();
+    const status = acc.status === 'syncing' ? 'SYNCING...' : acc.status === 'connected' ? 'CONNECTED' : acc.status === 'error' ? 'ERROR' : 'IDLE';
+    parts.push(`${name}: ${status}`);
+  }
+
+  if (accounts.length === 0) {
+    parts.push('NO CONNECTORS CONFIGURED');
+  }
+
+  if (memoryCount !== null) {
+    parts.push(`${memoryCount.toLocaleString()} MEMORIES INDEXED`);
+  }
+
+  return parts.join('  \u2022  ') + '  \u2022  ';
+}
 
 export function Topbar() {
   const location = useLocation();
   const title = pageTitles[location.pathname] || 'BOTMEM';
+  const marqueeText = useMarqueeText();
 
   return (
     <header className="border-b-4 border-nb-border bg-nb-surface">
@@ -19,9 +57,7 @@ export function Topbar() {
           {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
         </div>
       </div>
-      <Marquee>
-        GMAIL: SYNCED 2 MIN AGO &nbsp;•&nbsp; SLACK: SYNCING... &nbsp;•&nbsp; WHATSAPP: IDLE &nbsp;•&nbsp; PHOTOS: ERROR - RETRYING &nbsp;•&nbsp; 4,638 MEMORIES INDEXED &nbsp;•&nbsp;
-      </Marquee>
+      <Marquee>{marqueeText}</Marquee>
     </header>
   );
 }

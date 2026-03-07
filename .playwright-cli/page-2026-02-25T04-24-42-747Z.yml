@@ -1,0 +1,107 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - heading "BOTMEM" [level=1] [ref=e6]
+      - button "←" [ref=e7] [cursor=pointer]
+    - navigation [ref=e8]:
+      - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e10]: ◈
+        - generic [ref=e11]: DASHBOARD
+      - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+        - /url: /connectors
+        - generic [ref=e13]: ⚡
+        - generic [ref=e14]: CONNECTORS
+      - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+        - /url: /memories
+        - generic [ref=e16]: ◉
+        - generic [ref=e17]: MEMORIES
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - paragraph [ref=e20]: Amr Essam
+        - paragraph [ref=e21]: amroessams@gmail.com
+      - button "LOGOUT" [ref=e22] [cursor=pointer]
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - generic [ref=e25]:
+        - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+        - generic [ref=e27]: Wed, Feb 25
+      - generic [ref=e29]:
+        - generic [ref=e30]: 2 MEMORIES INDEXED •
+        - generic [ref=e31]: 2 MEMORIES INDEXED •
+    - main [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - button "SEARCH" [ref=e35] [cursor=pointer]
+          - button "INSERT" [ref=e36] [cursor=pointer]
+          - button "GRAPH" [ref=e37] [cursor=pointer]
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - textbox "SEARCH YOUR MEMORIES..." [ref=e74]
+            - generic [ref=e75]:
+              - button "manual" [ref=e76] [cursor=pointer]
+              - button "UNVERIFIED" [ref=e78] [cursor=pointer]
+          - generic [ref=e79]:
+            - generic [ref=e80]:
+              - paragraph [ref=e81]: 2 memories found
+              - generic [ref=e82] [cursor=pointer]:
+                - generic [ref=e83]:
+                  - generic [ref=e84]:
+                    - generic [ref=e85]: 💬
+                    - generic [ref=e86]: manual
+                  - generic [ref=e87]: UNVERIFIED
+                - paragraph [ref=e88]: My birthday is on March 15th, 1990. I was born in Cairo, Egypt.
+                - generic [ref=e89]:
+                  - generic [ref=e90]: just now
+                  - generic [ref=e92]: "IMP:"
+              - generic [ref=e95] [cursor=pointer]:
+                - generic [ref=e96]:
+                  - generic [ref=e97]:
+                    - generic [ref=e98]: 💬
+                    - generic [ref=e99]: manual
+                  - generic [ref=e100]: UNVERIFIED
+                - paragraph [ref=e101]: I had a coffee with Ahmed at Starbucks in Downtown Dubai today. We talked about the new project launch.
+                - generic [ref=e102]:
+                  - generic [ref=e103]: 2m ago
+                  - generic [ref=e105]: "IMP:"
+            - generic [ref=e109]:
+              - generic [ref=e110]:
+                - heading "Memory Detail" [level=3] [ref=e111]
+                - button "X" [ref=e112] [cursor=pointer]
+              - generic [ref=e113]:
+                - generic [ref=e114]:
+                  - generic [ref=e115]: manual
+                  - generic [ref=e116]: message
+                  - generic [ref=e117]: UNVERIFIED
+                - paragraph [ref=e119]: My birthday is on March 15th, 1990. I was born in Cairo, Egypt.
+                - generic [ref=e120]:
+                  - generic [ref=e121]:
+                    - text: "Event:"
+                    - generic [ref=e122]: Feb 25, 2026 08:23:53
+                  - generic [ref=e123]: "Ingested: Feb 25, 2026"
+                - generic [ref=e124]:
+                  - heading "Weight Breakdown" [level=4] [ref=e125]
+                  - generic [ref=e126]:
+                    - generic [ref=e127]:
+                      - generic [ref=e128]: semantic
+                      - generic [ref=e130]: 0%
+                    - generic [ref=e131]:
+                      - generic [ref=e132]: rerank
+                      - generic [ref=e134]: 0%
+                    - generic [ref=e135]:
+                      - generic [ref=e136]: recency
+                      - generic [ref=e138]: 0%
+                    - generic [ref=e139]:
+                      - generic [ref=e140]: importance
+                      - generic [ref=e143]: 50%
+                    - generic [ref=e144]:
+                      - generic [ref=e145]: trust
+                      - generic [ref=e148]: 50%
+                    - generic [ref=e149]:
+                      - generic [ref=e150]: final
+                      - generic [ref=e152]: 0%
+                - generic [ref=e153]:
+                  - heading "Factuality" [level=4] [ref=e154]
+                  - generic [ref=e155]:
+                    - paragraph [ref=e156]: "Confidence: 50%"
+                    - paragraph

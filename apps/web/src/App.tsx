@@ -7,6 +7,7 @@ import { ConnectorsPage } from './pages/ConnectorsPage';
 import { MemoryExplorerPage } from './pages/MemoryExplorerPage';
 import { ContactsPage } from './pages/ContactsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { MePage } from './pages/MePage';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
 
@@ -32,7 +33,8 @@ export function App() {
             </AuthGuard>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<Navigate to="/me" replace />} />
+          <Route path="me" element={<MePage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="connectors" element={<ConnectorsPage />} />
           <Route path="memories" element={<MemoryExplorerPage />} />

@@ -12,9 +12,9 @@ describe('ConfigService', () => {
     process.env = originalEnv;
   });
 
-  it('returns default port 3001', () => {
+  it('returns default port 12412', () => {
     const config = new ConfigService();
-    expect(config.port).toBe(3001);
+    expect(config.port).toBe(12412);
   });
 
   it('returns custom port from env', () => {
@@ -52,7 +52,7 @@ describe('ConfigService', () => {
 
   it('returns default frontend url', () => {
     const config = new ConfigService();
-    expect(config.frontendUrl).toBe('http://localhost:5173');
+    expect(config.frontendUrl).toBe('http://localhost:12412');
   });
 
   it('returns custom frontend url from env', () => {

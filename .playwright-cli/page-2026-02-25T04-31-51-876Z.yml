@@ -1,0 +1,115 @@
+- generic [ref=e89]:
+  - complementary [ref=e90]:
+    - generic [ref=e91]:
+      - heading "BOTMEM" [level=1] [ref=e92]
+      - button "←" [ref=e93] [cursor=pointer]
+    - navigation [ref=e94]:
+      - link "◈ DASHBOARD" [ref=e95] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e96]: ◈
+        - generic [ref=e97]: DASHBOARD
+      - link "⚡ CONNECTORS" [ref=e98] [cursor=pointer]:
+        - /url: /connectors
+        - generic [ref=e99]: ⚡
+        - generic [ref=e100]: CONNECTORS
+      - link "◉ MEMORIES" [ref=e101] [cursor=pointer]:
+        - /url: /memories
+        - generic [ref=e102]: ◉
+        - generic [ref=e103]: MEMORIES
+    - generic [ref=e104]:
+      - generic [ref=e105]:
+        - paragraph [ref=e106]: Amr Essam
+        - paragraph [ref=e107]: amroessams@gmail.com
+      - button "LOGOUT" [ref=e108] [cursor=pointer]
+  - generic [ref=e109]:
+    - banner [ref=e110]:
+      - generic [ref=e111]:
+        - heading "DASHBOARD" [level=2] [ref=e112]
+        - generic [ref=e113]: Wed, Feb 25
+      - generic [ref=e115]:
+        - generic [ref=e116]: 2 MEMORIES INDEXED •
+        - generic [ref=e117]: 2 MEMORIES INDEXED •
+    - main [ref=e118]:
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - paragraph [ref=e122]: "2"
+            - paragraph [ref=e123]: TOTAL MEMORIES
+          - generic [ref=e124]:
+            - paragraph [ref=e125]: "0"
+            - paragraph [ref=e126]: EMBED QUEUE
+          - generic [ref=e127]:
+            - paragraph [ref=e128]: "0"
+            - paragraph [ref=e129]: ACTIVE CONNECTORS
+          - generic [ref=e130]:
+            - paragraph [ref=e131]: "0"
+            - paragraph [ref=e132]: FAILED JOBS
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - generic [ref=e135]:
+              - generic [ref=e136]: LIVE LOG FEED
+              - generic [ref=e137]: 0/0
+            - generic [ref=e138]:
+              - button "info" [ref=e139] [cursor=pointer]
+              - button "warn" [ref=e140] [cursor=pointer]
+              - button "error" [ref=e141] [cursor=pointer]
+              - button "debug" [ref=e142] [cursor=pointer]
+              - textbox "filter..." [ref=e143]
+            - paragraph [ref=e145]: NO LOG ENTRIES YET
+          - generic [ref=e146]:
+            - generic [ref=e147]:
+              - generic [ref=e148]:
+                - generic [ref=e149]: JOB QUEUE
+                - generic [ref=e150]: 0 JOBS
+              - paragraph [ref=e153]: NO JOBS IN QUEUE
+            - generic [ref=e154]:
+              - generic [ref=e155]: PIPELINE QUEUES
+              - generic [ref=e156]:
+                - generic [ref=e157]:
+                  - paragraph [ref=e158]: sync
+                  - paragraph [ref=e160]: 2 done
+                - generic [ref=e161]:
+                  - paragraph [ref=e162]: embed
+                  - paragraph [ref=e164]: 100 done
+                - generic [ref=e165]:
+                  - paragraph [ref=e166]: enrich
+                  - generic [ref=e167]:
+                    - paragraph [ref=e168]: 3 failed
+                    - paragraph [ref=e169]: 59 done
+                - generic [ref=e170]:
+                  - paragraph [ref=e171]: backfill
+                  - paragraph [ref=e173]: idle
+        - generic [ref=e174]:
+          - generic [ref=e175]:
+            - generic [ref=e176]: PIPELINE ACTIVITY
+            - generic [ref=e177]:
+              - generic [ref=e178]: 0/0 entries
+              - button "AUTO" [ref=e179] [cursor=pointer]
+          - generic [ref=e180]:
+            - button "↓ sync" [ref=e181] [cursor=pointer]:
+              - generic [ref=e182]: ↓
+              - text: sync
+            - button "◈ embed" [ref=e183] [cursor=pointer]:
+              - generic [ref=e184]: ◈
+              - text: embed
+            - button "✦ enrich" [ref=e185] [cursor=pointer]:
+              - generic [ref=e186]: ✦
+              - text: enrich
+            - button "↻ backfill" [ref=e187] [cursor=pointer]:
+              - generic [ref=e188]: ↻
+              - text: backfill
+            - button "info" [ref=e190] [cursor=pointer]
+            - button "warn" [ref=e191] [cursor=pointer]
+            - button "error" [ref=e192] [cursor=pointer]
+            - button "debug" [ref=e193] [cursor=pointer]
+          - generic [ref=e194]:
+            - table [ref=e195]:
+              - rowgroup [ref=e196]:
+                - row "Time Stage Level Source Details" [ref=e197]:
+                  - columnheader "Time" [ref=e198]
+                  - columnheader "Stage" [ref=e199]
+                  - columnheader "Level" [ref=e200]
+                  - columnheader "Source" [ref=e201]
+                  - columnheader "Details" [ref=e202]
+              - rowgroup
+            - paragraph [ref=e203]: NO PIPELINE ACTIVITY YET

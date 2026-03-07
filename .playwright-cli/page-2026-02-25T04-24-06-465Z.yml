@@ -1,0 +1,65 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - heading "BOTMEM" [level=1] [ref=e6]
+      - button "←" [ref=e7] [cursor=pointer]
+    - navigation [ref=e8]:
+      - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e10]: ◈
+        - generic [ref=e11]: DASHBOARD
+      - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+        - /url: /connectors
+        - generic [ref=e13]: ⚡
+        - generic [ref=e14]: CONNECTORS
+      - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+        - /url: /memories
+        - generic [ref=e16]: ◉
+        - generic [ref=e17]: MEMORIES
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - paragraph [ref=e20]: Amr Essam
+        - paragraph [ref=e21]: amroessams@gmail.com
+      - button "LOGOUT" [ref=e22] [cursor=pointer]
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - generic [ref=e25]:
+        - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+        - generic [ref=e27]: Wed, Feb 25
+      - generic [ref=e29]:
+        - generic [ref=e30]: 2 MEMORIES INDEXED •
+        - generic [ref=e31]: 2 MEMORIES INDEXED •
+    - main [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - button "SEARCH" [active] [ref=e35] [cursor=pointer]
+          - button "INSERT" [ref=e36] [cursor=pointer]
+          - button "GRAPH" [ref=e37] [cursor=pointer]
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - textbox "SEARCH YOUR MEMORIES..." [ref=e74]
+            - generic [ref=e75]:
+              - button "manual" [ref=e76] [cursor=pointer]
+              - button "UNVERIFIED" [ref=e78] [cursor=pointer]
+          - generic [ref=e80]:
+            - paragraph [ref=e81]: 2 memories found
+            - generic [ref=e82] [cursor=pointer]:
+              - generic [ref=e83]:
+                - generic [ref=e84]:
+                  - generic [ref=e85]: 💬
+                  - generic [ref=e86]: manual
+                - generic [ref=e87]: UNVERIFIED
+              - paragraph [ref=e88]: My birthday is on March 15th, 1990. I was born in Cairo, Egypt.
+              - generic [ref=e89]:
+                - generic [ref=e90]: just now
+                - generic [ref=e92]: "IMP:"
+            - generic [ref=e95] [cursor=pointer]:
+              - generic [ref=e96]:
+                - generic [ref=e97]:
+                  - generic [ref=e98]: 💬
+                  - generic [ref=e99]: manual
+                - generic [ref=e100]: UNVERIFIED
+              - paragraph [ref=e101]: I had a coffee with Ahmed at Starbucks in Downtown Dubai today. We talked about the new project launch.
+              - generic [ref=e102]:
+                - generic [ref=e103]: 2m ago
+                - generic [ref=e105]: "IMP:"

@@ -37,13 +37,13 @@ export function JobRow({ job, onCancel, onMove }: JobRowProps) {
         {(job.status === 'running' || job.status === 'done') && (
           <div className="flex items-center gap-2">
             <ProgressBar
-              value={job.progress}
+              value={Math.min(job.progress, job.total)}
               max={job.total}
               color={CONNECTOR_COLORS[job.connector]}
               className="flex-1"
             />
             <span className="font-mono text-xs shrink-0 text-nb-text">
-              {job.progress}/{job.total}
+              {Math.min(job.progress, job.total)}/{job.total}
             </span>
           </div>
         )}

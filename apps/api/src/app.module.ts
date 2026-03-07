@@ -14,6 +14,7 @@ import { MemoryModule } from './memory/memory.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { SettingsModule } from './settings/settings.module';
 import { AgentModule } from './agent/agent.module';
+import { MeModule } from './me/me.module';
 import { VersionController } from './version.controller';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -42,6 +43,7 @@ const isDev = process.env.NODE_ENV !== 'production';
     ContactsModule,
     SettingsModule,
     AgentModule,
+    MeModule,
   ],
 })
 export class AppModule {}

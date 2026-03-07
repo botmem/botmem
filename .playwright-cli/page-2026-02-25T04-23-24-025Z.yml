@@ -1,0 +1,55 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - heading "BOTMEM" [level=1] [ref=e6]
+      - button "←" [ref=e7] [cursor=pointer]
+    - navigation [ref=e8]:
+      - link "◈ DASHBOARD" [ref=e9] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e10]: ◈
+        - generic [ref=e11]: DASHBOARD
+      - link "⚡ CONNECTORS" [ref=e12] [cursor=pointer]:
+        - /url: /connectors
+        - generic [ref=e13]: ⚡
+        - generic [ref=e14]: CONNECTORS
+      - link "◉ MEMORIES" [ref=e15] [cursor=pointer]:
+        - /url: /memories
+        - generic [ref=e16]: ◉
+        - generic [ref=e17]: MEMORIES
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - paragraph [ref=e20]: Amr Essam
+        - paragraph [ref=e21]: amroessams@gmail.com
+      - button "LOGOUT" [ref=e22] [cursor=pointer]
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - generic [ref=e25]:
+        - heading "MEMORY EXPLORER" [level=2] [ref=e26]
+        - generic [ref=e27]: Wed, Feb 25
+      - generic [ref=e29]:
+        - generic [ref=e30]: 1 MEMORIES INDEXED •
+        - generic [ref=e31]: 1 MEMORIES INDEXED •
+    - main [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - button "SEARCH" [ref=e35] [cursor=pointer]
+          - button "INSERT" [ref=e36] [cursor=pointer]
+          - button "GRAPH" [ref=e37] [cursor=pointer]
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - textbox "SEARCH YOUR MEMORIES..." [ref=e42]
+            - generic [ref=e43]:
+              - button "manual" [ref=e44] [cursor=pointer]
+              - button "UNVERIFIED" [ref=e46] [cursor=pointer]
+          - generic [ref=e48]:
+            - paragraph [ref=e49]: 1 memories found
+            - generic [ref=e50] [cursor=pointer]:
+              - generic [ref=e51]:
+                - generic [ref=e52]:
+                  - generic [ref=e53]: 💬
+                  - generic [ref=e54]: manual
+                - generic [ref=e55]: UNVERIFIED
+              - paragraph [ref=e56]: I had a coffee with Ahmed at Starbucks in Downtown Dubai today. We talked about the new project launch.
+              - generic [ref=e57]:
+                - generic [ref=e58]: 1m ago
+                - generic [ref=e60]: "IMP:"
