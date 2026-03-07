@@ -13,22 +13,19 @@ export function initPostHog() {
     session_recording: {
       maskAllInputs: true,
       maskTextSelector: '[data-ph-mask]',
-      networkPayloadCapture: { recordBody: false },
-      recordHeaders: true,
       recordCrossOriginIframes: false,
-    },
-    // Mask auth headers in network recording
-    session_recording_network_payload_capture_config: {
-      recordHeaders: true,
-      recordBody: false,
-      maskRequestHeaders: (headers: Record<string, string>) => {
-        const masked = { ...headers };
-        for (const key of Object.keys(masked)) {
-          if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'cookie') {
-            masked[key] = '***REDACTED***';
+      // Mask auth headers in network recording (REPLAY-03)
+      maskCapturedNetworkRequestFn: (request) => {
+        if (request.requestHeaders) {
+          const masked = { ...request.requestHeaders };
+          for (const key of Object.keys(masked)) {
+            if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'cookie') {
+              masked[key] = '***REDACTED***';
+            }
           }
+          request.requestHeaders = masked;
         }
-        return masked;
+        return request;
       },
     },
 
