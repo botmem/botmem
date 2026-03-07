@@ -1,11 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
-import { eq, sql, and } from 'drizzle-orm';
+import { eq, sql, and, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService, ScoredPoint } from './qdrant.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 import { memories, memoryLinks, memoryContacts, contacts, contactIdentifiers, accounts } from '../db/schema';
 
 interface SearchFilters {
@@ -15,12 +14,19 @@ interface SearchFilters {
   factualityLabel?: string;
 }
 
+/** Strip accents/diacritics for fuzzy matching (amélie → amelie) */
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 export interface SearchResult {
   id: string;
   text: string;
   sourceType: string;
   connectorType: string;
   eventTime: string;
+  ingestTime: string;
+  createdAt: string;
   factuality: string;
   entities: string;
   metadata: string;
@@ -36,81 +42,238 @@ export interface SearchResult {
   };
 }
 
-export const TRUST_SCORES: Record<string, number> = {
-  gmail: 0.95,
-  slack: 0.9,
-  whatsapp: 0.8,
-  imessage: 0.8,
-  photos: 0.85,
-  locations: 0.85,
-  manual: 0.7,
-};
-
 @Injectable()
 export class MemoryService {
   constructor(
     private dbService: DbService,
     private ollama: OllamaService,
     private qdrant: QdrantService,
-    @InjectQueue('embed') private embedQueue: Queue,
+    private connectors: ConnectorsService,
   ) {}
+
+  private getTrustScore(connectorType: string): number {
+    try {
+      return this.connectors.get(connectorType).manifest.trustScore;
+    } catch {
+      return 0.7;
+    }
+  }
+
+  private getWeights(connectorType: string): { semantic: number; recency: number; importance: number; trust: number } {
+    const defaults = { semantic: 0.40, recency: 0.25, importance: 0.20, trust: 0.15 };
+    try {
+      const w = this.connectors.get(connectorType).manifest.weights;
+      return {
+        semantic: w?.semantic ?? defaults.semantic,
+        recency: w?.recency ?? defaults.recency,
+        importance: w?.importance ?? defaults.importance,
+        trust: w?.trust ?? defaults.trust,
+      };
+    } catch {
+      return defaults;
+    }
+  }
 
   async search(query: string, filters?: SearchFilters, limit = 20): Promise<SearchResult[]> {
     if (!query.trim()) return [];
 
-    const vector = await this.ollama.embed(query);
-
-    const qdrantFilter: Record<string, unknown> | undefined = filters
-      ? this.buildQdrantFilter(filters)
-      : undefined;
-
-    const qdrantResults = await this.qdrant.search(vector, limit, qdrantFilter);
-
-    if (!qdrantResults.length) return [];
-
-    // Fetch full memory rows
     const db = this.dbService.db;
-    const results: SearchResult[] = [];
 
-    for (const point of qdrantResults) {
-      const rows = await db
-        .select({ memory: memories, accountIdentifier: accounts.identifier })
-        .from(memories)
-        .leftJoin(accounts, eq(memories.accountId, accounts.id))
-        .where(eq(memories.id, point.id));
-      if (!rows.length) continue;
-
-      const mem = rows[0].memory;
-      const { score, weights } = this.computeWeights(point.score, mem);
-      results.push({
-        id: mem.id,
-        text: mem.text,
-        sourceType: mem.sourceType,
-        connectorType: mem.connectorType,
-        eventTime: mem.eventTime,
-        factuality: mem.factuality,
-        entities: mem.entities,
-        metadata: mem.metadata,
-        accountIdentifier: rows[0].accountIdentifier,
-        score,
-        weights,
-      });
-    }
-
-    // If filtering by contactId, filter results through memory_contacts
+    // If filtering by contactId, skip hybrid and just fetch that contact's memories
     if (filters?.contactId) {
+      const vector = await this.ollama.embed(query);
+      const qdrantFilter = filters ? this.buildQdrantFilter(filters) : undefined;
+      const qdrantResults = await this.qdrant.search(vector, limit * 3, qdrantFilter);
       const linkedMemoryIds = new Set(
-        (
-          await db
-            .select({ memoryId: memoryContacts.memoryId })
-            .from(memoryContacts)
-            .where(eq(memoryContacts.contactId, filters.contactId))
+        (await db.select({ memoryId: memoryContacts.memoryId })
+          .from(memoryContacts)
+          .where(eq(memoryContacts.contactId, filters.contactId))
         ).map((r) => r.memoryId),
       );
-      return results.filter((r) => linkedMemoryIds.has(r.id));
+      const results: SearchResult[] = [];
+      for (const point of qdrantResults) {
+        if (!linkedMemoryIds.has(point.id)) continue;
+        const row = await this.fetchMemoryRow(point.id);
+        if (!row) continue;
+        const { score, weights } = this.computeWeights(point.score, row.memory);
+        results.push(this.toSearchResult(row, score, weights));
+        if (results.length >= limit) break;
+      }
+      return results.sort((a, b) => b.score - a.score);
     }
 
-    return results.sort((a, b) => b.score - a.score);
+    // --- Hybrid search: vector + text + contact name ---
+
+    // 1. Vector search
+    const vector = await this.ollama.embed(query);
+    const qdrantFilter = filters ? this.buildQdrantFilter(filters) : undefined;
+    const qdrantResults = await this.qdrant.search(vector, limit * 2, qdrantFilter);
+
+    // 2. Text search (SQL LIKE) — catches exact name/keyword matches vector misses
+    // Use both the original query and accent-stripped version for broad matching
+    const queryLower = query.toLowerCase();
+    const queryNorm = stripAccents(queryLower);
+    const textConditions = [
+      eq(memories.embeddingStatus, 'done'),
+      sql`LOWER(${memories.text}) LIKE ${'%' + queryLower + '%'}`,
+    ];
+    if (filters?.sourceType) textConditions.push(eq(memories.sourceType, filters.sourceType));
+    if (filters?.connectorType) textConditions.push(eq(memories.connectorType, filters.connectorType));
+    const textMatches = await db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(and(...textConditions)!)
+      .limit(limit * 2);
+    const textMatchIds = new Set(textMatches.map((r) => r.id));
+
+    // 3. Contact name search — find contacts matching query, then their linked memories
+    // Match both accented and stripped versions (amélie matches amelie and vice versa)
+    const matchingContacts = await db
+      .select({ id: contacts.id, displayName: contacts.displayName })
+      .from(contacts)
+      .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryLower + '%'}`);
+    // Also match accent-stripped: if query is "amelie", match "Amélie"
+    if (queryNorm !== queryLower) {
+      const normMatches = await db
+        .select({ id: contacts.id, displayName: contacts.displayName })
+        .from(contacts)
+        .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryNorm + '%'}`);
+      const existingIds = new Set(matchingContacts.map((c) => c.id));
+      for (const c of normMatches) if (!existingIds.has(c.id)) matchingContacts.push(c);
+    }
+    // Fallback: fetch all contacts and match with accent stripping (SQLite can't do NFD)
+    if (!matchingContacts.length) {
+      const allContactRows = await db.select({ id: contacts.id, displayName: contacts.displayName }).from(contacts);
+      for (const c of allContactRows) {
+        if (stripAccents(c.displayName.toLowerCase()).includes(queryNorm)) {
+          matchingContacts.push(c);
+        }
+      }
+    }
+
+    const contactMatchIds = new Set<string>();
+    if (matchingContacts.length) {
+      const contactIds = matchingContacts.map((c) => c.id);
+      const linked = await db
+        .select({ memoryId: memoryContacts.memoryId })
+        .from(memoryContacts)
+        .where(inArray(memoryContacts.contactId, contactIds));
+      for (const r of linked) contactMatchIds.add(r.memoryId);
+    }
+
+    // 4. Also check contact identifiers (email, phone, handle) with accent stripping
+    const matchingIdents = await db
+      .select({ contactId: contactIdentifiers.contactId })
+      .from(contactIdentifiers)
+      .where(sql`LOWER(${contactIdentifiers.identifierValue}) LIKE ${'%' + queryLower + '%'}`);
+    if (!matchingIdents.length && queryNorm !== queryLower) {
+      // Accent-stripped fallback for identifiers
+      const allIdents = await db.select({ contactId: contactIdentifiers.contactId, identifierValue: contactIdentifiers.identifierValue }).from(contactIdentifiers);
+      for (const r of allIdents) {
+        if (stripAccents(r.identifierValue.toLowerCase()).includes(queryNorm)) {
+          matchingIdents.push(r);
+        }
+      }
+    }
+    if (matchingIdents.length) {
+      const identContactIds = [...new Set(matchingIdents.map((r) => r.contactId))];
+      const linked = await db
+        .select({ memoryId: memoryContacts.memoryId })
+        .from(memoryContacts)
+        .where(inArray(memoryContacts.contactId, identContactIds));
+      for (const r of linked) contactMatchIds.add(r.memoryId);
+    }
+
+    const hasExactMatches = textMatchIds.size > 0 || contactMatchIds.size > 0;
+
+    // Collect candidate memory IDs
+    // When text/contact matches exist, only include semantic results that overlap
+    const allCandidateIds = new Set<string>();
+    for (const id of textMatchIds) allCandidateIds.add(id);
+    for (const id of contactMatchIds) allCandidateIds.add(id);
+    if (!hasExactMatches) {
+      // No exact matches — fall back to semantic results
+      for (const point of qdrantResults) allCandidateIds.add(point.id);
+    } else {
+      // Add semantic results only if they also match text/contact (reinforcement)
+      for (const point of qdrantResults) {
+        if (textMatchIds.has(point.id) || contactMatchIds.has(point.id)) {
+          allCandidateIds.add(point.id);
+        }
+      }
+    }
+
+    if (!allCandidateIds.size) return [];
+
+    // Build semantic score map from vector results
+    const semanticScores = new Map<string, number>();
+    for (const point of qdrantResults) {
+      semanticScores.set(point.id, point.score);
+    }
+
+    // Fetch and score all candidates
+    const results: SearchResult[] = [];
+    for (const id of allCandidateIds) {
+      const row = await this.fetchMemoryRow(id);
+      if (!row) continue;
+
+      const mem = row.memory;
+      // Apply source type / connector type filters for text/contact matches
+      if (filters?.sourceType && mem.sourceType !== filters.sourceType) continue;
+      if (filters?.connectorType && mem.connectorType !== filters.connectorType) continue;
+
+      const semanticScore = semanticScores.get(id) ?? 0;
+      const hasTextMatch = textMatchIds.has(id);
+      const hasContactMatch = contactMatchIds.has(id);
+
+      // Boost: text/contact matches get a significant relevance boost
+      const textBoost = hasTextMatch ? 0.45 : 0;
+      const contactBoost = hasContactMatch ? 0.40 : 0;
+
+      const { score, weights } = this.computeWeights(semanticScore, mem);
+      const boostedScore = Math.min(score + textBoost + contactBoost, 1.0);
+      const boostedWeights = { ...weights, final: boostedScore };
+
+      results.push(this.toSearchResult(row, boostedScore, boostedWeights));
+    }
+
+    // Apply minimum score threshold — drop noise
+    const MIN_SCORE = 0.35;
+    const filtered = results.filter((r) => r.score >= MIN_SCORE);
+
+    return filtered.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  private async fetchMemoryRow(id: string) {
+    const rows = await this.dbService.db
+      .select({ memory: memories, accountIdentifier: accounts.identifier })
+      .from(memories)
+      .leftJoin(accounts, eq(memories.accountId, accounts.id))
+      .where(eq(memories.id, id));
+    return rows.length ? rows[0] : null;
+  }
+
+  private toSearchResult(
+    row: { memory: typeof memories.$inferSelect; accountIdentifier: string | null },
+    score: number,
+    weights: SearchResult['weights'],
+  ): SearchResult {
+    const mem = row.memory;
+    return {
+      id: mem.id,
+      text: mem.text,
+      sourceType: mem.sourceType,
+      connectorType: mem.connectorType,
+      eventTime: mem.eventTime,
+      ingestTime: mem.ingestTime,
+      createdAt: mem.createdAt,
+      factuality: mem.factuality,
+      entities: mem.entities,
+      metadata: mem.metadata,
+      accountIdentifier: row.accountIdentifier,
+      score,
+      weights,
+    };
   }
 
   async getById(id: string) {
@@ -133,7 +296,10 @@ export class MemoryService {
     const offset = params.offset || 0;
     const sortCol = params.sortBy === 'ingestTime' ? memories.ingestTime : memories.eventTime;
 
-    const conditions = [];
+    // Show memories as soon as embedding is done
+    const conditions = [
+      eq(memories.embeddingStatus, 'done'),
+    ];
     if (params.connectorType) {
       conditions.push(eq(memories.connectorType, params.connectorType));
     }
@@ -141,18 +307,18 @@ export class MemoryService {
       conditions.push(eq(memories.sourceType, params.sourceType));
     }
 
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions)!;
 
-    const countQuery = where
-      ? db.select({ count: sql<number>`COUNT(*)` }).from(memories).where(where)
-      : db.select({ count: sql<number>`COUNT(*)` }).from(memories);
-    const totalRows = await countQuery;
+    const totalRows = await db.select({ count: sql<number>`COUNT(*)` }).from(memories).where(where);
     const total = totalRows[0]?.count || 0;
 
-    const baseQuery = db.select({ memory: memories, accountIdentifier: accounts.identifier }).from(memories).leftJoin(accounts, eq(memories.accountId, accounts.id));
-    const itemsQuery = where
-      ? baseQuery.where(where).orderBy(sql`${sortCol} DESC`).limit(limit).offset(offset)
-      : baseQuery.orderBy(sql`${sortCol} DESC`).limit(limit).offset(offset);
+    const itemsQuery = db.select({ memory: memories, accountIdentifier: accounts.identifier })
+      .from(memories)
+      .leftJoin(accounts, eq(memories.accountId, accounts.id))
+      .where(where)
+      .orderBy(sql`${sortCol} DESC`)
+      .limit(limit)
+      .offset(offset);
     const rows = await itemsQuery;
     const items = rows.map((r) => ({ ...r.memory, accountIdentifier: r.accountIdentifier }));
 
@@ -197,15 +363,18 @@ export class MemoryService {
 
   async getStats() {
     const db = this.dbService.db;
+    const doneFilter = eq(memories.embeddingStatus, 'done');
 
     const totalRows = await db
       .select({ count: sql<number>`COUNT(*)` })
-      .from(memories);
+      .from(memories)
+      .where(doneFilter);
     const total = totalRows[0]?.count || 0;
 
     const sourceRows = await db
       .select({ key: memories.sourceType, count: sql<number>`COUNT(*)` })
       .from(memories)
+      .where(doneFilter)
       .groupBy(memories.sourceType);
     const bySource: Record<string, number> = {};
     for (const r of sourceRows) bySource[r.key] = r.count;
@@ -213,6 +382,7 @@ export class MemoryService {
     const connectorRows = await db
       .select({ key: memories.connectorType, count: sql<number>`COUNT(*)` })
       .from(memories)
+      .where(doneFilter)
       .groupBy(memories.connectorType);
     const byConnector: Record<string, number> = {};
     for (const r of connectorRows) byConnector[r.key] = r.count;
@@ -224,6 +394,7 @@ export class MemoryService {
         count: sql<number>`COUNT(*)`,
       })
       .from(memories)
+      .where(doneFilter)
       .groupBy(sql`json_extract(${memories.factuality}, '$.label')`);
     const byFactuality: Record<string, number> = {};
     for (const r of factRows) {
@@ -233,81 +404,91 @@ export class MemoryService {
     return { total, bySource, byConnector, byFactuality };
   }
 
-  async getGraphData(limit = 500) {
+  async getGraphData(limit = 500, linkLimit = 2000) {
     const db = this.dbService.db;
 
-    // Fetch capped number of recent memories instead of all
+    // Fetch linked memories first, then fill with recent
+    const allLinks = await db.select().from(memoryLinks).limit(linkLimit);
+
+    const linkedIdSet = new Set<string>();
+    for (const link of allLinks) {
+      linkedIdSet.add(link.srcMemoryId);
+      linkedIdSet.add(link.dstMemoryId);
+    }
+
+    // Fetch recent memories — show as soon as embedding is done
     const recentMemories = await db
       .select()
       .from(memories)
+      .where(eq(memories.embeddingStatus, 'done'))
       .orderBy(sql`${memories.eventTime} DESC`)
       .limit(limit);
 
     const memoryIds = new Set(recentMemories.map((m) => m.id));
 
-    // Only fetch links and contacts related to these memories
-    const relevantLinks = await db
-      .select()
-      .from(memoryLinks)
-      .where(
-        sql`${memoryLinks.srcMemoryId} IN (${sql.join(
-          recentMemories.map((m) => sql`${m.id}`),
-          sql`, `,
-        )})`,
-      );
+    // Add any linked memories not already in the recent set (only if done)
+    const missingLinkedIds = [...linkedIdSet].filter((id) => !memoryIds.has(id));
+    const linkedMemories: Array<typeof recentMemories[0]> = [];
+    for (let i = 0; i < missingLinkedIds.length; i += 100) {
+      const batch = missingLinkedIds.slice(i, i + 100);
+      if (!batch.length) break;
+      const rows = await db.select().from(memories)
+        .where(and(inArray(memories.id, batch), eq(memories.embeddingStatus, 'done')));
+      linkedMemories.push(...rows);
+    }
 
-    const relevantMemoryContacts = await db
-      .select()
-      .from(memoryContacts)
-      .where(
-        sql`${memoryContacts.memoryId} IN (${sql.join(
-          recentMemories.map((m) => sql`${m.id}`),
-          sql`, `,
-        )})`,
-      );
+    const allMemories = [...recentMemories, ...linkedMemories];
+    for (const m of linkedMemories) memoryIds.add(m.id);
 
-    const relevantContactIds = [...new Set(relevantMemoryContacts.map((mc) => mc.contactId))];
+    const relevantLinks = allLinks.filter(
+      (l) => memoryIds.has(l.srcMemoryId) && memoryIds.has(l.dstMemoryId),
+    );
 
-    const relevantContacts = relevantContactIds.length
-      ? await db
-          .select()
-          .from(contacts)
-          .where(sql`${contacts.id} IN (${sql.join(relevantContactIds.map((id) => sql`${id}`), sql`, `)})`)
-      : [];
+    // Fetch contacts and identifiers (small tables — fetch all, filter in JS)
+    const allMemoryContacts = await db.select().from(memoryContacts);
+    const relevantMemoryContacts = allMemoryContacts.filter((mc) => memoryIds.has(mc.memoryId));
 
-    const relevantIdentifiers = relevantContactIds.length
-      ? await db
-          .select()
-          .from(contactIdentifiers)
-          .where(sql`${contactIdentifiers.contactId} IN (${sql.join(relevantContactIds.map((id) => sql`${id}`), sql`, `)})`)
-      : [];
+    const relevantContactIdSet = new Set(relevantMemoryContacts.map((mc) => mc.contactId));
+
+    const allContacts = await db.select().from(contacts);
+    const relevantContacts = allContacts.filter((c) => relevantContactIdSet.has(c.id));
+
+    const allIdentifiers = await db.select().from(contactIdentifiers);
+    const relevantIdentifiers = allIdentifiers.filter((i) => relevantContactIdSet.has(i.contactId));
 
     // Build entity → cluster mapping
     const entityClusters = new Map<string, number>();
     let nextCluster = 0;
 
-    const memoryNodes = recentMemories.map((m) => {
+    const memoryNodes = allMemories.map((m) => {
       let entities: any[] = [];
       try { entities = JSON.parse(m.entities); } catch {}
 
       let factLabel = 'UNVERIFIED';
       try { factLabel = JSON.parse(m.factuality).label; } catch {}
 
-      const dominantEntity = entities.find((e: any) => e.type === 'person' || e.type === 'organization');
+      const dominantEntity = entities.find((e: any) => (e.type === 'person' || e.type === 'organization') && e.value);
       let cluster = 0;
       if (dominantEntity) {
-        const key = dominantEntity.value.toLowerCase();
+        const key = String(dominantEntity.value).toLowerCase();
         if (!entityClusters.has(key)) entityClusters.set(key, nextCluster++);
         cluster = entityClusters.get(key)!;
       }
 
-      const trust = TRUST_SCORES[m.connectorType] || 0.7;
+      const trust = this.getTrustScore(m.connectorType);
       const importance = Math.min(0.3 + entities.length * 0.1 + trust * 0.3, 1.0);
-      const entityNames = entities.map((e: any) => e.value).slice(0, 5);
+      const entityNames = entities.map((e: any) => e.value || '').filter(Boolean).slice(0, 5);
+
+      let weights: Record<string, number> = {};
+      try { weights = JSON.parse(m.weights); } catch {}
+
+      let metadata: Record<string, unknown> = {};
+      try { metadata = JSON.parse(m.metadata); } catch {}
 
       return {
         id: m.id,
         label: m.text.slice(0, 60),
+        text: m.text,
         type: m.sourceType,
         connectorType: m.connectorType,
         factuality: factLabel,
@@ -315,6 +496,9 @@ export class MemoryService {
         cluster,
         nodeType: 'memory' as const,
         entities: entityNames,
+        weights,
+        eventTime: m.eventTime,
+        metadata,
       };
     });
 
@@ -328,20 +512,25 @@ export class MemoryService {
 
     const contactNodes = relevantContacts.map((c) => {
       const connectors = [...new Set(identifiersByContact.get(c.id) || [])];
-      const nameKey = c.displayName.toLowerCase();
+      const displayName = c.displayName || 'Unknown';
+      const nameKey = displayName.toLowerCase();
       let cluster = 0;
       if (entityClusters.has(nameKey)) cluster = entityClusters.get(nameKey)!;
 
+      const entityType = (c as any).entityType || 'person';
+      const nodeType = entityType === 'group' ? 'group' as const : entityType === 'device' ? 'device' as const : 'contact' as const;
+
       return {
         id: `contact-${c.id}`,
-        label: c.displayName,
-        type: 'contact' as const,
+        label: displayName,
+        type: nodeType,
         connectorType: connectors[0] || 'manual',
         factuality: 'FACT',
-        importance: 0.8,
+        importance: entityType === 'group' ? 0.9 : entityType === 'device' ? 0.6 : 0.8,
         cluster,
-        nodeType: 'contact' as const,
+        nodeType,
         connectors,
+        entityType,
       };
     });
 
@@ -358,13 +547,83 @@ export class MemoryService {
     const contactEdges = relevantMemoryContacts.map((mc) => ({
       source: `contact-${mc.contactId}`,
       target: mc.memoryId,
-      type: 'involves',
-      strength: 0.7,
+      type: mc.role || 'involves',
+      strength: mc.role === 'group' ? 0.9 : 0.7,
     }));
 
+    // Build file/attachment nodes from memories with attachments in metadata.
+    // First get the top files by occurrence across ALL memories (not just graph slice).
+    const fileCountRows = await db
+      .select({
+        metadata: memories.metadata,
+        connectorType: memories.connectorType,
+      })
+      .from(memories)
+      .where(sql`json_extract(${memories.metadata}, '$.attachments') IS NOT NULL`);
+
+    // Aggregate file counts across all memories
+    const fileCounts = new Map<string, { count: number; mimeType: string; connectorType: string }>();
+    for (const row of fileCountRows) {
+      let meta: any = {};
+      try { meta = JSON.parse(row.metadata); } catch { continue; }
+      const atts = meta.attachments as Array<{ filename?: string; mimeType?: string }> | undefined;
+      if (!atts) continue;
+      for (const att of atts) {
+        const name = att.filename;
+        if (!name) continue;
+        const existing = fileCounts.get(name);
+        if (existing) {
+          existing.count++;
+        } else {
+          fileCounts.set(name, { count: 1, mimeType: att.mimeType || 'unknown', connectorType: row.connectorType });
+        }
+      }
+    }
+
+    // Take top 200 files by occurrence
+    const topFiles = [...fileCounts.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 200);
+
+    const fileNameSet = new Set(topFiles.map(([name]) => name));
+
+    const fileNodes = topFiles.map(([name, info]) => ({
+      id: `file-${name}`,
+      label: name,
+      text: '',
+      type: 'file' as string,
+      connectorType: info.connectorType,
+      factuality: 'FACT',
+      importance: Math.min(0.4 + info.count * 0.05, 1.0),
+      cluster: 0,
+      nodeType: 'file' as const,
+      entities: [info.mimeType],
+      weights: {} as Record<string, number>,
+      eventTime: '',
+    }));
+
+    // Create edges only for memories in the current graph that have these files
+    const fileEdges: typeof edges = [];
+    for (const m of allMemories) {
+      let meta: any = {};
+      try { meta = JSON.parse(m.metadata); } catch { continue; }
+      const attachments = meta.attachments as Array<{ filename?: string }> | undefined;
+      if (!attachments?.length) continue;
+      for (const att of attachments) {
+        if (att.filename && fileNameSet.has(att.filename)) {
+          fileEdges.push({
+            source: m.id,
+            target: `file-${att.filename}`,
+            type: 'attachment',
+            strength: 0.8,
+          });
+        }
+      }
+    }
+
     return {
-      nodes: [...memoryNodes, ...contactNodes],
-      edges: [...edges, ...contactEdges],
+      nodes: [...memoryNodes, ...contactNodes, ...fileNodes],
+      edges: [...edges, ...contactEdges, ...fileEdges],
     };
   }
 
@@ -380,8 +639,9 @@ export class MemoryService {
       entityCount = JSON.parse(mem.entities).length;
     } catch {}
     const importance = 0.5 + Math.min(entityCount * 0.1, 0.4);
-    const trust = TRUST_SCORES[mem.connectorType] || 0.7;
-    const final = 0.4 * semanticScore + 0.25 * recency + 0.2 * importance + 0.15 * trust;
+    const trust = this.getTrustScore(mem.connectorType);
+    const w = this.getWeights(mem.connectorType);
+    const final = w.semantic * semanticScore + w.recency * recency + w.importance * importance + w.trust * trust;
 
     return {
       score: final,

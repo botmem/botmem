@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { eq, like, or, sql, inArray } from 'drizzle-orm';
+import { and, eq, like, or, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { contacts, contactIdentifiers, memoryContacts, memories, accounts, mergeDismissals } from '../db/schema';
 
@@ -85,7 +85,7 @@ export interface ContactWithIdentifiers {
 export class ContactsService {
   constructor(private dbService: DbService) {}
 
-  async resolveContact(rawIdentifiers: IdentifierInput[]): Promise<ContactWithIdentifiers> {
+  async resolveContact(rawIdentifiers: IdentifierInput[], entityType?: 'person' | 'group' | 'organization' | 'device'): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
     // Normalize + deduplicate identifiers
@@ -130,6 +130,7 @@ export class ContactsService {
       await db.insert(contacts).values({
         id: contactId,
         displayName,
+        entityType: entityType || 'person',
         createdAt: now,
         updatedAt: now,
       });
@@ -141,39 +142,54 @@ export class ContactsService {
       const otherIds = matchedIds.slice(1);
 
       for (const otherId of otherIds) {
-        await db
-          .update(contactIdentifiers)
-          .set({ contactId })
-          .where(eq(contactIdentifiers.contactId, otherId));
-
-        await db
-          .update(memoryContacts)
-          .set({ contactId })
-          .where(eq(memoryContacts.contactId, otherId));
-
-        await db.delete(contacts).where(eq(contacts.id, otherId));
+        try {
+          await this.mergeContacts(contactId, otherId);
+        } catch {
+          // Concurrent merge may have already handled this — ignore
+        }
       }
     }
 
-    // Add any new identifiers that don't already exist
-    const existingIdents = await db
-      .select()
-      .from(contactIdentifiers)
-      .where(eq(contactIdentifiers.contactId, contactId));
+    // Add any new identifiers that don't already exist.
+    // The contact may be deleted by a concurrent merge — if so, find where
+    // our identifiers ended up and switch to that contact.
+    try {
+      const existingIdents = await db
+        .select()
+        .from(contactIdentifiers)
+        .where(eq(contactIdentifiers.contactId, contactId));
 
-    for (const ident of identifiers) {
-      const exists = existingIdents.some(
-        (e) => e.identifierType === ident.type && e.identifierValue === ident.value,
-      );
-      if (!exists) {
-        await db.insert(contactIdentifiers).values({
-          id: randomUUID(),
-          contactId,
-          identifierType: ident.type,
-          identifierValue: ident.value,
-          connectorType: ident.connectorType || null,
-          createdAt: new Date().toISOString(),
-        });
+      for (const ident of identifiers) {
+        const exists = existingIdents.some(
+          (e) => e.identifierType === ident.type && e.identifierValue === ident.value,
+        );
+        if (!exists) {
+          await db.insert(contactIdentifiers).values({
+            id: randomUUID(),
+            contactId,
+            identifierType: ident.type,
+            identifierValue: ident.value,
+            connectorType: ident.connectorType || null,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (err: any) {
+      if (err?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+        // Contact was merged/deleted concurrently — find where identifiers went
+        const probe = identifiers.find((i) => i.type !== 'name') || identifiers[0];
+        if (probe) {
+          const rows = await db
+            .select({ contactId: contactIdentifiers.contactId })
+            .from(contactIdentifiers)
+            .where(sql`${contactIdentifiers.identifierType} = ${probe.type} AND ${contactIdentifiers.identifierValue} = ${probe.value}`)
+            .limit(1);
+          if (rows.length) {
+            contactId = rows[0].contactId;
+          }
+        }
+      } else {
+        throw err;
       }
     }
 
@@ -186,7 +202,46 @@ export class ContactsService {
         .where(eq(contacts.id, contactId));
     }
 
-    return this.getById(contactId) as Promise<ContactWithIdentifiers>;
+    // Auto-merge: if any non-name identifier on this contact also belongs to
+    // another contact, absorb that contact automatically.
+    try {
+      const allIdentsForContact = await db.select().from(contactIdentifiers)
+        .where(eq(contactIdentifiers.contactId, contactId));
+
+      for (const ident of allIdentsForContact) {
+        if (ident.identifierType === 'name') continue;
+        const dupes = await db
+          .select({ contactId: contactIdentifiers.contactId })
+          .from(contactIdentifiers)
+          .where(sql`${contactIdentifiers.identifierType} = ${ident.identifierType} AND ${contactIdentifiers.identifierValue} = ${ident.identifierValue} AND ${contactIdentifiers.contactId} != ${contactId}`);
+
+        for (const dupe of dupes) {
+          await this.mergeContacts(contactId, dupe.contactId);
+        }
+      }
+    } catch (err) {
+      // Auto-merge is best-effort — don't fail the resolve
+      console.warn('[resolveContact] auto-merge failed:', err);
+    }
+
+    const result = await this.getById(contactId);
+    if (!result) {
+      // Contact was deleted by a concurrent merge — it was absorbed into another contact.
+      // Find where our identifiers ended up.
+      const movedIdent = identifiers.find((i) => i.type !== 'name') || identifiers[0];
+      if (movedIdent) {
+        const rows = await db
+          .select({ contactId: contactIdentifiers.contactId })
+          .from(contactIdentifiers)
+          .where(sql`${contactIdentifiers.identifierType} = ${movedIdent.type} AND ${contactIdentifiers.identifierValue} = ${movedIdent.value}`)
+          .limit(1);
+        if (rows.length) {
+          return this.getById(rows[0].contactId) as Promise<ContactWithIdentifiers>;
+        }
+      }
+      throw new Error(`Contact ${contactId} was deleted during resolution`);
+    }
+    return result;
   }
 
   async getById(id: string): Promise<ContactWithIdentifiers | null> {
@@ -211,7 +266,7 @@ export class ContactsService {
     };
   }
 
-  async list(params: { limit?: number; offset?: number } = {}): Promise<{
+  async list(params: { limit?: number; offset?: number; entityType?: string } = {}): Promise<{
     items: ContactWithIdentifiers[];
     total: number;
   }> {
@@ -219,16 +274,22 @@ export class ContactsService {
     const limit = params.limit || 50;
     const offset = params.offset || 0;
 
+    const where = params.entityType
+      ? eq(contacts.entityType, params.entityType)
+      : undefined;
+
     // Get total count without fetching all rows
     const countResult = await db
       .select({ count: sql<number>`count(*)` })
-      .from(contacts);
+      .from(contacts)
+      .where(where);
     const total = countResult[0].count;
 
     // Paginate with SQL LIMIT/OFFSET
     const paged = await db
       .select()
       .from(contacts)
+      .where(where)
       .limit(limit)
       .offset(offset);
 
@@ -271,12 +332,24 @@ export class ContactsService {
   async search(query: string): Promise<ContactWithIdentifiers[]> {
     const db = this.dbService.db;
     const pattern = `%${query.toLowerCase()}%`;
+    const normQuery = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-    // Search by display name
+    // Search by display name (exact LIKE)
     const nameMatches = await db
       .select()
       .from(contacts)
       .where(sql`LOWER(${contacts.displayName}) LIKE ${pattern}`);
+
+    // Accent-stripped fallback: if query is "amelie", also match "Amélie"
+    if (normQuery !== query.toLowerCase()) {
+      const allContacts = await db.select().from(contacts);
+      const existingIds = new Set(nameMatches.map((c) => c.id));
+      for (const c of allContacts) {
+        if (existingIds.has(c.id)) continue;
+        const normName = c.displayName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        if (normName.includes(normQuery)) nameMatches.push(c);
+      }
+    }
 
     // Search by identifier value
     const identMatches = await db
@@ -298,12 +371,18 @@ export class ContactsService {
   }
 
   async linkMemory(memoryId: string, contactId: string, role: string): Promise<void> {
-    await this.dbService.db.insert(memoryContacts).values({
-      id: randomUUID(),
-      memoryId,
-      contactId,
-      role,
-    });
+    try {
+      await this.dbService.db.insert(memoryContacts).values({
+        id: randomUUID(),
+        memoryId,
+        contactId,
+        role,
+      });
+    } catch (err: any) {
+      // Contact may have been merged/deleted concurrently — skip silently
+      if (err?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return;
+      throw err;
+    }
   }
 
   async getMemories(contactId: string, limit = 50): Promise<any[]> {
@@ -345,62 +424,80 @@ export class ContactsService {
   async mergeContacts(targetId: string, sourceId: string): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
-    // Validate both exist
-    const [targetRows, sourceRows] = await Promise.all([
-      db.select().from(contacts).where(eq(contacts.id, targetId)),
-      db.select().from(contacts).where(eq(contacts.id, sourceId)),
-    ]);
+    // Run the entire merge atomically in a SQLite transaction to prevent
+    // race conditions when concurrent embed workers merge the same contacts.
+    db.transaction((tx) => {
+      const targetRows = tx.select().from(contacts).where(eq(contacts.id, targetId)).all();
+      const sourceRows = tx.select().from(contacts).where(eq(contacts.id, sourceId)).all();
 
-    if (!targetRows.length) throw new Error(`Target contact ${targetId} not found`);
-    if (!sourceRows.length) throw new Error(`Source contact ${sourceId} not found`);
+      if (!targetRows.length || !sourceRows.length) return; // Either side already merged/deleted — nothing to do
 
-    const target = targetRows[0];
-    const source = sourceRows[0];
+      const target = targetRows[0];
+      const source = sourceRows[0];
 
-    // Merge avatars (target first, then source, dedup by url)
-    const targetAvatars: Array<{ url: string; source: string }> = JSON.parse(target.avatars || '[]');
-    const sourceAvatars: Array<{ url: string; source: string }> = JSON.parse(source.avatars || '[]');
-    const seenUrls = new Set(targetAvatars.map((a) => a.url));
-    for (const avatar of sourceAvatars) {
-      if (!seenUrls.has(avatar.url)) {
-        targetAvatars.push(avatar);
-        seenUrls.add(avatar.url);
+      // Merge avatars (target first, then source, dedup by url)
+      const targetAvatars: Array<{ url: string; source: string }> = JSON.parse(target.avatars || '[]');
+      const sourceAvatars: Array<{ url: string; source: string }> = JSON.parse(source.avatars || '[]');
+      const seenUrls = new Set(targetAvatars.map((a) => a.url));
+      for (const avatar of sourceAvatars) {
+        if (!seenUrls.has(avatar.url)) {
+          targetAvatars.push(avatar);
+          seenUrls.add(avatar.url);
+        }
       }
-    }
 
-    // Keep the longer displayName
-    const displayName =
-      source.displayName.length > target.displayName.length ? source.displayName : target.displayName;
+      // Keep the longer displayName
+      const displayName =
+        source.displayName.length > target.displayName.length ? source.displayName : target.displayName;
 
-    await db
-      .update(contactIdentifiers)
-      .set({ contactId: targetId })
-      .where(eq(contactIdentifiers.contactId, sourceId));
+      // Move all identifiers from source to target
+      tx.update(contactIdentifiers)
+        .set({ contactId: targetId })
+        .where(eq(contactIdentifiers.contactId, sourceId))
+        .run();
 
-    await db
-      .update(memoryContacts)
-      .set({ contactId: targetId })
-      .where(eq(memoryContacts.contactId, sourceId));
+      // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
+      const sourceMemLinks = tx.select().from(memoryContacts)
+        .where(eq(memoryContacts.contactId, sourceId)).all();
+      const targetMemLinks = tx.select().from(memoryContacts)
+        .where(eq(memoryContacts.contactId, targetId)).all();
+      const targetMemKeys = new Set(targetMemLinks.map((m) => `${m.memoryId}::${m.role}`));
 
-    await db
-      .update(contacts)
-      .set({
-        displayName,
-        avatars: JSON.stringify(targetAvatars),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(contacts.id, targetId));
+      for (const link of sourceMemLinks) {
+        if (targetMemKeys.has(`${link.memoryId}::${link.role}`)) {
+          tx.delete(memoryContacts).where(eq(memoryContacts.id, link.id)).run();
+        }
+      }
 
-    await db.delete(contacts).where(eq(contacts.id, sourceId));
+      // Move remaining source memoryContacts to target
+      tx.update(memoryContacts)
+        .set({ contactId: targetId })
+        .where(eq(memoryContacts.contactId, sourceId))
+        .run();
 
-    await db
-      .delete(mergeDismissals)
-      .where(
-        or(
-          eq(mergeDismissals.contactId1, sourceId),
-          eq(mergeDismissals.contactId2, sourceId),
-        )!,
-      );
+      // Update target contact
+      tx.update(contacts)
+        .set({
+          displayName,
+          avatars: JSON.stringify(targetAvatars),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(contacts.id, targetId))
+        .run();
+
+      // Clean up dismissals referencing source
+      tx.delete(mergeDismissals)
+        .where(
+          or(
+            eq(mergeDismissals.contactId1, sourceId),
+            eq(mergeDismissals.contactId2, sourceId),
+          )!,
+        )
+        .run();
+
+      // Delete source contact — safe now since all children have been moved
+      tx.delete(contacts).where(eq(contacts.id, sourceId)).run();
+    });
 
     return this.getById(targetId) as Promise<ContactWithIdentifiers>;
   }
@@ -430,10 +527,13 @@ export class ContactsService {
   > {
     const db = this.dbService.db;
 
-    // Load all contacts + identifiers + dismissals
-    const allContacts = await db.select().from(contacts);
+    // Load person contacts only — devices/groups should not appear in merge suggestions
+    const allContacts = await db.select().from(contacts).where(
+      sql`COALESCE(${contacts.entityType}, 'person') = 'person'`,
+    );
     const allIdentifiers = await db.select().from(contactIdentifiers);
     const allDismissals = await db.select().from(mergeDismissals);
+    const allMemoryContacts = await db.select().from(memoryContacts);
 
     // Build contact -> connector types map
     const contactConnectors = new Map<string, Set<string>>();
@@ -460,65 +560,139 @@ export class ContactsService {
       contactIdentsMap.set(ident.contactId, list);
     }
 
+    // Build co-occurrence map: contacts that appear in the same memories
+    const memoryToContacts = new Map<string, Set<string>>();
+    for (const mc of allMemoryContacts) {
+      const set = memoryToContacts.get(mc.memoryId) || new Set();
+      set.add(mc.contactId);
+      memoryToContacts.set(mc.memoryId, set);
+    }
+    const coOccurrence = new Set<string>();
+    for (const [, contactIds] of memoryToContacts) {
+      if (contactIds.size < 2) continue;
+      const ids = Array.from(contactIds);
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          coOccurrence.add([ids[i], ids[j]].sort().join('::'));
+        }
+      }
+    }
+
+    const suggestedPairs = new Set<string>();
     const suggestions: Array<{
       contact1: ContactWithIdentifiers;
       contact2: ContactWithIdentifiers;
       reason: string;
     }> = [];
 
+    const addSuggestion = (c1: typeof allContacts[0], c2: typeof allContacts[0], reason: string) => {
+      const pairKey = [c1.id, c2.id].sort().join('::');
+      if (dismissedPairs.has(pairKey) || suggestedPairs.has(pairKey)) return;
+      suggestedPairs.add(pairKey);
+
+      const idents1 = contactIdentsMap.get(c1.id) || [];
+      const idents2 = contactIdentsMap.get(c2.id) || [];
+      suggestions.push({
+        contact1: {
+          ...c1,
+          identifiers: idents1.map((id) => ({
+            id: id.id,
+            identifierType: id.identifierType,
+            identifierValue: id.identifierValue,
+            connectorType: id.connectorType,
+            confidence: id.confidence,
+          })),
+        },
+        contact2: {
+          ...c2,
+          identifiers: idents2.map((id) => ({
+            id: id.id,
+            identifierType: id.identifierType,
+            identifierValue: id.identifierValue,
+            connectorType: id.connectorType,
+            confidence: id.confidence,
+          })),
+        },
+        reason,
+      });
+    };
+
+    // Generic short names that should never trigger merge suggestions
+    const GENERIC_NAMES = new Set(['me', 'bot', 'app', 'admin', 'user', 'unknown', 'test', 'info', 'no reply', 'noreply']);
+
+    // Helper: check if two contacts share a non-name identifier
+    const shareNonNameIdentifier = (id1: string, id2: string): boolean => {
+      const idents1 = contactIdentsMap.get(id1) || [];
+      const idents2 = contactIdentsMap.get(id2) || [];
+      for (const i1 of idents1) {
+        if (i1.identifierType === 'name') continue;
+        for (const i2 of idents2) {
+          if (i2.identifierType === 'name') continue;
+          if (i1.identifierType === i2.identifierType && i1.identifierValue === i2.identifierValue) return true;
+        }
+      }
+      return false;
+    };
+
     for (let i = 0; i < allContacts.length; i++) {
       for (let j = i + 1; j < allContacts.length; j++) {
         const c1 = allContacts[i];
         const c2 = allContacts[j];
 
-        // Skip if dismissed
         const pairKey = [c1.id, c2.id].sort().join('::');
         if (dismissedPairs.has(pairKey)) continue;
 
-        // Skip if both contacts ONLY come from the same single connector
+        const nameA = c1.displayName.toLowerCase().trim();
+        const nameB = c2.displayName.toLowerCase().trim();
+        if (nameA.length < 3 || nameB.length < 3) continue;
+        if (GENERIC_NAMES.has(nameA) || GENERIC_NAMES.has(nameB)) continue;
+
         const connectors1 = contactConnectors.get(c1.id) || new Set();
         const connectors2 = contactConnectors.get(c2.id) || new Set();
-        if (connectors1.size === 1 && connectors2.size === 1) {
-          const [only1] = connectors1;
-          const [only2] = connectors2;
-          if (only1 === only2) continue;
+        const sameConnector = connectors1.size === 1 && connectors2.size === 1 &&
+          [...connectors1][0] === [...connectors2][0];
+        const isVisionConnector = sameConnector && [...connectors1][0] === 'photos';
+
+        // Strategy 1: Exact name match — always suggest (even same connector)
+        if (nameA === nameB) {
+          addSuggestion(c1, c2, `Exact name match: "${c1.displayName}"`);
+          continue;
         }
 
-        // Case-insensitive substring match on displayName
-        // Require min 3 chars and shorter name >= 40% of longer to avoid "Google" matching "John (Google Slides)"
-        const nameA = c1.displayName.toLowerCase();
-        const nameB = c2.displayName.toLowerCase();
-        if (nameA.length < 3 || nameB.length < 3) continue;
+        // Strategy 2: Substring match on displayName
         const shorter = Math.min(nameA.length, nameB.length);
         const longer = Math.max(nameA.length, nameB.length);
-        if (shorter / longer < 0.4) continue;
-        if (nameA.includes(nameB) || nameB.includes(nameA)) {
-          const idents1 = contactIdentsMap.get(c1.id) || [];
-          const idents2 = contactIdentsMap.get(c2.id) || [];
+        // Raise minimum to 4 chars for substring matching to reduce noise
+        if (shorter >= 4 && shorter / longer >= 0.4 && (nameA.includes(nameB) || nameB.includes(nameA))) {
+          // Same-connector pairs: only suggest if they share a non-name identifier or co-occur
+          if (sameConnector && !isVisionConnector) {
+            if (shareNonNameIdentifier(c1.id, c2.id) || coOccurrence.has(pairKey)) {
+              addSuggestion(c1, c2, `Display names match: "${c1.displayName}" and "${c2.displayName}"`);
+            }
+            continue;
+          }
+          addSuggestion(c1, c2, `Display names match: "${c1.displayName}" and "${c2.displayName}"`);
+          continue;
+        }
 
-          suggestions.push({
-            contact1: {
-              ...c1,
-              identifiers: idents1.map((id) => ({
-                id: id.id,
-                identifierType: id.identifierType,
-                identifierValue: id.identifierValue,
-                connectorType: id.connectorType,
-                confidence: id.confidence,
-              })),
-            },
-            contact2: {
-              ...c2,
-              identifiers: idents2.map((id) => ({
-                id: id.id,
-                identifierType: id.identifierType,
-                identifierValue: id.identifierValue,
-                connectorType: id.connectorType,
-                confidence: id.confidence,
-              })),
-            },
-            reason: `Display names match: "${c1.displayName}" and "${c2.displayName}"`,
-          });
+        // Strategy 3: Shared first name + co-occurrence or shared identifier
+        const firstA = nameA.split(/\s+/)[0];
+        const firstB = nameB.split(/\s+/)[0];
+        if (firstA.length >= 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
+          if (shareNonNameIdentifier(c1.id, c2.id)) {
+            addSuggestion(c1, c2,
+              `Share first name "${firstA}" and a common identifier`);
+            continue;
+          }
+          if (coOccurrence.has(pairKey)) {
+            addSuggestion(c1, c2,
+              `Share first name "${firstA}" and appear in the same memories`);
+            continue;
+          }
+          if (connectors1.has('photos') && connectors2.has('photos')) {
+            addSuggestion(c1, c2,
+              `Share first name "${firstA}" and both appear in photos`);
+          }
         }
       }
     }
@@ -614,6 +788,83 @@ export class ContactsService {
     return { normalized, deduped, merged };
   }
 
+  async removeIdentifier(contactId: string, identifierId: string): Promise<ContactWithIdentifiers> {
+    const db = this.dbService.db;
+
+    // Verify identifier exists and belongs to contact
+    const idents = await db.select().from(contactIdentifiers)
+      .where(eq(contactIdentifiers.contactId, contactId));
+
+    if (!idents.length) throw new Error(`Contact ${contactId} has no identifiers`);
+
+    const target = idents.find((i) => i.id === identifierId);
+    if (!target) throw new Error(`Identifier ${identifierId} does not belong to contact ${contactId}`);
+
+    // Prevent removing last identifier
+    if (idents.length <= 1) throw new Error('Cannot remove the last identifier from a contact');
+
+    // Delete the identifier
+    await db.delete(contactIdentifiers).where(eq(contactIdentifiers.id, identifierId));
+
+    // If removed identifier was name type matching displayName, update display name
+    if (target.identifierType === 'name') {
+      const contact = await db.select().from(contacts).where(eq(contacts.id, contactId));
+      if (contact.length && contact[0].displayName === target.identifierValue) {
+        const remaining = idents.filter((i) => i.id !== identifierId);
+        const nextName = remaining.find((i) => i.identifierType === 'name');
+        const newDisplayName = nextName?.identifierValue || remaining[0]?.identifierValue || 'Unknown';
+        await db.update(contacts)
+          .set({ displayName: newDisplayName, updatedAt: new Date().toISOString() })
+          .where(eq(contacts.id, contactId));
+      }
+    }
+
+    return this.getById(contactId) as Promise<ContactWithIdentifiers>;
+  }
+
+  async splitContact(contactId: string, identifierIds: string[]): Promise<ContactWithIdentifiers> {
+    const db = this.dbService.db;
+
+    // Validate source contact exists
+    const sourceRows = await db.select().from(contacts).where(eq(contacts.id, contactId));
+    if (!sourceRows.length) throw new Error(`Contact ${contactId} not found`);
+
+    // Validate all identifierIds belong to this contact
+    const allIdents = await db.select().from(contactIdentifiers)
+      .where(eq(contactIdentifiers.contactId, contactId));
+
+    const toMove = allIdents.filter((i) => identifierIds.includes(i.id));
+    if (toMove.length !== identifierIds.length) {
+      throw new Error('Some identifier IDs do not belong to this contact');
+    }
+
+    // Prevent splitting ALL identifiers (source must keep at least one)
+    if (toMove.length >= allIdents.length) {
+      throw new Error('Cannot split all identifiers — source contact must keep at least one');
+    }
+
+    // Create new contact
+    const newId = randomUUID();
+    const now = new Date().toISOString();
+    const nameIdent = toMove.find((i) => i.identifierType === 'name');
+    const displayName = nameIdent?.identifierValue || toMove[0]?.identifierValue || 'Unknown';
+
+    await db.insert(contacts).values({
+      id: newId,
+      displayName,
+      entityType: sourceRows[0].entityType || 'person',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Move selected identifiers to new contact
+    await db.update(contactIdentifiers)
+      .set({ contactId: newId })
+      .where(inArray(contactIdentifiers.id, identifierIds));
+
+    return this.getById(newId) as Promise<ContactWithIdentifiers>;
+  }
+
   async dismissSuggestion(contactId1: string, contactId2: string): Promise<void> {
     const db = this.dbService.db;
     const [id1, id2] = [contactId1, contactId2].sort();
@@ -624,4 +875,13 @@ export class ContactsService {
       createdAt: new Date().toISOString(),
     });
   }
+
+  async undismissSuggestion(contactId1: string, contactId2: string): Promise<void> {
+    const db = this.dbService.db;
+    const [id1, id2] = [contactId1, contactId2].sort();
+    await db.delete(mergeDismissals).where(
+      and(eq(mergeDismissals.contactId1, id1), eq(mergeDismissals.contactId2, id2)),
+    ).run();
+  }
+
 }
