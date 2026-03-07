@@ -5,6 +5,8 @@ import { Queue } from 'bullmq';
 import { MemoryService, SearchResult } from './memory.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { OllamaService } from './ollama.service';
+import { QdrantService } from './qdrant.service';
 import { memories, memoryContacts, rawEvents } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 
@@ -14,6 +16,8 @@ export class MemoryController {
     private memoryService: MemoryService,
     private dbService: DbService,
     private accountsService: AccountsService,
+    private ollama: OllamaService,
+    private qdrant: QdrantService,
     @InjectQueue('backfill') private backfillQueue: Queue,
     @InjectQueue('clean') private cleanQueue: Queue,
     @InjectQueue('embed') private embedQueue: Queue,
@@ -140,6 +144,93 @@ export class MemoryController {
     return { enqueued, total: unlinked.length };
   }
 
+  @Post('backfill-embeddings')
+  async backfillEmbeddings(@Query('limit') limitParam?: string) {
+    const db = this.dbService.db;
+    const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 500, 5000) : 500;
+
+    // Find memories marked done in SQLite that might be missing from Qdrant
+    const doneMemories = await db
+      .select({ id: memories.id, text: memories.text, sourceType: memories.sourceType, connectorType: memories.connectorType, eventTime: memories.eventTime, accountId: memories.accountId })
+      .from(memories)
+      .where(eq(memories.embeddingStatus, 'done'))
+      .limit(batchLimit);
+
+    // Check which are missing from Qdrant by scrolling through points
+    const qdrantInfo = await this.qdrant.getCollectionInfo();
+    let reembedded = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const mem of doneMemories) {
+      try {
+        const exists = await this.qdrant.pointExists(mem.id);
+        if (exists) { skipped++; continue; }
+
+        const maxChars = 6000;
+        const text = mem.text.length > maxChars ? mem.text.slice(0, maxChars) : mem.text;
+        const vector = await this.ollama.embed(text);
+        await this.qdrant.upsert(mem.id, vector, {
+          source_type: mem.sourceType,
+          connector_type: mem.connectorType,
+          event_time: mem.eventTime,
+          account_id: mem.accountId,
+        });
+        reembedded++;
+      } catch (err: any) {
+        errors.push(`${mem.id.slice(0, 8)}: ${err?.message}`);
+      }
+    }
+
+    return {
+      checked: doneMemories.length,
+      reembedded,
+      skipped,
+      errors: errors.slice(0, 10),
+      qdrant: qdrantInfo,
+    };
+  }
+
+  @Get('qdrant-info')
+  async getQdrantInfo() {
+    return this.qdrant.getCollectionInfo();
+  }
+
+  @Get('timeline')
+  async timeline(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('connectorType') connectorType?: string,
+    @Query('sourceType') sourceType?: string,
+    @Query('query') query?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.memoryService.timeline({
+      from, to, connectorType, sourceType, query,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Get('entities/search')
+  async searchEntities(
+    @Query('q') q: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (!q) return { entities: [], total: 0 };
+    return this.memoryService.searchEntities(q, limit ? parseInt(limit, 10) : undefined);
+  }
+
+  @Get('entities/:value/graph')
+  async getEntityGraph(
+    @Param('value') value: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.memoryService.getEntityGraph(
+      decodeURIComponent(value),
+      limit ? parseInt(limit, 10) : undefined,
+    );
+  }
+
   @Get(':id/thumbnail')
   async getThumbnail(@Param('id') id: string, @Res() res: Response) {
     const memory = await this.memoryService.getById(id);
@@ -183,6 +274,14 @@ export class MemoryController {
     }
   }
 
+  @Get(':id/related')
+  async getRelated(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.memoryService.getRelated(id, limit ? parseInt(limit, 10) : undefined);
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string) {
     return this.memoryService.getById(id);
@@ -190,9 +289,9 @@ export class MemoryController {
 
   @Post('search')
   async search(
-    @Body() body: { query: string; filters?: Record<string, string>; limit?: number },
+    @Body() body: { query: string; filters?: Record<string, string>; limit?: number; rerank?: boolean },
   ) {
-    return this.memoryService.search(body.query, body.filters, body.limit);
+    return this.memoryService.search(body.query, body.filters, body.limit, body.rerank);
   }
 
   @Post('relabel-unknown')
