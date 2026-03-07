@@ -61,8 +61,8 @@ Deferred to future milestone. Tracked but not in current roadmap.
 **Coverage:**
 - v1.1 requirements: 9 total
 - Mapped to phases: 9
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-07 after v1.1 milestone definition*
+*Last updated: 2026-03-07 after roadmap creation*

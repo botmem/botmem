@@ -1,8 +1,9 @@
-# Roadmap: Botmem Extensions
+# Roadmap: Botmem
 
-## Overview
+## Milestones
 
-This milestone extends Botmem beyond its working core (6 connectors, full pipeline, graph visualization) into three areas: better search ranking via reranker integration and importance tracking, operational maturity with analytics and scheduled maintenance jobs, and a plugin system that opens the platform to custom enrichers and scorers. Phases follow dependency order -- search improvements first (highest user impact, fills empty rerank weight), then analytics to measure effectiveness, then extensibility once the system is stable.
+- **v1.0 MVP** - Phases 1-3 (shipped 2026-03-07)
+- **v1.1 PostHog Analytics Activation** - Phase 4 (in progress)
 
 ## Phases
 
@@ -10,11 +11,10 @@ This milestone extends Botmem beyond its working core (6 connectors, full pipeli
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [x] **Phase 1: Search Quality** - Reranker scoring, importance reinforcement, and memory pinning
-- [x] **Phase 2: Operational Maturity** - PostHog analytics and nightly decay job (completed 2026-03-07)
-- [x] **Phase 3: Extensibility** - Plugin system with connector, scorer, and lifecycle hook types (completed 2026-03-07)
+Decimal phases appear between their surrounding integers in numeric order.
 
-## Phase Details
+<details>
+<summary>v1.0 MVP (Phases 1-3) - SHIPPED 2026-03-07</summary>
 
 ### Phase 1: Search Quality
 **Goal**: Users get meaningfully ranked search results where frequently-accessed and pinned memories surface reliably, and the reranker fills the empty 0.30 weight slot in the scoring formula
@@ -43,8 +43,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Nightly decay job (OPS-01, OPS-02)
-- [ ] 02-02-PLAN.md -- PostHog analytics integration (OPS-03, OPS-04, OPS-05)
+- [x] 02-01: Nightly decay job (OPS-01, OPS-02)
+- [x] 02-02: PostHog analytics integration (OPS-03, OPS-04, OPS-05)
 
 ### Phase 3: Extensibility
 **Goal**: Users can drop plugin files into the plugins directory to add custom connectors, scorers, or lifecycle hooks without modifying core code
@@ -57,16 +57,41 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md -- Plugin registry and loading infrastructure (EXT-01, EXT-03)
-- [ ] 03-02-PLAN.md -- Hook wiring, scorer integration, and sample plugin (EXT-02, EXT-04)
+- [x] 03-01: Plugin registry and loading infrastructure (EXT-01, EXT-03)
+- [x] 03-02: Hook wiring, scorer integration, and sample plugin (EXT-02, EXT-04)
+
+</details>
+
+### v1.1 PostHog Analytics Activation (In Progress)
+
+**Milestone Goal:** Configure PostHog cloud with real API keys, verify events flow end-to-end across frontend and backend, and fill tracking coverage gaps so product usage is fully observable.
+
+- [ ] **Phase 4: PostHog Analytics Activation** - Configure keys, verify event flow end-to-end, add missing tracking events
+
+## Phase Details
+
+### Phase 4: PostHog Analytics Activation
+**Goal**: PostHog receives real analytics events from both frontend and backend, with comprehensive product tracking across all key user actions
+**Depends on**: Phase 3 (PostHog SDK integration exists from v1.0 Phase 2)
+**Requirements**: CFG-01, CFG-02, VER-01, VER-02, VER-03, VER-04, VER-05, COV-01, COV-02
+**Success Criteria** (what must be TRUE):
+  1. PostHog dashboard shows pageview events when user navigates between pages in the web app
+  2. PostHog dashboard shows search, pin/unpin, sync_complete, and sync_error events with correct properties (query_length, result_count, connector type, action)
+  3. Connector setup completions and graph view interactions appear as tracked events in PostHog with appropriate metadata
+  4. Removing API keys from environment variables causes zero errors and zero network calls to PostHog
+**Plans**: TBD
+
+Plans:
+- [ ] 04-01: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Search Quality | 2/2 | Complete | 2026-03-07 |
-| 2. Operational Maturity | 2/2 | Complete   | 2026-03-07 |
-| 3. Extensibility | 2/2 | Complete   | 2026-03-07 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Search Quality | v1.0 | 2/2 | Complete | 2026-03-07 |
+| 2. Operational Maturity | v1.0 | 2/2 | Complete | 2026-03-07 |
+| 3. Extensibility | v1.0 | 2/2 | Complete | 2026-03-07 |
+| 4. PostHog Analytics Activation | v1.1 | 0/1 | Not started | - |

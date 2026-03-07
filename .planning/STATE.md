@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: PostHog Analytics Activation
-status: defining
-stopped_at: Defining requirements
-last_updated: "2026-03-07T17:45:00.000Z"
-last_activity: 2026-03-07 -- Milestone v1.1 started
+status: ready_to_plan
+stopped_at: Roadmap created for v1.1
+last_updated: "2026-03-07T18:00:00.000Z"
+last_activity: 2026-03-07 -- Roadmap created for v1.1 milestone
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 1
   completed_plans: 0
   percent: 0
 ---
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v1.1: PostHog Analytics Activation
+**Current focus:** Phase 4 - PostHog Analytics Activation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-07 -- Milestone v1.1 started
+Phase: 4 of 4 (PostHog Analytics Activation)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-03-07 -- Roadmap created for v1.1 milestone
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [##########] v1.0 complete | [..........] 0% v1.1
 
 ## Performance Metrics
 
@@ -46,16 +46,13 @@ Progress: [░░░░░░░░░░] 0%
 | 01-search-quality | 2/2 | 7min | 3.5min |
 | 02-operational-maturity | 2/2 | 8min | 4min |
 | 03-extensibility | 2/2 | 9min | 4.5min |
+| 04-posthog-activation | 0/TBD | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 01-02 (4min), 02-01 (4min), 02-02 (4min), 03-01 (4min), 03-02 (5min)
 - Trend: Consistent
 
 *Updated after each plan completion*
-| Phase 02 P01 | 4min | 2 tasks | 6 files |
-| Phase 02 P02 | 4min | 2 tasks | 8 files |
-| Phase 03 P01 | 4min | 2 tasks | 6 files |
-| Phase 03 P02 | 5min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -64,22 +61,10 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap]: Reranker uses generate API workaround, not native /api/rerank (blocked upstream PR #7219)
-- [Roadmap]: PostHog cloud free tier, not self-hosted (16GB RAM requirement disproportionate)
-- [01-01]: Use logprobs softmax (yes/(yes+no)) for rerank scoring
-- [01-01]: Fallback to 0.70 semantic weight when reranker unavailable
-- [01-01]: Rerank only top 15 candidates to bound latency
-- [01-02]: Used ALTER TABLE ADD COLUMN for schema migration instead of drizzle-kit push
-- [01-02]: Pin toggle visible on hover for unpinned, always visible when pinned
-- [01-02]: recordRecall is fire-and-forget to avoid blocking UI
 - [Phase 02]: AnalyticsModule is @Global() so all modules can inject without explicit imports
 - [Phase 02]: distinctId='server' for all backend analytics events to avoid PII
-- [02-01]: Used upsertJobScheduler (not deprecated repeat API) for idempotent decay scheduling
-- [02-01]: Decay processor preserves existing semantic/rerank scores, only recomputes time-dependent fields
-- [Phase 03-01]: fireHook passes Object.freeze({...data}) to prevent plugins from mutating pipeline state
-- [Phase 03-01]: Promise.allSettled with try-catch for both sync and async handler error isolation
-- [Phase 03-02]: Fire-and-forget hooks via void prefix on all fireHook calls to avoid blocking pipeline
-- [Phase 03-02]: Scorer bonus averaged across plugins and clamped to +/-0.05 to prevent ranking dominance
+- [v1.0]: PostHog cloud over self-hosted (16GB RAM disproportionate for single-user)
+- [v1.0]: PostHog SDK integration ships as no-op when unconfigured
 
 ### Pending Todos
 
@@ -87,10 +72,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1: Reranker latency via generate API on RTX 3070 is unknown -- needs benchmarking during implementation
+None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-07T17:29:30.000Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-07
+Stopped at: Roadmap created for v1.1, ready for phase 4 planning
 Resume file: None
