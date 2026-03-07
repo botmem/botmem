@@ -2,6 +2,7 @@ import type { Memory } from '@botmem/shared';
 import { formatDate, formatTime, CONNECTOR_COLORS } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { useMemoryStore } from '../../store/memoryStore';
 
 function hasThumbnail(memory: Memory): boolean {
   return (memory.source === 'file' || memory.source === 'photo') && !!memory.metadata?.fileUrl;
@@ -14,11 +15,33 @@ interface MemoryDetailPanelProps {
 
 export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
   const weights = Object.entries(memory.weights);
+  const { pinMemory, unpinMemory } = useMemoryStore();
+
+  const handlePinClick = () => {
+    if (memory.pinned) {
+      unpinMemory(memory.id);
+    } else {
+      pinMemory(memory.id);
+    }
+  };
 
   return (
     <Card className="sticky top-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-display text-lg font-bold uppercase text-nb-text">Memory Detail</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-display text-lg font-bold uppercase text-nb-text">Memory Detail</h3>
+          <button
+            onClick={handlePinClick}
+            className={`border-2 border-nb-border w-8 h-8 flex items-center justify-center text-sm cursor-pointer transition-all ${
+              memory.pinned
+                ? 'bg-amber-400 text-black border-amber-500'
+                : 'bg-nb-surface-muted text-nb-muted hover:bg-amber-200 hover:text-black'
+            }`}
+            title={memory.pinned ? 'Unpin memory' : 'Pin memory'}
+          >
+            {'\u{1F4CC}'}
+          </button>
+        </div>
         <button
           onClick={onClose}
           className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text"
@@ -26,6 +49,12 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
           X
         </button>
       </div>
+
+      {memory.pinned && (
+        <div className="mb-3 px-2 py-1 bg-amber-400/20 border-2 border-amber-400 text-xs font-mono uppercase text-amber-600">
+          Pinned - Score floor 0.75, no recency decay
+        </div>
+      )}
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-2">

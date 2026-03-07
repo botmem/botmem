@@ -103,6 +103,7 @@ export interface Memory {
   entities: Array<{ type: string; value: string; confidence: number }>;
   claims: Array<{ id: string; text: string; type: string }>;
   metadata: Record<string, unknown>;
+  pinned?: boolean;
 }
 
 export interface GraphNode {

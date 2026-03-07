@@ -7,18 +7,29 @@ interface Filters {
   minImportance: number;
 }
 
+interface ResolvedEntities {
+  contacts: { id: string; displayName: string }[];
+  topicWords: string[];
+  topicMatchCount: number;
+}
+
 interface MemoryState {
   memories: Memory[];
   query: string;
   filters: Filters;
   graphData: GraphData;
   loading: boolean;
+  searchFallback: boolean;
+  resolvedEntities: ResolvedEntities | null;
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   getFiltered: () => Memory[];
   loadMemories: () => Promise<void>;
   loadGraph: (params?: { memoryLimit?: number; linkLimit?: number }) => Promise<void>;
   searchMemories: (query: string) => Promise<void>;
+  pinMemory: (id: string) => Promise<void>;
+  unpinMemory: (id: string) => Promise<void>;
+  recordRecall: (id: string) => void;
 }
 
 function apiMemoryToShared(raw: any): Memory {
@@ -35,6 +46,7 @@ function apiMemoryToShared(raw: any): Memory {
     entities: typeof raw.entities === 'string' ? JSON.parse(raw.entities) : (raw.entities || []),
     claims: typeof raw.claims === 'string' ? JSON.parse(raw.claims) : (raw.claims || []),
     metadata: typeof raw.metadata === 'string' ? JSON.parse(raw.metadata) : (raw.metadata || {}),
+    pinned: raw.pinned === 1 || raw.pinned === true,
   };
 }
 
@@ -46,6 +58,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   filters: { source: null, minImportance: 0 },
   graphData: { nodes: [], links: [] },
   loading: false,
+  searchFallback: false,
+  resolvedEntities: null,
 
   setQuery: (query) => {
     set({ query });
@@ -77,23 +91,53 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     try {
       const result = await api.listMemories({ limit: 100 });
       const mems = result.items.map(apiMemoryToShared);
-      set({ memories: mems, loading: false });
+      set({ memories: mems, loading: false, searchFallback: false, resolvedEntities: null });
     } catch (err) {
       console.error('Failed to load memories:', err);
-      set({ loading: false });
+      set({ loading: false, searchFallback: false, resolvedEntities: null });
     }
   },
 
   searchMemories: async (query: string) => {
-    set({ loading: true });
+    set({ loading: true, searchFallback: false, resolvedEntities: null });
     try {
-      const results = await api.searchMemories(query);
-      const mems = results.map(apiMemoryToShared);
-      set({ memories: mems, loading: false });
+      const result = await api.searchMemories(query);
+      const mems = result.items.map(apiMemoryToShared);
+      set({ memories: mems, loading: false, searchFallback: result.fallback, resolvedEntities: result.resolvedEntities || null });
     } catch (err) {
       console.error('Failed to search memories:', err);
       set({ loading: false });
     }
+  },
+
+  pinMemory: async (id: string) => {
+    try {
+      await api.pinMemory(id);
+      set((state) => ({
+        memories: state.memories.map((m) =>
+          m.id === id ? { ...m, pinned: true } : m,
+        ),
+      }));
+    } catch (err) {
+      console.error('Failed to pin memory:', err);
+    }
+  },
+
+  unpinMemory: async (id: string) => {
+    try {
+      await api.unpinMemory(id);
+      set((state) => ({
+        memories: state.memories.map((m) =>
+          m.id === id ? { ...m, pinned: false } : m,
+        ),
+      }));
+    } catch (err) {
+      console.error('Failed to unpin memory:', err);
+    }
+  },
+
+  recordRecall: (id: string) => {
+    api.recordRecall(id).catch(() => {});
   },
 
   loadGraph: async (params) => {
@@ -116,7 +160,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           eventTime: n.eventTime || '',
           metadata: n.metadata || {},
         })),
-        links: (data.edges || []).map((e: any) => ({
+        links: (data.links || data.edges || []).map((e: any) => ({
           source: e.source,
           target: e.target,
           linkType: e.type || 'related',

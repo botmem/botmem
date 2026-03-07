@@ -58,7 +58,7 @@ export const api = {
 
   // Memories
   searchMemories: (query: string, filters?: Record<string, string>, limit?: number) =>
-    request<any[]>('/memories/search', {
+    request<{ items: any[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[]; topicMatchCount: number } }>('/memories/search', {
       method: 'POST',
       body: JSON.stringify({ query, filters, limit }),
     }),
@@ -72,6 +72,9 @@ export const api = {
     return request<{ items: any[]; total: number }>(`/memories?${query}`);
   },
   getMemory: (id: string) => request<any>(`/memories/${id}`),
+  pinMemory: (id: string) => request<{ ok: boolean }>(`/memories/${id}/pin`, { method: 'POST' }),
+  unpinMemory: (id: string) => request<{ ok: boolean }>(`/memories/${id}/pin`, { method: 'DELETE' }),
+  recordRecall: (id: string) => request<{ ok: boolean }>(`/memories/${id}/recall`, { method: 'POST' }),
   deleteMemory: (id: string) =>
     request<any>(`/memories/${id}`, { method: 'DELETE' }),
   getMemoryStats: () => request<any>('/memories/stats'),
