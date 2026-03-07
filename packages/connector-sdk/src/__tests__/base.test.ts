@@ -11,6 +11,9 @@ class MockConnector extends BaseConnector {
     icon: 'test',
     authType: 'api-key',
     configSchema: {},
+    entities: ['person'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.7,
   };
 
   async initiateAuth(_config: Record<string, unknown>): Promise<AuthInitResult> {

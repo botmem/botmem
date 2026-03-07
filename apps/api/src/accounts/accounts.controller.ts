@@ -32,6 +32,9 @@ export class AccountsController {
 
   @Post()
   async create(@Body() body: { connectorType: string; identifier: string }) {
+    // Dedup: return existing account if one already exists for this connector+identifier
+    const existing = await this.accountsService.findByTypeAndIdentifier(body.connectorType, body.identifier);
+    if (existing) return toApiAccount(existing);
     const row = await this.accountsService.create(body);
     return toApiAccount(row);
   }

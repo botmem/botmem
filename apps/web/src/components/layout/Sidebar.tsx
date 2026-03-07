@@ -4,10 +4,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { useState } from 'react';
 
 const navItems = [
+  { to: '/me', label: 'ME', icon: '▣' },
   { to: '/dashboard', label: 'DASHBOARD', icon: '◈' },
   { to: '/connectors', label: 'CONNECTORS', icon: '⚡' },
   { to: '/memories', label: 'MEMORIES', icon: '◉' },
-  { to: '/contacts', label: 'CONTACTS', icon: '◎' },
+  { to: '/contacts', label: 'PEOPLE', icon: '◎' },
   { to: '/settings', label: 'SETTINGS', icon: '⚙' },
 ];
 

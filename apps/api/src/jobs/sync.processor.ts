@@ -11,6 +11,8 @@ import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
 import { rawEvents } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
+import { ConfigService } from '../config/config.service';
+import { BaseConnector } from '@botmem/connector-sdk';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 @Processor('sync')
@@ -23,15 +25,18 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private logsService: LogsService,
     private events: EventsService,
     private dbService: DbService,
-    @InjectQueue('embed') private embedQueue: Queue,
+    @InjectQueue('clean') private cleanQueue: Queue,
     private settingsService: SettingsService,
+    private configService: ConfigService,
   ) {
     super();
   }
 
   onModuleInit() {
+    this.worker.on('error', (err) => console.warn('[sync worker]', err.message));
     const concurrency = parseInt(this.settingsService.get('sync_concurrency'), 10) || 2;
     this.worker.concurrency = concurrency;
+    BaseConnector.DEBUG_SYNC_LIMIT = this.configService.syncDebugLimit;
     this.settingsService.onChange((key, value) => {
       if (key === 'sync_concurrency') {
         this.worker.concurrency = parseInt(value, 10) || 2;
@@ -59,14 +64,15 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     let cursor = account.lastCursor;
     let totalProcessed = 0;
     let knownTotal = 0;
+    const pendingWrites: Promise<void>[] = [];
 
     connector.on('data', (event: ConnectorDataEvent) => {
       this.events.emitToChannel(`job:${jobId}`, 'connector:data', event);
 
-      // Persist raw event and enqueue embedding
+      // Persist raw event and enqueue embedding — track the promise
       const rawEventId = randomUUID();
       const now = new Date().toISOString();
-      this.dbService.db
+      const writePromise = this.dbService.db
         .insert(rawEvents)
         .values({
           id: rawEventId,
@@ -80,15 +86,17 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           createdAt: now,
         })
         .then(() =>
-          this.embedQueue.add(
-            'embed',
+          this.cleanQueue.add(
+            'clean',
             { rawEventId },
-            { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+            { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
           ),
         )
+        .then(() => {})
         .catch((err) =>
           logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`),
         );
+      pendingWrites.push(writePromise);
     });
 
     connector.on('progress', (p) => {
@@ -96,8 +104,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       // Use the largest total we've seen (first page reports the full mailbox count)
       if (p.total && p.total > knownTotal) knownTotal = p.total;
       const total = Math.max(knownTotal, cumulative);
-      this.jobsService.updateJob(jobId, { progress: cumulative, total });
-      this.events.emitToChannel(`job:${jobId}`, 'job:progress', { jobId, processed: cumulative, total });
+      // Only update total — progress is incremented by embed processor as items become memories
+      this.jobsService.updateJob(jobId, { total });
+      this.events.emitToChannel(`job:${jobId}`, 'job:progress', { jobId, processed: undefined, total });
     });
 
     try {
@@ -149,13 +158,23 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         lastError: null,
       });
 
-      await this.jobsService.updateJob(jobId, {
-        status: 'done',
-        progress: totalProcessed,
-        completedAt: new Date().toISOString(),
-      });
+      // Wait for all pending DB writes / embed enqueues to finish
+      await Promise.allSettled(pendingWrites);
 
-      this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+      if (totalProcessed === 0) {
+        // Nothing to process through pipeline — mark done immediately
+        await this.jobsService.updateJob(jobId, {
+          status: 'done',
+          progress: 0,
+          total: 0,
+          completedAt: new Date().toISOString(),
+        });
+        this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+      } else {
+        // Set total to actual emitted count so progress never exceeds it
+        await this.jobsService.updateJob(jobId, { total: totalProcessed });
+        logger.info(`Sync complete, ${totalProcessed} items now in pipeline`);
+      }
     } catch (err: any) {
       // If the error is from hitting the sync limit, treat as success
       if (connector.isLimitReached) {
@@ -164,12 +183,12 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           status: 'connected',
           lastError: null,
         });
-        await this.jobsService.updateJob(jobId, {
-          status: 'done',
-          progress: totalProcessed,
-          completedAt: new Date().toISOString(),
-        });
-        this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+        await Promise.allSettled(pendingWrites);
+        if (totalProcessed === 0) {
+          await this.jobsService.updateJob(jobId, { status: 'done', progress: 0, total: 0, completedAt: new Date().toISOString() });
+          this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+        }
+        // else: job stays "running", embed processor will mark done when all items complete
         return;
       }
 
@@ -182,6 +201,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'failed' });
       throw err;
     } finally {
+      // Wait for all pending DB writes to complete before removing listeners
+      await Promise.allSettled(pendingWrites);
       connector.removeAllListeners();
     }
   }

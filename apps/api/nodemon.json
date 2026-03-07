@@ -1,6 +1,6 @@
 {
   "watch": [
-    "dist",
+    "src",
     "../../packages/shared/dist",
     "../../packages/connector-sdk/dist",
     "../../packages/connectors/gmail/dist",
@@ -10,8 +10,8 @@
     "../../packages/connectors/photos-immich/dist",
     "../../packages/connectors/locations/dist"
   ],
-  "ext": "js,mjs",
-  "exec": "node dist/main.js",
-  "delay": 1500,
+  "ext": "ts,js,mjs",
+  "exec": "nest build && node dist/main.js",
+  "delay": 1000,
   "signal": "SIGTERM"
 }

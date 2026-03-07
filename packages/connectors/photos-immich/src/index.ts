@@ -1,5 +1,5 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '@botmem/connector-sdk';
+import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, PipelineContext } from '@botmem/connector-sdk';
 
 interface ImmichAsset {
   id: string;
@@ -58,7 +58,39 @@ export class ImmichConnector extends BaseConnector {
       },
       required: ['host', 'apiKey'],
     },
+    entities: ['person', 'location'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.85,
+    weights: { semantic: 0.30, recency: 0.15, importance: 0.35, trust: 0.20 },
   };
+
+  embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {
+    const entities: EmbedResult['entities'] = [];
+    const metadata = event.content?.metadata || {};
+
+    // People from facial recognition — compound ID per person
+    const people = (metadata.people as Array<{ id: string; name: string }>) || [];
+    for (const person of people) {
+      if (!person.name) continue;
+      entities.push({ type: 'person', id: `immich_person_id:${person.id}|name:${person.name}`, role: 'participant' });
+    }
+
+    // GPS coordinates as location entity
+    const lat = metadata.latitude as number | undefined;
+    const lon = metadata.longitude as number | undefined;
+    if (lat != null && lon != null) {
+      entities.push({ type: 'location', id: `geo:${lat},${lon}`, role: 'location' });
+    }
+
+    // Also resolve any participants not in people array
+    const resolvedNames = new Set(people.map(p => p.name));
+    for (const name of event.content?.participants || []) {
+      if (!name || resolvedNames.has(name)) continue;
+      entities.push({ type: 'person', id: `name:${name}`, role: 'participant' });
+    }
+
+    return { text: cleanedText, entities };
+  }
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
     const host = (config.host as string).replace(/\/+$/, '');
@@ -70,9 +102,23 @@ export class ImmichConnector extends BaseConnector {
 
     if (!res.ok) throw new Error('Failed to connect to Immich server');
 
+    // Fetch server info for a meaningful identifier
+    let serverLabel = host;
+    try {
+      const infoRes = await fetch(`${host}/api/server/about`, {
+        headers: { 'x-api-key': apiKey },
+      });
+      if (infoRes.ok) {
+        const info = await infoRes.json();
+        serverLabel = info.name || host;
+      }
+    } catch {
+      // Best effort
+    }
+
     return {
       type: 'complete',
-      auth: { accessToken: apiKey, raw: { host } },
+      auth: { identifier: `${serverLabel}`, accessToken: apiKey, raw: { host } },
     };
   }
 
@@ -130,10 +176,11 @@ export class ImmichConnector extends BaseConnector {
     const searchBody: Record<string, unknown> = {
       page: cursor.page,
       size: pageSize,
-      order: 'asc',
+      order: 'desc',
       type: 'IMAGE',
       withExif: true,
       withPeople: true,
+      withTags: true,
     };
     if (cursor.takenAfter) {
       searchBody.takenAfter = cursor.takenAfter;

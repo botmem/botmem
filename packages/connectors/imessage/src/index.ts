@@ -5,6 +5,9 @@ import type {
   AuthInitResult,
   SyncContext,
   SyncResult,
+  ConnectorDataEvent,
+  EmbedResult,
+  PipelineContext,
 } from '@botmem/connector-sdk';
 import { ImsgClient } from './imsg-client.js';
 
@@ -22,7 +25,13 @@ export class IMessageConnector extends BaseConnector {
     authType: 'local-tool',
     configSchema: {
       type: 'object',
+      required: ['myIdentifier'],
       properties: {
+        myIdentifier: {
+          type: 'string',
+          title: 'Your Email or Phone',
+          description: 'Your iMessage email or phone number (used to identify you in conversations)',
+        },
         imsgHost: {
           type: 'string',
           title: 'imsg Bridge Host',
@@ -37,7 +46,41 @@ export class IMessageConnector extends BaseConnector {
         },
       },
     },
+    entities: ['person', 'message'],
+    pipeline: { clean: false, embed: true, enrich: true },
+    trustScore: 0.80,
   };
+
+  embed(event: ConnectorDataEvent, cleanedText: string, ctx: PipelineContext): EmbedResult {
+    const entities: EmbedResult['entities'] = [];
+    const metadata = event.content?.metadata || {};
+    const participants = event.content?.participants || [];
+    const isFromMe = metadata.isFromMe as boolean | undefined;
+    const myIdentifier = ctx.auth.raw?.myIdentifier as string | undefined;
+
+    // Resolve "me" as sender
+    if (myIdentifier && isFromMe) {
+      if (myIdentifier.includes('@')) {
+        entities.push({ type: 'person', id: `email:${myIdentifier}`, role: 'sender' });
+      } else {
+        entities.push({ type: 'person', id: `phone:${myIdentifier}`, role: 'sender' });
+      }
+    }
+
+    // Resolve each participant
+    for (const participant of participants) {
+      if (!participant) continue;
+      if (myIdentifier && participant === myIdentifier) continue;
+
+      if (participant.includes('@')) {
+        entities.push({ type: 'person', id: `email:${participant}`, role: isFromMe ? 'recipient' : 'sender' });
+      } else {
+        entities.push({ type: 'person', id: `phone:${participant}`, role: isFromMe ? 'recipient' : 'sender' });
+      }
+    }
+
+    return { text: cleanedText, entities };
+  }
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
     const imsgHost = (config.imsgHost as string) || DEFAULT_HOST;
@@ -55,16 +98,19 @@ export class IMessageConnector extends BaseConnector {
       );
     }
 
+    const myIdentifier = (config.myIdentifier as string) || '';
+
     return {
       type: 'complete',
-      auth: { raw: { imsgHost, imsgPort } },
+      auth: { raw: { imsgHost, imsgPort, myIdentifier } },
     };
   }
 
   async completeAuth(params: Record<string, unknown>): Promise<AuthContext> {
     const imsgHost = (params.imsgHost as string) || DEFAULT_HOST;
     const imsgPort = (params.imsgPort as number) || DEFAULT_PORT;
-    return { raw: { imsgHost, imsgPort } };
+    const myIdentifier = (params.myIdentifier as string) || '';
+    return { raw: { imsgHost, imsgPort, myIdentifier } };
   }
 
   async validateAuth(auth: AuthContext): Promise<boolean> {
@@ -96,6 +142,8 @@ export class IMessageConnector extends BaseConnector {
 
     try {
       const chats = await client.chatsList(10_000);
+      // Process most recently active chats first
+      chats.sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''));
       ctx.logger.info(`Found ${chats.length} chats`);
 
       const startCursor = ctx.cursor || undefined;
@@ -108,6 +156,9 @@ export class IMessageConnector extends BaseConnector {
         const messages = await client.messagesHistory(chat.id, {
           start: startCursor,
         });
+
+        // Process newest messages first
+        messages.reverse();
 
         for (const msg of messages) {
           if (ctx.signal.aborted) break;

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { accounts } from '../db/schema';
+import { accounts, jobs, logs, rawEvents, memories, memoryLinks, memoryContacts } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
 
 @Injectable()
@@ -64,6 +64,33 @@ export class AccountsService {
 
   async remove(id: string) {
     await this.getById(id);
-    await this.db.delete(accounts).where(eq(accounts.id, id));
+
+    // Delete related rows to satisfy foreign key constraints
+    // 1. Get memory IDs for this account to clean up memory links & contacts
+    const accountMemories = this.db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(eq(memories.accountId, id))
+      .all();
+    const memoryIds = accountMemories.map((m) => m.id);
+
+    if (memoryIds.length > 0) {
+      // Delete in batches to avoid SQLite variable limits
+      for (let i = 0; i < memoryIds.length; i += 500) {
+        const batch = memoryIds.slice(i, i + 500);
+        this.db.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch)).run();
+        this.db.delete(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch)).run();
+        this.db.delete(memoryLinks).where(inArray(memoryLinks.dstMemoryId, batch)).run();
+      }
+    }
+
+    // 2. Delete memories, raw events, logs, jobs for this account
+    this.db.delete(memories).where(eq(memories.accountId, id)).run();
+    this.db.delete(rawEvents).where(eq(rawEvents.accountId, id)).run();
+    this.db.delete(logs).where(eq(logs.accountId, id)).run();
+    this.db.delete(jobs).where(eq(jobs.accountId, id)).run();
+
+    // 3. Finally delete the account itself
+    this.db.delete(accounts).where(eq(accounts.id, id)).run();
   }
 }

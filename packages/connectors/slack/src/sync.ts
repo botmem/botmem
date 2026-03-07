@@ -1,5 +1,11 @@
-import { WebClient } from '@slack/web-api';
+import { WebClient, LogLevel } from '@slack/web-api';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+
+/** Delay helper for rate limiting */
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Tier-3 Slack API: ~50 req/min → 1.2s between calls is safe */
+const REPLY_FETCH_DELAY = 1200;
 
 export interface UserProfile {
   name: string;
@@ -8,11 +14,22 @@ export interface UserProfile {
   phone?: string;
   title?: string;
   avatarUrl?: string;
+  slackId?: string;
 }
 
 interface CursorState {
   channels: Record<string, string>; // channelId -> latest timestamp
   channelList?: string;             // cursor for channel pagination
+}
+
+/** Identify self via auth.test */
+async function fetchSelfId(client: WebClient): Promise<string | undefined> {
+  try {
+    const res = await client.auth.test();
+    return res.user_id as string | undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Pre-fetch workspace users for mention resolution */
@@ -32,6 +49,7 @@ async function fetchUserMap(client: WebClient): Promise<Map<string, UserProfile>
             phone: profile.phone || undefined,
             title: profile.title || undefined,
             avatarUrl: profile.image_72 || undefined,
+            slackId: u.id,
           });
         }
       }
@@ -45,7 +63,7 @@ async function fetchUserMap(client: WebClient): Promise<Map<string, UserProfile>
 
 /** Get display name from user map, falling back to raw ID */
 function userName(users: Map<string, UserProfile>, id: string): string {
-  return users.get(id)?.name ?? id;
+  return users.get(id)?.realName ?? users.get(id)?.name ?? id;
 }
 
 /** Resolve Slack mrkdwn to human-readable text */
@@ -62,6 +80,15 @@ function normalizeSlackText(text: string, users: Map<string, UserProfile>): stri
     .replace(/<(https?:\/\/[^>]+)>/g, '$1')
     // Emoji shortcodes: :tada: → remove colons for readability
     .replace(/:([a-z0-9_+-]+):/g, '$1');
+}
+
+/** Extract user IDs mentioned in message text */
+function extractMentionedIds(text: string): string[] {
+  const ids: string[] = [];
+  const re = /<@([A-Z0-9]+)(?:\|[^>]*)?>/g;
+  let m;
+  while ((m = re.exec(text)) !== null) ids.push(m[1]);
+  return ids;
 }
 
 /** Determine conversation type label for metadata */
@@ -88,195 +115,322 @@ async function fetchThreadContext(
   channelId: string,
   threadTs: string,
   users: Map<string, UserProfile>,
-): Promise<string> {
+  selfId: string | undefined,
+): Promise<{ text: string; participantIds: string[] }> {
   try {
     const res = await client.conversations.replies({
       channel: channelId,
       ts: threadTs,
-      limit: 50,
+      limit: 100,
     });
     const replies = (res.messages || []).slice(1); // skip parent (already emitted)
-    if (replies.length === 0) return '';
-    return replies
-      .map((r) => {
-        const author = r.user ? userName(users, r.user) : 'unknown';
-        return `[${author}]: ${normalizeSlackText(r.text || '', users)}`;
-      })
-      .join('\n');
+    if (replies.length === 0) return { text: '', participantIds: [] };
+    const pIds: string[] = [];
+    const lines = replies.map((r) => {
+      if (r.user) pIds.push(r.user);
+      const author = r.user ? userName(users, r.user) : 'unknown';
+      const isSelf = selfId && r.user === selfId;
+      const prefix = isSelf ? '(you)' : '';
+      return `[${author}${prefix}]: ${normalizeSlackText(r.text || '', users)}`;
+    });
+    return { text: lines.join('\n'), participantIds: pIds };
   } catch {
-    return '';
+    return { text: '', participantIds: [] };
   }
+}
+
+/** Build participant profiles with roles */
+function buildParticipantData(
+  participantIds: Map<string, Set<string>>, // userId -> roles
+  users: Map<string, UserProfile>,
+): { participants: string[]; participantProfiles: Record<string, UserProfile>; roles: Record<string, string[]> } {
+  const participants: string[] = [];
+  const participantProfiles: Record<string, UserProfile> = {};
+  const roles: Record<string, string[]> = {};
+
+  for (const [userId, roleSet] of participantIds) {
+    const profile = users.get(userId);
+    const name = profile?.realName || profile?.name || userId;
+    participants.push(name);
+    if (profile) participantProfiles[name] = profile;
+    roles[name] = [...roleSet];
+  }
+
+  return { participants, participantProfiles, roles };
 }
 
 export async function syncSlack(
   ctx: SyncContext,
   emit: (event: ConnectorDataEvent) => void,
+  emitProgress?: (processed: number) => void,
 ): Promise<{ cursor: string | null; hasMore: boolean; processed: number }> {
-  const client = new WebClient(ctx.auth.accessToken);
+  const client = new WebClient(ctx.auth.accessToken, {
+    retryConfig: { retries: 5, factor: 2.5, minTimeout: 5_000 },
+  });
   let processed = 0;
   const cursorState: CursorState = ctx.cursor ? JSON.parse(ctx.cursor) : { channels: {} };
 
   ctx.logger.info('Starting Slack sync');
 
+  // Identify self — critical for understanding "what I sent" vs "what I received"
+  const selfId = await fetchSelfId(client);
+  if (selfId) {
+    ctx.logger.info(`Identified self as user ${selfId}`);
+  } else {
+    ctx.logger.warn('Could not identify self — messages won\'t have sender/recipient context');
+  }
+
   // Pre-fetch users for mention resolution
   const users = await fetchUserMap(client);
+  ctx.logger.info(`Fetched ${users.size} workspace users`);
 
-  // Fetch all conversation types: channels, DMs, group DMs
-  const channelsRes = await client.conversations.list({
-    types: 'public_channel,private_channel,im,mpim',
-    limit: 100,
-    cursor: cursorState.channelList || undefined,
-  });
+  // Emit contact events for all workspace users
+  for (const [userId, profile] of users) {
+    if (userId === selfId) continue; // Skip self
+    emit({
+      sourceType: 'message',
+      sourceId: `slack-contact:${userId}`,
+      timestamp: new Date().toISOString(),
+      content: {
+        text: `Slack workspace contact: ${profile.realName} (@${profile.name})${profile.title ? ` — ${profile.title}` : ''}`,
+        participants: [profile.realName || profile.name],
+        metadata: {
+          type: 'contact',
+          name: profile.realName || profile.name,
+          slackId: userId,
+          slackHandle: profile.name,
+          emails: profile.email ? [profile.email] : [],
+          phones: profile.phone ? [profile.phone] : [],
+          avatarUrl: profile.avatarUrl,
+          title: profile.title,
+          connectorType: 'slack',
+        },
+      },
+    });
+    processed++;
+  }
+  if (processed > 0) emitProgress?.(processed);
 
-  const channels = channelsRes.channels || [];
+  // Paginate through ALL conversations
+  let channelListCursor = cursorState.channelList || undefined;
+  let hasMoreChannels = true;
 
-  for (const channel of channels) {
-    if (ctx.signal.aborted) break;
-    if (!channel.id) continue;
-
-    const oldest = cursorState.channels[channel.id] || '0';
-    const convType = channelType(channel);
-    const convLabel = channelLabel(channel, users);
-
-    const historyRes = await client.conversations.history({
-      channel: channel.id,
-      oldest,
-      limit: 100,
+  while (hasMoreChannels && !ctx.signal.aborted) {
+    const channelsRes = await client.conversations.list({
+      types: 'public_channel,private_channel,im,mpim',
+      limit: 200,
+      cursor: channelListCursor,
     });
 
-    const messages = historyRes.messages || [];
-    let latestTs = oldest;
+    const channels = channelsRes.channels || [];
 
-    for (const msg of messages) {
+    for (const channel of channels) {
       if (ctx.signal.aborted) break;
-      if (!msg.ts || msg.subtype) continue;
+      if (!channel.id) continue;
 
-      const normalizedText = normalizeSlackText(msg.text || '', users);
-      const author = msg.user ? userName(users, msg.user) : 'unknown';
+      const oldest = cursorState.channels[channel.id] || '0';
+      const convType = channelType(channel);
+      const convLabel = channelLabel(channel, users);
 
-      // Collect all participants (author + mentioned users)
-      const participants = new Set<string>();
-      if (msg.user) participants.add(userName(users, msg.user));
+      // For DMs, identify the other party
+      const dmPartnerId = channel.is_im ? channel.user : undefined;
+      const dmPartnerName = dmPartnerId ? userName(users, dmPartnerId) : undefined;
 
-      // Build thread context if this message has replies
-      let threadContext = '';
-      const hasReplies = msg.thread_ts === msg.ts && (msg as any).reply_count > 0;
-      if (hasReplies) {
-        threadContext = await fetchThreadContext(client, channel.id, msg.ts, users);
-        // Add thread participants
-        const threadMentions = threadContext.match(/^\[([^\]]+)\]/gm);
-        if (threadMentions) {
-          for (const m of threadMentions) {
-            participants.add(m.slice(1, -1));
-          }
-        }
-      }
+      // Paginate through ALL messages in this channel
+      let historyCursor: string | undefined;
+      let latestTs = oldest;
 
-      // Extract file and attachment context
-      let filesContext = '';
-      const files = (msg as any).files || [];
-      const attachments = (msg as any).attachments || [];
-      if (files.length > 0) {
-        const fileLines = files.map((f: any) =>
-          `[file: ${f.name || 'untitled'}${f.filetype ? ` (${f.filetype})` : ''}]`
-        );
-        filesContext += fileLines.join(' ');
-      }
-      if (attachments.length > 0) {
-        const attachLines = attachments
-          .filter((a: any) => a.title || a.text || a.from_url)
-          .map((a: any) => {
-            const parts = [];
-            if (a.title) parts.push(a.title);
-            if (a.text) parts.push(a.text);
-            if (a.from_url) parts.push(a.from_url);
-            return `[link: ${parts.join(' - ')}]`;
-          });
-        filesContext += (filesContext ? ' ' : '') + attachLines.join(' ');
-      }
+      do {
+        if (ctx.signal.aborted) break;
 
-      // Compose the full text with context
-      let fullText = `[${convLabel}] ${author}: ${normalizedText}`;
-      if (filesContext) {
-        fullText += `\n${filesContext}`;
-      }
-      if (threadContext) {
-        fullText += `\n--- thread replies ---\n${threadContext}`;
-      }
-
-      // Build participant profiles lookup from the users map
-      const participantProfiles: Record<string, UserProfile> = {};
-      for (const pName of participants) {
-        // Find the UserProfile by display name
-        for (const [, profile] of users) {
-          if (profile.name === pName) {
-            participantProfiles[pName] = profile;
-            break;
-          }
-        }
-      }
-
-      emit({
-        sourceType: 'message',
-        sourceId: `${channel.id}:${msg.ts}`,
-        timestamp: new Date(parseFloat(msg.ts) * 1000).toISOString(),
-        content: {
-          text: fullText,
-          participants: [...participants],
-          metadata: {
-            channel: convLabel,
-            channelId: channel.id,
-            channelType: convType,
-            threadTs: msg.thread_ts,
-            replyCount: (msg as any).reply_count || 0,
-            participantProfiles,
-          },
-        },
-      });
-
-      // Emit separate events for file attachments
-      for (const file of files) {
-        if (!file.url_private || !file.mimetype) continue;
-        emit({
-          sourceType: 'file',
-          sourceId: `${channel.id}:${msg.ts}:${file.id || file.name}`,
-          timestamp: new Date(parseFloat(msg.ts) * 1000).toISOString(),
-          content: {
-            text: `[${convLabel}] ${author} shared: ${file.name || 'untitled'}`,
-            participants: [...participants],
-            metadata: {
-              channel: convLabel,
-              channelId: channel.id,
-              channelType: convType,
-              fileName: file.name,
-              mimetype: file.mimetype,
-              fileUrl: file.url_private,
-              fileSize: file.size,
-              parentMessageId: `${channel.id}:${msg.ts}`,
-              participantProfiles,
-            },
-          },
+        const historyRes = await client.conversations.history({
+          channel: channel.id,
+          oldest,
+          limit: 200,
+          cursor: historyCursor,
         });
-        processed++;
-      }
 
-      if (msg.ts > latestTs) latestTs = msg.ts;
-      processed++;
+        const messages = historyRes.messages || [];
+
+        for (const msg of messages) {
+          if (ctx.signal.aborted) break;
+          if (!msg.ts) continue;
+
+          // Allow some useful subtypes but skip noise
+          const skipSubtypes = new Set(['channel_join', 'channel_leave', 'channel_archive', 'channel_unarchive', 'pinned_item', 'unpinned_item']);
+          if (msg.subtype && skipSubtypes.has(msg.subtype)) continue;
+
+          const rawText = msg.text || '';
+          const normalizedText = normalizeSlackText(rawText, users);
+          const authorId = msg.user || (msg as any).bot_id;
+          const authorName = authorId ? userName(users, authorId) : 'bot';
+
+          // Determine self-context
+          const isSelf = selfId && msg.user === selfId;
+          const mentionedIds = extractMentionedIds(rawText);
+
+          // Build participant map with roles
+          const participantRoles = new Map<string, Set<string>>();
+          const addRole = (uid: string, role: string) => {
+            if (!uid) return;
+            if (!participantRoles.has(uid)) participantRoles.set(uid, new Set());
+            participantRoles.get(uid)!.add(role);
+          };
+
+          // Sender
+          if (msg.user) addRole(msg.user, 'sender');
+
+          // In DMs: the other party is the recipient
+          if (channel.is_im) {
+            if (isSelf && dmPartnerId) addRole(dmPartnerId, 'recipient');
+            else if (!isSelf && selfId) addRole(selfId, 'recipient');
+          }
+
+          // Mentioned users
+          for (const mid of mentionedIds) addRole(mid, 'mentioned');
+
+          // Reactions — who reacted to this message
+          const reactions = (msg as any).reactions || [];
+          const reactionContext: string[] = [];
+          for (const reaction of reactions) {
+            const reactors = (reaction.users || []) as string[];
+            for (const uid of reactors) addRole(uid, 'reacted');
+            const reactorNames = reactors.map((uid: string) => userName(users, uid)).join(', ');
+            reactionContext.push(`:${reaction.name}: by ${reactorNames}`);
+          }
+
+          // Build thread context if this message has replies
+          let threadContext = '';
+          const hasReplies = msg.thread_ts === msg.ts && (msg as any).reply_count > 0;
+          if (hasReplies) {
+            await delay(REPLY_FETCH_DELAY); // Rate limit: conversations.replies is Tier 3
+            const thread = await fetchThreadContext(client, channel.id!, msg.ts, users, selfId);
+            threadContext = thread.text;
+            for (const pid of thread.participantIds) addRole(pid, 'thread_participant');
+          }
+
+          // Extract file and attachment context
+          let filesContext = '';
+          const files = (msg as any).files || [];
+          const attachments = (msg as any).attachments || [];
+          if (files.length > 0) {
+            const fileLines = files.map((f: any) =>
+              `[file: ${f.name || 'untitled'}${f.filetype ? ` (${f.filetype})` : ''}]`
+            );
+            filesContext += fileLines.join(' ');
+          }
+          if (attachments.length > 0) {
+            const attachLines = attachments
+              .filter((a: any) => a.title || a.text || a.from_url)
+              .map((a: any) => {
+                const parts = [];
+                if (a.title) parts.push(a.title);
+                if (a.text) parts.push(normalizeSlackText(a.text, users));
+                if (a.from_url) parts.push(a.from_url);
+                return `[link: ${parts.join(' - ')}]`;
+              });
+            filesContext += (filesContext ? ' ' : '') + attachLines.join(' ');
+          }
+
+          // Compose contextual text — mark sender perspective
+          const senderTag = isSelf ? '(you)' : '';
+          let fullText = `[${convLabel}] ${authorName}${senderTag}: ${normalizedText}`;
+
+          // Add DM context
+          if (channel.is_im && dmPartnerName) {
+            if (isSelf) {
+              fullText = `[DM → ${dmPartnerName}] You wrote: ${normalizedText}`;
+            } else {
+              fullText = `[DM ← ${dmPartnerName}] ${dmPartnerName} wrote to you: ${normalizedText}`;
+            }
+          }
+
+          if (filesContext) fullText += `\n${filesContext}`;
+          if (reactionContext.length > 0) fullText += `\nReactions: ${reactionContext.join(', ')}`;
+          if (threadContext) fullText += `\n--- thread replies ---\n${threadContext}`;
+
+          const { participants, participantProfiles, roles } = buildParticipantData(participantRoles, users);
+
+          emit({
+            sourceType: 'message',
+            sourceId: `${channel.id}:${msg.ts}`,
+            timestamp: new Date(parseFloat(msg.ts) * 1000).toISOString(),
+            content: {
+              text: fullText,
+              participants,
+              metadata: {
+                channel: convLabel,
+                channelId: channel.id,
+                channelType: convType,
+                threadTs: msg.thread_ts,
+                replyCount: (msg as any).reply_count || 0,
+                isSelf: !!isSelf,
+                selfId,
+                senderId: msg.user,
+                senderName: authorName,
+                participantProfiles,
+                participantRoles: roles,
+                reactions: reactions.map((r: any) => ({
+                  name: r.name,
+                  count: r.count,
+                  users: (r.users || []).map((uid: string) => userName(users, uid)),
+                })),
+              },
+            },
+          });
+
+          // Emit separate events for file attachments
+          for (const file of files) {
+            if (!file.url_private || !file.mimetype) continue;
+            emit({
+              sourceType: 'file',
+              sourceId: `${channel.id}:${msg.ts}:${file.id || file.name}`,
+              timestamp: new Date(parseFloat(msg.ts) * 1000).toISOString(),
+              content: {
+                text: `[${convLabel}] ${authorName}${senderTag} shared: ${file.name || 'untitled'}`,
+                participants,
+                metadata: {
+                  channel: convLabel,
+                  channelId: channel.id,
+                  channelType: convType,
+                  fileName: file.name,
+                  mimetype: file.mimetype,
+                  fileUrl: file.url_private,
+                  fileSize: file.size,
+                  parentMessageId: `${channel.id}:${msg.ts}`,
+                  isSelf: !!isSelf,
+                  participantProfiles,
+                },
+              },
+            });
+            processed++;
+          }
+
+          if (msg.ts > latestTs) latestTs = msg.ts;
+          processed++;
+        }
+
+        historyCursor = historyRes.response_metadata?.next_cursor || undefined;
+        if (historyCursor) await delay(500); // Rate limit between history pages
+      } while (historyCursor && !ctx.signal.aborted);
+
+      cursorState.channels[channel.id] = latestTs;
+      emitProgress?.(processed);
     }
 
-    cursorState.channels[channel.id] = latestTs;
+    hasMoreChannels = !!channelsRes.response_metadata?.next_cursor;
+    channelListCursor = channelsRes.response_metadata?.next_cursor || undefined;
   }
 
-  const hasMore = !!channelsRes.response_metadata?.next_cursor;
-  if (hasMore) {
-    cursorState.channelList = channelsRes.response_metadata!.next_cursor;
+  if (channelListCursor) {
+    cursorState.channelList = channelListCursor;
   }
 
-  ctx.logger.info(`Synced ${processed} Slack messages`);
+  ctx.logger.info(`Synced ${processed} Slack events (messages + contacts + files)`);
 
   return {
     cursor: JSON.stringify(cursorState),
-    hasMore,
+    hasMore: hasMoreChannels,
     processed,
   };
 }

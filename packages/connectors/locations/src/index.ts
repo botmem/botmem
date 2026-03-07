@@ -1,5 +1,5 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '@botmem/connector-sdk';
+import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, PipelineContext } from '@botmem/connector-sdk';
 import { OwnTracksClient } from './owntracks.js';
 import { syncLocations } from './sync.js';
 
@@ -42,6 +42,10 @@ export class LocationsConnector extends BaseConnector {
       },
       required: ['host'],
     },
+    entities: ['person', 'location', 'device'],
+    pipeline: { clean: false, embed: true, enrich: true },
+    trustScore: 0.70,
+    weights: { semantic: 0.20, recency: 0.40, importance: 0.25, trust: 0.15 },
   };
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
@@ -94,6 +98,33 @@ export class LocationsConnector extends BaseConnector {
 
   async revokeAuth(): Promise<void> {
     // No credentials to revoke
+  }
+
+  embed(event: ConnectorDataEvent, cleanedText: string, ctx: PipelineContext): EmbedResult {
+    const entities: EmbedResult['entities'] = [];
+    const metadata = event.content?.metadata || {};
+
+    // Owner from auth context
+    const ownerUser = ctx.auth.raw?.user as string | undefined;
+    const otUser = (metadata.user as string | undefined) || ownerUser;
+    if (otUser) {
+      entities.push({ type: 'person', id: `owntracks_user:${otUser}`, role: 'owner' });
+    }
+
+    // Device entity
+    const otDevice = metadata.device as string | undefined;
+    if (otUser && otDevice) {
+      entities.push({ type: 'device', id: `owntracks_device:${otUser}/${otDevice}`, role: 'device' });
+    }
+
+    // GPS coordinates
+    const lat = metadata.lat as number | undefined;
+    const lon = metadata.lon as number | undefined;
+    if (lat != null && lon != null) {
+      entities.push({ type: 'location', id: `geo:${lat},${lon}`, role: 'location' });
+    }
+
+    return { text: cleanedText, entities };
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {

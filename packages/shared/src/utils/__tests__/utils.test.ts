@@ -126,7 +126,7 @@ describe('CONNECTOR_COLORS', () => {
     expect(CONNECTOR_COLORS.photos).toBe('#FFE66D');
   });
 
-  it('has 5 connectors', () => {
-    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(5);
+  it('has all color entries', () => {
+    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(11);
   });
 });

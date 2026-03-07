@@ -2,6 +2,8 @@ import { cn } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 import { IDENTIFIER_COLORS } from './constants';
 
+const SELF_COLOR = '#C4F53A';
+
 interface ContactCardProps {
   contact: {
     id: string;
@@ -11,11 +13,12 @@ interface ContactCardProps {
     connectorSources: string[];
   };
   selected?: boolean;
+  isSelf?: boolean;
   onClick?: () => void;
   compact?: boolean;
 }
 
-export function ContactCard({ contact, selected, onClick, compact }: ContactCardProps) {
+export function ContactCard({ contact, selected, isSelf, onClick, compact }: ContactCardProps) {
   const avatar = contact.avatars?.[0];
   const initials = contact.displayName
     .split(' ')
@@ -37,17 +40,22 @@ export function ContactCard({ contact, selected, onClick, compact }: ContactCard
         selected && 'translate-x-[2px] translate-y-[2px] shadow-nb-sm border-nb-lime',
         compact && 'p-2'
       )}
+      style={isSelf ? { borderColor: SELF_COLOR, boxShadow: `0 0 10px ${SELF_COLOR}30` } : undefined}
     >
       <div className="flex items-center gap-3">
         {avatar ? (
           <img
             src={avatar.url}
             alt={contact.displayName}
-            className="border-3 border-nb-border w-10 h-10 object-cover shrink-0"
+            className="border-3 w-10 h-10 object-cover shrink-0"
+            style={{ borderColor: isSelf ? SELF_COLOR : undefined }}
           />
         ) : (
-          <div className="border-3 border-nb-border w-10 h-10 bg-nb-lime flex items-center justify-center shrink-0">
-            <span className="font-display text-sm font-bold text-black">{initials}</span>
+          <div
+            className="border-3 border-nb-border w-10 h-10 flex items-center justify-center shrink-0"
+            style={{ backgroundColor: isSelf ? SELF_COLOR : undefined, borderColor: isSelf ? SELF_COLOR : undefined }}
+          >
+            <span className="font-display text-sm font-bold text-black">{isSelf ? '\u2605' : initials}</span>
           </div>
         )}
 

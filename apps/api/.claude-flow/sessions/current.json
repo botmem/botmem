@@ -1,0 +1,12 @@
+{
+  "id": "session-1772829756715",
+  "startedAt": "2026-03-06T20:42:36.715Z",
+  "cwd": "/Users/amr/Projects/botmem/apps/api",
+  "context": {},
+  "metrics": {
+    "edits": 5,
+    "commands": 0,
+    "tasks": 0,
+    "errors": 0
+  }
+}

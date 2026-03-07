@@ -10,6 +10,7 @@ import { ConnectorSetupModal } from '../components/connectors/ConnectorSetupModa
 import { connectorConfigs } from '../mock/connectors';
 import { useConnectors } from '../hooks/useConnectors';
 import { api } from '../lib/api';
+import { EmptyState } from '../components/ui/EmptyState';
 
 const connectorIcons: Record<string, string> = {
   gmail: '✉',
@@ -17,6 +18,7 @@ const connectorIcons: Record<string, string> = {
   slack: '#',
   imessage: '◯',
   photos: '📷',
+  locations: '📍',
 };
 
 function ConnectorStatusDot({ type }: { type: string }) {
@@ -123,9 +125,11 @@ export function ConnectorsPage() {
                     />
                   ))}
                   {typeAccounts.length === 0 && (
-                    <p className="font-mono text-sm text-nb-muted text-center py-4 uppercase">
-                      No accounts connected
-                    </p>
+                    <EmptyState
+                      icon="⚡"
+                      title="No Accounts Connected"
+                      subtitle="Add an account to start syncing"
+                    />
                   )}
                   <Button
                     size="sm"

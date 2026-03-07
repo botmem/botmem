@@ -8,6 +8,7 @@ class FakeConnector extends BaseConnector {
     id: 'fake', name: 'Fake', description: 'Fake connector',
     color: '#000', icon: 'test', authType: 'api-key',
     configSchema: { type: 'object', properties: { key: { type: 'string' } } },
+    entities: ['person'], pipeline: { clean: true, embed: true, enrich: true }, trustScore: 0.7,
   };
   async initiateAuth(): Promise<AuthInitResult> { return { type: 'complete', auth: {} }; }
   async completeAuth(): Promise<AuthContext> { return {}; }

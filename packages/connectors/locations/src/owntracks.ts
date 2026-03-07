@@ -3,33 +3,59 @@ import type { OwnTracksLocation } from './types.js';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
 export const NOMINATIM_DELAY = 1100; // Nominatim rate limit: 1 req/sec
 
-/** Reverse geocode via Nominatim (OSM). Returns short address or null. */
-export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+export interface GeoAddress {
+  en: string | null;
+  local: string | null;
+}
+
+function buildAddress(data: any): string | null {
+  if (!data.address) return null;
+  const a = data.address;
+  const parts: string[] = [];
+  const road = a.road || a.pedestrian || a.neighbourhood || a.residential;
+  if (road) parts.push(road);
+  const area = a.suburb || a.city_district || a.town || a.city || a.village;
+  if (area && area !== road) parts.push(area);
+  const region = a.state || a.county;
+  if (region) parts.push(region);
+  const country = a.country;
+  if (country) parts.push(country);
+  return parts.length ? parts.join(', ') : data.display_name || null;
+}
+
+/** Reverse geocode via Nominatim (OSM). Returns addresses in English and local language. */
+export async function reverseGeocode(lat: number, lon: number): Promise<GeoAddress> {
+  const base = `${NOMINATIM_URL}?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`;
+  const headers = { 'User-Agent': 'botmem/1.0', Accept: 'application/json' };
+  const result: GeoAddress = { en: null, local: null };
+
   try {
-    const res = await fetch(
-      `${NOMINATIM_URL}?lat=${lat}&lon=${lon}&format=json&zoom=18&addressdetails=1`,
-      { headers: { 'User-Agent': 'botmem/1.0', Accept: 'application/json' } },
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.address) return null;
+    // First call: English
+    const enRes = await fetch(`${base}&accept-language=en`, { headers });
+    if (enRes.ok) {
+      const enData = await enRes.json();
+      result.en = buildAddress(enData);
+    }
 
-    const a = data.address;
-    // Build a concise address: road/neighbourhood, suburb/city, country
-    const parts: string[] = [];
-    const road = a.road || a.pedestrian || a.neighbourhood || a.residential;
-    if (road) parts.push(road);
-    const area = a.suburb || a.city_district || a.town || a.city || a.village;
-    if (area && area !== road) parts.push(area);
-    const region = a.state || a.county;
-    if (region) parts.push(region);
-    const country = a.country;
-    if (country) parts.push(country);
+    // Rate limit between calls
+    await new Promise((r) => setTimeout(r, NOMINATIM_DELAY));
 
-    return parts.length ? parts.join(', ') : data.display_name || null;
+    // Second call: local/native language (no accept-language = server default = local)
+    const localRes = await fetch(base, { headers });
+    if (localRes.ok) {
+      const localData = await localRes.json();
+      result.local = buildAddress(localData);
+    }
+
+    // If both are identical, drop the duplicate
+    if (result.en && result.local && result.en === result.local) {
+      result.local = null;
+    }
   } catch {
-    return null;
+    // Best-effort
   }
+
+  return result;
 }
 
 export class OwnTracksClient {

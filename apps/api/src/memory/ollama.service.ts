@@ -16,25 +16,37 @@ export class OllamaService {
   }
 
   async embed(text: string, retries = 3): Promise<number[]> {
+    let input = text;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const res = await fetch(`${this.baseUrl}/api/embed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: this.embedModel, input: text }),
+          body: JSON.stringify({ model: this.embedModel, input }),
+          signal: AbortSignal.timeout(60_000),
         });
 
         if (!res.ok) {
           const body = await res.text();
+          // If context length exceeded, halve the input and retry immediately
+          if (body.includes('context length')) {
+            input = input.slice(0, Math.floor(input.length * 0.5));
+            continue;
+          }
           throw new Error(body || `HTTP ${res.status}`);
         }
 
         const data = await res.json();
         if (!data.embeddings?.[0]) {
-          throw new Error(`Empty embeddings for ${text.length} chars`);
+          throw new Error(`Empty embeddings for ${input.length} chars`);
         }
         return data.embeddings[0];
-      } catch (err) {
+      } catch (err: any) {
+        // Also catch context length errors that come through as thrown errors
+        if (err?.message?.includes('context length')) {
+          input = input.slice(0, Math.floor(input.length * 0.5));
+          continue;
+        }
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
           continue;
@@ -66,6 +78,7 @@ export class OllamaService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(180_000),
         });
 
         if (!res.ok) {

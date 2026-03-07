@@ -2,7 +2,6 @@ import type { Memory } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, truncate } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { FactualityBadge } from './FactualityBadge';
 
 const sourceIcons: Record<string, string> = {
   email: '✉',
@@ -10,6 +9,10 @@ const sourceIcons: Record<string, string> = {
   photo: '📷',
   location: '📍',
 };
+
+function hasThumbnail(memory: Memory): boolean {
+  return (memory.source === 'file' || memory.source === 'photo') && !!memory.metadata?.fileUrl;
+}
 
 interface MemoryCardProps {
   memory: Memory;
@@ -36,8 +39,18 @@ export function MemoryCard({ memory, onClick, selected }: MemoryCardProps) {
             {memory.sourceConnector}
           </Badge>
         </div>
-        <FactualityBadge label={memory.factuality.label} />
       </div>
+
+      {hasThumbnail(memory) && (
+        <div className="border-2 border-nb-border mb-2 overflow-hidden">
+          <img
+            src={`/api/memories/${memory.id}/thumbnail`}
+            alt=""
+            className="w-full h-32 object-cover"
+            loading="lazy"
+          />
+        </div>
+      )}
 
       <p className="font-mono text-sm mb-3 text-nb-text">{truncate(memory.text, 150)}</p>
 

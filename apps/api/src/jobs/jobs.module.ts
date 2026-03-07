@@ -14,10 +14,17 @@ import { SettingsModule } from '../settings/settings.module';
     BullModule.forRootAsync({
       useFactory: (config: ConfigService) => ({
         connection: { url: config.redisUrl },
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: { count: 100_000 },
+          removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
+        },
       }),
       inject: [ConfigService],
     }),
     BullModule.registerQueue({ name: 'sync' }),
+    BullModule.registerQueue({ name: 'clean' }),
     BullModule.registerQueue({ name: 'embed' }),
     BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'backfill' }),

@@ -1,4 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnModuleInit } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -6,12 +7,16 @@ import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { memories, rawEvents, memoryContacts } from '../db/schema';
 
 @Processor('backfill')
-export class BackfillProcessor extends WorkerHost {
+export class BackfillProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     private dbService: DbService,
     private contactsService: ContactsService,
   ) {
     super();
+  }
+
+  onModuleInit() {
+    this.worker.on('error', (err) => console.warn('[backfill worker]', err.message));
   }
 
   async process(job: Job<{ memoryId: string }>) {

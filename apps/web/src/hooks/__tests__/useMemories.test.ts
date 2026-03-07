@@ -7,7 +7,7 @@ describe('useMemories', () => {
   beforeEach(() => {
     useMemoryStore.setState({
       query: '',
-      filters: { source: null, factuality: null, minImportance: 0 },
+      filters: { source: null, minImportance: 0 },
     });
   });
 

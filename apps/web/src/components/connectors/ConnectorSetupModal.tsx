@@ -124,7 +124,6 @@ function QrAuthView({
   connectorType,
   wsRef,
   cleanupWs,
-  onConnect,
   onClose,
 }: {
   state: ModalState;
@@ -132,9 +131,10 @@ function QrAuthView({
   connectorType: ConnectorType;
   wsRef: React.MutableRefObject<WebSocket | null>;
   cleanupWs: () => void;
-  onConnect: (id: string) => void;
   onClose: () => void;
 }) {
+  const fetchAccounts = useConnectorStore((s) => s.fetchAccounts);
+
   const initiateQr = useCallback(() => {
     dispatch({ type: 'QR_RETRY' });
     api.initiateAuth(connectorType, {})
@@ -149,7 +149,8 @@ function QrAuthView({
               const msg = JSON.parse(evt.data);
               if (msg.event === 'auth:complete') {
                 cleanupWs();
-                onConnect(msg.data.identifier || connectorType);
+                // Backend already created the account — just refresh the list
+                fetchAccounts();
                 onClose();
               } else if (msg.event === 'auth:error') {
                 dispatch({ type: 'QR_ERROR', error: msg.data.error || 'Authentication failed' });
@@ -163,7 +164,7 @@ function QrAuthView({
         }
       })
       .catch((err) => dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }));
-  }, [connectorType, wsRef, cleanupWs, onConnect, onClose, dispatch]);
+  }, [connectorType, wsRef, cleanupWs, fetchAccounts, onClose, dispatch]);
 
   return (
     <Modal open onClose={() => { cleanupWs(); onClose(); }} title={`Connect ${connectorType.toUpperCase()}`}>
@@ -329,6 +330,8 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
 
   useEffect(() => cleanupWs, [cleanupWs]);
 
+  const fetchAccountsForQr = useConnectorStore((s) => s.fetchAccounts);
+
   // QR code auth: auto-initiate
   useEffect(() => {
     if (!open || !isQrAuth) return;
@@ -346,7 +349,8 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
               const msg = JSON.parse(evt.data);
               if (msg.event === 'auth:complete') {
                 cleanupWs();
-                onConnect(msg.data.identifier || connectorType);
+                // Backend already created the account — just refresh the list
+                fetchAccountsForQr();
                 onClose();
               } else if (msg.event === 'auth:error') {
                 dispatch({ type: 'QR_ERROR', error: msg.data.error || 'Authentication failed' });
@@ -362,7 +366,7 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
       .catch((err) => dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }));
 
     return cleanupWs;
-  }, [open, isQrAuth, connectorType, cleanupWs, onConnect, onClose]);
+  }, [open, isQrAuth, connectorType, cleanupWs, fetchAccountsForQr, onClose]);
 
   // Check saved credentials (OAuth only)
   useEffect(() => {
@@ -425,7 +429,6 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
         connectorType={connectorType}
         wsRef={wsRef}
         cleanupWs={cleanupWs}
-        onConnect={onConnect}
         onClose={onClose}
       />
     );

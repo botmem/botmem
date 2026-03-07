@@ -34,6 +34,10 @@ interface ContactState {
   mergeContacts: (targetId: string, sourceId: string) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
   dismissSuggestion: (contactId1: string, contactId2: string) => Promise<void>;
+  undismissSuggestion: (contactId1: string, contactId2: string) => Promise<void>;
+  reinsertSuggestion: (suggestion: MergeSuggestion) => void;
+  removeIdentifier: (contactId: string, identifierId: string) => Promise<void>;
+  splitContact: (contactId: string, identifierIds: string[]) => Promise<void>;
 }
 
 function parseContact(raw: any): Contact {
@@ -72,7 +76,7 @@ export const useContactStore = create<ContactState>((set, get) => ({
   loadContacts: async () => {
     set({ loading: true });
     try {
-      const result = await api.listContacts({ limit: 200 });
+      const result = await api.listContacts({ limit: 200, entityType: 'person' });
       const contacts = result.items.map(parseContact);
       set({ contacts, total: result.total, loading: false });
     } catch (err) {
@@ -173,6 +177,43 @@ export const useContactStore = create<ContactState>((set, get) => ({
       }));
     } catch (err) {
       console.error('Failed to dismiss suggestion:', err);
+    }
+  },
+
+  undismissSuggestion: async (contactId1, contactId2) => {
+    try {
+      await api.undismissSuggestion(contactId1, contactId2);
+      // Don't re-fetch — the MergeTinder component handles reinserting
+      // the suggestion from its local undo stack
+    } catch (err) {
+      console.error('Failed to undismiss suggestion:', err);
+    }
+  },
+
+  reinsertSuggestion: (suggestion) => {
+    set((state) => ({
+      suggestions: [suggestion, ...state.suggestions],
+    }));
+  },
+
+  removeIdentifier: async (contactId, identifierId) => {
+    try {
+      const updated = await api.removeIdentifier(contactId, identifierId);
+      const parsed = parseContact(updated);
+      set((state) => ({
+        contacts: state.contacts.map((c) => (c.id === contactId ? parsed : c)),
+      }));
+    } catch (err) {
+      console.error('Failed to remove identifier:', err);
+    }
+  },
+
+  splitContact: async (contactId, identifierIds) => {
+    try {
+      await api.splitContact(contactId, identifierIds);
+      await get().loadContacts();
+    } catch (err) {
+      console.error('Failed to split contact:', err);
     }
   },
 }));

@@ -33,6 +33,9 @@ describe('ConnectorSetupModal', () => {
             },
             required: ['clientId', 'clientSecret'],
           },
+          entities: ['person', 'message', 'file'],
+          pipeline: { clean: true, embed: true, enrich: true },
+          trustScore: 0.95,
         },
       ],
     });

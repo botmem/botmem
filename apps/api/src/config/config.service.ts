@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class ConfigService {
   get port(): number {
-    return parseInt(process.env.PORT || '3001', 10);
+    return parseInt(process.env.PORT || '12412', 10);
   }
 
   get redisUrl(): string {
@@ -19,7 +19,7 @@ export class ConfigService {
   }
 
   get frontendUrl(): string {
-    return process.env.FRONTEND_URL || 'http://localhost:5173';
+    return process.env.FRONTEND_URL || 'http://localhost:12412';
   }
 
   get ollamaBaseUrl(): string {
@@ -31,14 +31,18 @@ export class ConfigService {
   }
 
   get ollamaTextModel(): string {
-    return process.env.OLLAMA_TEXT_MODEL || 'qwen3:4b';
+    return process.env.OLLAMA_TEXT_MODEL || 'qwen3:0.6b';
   }
 
   get ollamaVlModel(): string {
-    return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:4b';
+    return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:2b';
   }
 
   get qdrantUrl(): string {
     return process.env.QDRANT_URL || 'http://localhost:6333';
+  }
+
+  get syncDebugLimit(): number {
+    return parseInt(process.env.SYNC_DEBUG_LIMIT || '2000', 10);
   }
 }

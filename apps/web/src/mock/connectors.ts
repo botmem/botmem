@@ -6,6 +6,7 @@ export const connectorConfigs: ConnectorConfig[] = [
   { type: 'slack', label: 'Slack', color: '#A855F7', description: 'Import workspace messages' },
   { type: 'imessage', label: 'iMessage', color: '#4ECDC4', description: 'Import iMessage conversations' },
   { type: 'photos', label: 'Photos', color: '#FFE66D', description: 'Import photo metadata and OCR' },
+  { type: 'locations', label: 'Locations', color: '#4CAF50', description: 'Import location history from OwnTracks' },
 ];
 
 export const mockAccounts: ConnectorAccount[] = [
