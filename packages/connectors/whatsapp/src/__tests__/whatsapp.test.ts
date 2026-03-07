@@ -4,7 +4,7 @@ import { WhatsAppConnector } from '../index.js';
 vi.mock('../qr-auth.js', () => ({
   startQrAuth: vi.fn((_dir: string, callbacks: any) => {
     callbacks.onQrCode('data:image/png;base64,qrcode');
-    return {};
+    return Promise.resolve();
   }),
 }));
 

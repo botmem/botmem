@@ -104,6 +104,7 @@ describe('IMessageConnector', () => {
         expect(result.auth.raw).toEqual({
           imsgHost: '192.168.1.100',
           imsgPort: 19876,
+          myIdentifier: '',
         });
       }
       expect(mockConnect).toHaveBeenCalledOnce();
@@ -119,6 +120,7 @@ describe('IMessageConnector', () => {
         expect(result.auth.raw).toEqual({
           imsgHost: 'host.docker.internal',
           imsgPort: 19876,
+          myIdentifier: '',
         });
       }
     });
@@ -133,13 +135,14 @@ describe('IMessageConnector', () => {
   });
 
   describe('completeAuth', () => {
-    it('returns auth with host and port', async () => {
+    it('returns auth with host, port, and myIdentifier', async () => {
       const auth = await connector.completeAuth({
         imsgHost: '10.0.0.1',
         imsgPort: 9999,
+        myIdentifier: 'me@icloud.com',
       });
 
-      expect(auth.raw).toEqual({ imsgHost: '10.0.0.1', imsgPort: 9999 });
+      expect(auth.raw).toEqual({ imsgHost: '10.0.0.1', imsgPort: 9999, myIdentifier: 'me@icloud.com' });
     });
 
     it('uses defaults when params are empty', async () => {
@@ -147,6 +150,7 @@ describe('IMessageConnector', () => {
       expect(auth.raw).toEqual({
         imsgHost: 'host.docker.internal',
         imsgPort: 19876,
+        myIdentifier: '',
       });
     });
   });
