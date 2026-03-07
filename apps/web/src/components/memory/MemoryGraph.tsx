@@ -901,18 +901,17 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [isFullscreen, selectedNode, filteredData.nodes, adjacency, selfNodeId]);
 
-  // Zoom to fit search results
+  // Zoom to fit when search results change
   useEffect(() => {
     if (!graphRef.current || !searchMatchIds || searchMatchIds.size === 0) return;
-    const matchedNodes = filteredData.nodes.filter((n) => searchMatchIds.has(n.id));
-    if (matchedNodes.length === 1) {
-      const node = matchedNodes[0] as any;
-      if (node.x !== undefined) {
-        graphRef.current.centerAt(node.x, node.y, 400);
-        graphRef.current.zoom(3, 400);
+    // Wait for simulation to settle slightly before fitting
+    const timer = setTimeout(() => {
+      if (graphRef.current) {
+        graphRef.current.zoomToFit(400, 40);
       }
-    }
-  }, [searchMatchIds, filteredData.nodes]);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchMatchIds]);
 
   if (!ForceGraph) {
     return (
