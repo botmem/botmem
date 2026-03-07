@@ -318,9 +318,12 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
       }
       if (node.nodeType === 'memory' && hiddenSourceTypes.has(node.source)) continue;
 
-      // Always apply minConnections (contacts/groups/devices are exempt when searched)
-      const count = connectionCounts.get(node.id) || 0;
-      if (count < minConnections && !searchVisible) continue;
+      // Apply minConnections filter (contact/group/device nodes matched by search are exempt)
+      const isSearchedEntity = searchVisible && searchVisible.has(node.id) && node.nodeType !== 'memory';
+      if (!isSearchedEntity) {
+        const count = connectionCounts.get(node.id) || 0;
+        if (count < minConnections) continue;
+      }
       keepNodes.add(node.id);
     }
 
@@ -1000,6 +1003,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
           linkLineDash={(link: any) => (link.linkType === 'involves' || link.linkType === 'source') ? [4, 2] : []}
           onNodeClick={(node: any) => setSelectedNode(node)}
           onNodeDoubleClick={handleNodeDoubleClick}
+          onNodeDragEnd={(node: any) => { node.fx = undefined; node.fy = undefined; }}
           onBackgroundClick={() => { setFocusedNodeId(null); setFocusExpansion(1); }}
           cooldownTicks={100}
           onEngineStop={() => { isInitialRender.current = false; }}
