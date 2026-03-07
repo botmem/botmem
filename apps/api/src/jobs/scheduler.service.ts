@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { AccountsService } from '../accounts/accounts.service';
+import { ConfigService } from '../config/config.service';
 
 const SCHEDULE_CRON: Record<string, string> = {
   '15min': '*/15 * * * *',
@@ -13,11 +14,22 @@ const SCHEDULE_CRON: Record<string, string> = {
 export class SchedulerService implements OnModuleInit {
   constructor(
     @InjectQueue('sync') private syncQueue: Queue,
+    @InjectQueue('maintenance') private maintenanceQueue: Queue,
     private accountsService: AccountsService,
+    private config: ConfigService,
   ) {}
 
   async onModuleInit() {
     await this.syncAllSchedules();
+    await this.scheduleDecay();
+  }
+
+  private async scheduleDecay() {
+    await this.maintenanceQueue.upsertJobScheduler(
+      'nightly-decay',
+      { pattern: this.config.decayCron },
+      { name: 'decay', data: {}, opts: { attempts: 2, backoff: { type: 'fixed', delay: 60000 } } },
+    );
   }
 
   async syncAllSchedules() {
