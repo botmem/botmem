@@ -15,6 +15,7 @@ import { ContactsModule } from './contacts/contacts.module';
 import { SettingsModule } from './settings/settings.module';
 import { AgentModule } from './agent/agent.module';
 import { MeModule } from './me/me.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { VersionController } from './version.controller';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -30,6 +31,7 @@ const isDev = process.env.NODE_ENV !== 'production';
             exclude: ['/api/{*path}'],
           }),
         ]),
+    AnalyticsModule,
     ConfigModule,
     DbModule,
     ConnectorsModule,

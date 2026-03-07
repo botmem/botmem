@@ -49,4 +49,8 @@ export class ConfigService {
   get syncDebugLimit(): number {
     return parseInt(process.env.SYNC_DEBUG_LIMIT || '2000', 10);
   }
+
+  get posthogApiKey(): string {
+    return process.env.POSTHOG_API_KEY || '';
+  }
 }
