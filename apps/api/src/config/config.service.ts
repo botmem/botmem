@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class ConfigService {
   get port(): number {
-    return parseInt(process.env.PORT || '12412', 10);
+    return Number.parseInt(process.env.PORT || '12412', 10);
   }
 
   get redisUrl(): string {
@@ -47,11 +47,15 @@ export class ConfigService {
   }
 
   get syncDebugLimit(): number {
-    return parseInt(process.env.SYNC_DEBUG_LIMIT || '2000', 10);
+    return Number.parseInt(process.env.SYNC_DEBUG_LIMIT || '500', 10);
   }
 
   get posthogApiKey(): string {
     return process.env.POSTHOG_API_KEY || '';
+  }
+
+  get posthogHost(): string {
+    return process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
   }
 
   get decayCron(): string {

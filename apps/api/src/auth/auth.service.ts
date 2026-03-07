@@ -5,6 +5,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { JobsService } from '../jobs/jobs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { connectorCredentials } from '../db/schema';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class AuthService {
     private jobsService: JobsService,
     private events: EventsService,
     private dbService: DbService,
+    private analytics: AnalyticsService,
   ) {}
 
   async getSavedCredentials(connectorType: string): Promise<Record<string, unknown> | null> {
@@ -95,6 +97,11 @@ export class AuthService {
         connectorType,
         identifier,
         authContext: JSON.stringify(auth),
+      });
+
+      this.analytics.capture('connector_setup', {
+        connector: connectorType,
+        auth_type: connector.manifest.authType,
       });
 
       // Small delay before triggering sync — gives WhatsApp auth socket time to be stored

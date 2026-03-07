@@ -9,7 +9,7 @@ export class AnalyticsService implements OnModuleDestroy {
   constructor(private config: ConfigService) {
     const apiKey = config.posthogApiKey;
     if (apiKey) {
-      this.client = new PostHog(apiKey, { host: 'https://us.i.posthog.com' });
+      this.client = new PostHog(apiKey, { host: config.posthogHost });
     }
   }
 
