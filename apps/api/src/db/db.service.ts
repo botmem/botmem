@@ -9,7 +9,7 @@ import * as schema from './schema';
 @Injectable()
 export class DbService implements OnModuleInit {
   public db!: BetterSQLite3Database<typeof schema>;
-  private sqlite!: Database.Database;
+  public sqlite!: Database.Database;
 
   constructor(private config: ConfigService) {}
 
@@ -190,6 +190,61 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_raw_events_job_id ON raw_events(job_id);
       CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
     `);
+
+    // FTS5 full-text search index on memories.text (standalone, not content-sync)
+    // Drop old content-sync FTS table if it exists (migration from content='memories' to standalone)
+    try {
+      const ftsSchema = this.sqlite.prepare("SELECT sql FROM sqlite_master WHERE name = 'memories_fts'").get() as any;
+      if (ftsSchema?.sql?.includes("content='memories'")) {
+        this.sqlite.exec('DROP TABLE IF EXISTS memories_fts');
+      }
+    } catch { /* ignore */ }
+    this.sqlite.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        id UNINDEXED,
+        text,
+        tokenize='unicode61 remove_diacritics 2'
+      );
+    `);
+    // Populate FTS if empty or significantly behind (first run or rebuild)
+    try {
+      const ftsCount = this.sqlite.prepare('SELECT COUNT(*) as c FROM memories_fts').get() as any;
+      const memCount = this.sqlite.prepare('SELECT COUNT(*) as c FROM memories WHERE embedding_status = ?').get('done') as any;
+      if ((ftsCount?.c ?? 0) < (memCount?.c ?? 0) * 0.8) {
+        this.sqlite.exec(`DELETE FROM memories_fts`);
+        this.sqlite.exec(`
+          INSERT INTO memories_fts(id, text)
+            SELECT id, text FROM memories WHERE embedding_status = 'done'
+        `);
+      }
+    } catch { /* FTS rebuild is best-effort */ }
+
+    // Triggers to keep FTS in sync
+    try {
+      this.sqlite.exec(`DROP TRIGGER IF EXISTS memories_fts_insert`);
+      this.sqlite.exec(`DROP TRIGGER IF EXISTS memories_fts_update`);
+      this.sqlite.exec(`DROP TRIGGER IF EXISTS memories_fts_delete`);
+      this.sqlite.exec(`
+        CREATE TRIGGER memories_fts_insert AFTER INSERT ON memories
+          WHEN NEW.embedding_status = 'done'
+        BEGIN
+          INSERT INTO memories_fts(id, text) VALUES (NEW.id, NEW.text);
+        END
+      `);
+      this.sqlite.exec(`
+        CREATE TRIGGER memories_fts_update AFTER UPDATE OF embedding_status ON memories
+          WHEN NEW.embedding_status = 'done' AND OLD.embedding_status != 'done'
+        BEGIN
+          INSERT INTO memories_fts(id, text) VALUES (NEW.id, NEW.text);
+        END
+      `);
+      this.sqlite.exec(`
+        CREATE TRIGGER memories_fts_delete AFTER DELETE ON memories
+        BEGIN
+          DELETE FROM memories_fts WHERE id = OLD.id;
+        END
+      `);
+    } catch { /* Triggers are best-effort */ }
 
     // Unique index on memories(source_id, connector_type) for dedup enforcement
     try {
