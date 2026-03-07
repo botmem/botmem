@@ -42,6 +42,33 @@ export interface SearchResult {
   };
 }
 
+export interface ResolvedEntities {
+  contacts: { id: string; displayName: string }[];
+  topicWords: string[];
+  topicMatchCount: number;
+}
+
+export interface SearchResponse {
+  items: SearchResult[];
+  fallback: boolean;
+  resolvedEntities?: ResolvedEntities;
+}
+
+/** Check if candidate words match as whole-word boundaries in a contact name.
+ *  Short words (<=4 chars) require exact match. Longer words allow prefix match at >=80% coverage. */
+function nameWordsMatch(contactName: string, candidateWords: string[]): boolean {
+  if (!contactName) return false;
+  const nameWords = stripAccents(contactName.toLowerCase()).split(/\s+/);
+  return candidateWords.every(cw =>
+    nameWords.some(nw => {
+      if (nw === cw) return true;
+      // Only allow prefix matching for longer candidates (5+ chars) with high coverage
+      if (cw.length >= 5 && nw.startsWith(cw) && cw.length / nw.length >= 0.8) return true;
+      return false;
+    }),
+  );
+}
+
 @Injectable()
 export class MemoryService {
   constructor(
@@ -74,12 +101,63 @@ export class MemoryService {
     }
   }
 
-  async search(query: string, filters?: SearchFilters, limit = 20): Promise<SearchResult[]> {
-    if (!query.trim()) return [];
+  /**
+   * Greedy multi-word entity resolution: tries longest spans first against contact names.
+   * "assad mansoor car" → contacts: [Assad Mansoor], topicWords: ["car"]
+   * Uses word-boundary matching so "car" does NOT match "Ricardo".
+   */
+  private async resolveEntities(queryWords: string[]): Promise<{
+    contacts: { id: string; displayName: string }[];
+    topicWords: string[];
+    contactIds: string[];
+  }> {
+    const db = this.dbService.db;
+    const allContacts = await db.select({ id: contacts.id, displayName: contacts.displayName }).from(contacts);
+
+    const resolved: { id: string; displayName: string }[] = [];
+    const remaining = [...queryWords];
+    const usedIndices = new Set<number>();
+
+    // Try progressively shorter spans starting from each position
+    let i = 0;
+    while (i < remaining.length) {
+      let matched = false;
+      for (let spanLen = remaining.length - i; spanLen >= 1; spanLen--) {
+        const candidateWords = remaining.slice(i, i + spanLen).map(w => stripAccents(w));
+
+        for (const c of allContacts) {
+          if (!nameWordsMatch(c.displayName, candidateWords)) continue;
+          // For single-word candidates, require the candidate covers a significant
+          // portion of the name (avoid "car" matching "Nomi Car Lift")
+          const nameWordCount = (c.displayName || '').trim().split(/\s+/).length;
+          if (candidateWords.length === 1 && nameWordCount > 2) continue;
+          if (!resolved.some(r => r.id === c.id)) {
+            resolved.push(c);
+          }
+          for (let j = i; j < i + spanLen; j++) usedIndices.add(j);
+          matched = true;
+          break;
+        }
+        if (matched) {
+          i += spanLen;
+          break;
+        }
+      }
+      if (!matched) i++;
+    }
+
+    const topicWords = remaining.filter((_, idx) => !usedIndices.has(idx));
+    const contactIds = resolved.map(c => c.id);
+
+    return { contacts: resolved, topicWords, contactIds };
+  }
+
+  async search(query: string, filters?: SearchFilters, limit = 20): Promise<SearchResponse> {
+    if (!query.trim()) return { items: [], fallback: false };
 
     const db = this.dbService.db;
 
-    // If filtering by contactId, skip hybrid and just fetch that contact's memories
+    // If filtering by contactId directly, skip hybrid and just fetch that contact's memories
     if (filters?.contactId) {
       const vector = await this.ollama.embed(query);
       const qdrantFilter = filters ? this.buildQdrantFilter(filters) : undefined;
@@ -95,103 +173,98 @@ export class MemoryService {
         if (!linkedMemoryIds.has(point.id)) continue;
         const row = await this.fetchMemoryRow(point.id);
         if (!row) continue;
-        const { score, weights } = this.computeWeights(point.score, row.memory);
+        const { score, weights } = this.computeWeights(point.score, 0, row.memory);
         results.push(this.toSearchResult(row, score, weights));
         if (results.length >= limit) break;
       }
-      return results.sort((a, b) => b.score - a.score);
+      return { items: results.sort((a, b) => b.score - a.score), fallback: false };
     }
 
-    // --- Hybrid search: vector + text + contact name ---
+    // --- Entity-aware hybrid search ---
 
-    // 1. Vector search
+    const queryLower = query.toLowerCase();
+    const queryWords = queryLower.split(/\s+/).filter((w) => w.length >= 2);
+
+    // Phase 1: Entity resolution (greedy multi-word span matching)
+    const entityResult = await this.resolveEntities(queryWords);
+    const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
+    const hasContacts = resolvedContacts.length > 0;
+    const hasTopics = topicWords.length > 0;
+
+    // Phase 2: Vector search (always use full query for best semantic matching)
     const vector = await this.ollama.embed(query);
     const qdrantFilter = filters ? this.buildQdrantFilter(filters) : undefined;
     const qdrantResults = await this.qdrant.search(vector, limit * 2, qdrantFilter);
+    const semanticScores = new Map<string, number>();
+    for (const point of qdrantResults) semanticScores.set(point.id, point.score);
 
-    // 2. Text search (SQL LIKE) — split query into words, match ALL words (AND logic)
-    const queryLower = query.toLowerCase();
-    const queryNorm = stripAccents(queryLower);
-    const queryWords = queryLower.split(/\s+/).filter((w) => w.length >= 2);
-    const queryWordsNorm = queryWords.map(stripAccents);
-    const textConditions: any[] = [
-      eq(memories.embeddingStatus, 'done'),
-    ];
-    for (const word of queryWords) {
-      textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}` as any);
-    }
-    if (filters?.sourceType) textConditions.push(eq(memories.sourceType, filters.sourceType));
-    if (filters?.connectorType) textConditions.push(eq(memories.connectorType, filters.connectorType));
-    const textMatches = await db
-      .select({ id: memories.id })
-      .from(memories)
-      .where(and(...textConditions)!)
-      .limit(limit * 2);
-    const textMatchIds = new Set(textMatches.map((r) => r.id));
-
-    // 3. Contact name search — find contacts matching ANY query word
-    // Match both accented and stripped versions (amélie matches amelie and vice versa)
-    const seenContactIds = new Set<string>();
-    const matchingContacts: { id: string; displayName: string }[] = [];
-    for (const word of queryWordsNorm) {
-      const rows = await db
-        .select({ id: contacts.id, displayName: contacts.displayName })
-        .from(contacts)
-        .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + word + '%'}`);
-      for (const c of rows) {
-        if (!seenContactIds.has(c.id)) { seenContactIds.add(c.id); matchingContacts.push(c); }
-      }
-    }
-    // Fallback: fetch all contacts and match with accent stripping (SQLite can't do NFD)
-    if (!matchingContacts.length) {
-      const allContactRows = await db.select({ id: contacts.id, displayName: contacts.displayName }).from(contacts);
-      for (const c of allContactRows) {
-        if (queryWordsNorm.some((w) => stripAccents(c.displayName.toLowerCase()).includes(w)) && !seenContactIds.has(c.id)) {
-          matchingContacts.push(c);
-        }
-      }
-    }
-
+    // Phase 3: Search execution based on decomposition
+    const textMatchIds = new Set<string>();
     const contactMatchIds = new Set<string>();
-    if (matchingContacts.length) {
-      const contactIds = matchingContacts.map((c) => c.id);
+    let topicMatchCount = 0;
+
+    if (hasContacts) {
+      // Get all memory IDs linked to resolved contacts
       const linked = await db
         .select({ memoryId: memoryContacts.memoryId })
         .from(memoryContacts)
         .where(inArray(memoryContacts.contactId, contactIds));
-      for (const r of linked) contactMatchIds.add(r.memoryId);
+      const allContactMemoryIds = new Set(linked.map(r => r.memoryId));
+
+      if (hasTopics) {
+        // Intersect: contact memories filtered by topic words
+        const topicConditions: any[] = [
+          inArray(memoryContacts.contactId, contactIds),
+        ];
+        for (const tw of topicWords) {
+          topicConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + tw + '%'}` as any);
+        }
+        const filtered = await db
+          .select({ memoryId: memoryContacts.memoryId })
+          .from(memoryContacts)
+          .innerJoin(memories, eq(memories.id, memoryContacts.memoryId))
+          .where(and(...topicConditions)!);
+        topicMatchCount = filtered.length;
+        for (const r of filtered) contactMatchIds.add(r.memoryId);
+
+        // Also boost vector results that belong to the contact
+        for (const point of qdrantResults) {
+          if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
+        }
+      } else {
+        // Contact browse: all memories for that contact
+        for (const id of allContactMemoryIds) contactMatchIds.add(id);
+      }
     }
 
-    // 4. Also check contact identifiers (email, phone, handle) — match ANY word
-    const matchingIdents: { contactId: string }[] = [];
-    for (const word of queryWords) {
-      const rows = await db
-        .select({ contactId: contactIdentifiers.contactId })
-        .from(contactIdentifiers)
-        .where(sql`LOWER(${contactIdentifiers.identifierValue}) LIKE ${'%' + word + '%'}`);
-      for (const r of rows) matchingIdents.push(r);
-    }
-    if (matchingIdents.length) {
-      const identContactIds = [...new Set(matchingIdents.map((r) => r.contactId))];
-      const linked = await db
-        .select({ memoryId: memoryContacts.memoryId })
-        .from(memoryContacts)
-        .where(inArray(memoryContacts.contactId, identContactIds));
-      for (const r of linked) contactMatchIds.add(r.memoryId);
+    if (!hasContacts || hasTopics) {
+      // Topic text search (AND logic across topic words, or all words if no contacts)
+      const searchWords = hasContacts ? topicWords : queryWords;
+      if (searchWords.length > 0) {
+        const textConditions: any[] = [eq(memories.embeddingStatus, 'done')];
+        for (const word of searchWords) {
+          textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}` as any);
+        }
+        if (filters?.sourceType) textConditions.push(eq(memories.sourceType, filters.sourceType));
+        if (filters?.connectorType) textConditions.push(eq(memories.connectorType, filters.connectorType));
+        const textMatches = await db
+          .select({ id: memories.id })
+          .from(memories)
+          .where(and(...textConditions)!)
+          .limit(limit * 2);
+        for (const r of textMatches) textMatchIds.add(r.id);
+      }
     }
 
     const hasExactMatches = textMatchIds.size > 0 || contactMatchIds.size > 0;
 
     // Collect candidate memory IDs
-    // When text/contact matches exist, only include semantic results that overlap
     const allCandidateIds = new Set<string>();
     for (const id of textMatchIds) allCandidateIds.add(id);
     for (const id of contactMatchIds) allCandidateIds.add(id);
     if (!hasExactMatches) {
-      // No exact matches — fall back to semantic results
       for (const point of qdrantResults) allCandidateIds.add(point.id);
     } else {
-      // Add semantic results only if they also match text/contact (reinforcement)
       for (const point of qdrantResults) {
         if (textMatchIds.has(point.id) || contactMatchIds.has(point.id)) {
           allCandidateIds.add(point.id);
@@ -199,45 +272,62 @@ export class MemoryService {
       }
     }
 
-    if (!allCandidateIds.size) return [];
-
-    // Build semantic score map from vector results
-    const semanticScores = new Map<string, number>();
-    for (const point of qdrantResults) {
-      semanticScores.set(point.id, point.score);
+    if (!allCandidateIds.size) {
+      return {
+        items: [],
+        fallback: false,
+        resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
+      };
     }
 
-    // Fetch and score all candidates
-    const results: SearchResult[] = [];
+    // Fetch all candidate rows first so we can rerank the top 15
+    const candidateRows: Array<{ id: string; row: { memory: typeof memories.$inferSelect; accountIdentifier: string | null } }> = [];
     for (const id of allCandidateIds) {
       const row = await this.fetchMemoryRow(id);
       if (!row) continue;
-
       const mem = row.memory;
-      // Apply source type / connector type filters for text/contact matches
       if (filters?.sourceType && mem.sourceType !== filters.sourceType) continue;
       if (filters?.connectorType && mem.connectorType !== filters.connectorType) continue;
+      candidateRows.push({ id, row });
+    }
 
+    // Rerank top 15 candidates by semantic score
+    const rerankScores = new Map<string, number>();
+    const sortedCandidates = [...candidateRows].sort(
+      (a, b) => (semanticScores.get(b.id) ?? 0) - (semanticScores.get(a.id) ?? 0),
+    );
+    const rerankCandidates = sortedCandidates.slice(0, 15);
+    if (rerankCandidates.length > 0) {
+      const rerankTexts = rerankCandidates.map(c => c.row.memory.text);
+      const scores = await this.ollama.rerank(query, rerankTexts);
+      for (let i = 0; i < rerankCandidates.length; i++) {
+        rerankScores.set(rerankCandidates[i].id, scores[i]);
+      }
+    }
+
+    // Score all candidates
+    const results: SearchResult[] = [];
+    for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
-      const hasTextMatch = textMatchIds.has(id);
-      const hasContactMatch = contactMatchIds.has(id);
+      const rerankScore = rerankScores.get(id) ?? 0;
+      const textBoost = textMatchIds.has(id) ? 0.45 : 0;
+      const contactBoost = contactMatchIds.has(id) ? 0.40 : 0;
 
-      // Boost: text/contact matches get a significant relevance boost
-      const textBoost = hasTextMatch ? 0.45 : 0;
-      const contactBoost = hasContactMatch ? 0.40 : 0;
-
-      const { score, weights } = this.computeWeights(semanticScore, mem);
+      const { score, weights } = this.computeWeights(semanticScore, rerankScore, row.memory);
       const boostedScore = Math.min(score + textBoost + contactBoost, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
       results.push(this.toSearchResult(row, boostedScore, boostedWeights));
     }
 
-    // Apply minimum score threshold — drop noise
     const MIN_SCORE = 0.35;
-    const filtered = results.filter((r) => r.score >= MIN_SCORE);
+    const scored = results.filter((r) => r.score >= MIN_SCORE);
 
-    return filtered.sort((a, b) => b.score - a.score).slice(0, limit);
+    return {
+      items: scored.sort((a, b) => b.score - a.score).slice(0, limit),
+      fallback: !hasExactMatches,
+      resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
+    };
   }
 
   private async fetchMemoryRow(id: string) {
@@ -619,11 +709,11 @@ export class MemoryService {
 
     return {
       nodes: [...memoryNodes, ...contactNodes, ...fileNodes],
-      edges: [...edges, ...contactEdges, ...fileEdges],
+      links: [...edges, ...contactEdges, ...fileEdges],
     };
   }
 
-  private computeWeights(semanticScore: number, mem: any): {
+  private computeWeights(semanticScore: number, rerankScore: number, mem: any): {
     score: number;
     weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
   } {
@@ -636,12 +726,16 @@ export class MemoryService {
     } catch {}
     const importance = 0.5 + Math.min(entityCount * 0.1, 0.4);
     const trust = this.getTrustScore(mem.connectorType);
-    const w = this.getWeights(mem.connectorType);
-    const final = w.semantic * semanticScore + w.recency * recency + w.importance * importance + w.trust * trust;
+
+    // When reranker is available, use the full 5-weight formula.
+    // When unavailable (rerankScore === 0), redistribute rerank weight to semantic.
+    const final = rerankScore > 0
+      ? 0.40 * semanticScore + 0.30 * rerankScore + 0.15 * recency + 0.10 * importance + 0.05 * trust
+      : 0.70 * semanticScore + 0.15 * recency + 0.10 * importance + 0.05 * trust;
 
     return {
       score: final,
-      weights: { semantic: semanticScore, rerank: 0, recency, importance, trust, final },
+      weights: { semantic: semanticScore, rerank: rerankScore, recency, importance, trust, final },
     };
   }
 
