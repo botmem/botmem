@@ -31,6 +31,7 @@ export interface SearchResult {
   entities: string;
   metadata: string;
   accountIdentifier: string | null;
+  pinned: number;
   score: number;
   weights: {
     semantic: number;
@@ -357,6 +358,7 @@ export class MemoryService {
       entities: mem.entities,
       metadata: mem.metadata,
       accountIdentifier: row.accountIdentifier,
+      pinned: mem.pinned,
       score,
       weights,
     };
@@ -717,21 +719,30 @@ export class MemoryService {
     score: number;
     weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
   } {
+    const isPinned = mem.pinned === 1;
+    const recallCount = mem.recallCount || 0;
+
     const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
-    const recency = Math.exp(-0.015 * ageDays);
+    // Pinned memories are exempt from recency decay
+    const recency = isPinned ? 1.0 : Math.exp(-0.015 * ageDays);
 
     let entityCount = 0;
     try {
       entityCount = JSON.parse(mem.entities).length;
     } catch {}
-    const importance = 0.5 + Math.min(entityCount * 0.1, 0.4);
+    // Base importance + recall boost (capped at +0.2)
+    const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
+    const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
     const trust = this.getTrustScore(mem.connectorType);
 
     // When reranker is available, use the full 5-weight formula.
     // When unavailable (rerankScore === 0), redistribute rerank weight to semantic.
-    const final = rerankScore > 0
+    let final = rerankScore > 0
       ? 0.40 * semanticScore + 0.30 * rerankScore + 0.15 * recency + 0.10 * importance + 0.05 * trust
       : 0.70 * semanticScore + 0.15 * recency + 0.10 * importance + 0.05 * trust;
+
+    // Pinned memories get a score floor of 0.75
+    if (isPinned) final = Math.max(final, 0.75);
 
     return {
       score: final,

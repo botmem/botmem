@@ -77,6 +77,8 @@ export const memories = sqliteTable('memories', {
   claims: text('claims').notNull().default('[]'), // JSON array
   metadata: text('metadata').notNull().default('{}'), // JSON
   embeddingStatus: text('embedding_status').notNull().default('pending'), // pending | done | failed
+  pinned: integer('pinned').notNull().default(0),
+  recallCount: integer('recall_count').notNull().default(0),
   createdAt: text('created_at').notNull(),
 });
 
