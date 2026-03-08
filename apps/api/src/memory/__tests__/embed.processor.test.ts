@@ -114,6 +114,7 @@ describe('EmbedProcessor', () => {
       createMockJobsService() as any,
       createMockSettingsService() as any,
       createMockPluginRegistry() as any,
+      { capture: vi.fn() } as any,
       enrichQueue as any,
     );
 
