@@ -194,7 +194,7 @@ Phase 10: Source Citations (deferred)
 - Verification (Phase 28) depends on all prior phases completing -- it validates the full fix chain end-to-end
 
 **Summary:**
-- [ ] **Phase 25: Source Type Reclassification** - Fix photos connector, backfill SQLite + Qdrant, remove SOURCE_TYPE_ALIASES hack (SRC-01 through SRC-04)
+- [x] **Phase 25: Source Type Reclassification** - Fix photos connector, backfill SQLite + Qdrant, remove SOURCE_TYPE_ALIASES hack (SRC-01 through SRC-04) (completed 2026-03-08)
 - [ ] **Phase 26: Entity Format & Quality** - Unified entity shape, improved extraction prompt, normalizer with dedup/clean/validate, entity cap (FMT-01 through FMT-03, ENT-01 through ENT-05)
 - [ ] **Phase 27: Data Backfill** - Re-enrich existing memories with corrected pipeline, resumable, filterable, real-time progress (BKF-01 through BKF-04)
 - [ ] **Phase 28: Verification** - End-to-end validation that search, graph, and NLQ produce correct results (VER-01 through VER-04)
@@ -412,7 +412,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 22. PostgreSQL Dual-Driver | v2.0 | 0/? | Not started | - |
 | 23. Row Level Security | v2.0 | 0/? | Not started | - |
 | 24. Firebase Auth (Prod-Core) | v2.0 | 0/? | Not started | - |
-| 25. Source Type Reclassification | v2.1 | 2/2 | Complete | 2026-03-08 |
+| 25. Source Type Reclassification | v2.1 | Complete    | 2026-03-08 | 2026-03-08 |
 | 26. Entity Format & Quality | v2.1 | 0/? | Not started | - |
 | 27. Data Backfill | v2.1 | 0/? | Not started | - |
 | 28. Verification | v2.1 | 0/? | Not started | - |
