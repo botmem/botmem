@@ -144,7 +144,7 @@ Plans:
 - NLQ parsing second (Phase 9) because temporal and entity extraction from queries builds on the clean entity taxonomy, and PERF-01 constrains the implementation to deterministic parsing (no LLM in search hot path)
 - Source citations and verification last (Phase 10) because citations format depends on the final search response shape from Phase 9, and LLM quality testing validates all v1.4 features end-to-end
 
-- [ ] **Phase 8: Entity Type Taxonomy** - Canonical entity types via structured output, backfill existing data, type-filtered search
+- [x] **Phase 8: Entity Type Taxonomy** - Canonical entity types via structured output, backfill existing data, type-filtered search (completed 2026-03-08)
 - [ ] **Phase 8.1: Contact Auto-Merge** (INSERTED) - Auto-merge obvious contact duplicates, eliminate manual review for exact-name non-person entities and sparse contacts
 - [ ] **Phase 9: NLQ Parsing** - Temporal references via chrono-node, entity extraction from queries, intent classification, all under 500ms
 - [ ] **Phase 10: Source Citations & Verification** - Citation metadata on search results, LLM quality testing of all v1.4 features
@@ -176,7 +176,7 @@ Plans:
   4. Auto-merge is idempotent and transaction-safe — running it multiple times produces no errors or duplicate merges
   5. Merge queue count drops significantly after running auto-merge (measured before/after)
 **Plans**: TBD
-**Plans:** 0 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 08.1 to break down)
@@ -286,7 +286,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 5. SDK Feature Enablement | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 6. Verification and Dashboards | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 7. Test Infrastructure Fixes | v1.3 | 2/2 | Complete | 2026-03-08 |
-| 8. Entity Type Taxonomy | v1.4 | 0/2 | Not started | - |
+| 8. Entity Type Taxonomy | 2/2 | Complete   | 2026-03-08 | - |
 | 8.1 Contact Auto-Merge | v1.4 | 0/? | Not started | - |
 | 9. NLQ Parsing | v1.4 | 0/? | Not started | - |
 | 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
