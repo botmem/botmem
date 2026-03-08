@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Search Intelligence
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-03-08T03:10:59.609Z"
-last_activity: 2026-03-08 -- Phase 8 Plan 01 complete (canonical entity types via structured output)
+stopped_at: Completed 08.1-02-PLAN.md
+last_updated: "2026-03-08T03:39:43Z"
+last_activity: 2026-03-08 -- Phase 8.1 Plan 02 complete (auto-merge with safety-tiered rules)
 progress:
   total_phases: 16
-  completed_phases: 8
-  total_plans: 19
-  completed_plans: 18
-  percent: 85
+  completed_phases: 9
+  total_plans: 20
+  completed_plans: 20
+  percent: 90
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v1.4 Search Intelligence -- Phase 8 (Full Data Import)
+**Current focus:** v1.4 Search Intelligence -- Phase 8.1 (Contact Auto-Merge) complete
 
 ## Current Position
 
 Phase: 8.1 of 15 (Contact Auto-Merge)
-Plan: 1 of 2 complete
-Status: Executing
-Last activity: 2026-03-08 -- Phase 8.1 Plan 01 complete (contact entity type reclassification via memory cross-reference)
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-03-08 -- Phase 8.1 Plan 02 complete (auto-merge with safety-tiered rules)
 
-Progress: [█████████░] 85%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [█████████░] 85%
 *Updated after each plan completion*
 | Phase 08 P02 | 2min | 2 tasks | 6 files |
 | Phase 08.1 P01 | 11min | 2 tasks | 2 files |
+| Phase 08.1 P02 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,7 @@ Recent decisions affecting current work:
 - [v2.0]: OwnTracks hostname treated as secret (reveals private infrastructure)
 - [Phase 08]: Migration uses better-sqlite3 directly for one-time scripts, with conditional column existence checks
 - [Phase 08.1]: Strict 3x threshold for entity type reclassification to avoid false positives from noisy entity extraction data
+- [Phase 08.1]: Safety-tiered auto-merge: non-person exact-name and sparse-to-rich are auto-merged, person-to-person preserved for manual review
 
 ### Pending Todos
 
@@ -95,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08T03:35:34Z
-Stopped at: Completed 08.1-01-PLAN.md
+Last session: 2026-03-08T03:39:43Z
+Stopped at: Completed 08.1-02-PLAN.md
 Resume file: None

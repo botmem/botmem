@@ -145,7 +145,7 @@ Plans:
 - Source citations and verification last (Phase 10) because citations format depends on the final search response shape from Phase 9, and LLM quality testing validates all v1.4 features end-to-end
 
 - [x] **Phase 8: Entity Type Taxonomy** - Canonical entity types via structured output, backfill existing data, type-filtered search (completed 2026-03-08)
-- [ ] **Phase 8.1: Contact Auto-Merge** (INSERTED) - Auto-merge obvious contact duplicates, eliminate manual review for exact-name non-person entities and sparse contacts
+- [x] **Phase 8.1: Contact Auto-Merge** (INSERTED) - Auto-merge obvious contact duplicates, eliminate manual review for exact-name non-person entities and sparse contacts (completed 2026-03-08)
 - [ ] **Phase 9: NLQ Parsing** - Temporal references via chrono-node, entity extraction from queries, intent classification, all under 500ms
 - [ ] **Phase 10: Source Citations & Verification** - Citation metadata on search results, LLM quality testing of all v1.4 features
 
@@ -175,7 +175,7 @@ Plans:
   3. Person-to-person exact-name matches with different structured identifiers still appear as suggestions for manual review (safety preserved)
   4. Auto-merge is idempotent and transaction-safe — running it multiple times produces no errors or duplicate merges
   5. Merge queue count drops significantly after running auto-merge (measured before/after)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 08.1-01-PLAN.md -- Contact entityType reclassification from memory entity data (AUTO-MERGE-01)
@@ -287,7 +287,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 6. Verification and Dashboards | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 7. Test Infrastructure Fixes | v1.3 | 2/2 | Complete | 2026-03-08 |
 | 8. Entity Type Taxonomy | v1.4 | 2/2 | Complete | 2026-03-08 |
-| 8.1 Contact Auto-Merge | 1/2 | In Progress|  | - |
+| 8.1 Contact Auto-Merge | 2/2 | Complete   | 2026-03-08 | - |
 | 9. NLQ Parsing | v1.4 | 0/? | Not started | - |
 | 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
 | 11. Repo & Infrastructure | v2.0 | 1/3 | In Progress | - |
