@@ -1,17 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 
-const { mockConversationsList, mockConversationsHistory, mockConversationsReplies, mockUsersList } = vi.hoisted(() => ({
-  mockConversationsList: vi.fn(),
-  mockConversationsHistory: vi.fn(),
-  mockConversationsReplies: vi.fn(),
-  mockUsersList: vi.fn().mockResolvedValue({
-    members: [
-      { id: 'U1', name: 'alice' },
-      { id: 'U2', name: 'bob' },
-    ],
-    response_metadata: { next_cursor: '' },
-  }),
-}));
+const { mockConversationsList, mockConversationsHistory, mockConversationsReplies, mockUsersList } =
+  vi.hoisted(() => ({
+    mockConversationsList: vi.fn(),
+    mockConversationsHistory: vi.fn(),
+    mockConversationsReplies: vi.fn(),
+    mockUsersList: vi.fn().mockResolvedValue({
+      members: [
+        { id: 'U1', name: 'alice' },
+        { id: 'U2', name: 'bob' },
+      ],
+      response_metadata: { next_cursor: '' },
+    }),
+  }));
 
 const mockAuthTest = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, user_id: 'USELF' }));
 
@@ -95,7 +96,13 @@ describe('syncSlack', () => {
 
     mockConversationsHistory.mockResolvedValue({
       messages: [
-        { ts: '1700000000.000', thread_ts: '1700000000.000', text: 'Parent message', user: 'U1', reply_count: 2 },
+        {
+          ts: '1700000000.000',
+          thread_ts: '1700000000.000',
+          text: 'Parent message',
+          user: 'U1',
+          reply_count: 2,
+        },
       ],
     });
 
@@ -138,7 +145,7 @@ describe('syncSlack', () => {
     });
 
     const events: any[] = [];
-    const result = await syncSlack(makeCtx() as any, (e) => events.push(e));
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
     // 2 contact events + 1 normal message (subtype message skipped)
     const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
     expect(msgEvents.length).toBe(1);
@@ -180,9 +187,7 @@ describe('syncSlack', () => {
     });
 
     mockConversationsHistory.mockResolvedValue({
-      messages: [
-        { ts: '1700000000.000', text: 'Hello <@U2>', user: 'U1', reply_count: 0 },
-      ],
+      messages: [{ ts: '1700000000.000', text: 'Hello <@U2>', user: 'U1', reply_count: 0 }],
     });
 
     const events: any[] = [];
@@ -195,12 +200,14 @@ describe('syncSlack', () => {
 
     // alice is the author, so she should be in participantProfiles
     // Profile uses realName as key since buildParticipantData uses realName || name
-    expect(profiles['Alice Johnson']).toEqual(expect.objectContaining({
-      name: 'alice',
-      realName: 'Alice Johnson',
-      email: 'alice@example.com',
-      phone: '+1234567890',
-    }));
+    expect(profiles['Alice Johnson']).toEqual(
+      expect.objectContaining({
+        name: 'alice',
+        realName: 'Alice Johnson',
+        email: 'alice@example.com',
+        phone: '+1234567890',
+      }),
+    );
   });
 
   it('emits separate file events for message attachments', async () => {
@@ -242,7 +249,9 @@ describe('syncSlack', () => {
     await syncSlack(makeCtx() as any, (e) => events.push(e));
 
     // 2 contact events + 1 message + 2 file events = 5
-    const msgEvents = events.filter((e: any) => e.sourceType === 'message' && e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: any) => e.sourceType === 'message' && e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
     expect(msgEvents[0].content.text).toContain('[file: report.pdf (pdf)]');
 
@@ -251,7 +260,9 @@ describe('syncSlack', () => {
     expect(fileEvents.length).toBe(2);
     expect(fileEvents[0].content.metadata.fileName).toBe('report.pdf');
     expect(fileEvents[0].content.metadata.mimetype).toBe('application/pdf');
-    expect(fileEvents[0].content.metadata.fileUrl).toBe('https://files.slack.com/files-pri/T123/report.pdf');
+    expect(fileEvents[0].content.metadata.fileUrl).toBe(
+      'https://files.slack.com/files-pri/T123/report.pdf',
+    );
     expect(fileEvents[0].content.metadata.parentMessageId).toBe('C1:1700000000.000');
     expect(fileEvents[1].content.metadata.fileName).toBe('photo.png');
     expect(fileEvents[1].content.metadata.mimetype).toBe('image/png');

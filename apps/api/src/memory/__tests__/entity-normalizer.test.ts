@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  normalizeEntities,
-  CANONICAL_ENTITY_TYPES,
-  NormalizedEntity,
-} from '../entity-normalizer';
+import { normalizeEntities, CANONICAL_ENTITY_TYPES } from '../entity-normalizer';
 
 describe('normalizeEntities', () => {
   describe('type mapping', () => {
@@ -110,12 +106,8 @@ describe('normalizeEntities', () => {
     });
 
     it('strips URLs', () => {
-      expect(
-        normalizeEntities([{ type: 'other', value: 'https://example.com' }]),
-      ).toEqual([]);
-      expect(
-        normalizeEntities([{ type: 'other', value: 'http://foo.bar/path' }]),
-      ).toEqual([]);
+      expect(normalizeEntities([{ type: 'other', value: 'https://example.com' }])).toEqual([]);
+      expect(normalizeEntities([{ type: 'other', value: 'http://foo.bar/path' }])).toEqual([]);
     });
 
     it('strips whitespace-only values', () => {
@@ -182,9 +174,7 @@ describe('normalizeEntities', () => {
     });
 
     it('uses id as-is when no compound format', () => {
-      const result = normalizeEntities([
-        { type: 'person', id: 'simple-id', role: 'sender' },
-      ]);
+      const result = normalizeEntities([{ type: 'person', id: 'simple-id', role: 'sender' }]);
       expect(result).toEqual([{ type: 'person', value: 'simple-id' }]);
     });
 

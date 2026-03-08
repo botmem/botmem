@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from '../../db/schema';
 import { ApiKeysService } from '../api-keys.service';
-import { randomBytes, createHash } from 'crypto';
+import { createHash } from 'crypto';
 
 // Minimal DbService mock using in-memory SQLite
 function createTestDb() {
@@ -94,7 +94,9 @@ describe('ApiKeysService', () => {
       for (let i = 0; i < 10; i++) {
         await service.create('user-1', `key-${i}`);
       }
-      await expect(service.create('user-1', 'key-10')).rejects.toThrow('Maximum 10 API keys per user');
+      await expect(service.create('user-1', 'key-10')).rejects.toThrow(
+        'Maximum 10 API keys per user',
+      );
     });
 
     it('throws on duplicate name for same user', async () => {
@@ -113,7 +115,7 @@ describe('ApiKeysService', () => {
       const expiry = '2099-01-01T00:00:00.000Z';
       const result = await service.create('user-1', 'expiring-key', expiry);
       const keys = await service.listByUser('user-1');
-      const found = keys.find(k => k.id === result.id);
+      const found = keys.find((k) => k.id === result.id);
       expect(found?.expiresAt).toBe(expiry);
     });
   });

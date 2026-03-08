@@ -33,8 +33,13 @@ export class EnrichService {
     }
   }
 
-  private getWeights(connectorType: string): { semantic: number; recency: number; importance: number; trust: number } {
-    const defaults = { semantic: 0.40, recency: 0.25, importance: 0.20, trust: 0.15 };
+  private getWeights(connectorType: string): {
+    semantic: number;
+    recency: number;
+    importance: number;
+    trust: number;
+  } {
+    const defaults = { semantic: 0.4, recency: 0.25, importance: 0.2, trust: 0.15 };
     try {
       const w = this.connectors.get(connectorType).manifest.weights;
       return {
@@ -49,18 +54,19 @@ export class EnrichService {
   }
 
   async enrich(memoryId: string): Promise<void> {
-    const rows = await this.dbService.db
-      .select()
-      .from(memories)
-      .where(eq(memories.id, memoryId));
+    const rows = await this.dbService.db.select().from(memories).where(eq(memories.id, memoryId));
 
     if (!rows.length) return;
     const memory = rows[0];
     const mid = memoryId.slice(0, 8);
     const pipelineStart = Date.now();
 
-    this.addLog(memory.connectorType, memory.accountId, 'info',
-      `[enrich:start] ${memory.sourceType} ${mid} (${memory.text.length} chars)`);
+    this.addLog(
+      memory.connectorType,
+      memory.accountId,
+      'info',
+      `[enrich:start] ${memory.sourceType} ${mid} (${memory.text.length} chars)`,
+    );
 
     // Entity extraction
     let t0 = Date.now();
@@ -72,8 +78,12 @@ export class EnrichService {
         .set({ entities: JSON.stringify(entities) })
         .where(eq(memories.id, memoryId));
     }
-    this.addLog(memory.connectorType, memory.accountId, 'info',
-      `[enrich:entities] ${mid} → ${entities.length} entities in ${entityMs}ms`);
+    this.addLog(
+      memory.connectorType,
+      memory.accountId,
+      'info',
+      `[enrich:entities] ${mid} → ${entities.length} entities in ${entityMs}ms`,
+    );
 
     // Factuality labeling
     t0 = Date.now();
@@ -91,8 +101,12 @@ export class EnrichService {
     }
     const factLabel = factuality?.label || 'unclassified';
     const factConf = factuality?.confidence?.toFixed(2) || '?';
-    this.addLog(memory.connectorType, memory.accountId, 'info',
-      `[enrich:factuality] ${mid} → ${factLabel} (${factConf}) in ${factMs}ms`);
+    this.addLog(
+      memory.connectorType,
+      memory.accountId,
+      'info',
+      `[enrich:factuality] ${mid} → ${factLabel} (${factConf}) in ${factMs}ms`,
+    );
 
     // Graph link creation — find similar memories via Qdrant
     t0 = Date.now();
@@ -112,19 +126,41 @@ export class EnrichService {
       .where(eq(memories.id, memoryId));
 
     const totalMs = Date.now() - pipelineStart;
-    this.addLog(memory.connectorType, memory.accountId, 'info',
-      `[enrich:done] ${mid} in ${totalMs}ms — entities=${entityMs}ms(${entities.length}) factuality=${factMs}ms(${factLabel}) links=${linkMs}ms`);
+    this.addLog(
+      memory.connectorType,
+      memory.accountId,
+      'info',
+      `[enrich:done] ${mid} in ${totalMs}ms — entities=${entityMs}ms(${entities.length}) factuality=${factMs}ms(${factLabel}) links=${linkMs}ms`,
+    );
   }
 
   private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
     const stage = 'enrich';
-    this.logsService.add({ connectorType, accountId: accountId ?? undefined, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
+    this.logsService.add({
+      connectorType,
+      accountId: accountId ?? undefined,
+      stage,
+      level,
+      message,
+    });
+    this.events.emitToChannel('logs', 'log', {
+      connectorType,
+      accountId,
+      stage,
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   private async extractEntities(text: string): Promise<Array<{ type: string; value: string }>> {
     try {
-      const response = await this.ollama.generate(entityExtractionPrompt(text), undefined, 2, ENTITY_FORMAT_SCHEMA);
+      const response = await this.ollama.generate(
+        entityExtractionPrompt(text),
+        undefined,
+        2,
+        ENTITY_FORMAT_SCHEMA,
+      );
       const parsed = JSON.parse(response);
       return normalizeEntities(parsed.entities || []);
     } catch {
@@ -160,9 +196,17 @@ export class EnrichService {
         .from(memories)
         .where(eq(memories.id, memoryId));
       const srcClaims: string[] = [];
-      try { srcClaims.push(...JSON.parse(srcMem?.claims || '[]').map((c: any) => c.text || c)); } catch {}
+      try {
+        srcClaims.push(...JSON.parse(srcMem?.claims || '[]').map((c: any) => c.text || c));
+      } catch {
+        /* empty */
+      }
       let srcFactLabel = 'UNVERIFIED';
-      try { srcFactLabel = JSON.parse(srcMem?.factuality || '{}').label; } catch {}
+      try {
+        srcFactLabel = JSON.parse(srcMem?.factuality || '{}').label;
+      } catch {
+        /* empty */
+      }
 
       for (const result of results) {
         if (result.score >= SIMILARITY_THRESHOLD && result.id !== memoryId) {
@@ -174,13 +218,19 @@ export class EnrichService {
               .from(memories)
               .where(eq(memories.id, result.id));
             let dstFactLabel = 'UNVERIFIED';
-            try { dstFactLabel = JSON.parse(dstMem?.factuality || '{}').label; } catch {}
+            try {
+              dstFactLabel = JSON.parse(dstMem?.factuality || '{}').label;
+            } catch {
+              /* empty */
+            }
 
             if (result.score >= 0.92 && srcFactLabel === 'FACT' && dstFactLabel === 'FACT') {
               linkType = 'supports';
-            } else if (result.score >= 0.85 &&
+            } else if (
+              result.score >= 0.85 &&
               ((srcFactLabel === 'FACT' && dstFactLabel === 'FICTION') ||
-               (srcFactLabel === 'FICTION' && dstFactLabel === 'FACT'))) {
+                (srcFactLabel === 'FICTION' && dstFactLabel === 'FACT'))
+            ) {
               linkType = 'contradicts';
             }
           }
@@ -189,18 +239,16 @@ export class EnrichService {
           const existingLink = await this.dbService.db
             .select({ id: memoryLinks.id })
             .from(memoryLinks)
-            .where(and(
-              eq(memoryLinks.srcMemoryId, memoryId),
-              eq(memoryLinks.dstMemoryId, result.id),
-            ))
+            .where(
+              and(eq(memoryLinks.srcMemoryId, memoryId), eq(memoryLinks.dstMemoryId, result.id)),
+            )
             .limit(1);
           const reverseLink = await this.dbService.db
             .select({ id: memoryLinks.id })
             .from(memoryLinks)
-            .where(and(
-              eq(memoryLinks.srcMemoryId, result.id),
-              eq(memoryLinks.dstMemoryId, memoryId),
-            ))
+            .where(
+              and(eq(memoryLinks.srcMemoryId, result.id), eq(memoryLinks.dstMemoryId, memoryId)),
+            )
             .limit(1);
           if (!existingLink.length && !reverseLink.length) {
             await this.dbService.db.insert(memoryLinks).values({

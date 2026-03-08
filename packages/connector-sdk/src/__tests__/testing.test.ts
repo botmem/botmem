@@ -1,7 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { TestHarness } from '../testing.js';
 import { BaseConnector } from '../base.js';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '../types.js';
+import type {
+  ConnectorManifest,
+  AuthContext,
+  AuthInitResult,
+  SyncContext,
+  SyncResult,
+} from '../types.js';
 
 class HarnessTestConnector extends BaseConnector {
   readonly manifest: ConnectorManifest = {
@@ -24,8 +30,12 @@ class HarnessTestConnector extends BaseConnector {
     return this.authResult;
   }
 
-  async completeAuth(): Promise<AuthContext> { return {}; }
-  async validateAuth(): Promise<boolean> { return true; }
+  async completeAuth(): Promise<AuthContext> {
+    return {};
+  }
+  async validateAuth(): Promise<boolean> {
+    return true;
+  }
   async revokeAuth(): Promise<void> {}
 
   async sync(ctx: SyncContext): Promise<SyncResult> {
@@ -61,7 +71,7 @@ describe('TestHarness', () => {
   describe('testSync', () => {
     it('collects data events', async () => {
       const connector = new HarnessTestConnector();
-      connector.syncFn = async (ctx) => {
+      connector.syncFn = async (_ctx) => {
         connector.emitData({
           sourceType: 'message',
           sourceId: 'm1',

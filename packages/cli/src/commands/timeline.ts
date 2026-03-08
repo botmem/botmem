@@ -22,20 +22,6 @@ export const timelineHelp = `
     botmem timeline --connector gmail --limit 20
 `.trim();
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return 'never';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return 'just now';
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const days = Math.floor(hr / 24);
-  return `${days}d ago`;
-}
-
 function truncate(text: string, maxLen: number): string {
   const oneLine = text.replace(/\n/g, ' ').trim();
   if (oneLine.length <= maxLen) return oneLine;
@@ -68,7 +54,10 @@ export async function runTimeline(client: BotmemClient, args: string[], json: bo
     return;
   }
 
-  console.log(bold(`Timeline: ${result.total} memories`) + (params.from || params.to ? dim(` (${params.from || '...'} → ${params.to || '...'})`) : ''));
+  console.log(
+    bold(`Timeline: ${result.total} memories`) +
+      (params.from || params.to ? dim(` (${params.from || '...'} → ${params.to || '...'})`) : ''),
+  );
   console.log('');
 
   let currentDate = '';
@@ -79,7 +68,9 @@ export async function runTimeline(client: BotmemClient, args: string[], json: bo
       console.log(bold(`\n--- ${date} ---`));
     }
     const time = m.eventTime?.slice(11, 16) || '';
-    console.log(`  ${dim(time)} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 100)}`);
+    console.log(
+      `  ${dim(time)} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 100)}`,
+    );
     console.log(`         ${dim(m.id)}`);
   }
 

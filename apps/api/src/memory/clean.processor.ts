@@ -14,9 +14,15 @@ import { rawEvents, memories } from '../db/schema';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
 function sanitizeText(text: string): string {
-  return text
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g, '')
-    .trim();
+  return (
+    text
+      // eslint-disable-next-line no-control-regex
+      .replace(
+        /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g,
+        '',
+      )
+      .trim()
+  );
 }
 
 @Processor('clean')
@@ -113,7 +119,8 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
           try {
             const extracted = await connector.extractFile(fileUrl, mimetype || '', ctx.auth);
             if (extracted) {
-              event.content.text = extracted + (event.content.text ? `\n\n${event.content.text}` : '');
+              event.content.text =
+                extracted + (event.content.text ? `\n\n${event.content.text}` : '');
             }
           } catch (err: any) {
             ctx.logger.warn(`[clean:file-extract] ${mid} failed: ${err?.message}`);
@@ -124,7 +131,8 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
       const cleanResult = await connector.clean(event, ctx);
       text = cleanResult.text?.trim() || '';
 
-      await this.dbService.db.update(rawEvents)
+      await this.dbService.db
+        .update(rawEvents)
         .set({ cleanedText: text })
         .where(eq(rawEvents.id, rawEventId));
     } else {
@@ -142,8 +150,12 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
     // Contact-only events — resolve contacts, don't create memory
     if (metadata.type === 'contact') {
-      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `[clean:contact-only] ${mid} — resolving contact without creating memory`);
+      this.addLog(
+        rawEvent.connectorType,
+        rawEvent.accountId,
+        'info',
+        `[clean:contact-only] ${mid} — resolving contact without creating memory`,
+      );
       try {
         const embedResult = await connector.embed(event, text, ctx);
         const buckets: Array<{ entityType: string; identifiers: IdentifierInput[] }> = [];
@@ -166,7 +178,10 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
           }
         }
         for (const { entityType, identifiers } of buckets) {
-          await this.contactsService.resolveContact(identifiers, entityType === 'person' ? undefined : entityType as any);
+          await this.contactsService.resolveContact(
+            identifiers,
+            entityType === 'person' ? undefined : (entityType as any),
+          );
         }
       } catch {
         // Contact resolution is best-effort
@@ -179,15 +194,21 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     const existing = await this.dbService.db
       .select({ id: memories.id })
       .from(memories)
-      .where(and(
-        eq(memories.sourceId, event.sourceId),
-        eq(memories.connectorType, rawEvent.connectorType),
-      ))
+      .where(
+        and(
+          eq(memories.sourceId, event.sourceId),
+          eq(memories.connectorType, rawEvent.connectorType),
+        ),
+      )
       .limit(1);
 
     if (existing.length) {
-      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `[clean:dedup] ${mid} — skipping duplicate source_id ${event.sourceId.slice(0, 30)}`);
+      this.addLog(
+        rawEvent.connectorType,
+        rawEvent.accountId,
+        'info',
+        `[clean:dedup] ${mid} — skipping duplicate source_id ${event.sourceId.slice(0, 30)}`,
+      );
       await this.advanceAndComplete(parentJobId);
       return;
     }
@@ -195,8 +216,12 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     // Check pipeline.embed flag
     const pipelineEmbed = connector.manifest.pipeline?.embed !== false;
     if (!pipelineEmbed) {
-      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `[clean:skip] ${mid} — pipeline.embed=false`);
+      this.addLog(
+        rawEvent.connectorType,
+        rawEvent.accountId,
+        'info',
+        `[clean:skip] ${mid} — pipeline.embed=false`,
+      );
       await this.advanceAndComplete(parentJobId);
       return;
     }
@@ -209,7 +234,10 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     );
   }
 
-  private parseEntityIdentifiers(entity: { type: string; id: string; role: string }, connectorType: string): IdentifierInput[] {
+  private parseEntityIdentifiers(
+    entity: { type: string; id: string; role: string },
+    connectorType: string,
+  ): IdentifierInput[] {
     const identifiers: IdentifierInput[] = [];
     const parts = entity.id.split('|');
     for (const part of parts) {
@@ -217,7 +245,11 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
       if (colonIdx === -1) {
         identifiers.push({ type: entity.type, value: part, connectorType });
       } else {
-        identifiers.push({ type: part.slice(0, colonIdx), value: part.slice(colonIdx + 1), connectorType });
+        identifiers.push({
+          type: part.slice(0, colonIdx),
+          value: part.slice(colonIdx + 1),
+          connectorType,
+        });
       }
     }
     return identifiers;
@@ -241,12 +273,17 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  private async buildPipelineContext(accountId: string, connectorType: string): Promise<PipelineContext> {
+  private async buildPipelineContext(
+    accountId: string,
+    connectorType: string,
+  ): Promise<PipelineContext> {
     let auth: any = {};
     try {
       const account = await this.accountsService.getById(accountId);
       if (account.authContext) auth = JSON.parse(account.authContext);
-    } catch {}
+    } catch {
+      /* empty */
+    }
     const logger: ConnectorLogger = {
       info: (msg) => this.addLog(connectorType, accountId, 'info', msg),
       warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg),
@@ -258,7 +295,20 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
   private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
     const stage = 'clean';
-    this.logsService.add({ connectorType, accountId: accountId ?? undefined, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
+    this.logsService.add({
+      connectorType,
+      accountId: accountId ?? undefined,
+      stage,
+      level,
+      message,
+    });
+    this.events.emitToChannel('logs', 'log', {
+      connectorType,
+      accountId,
+      stage,
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }

@@ -42,7 +42,10 @@ export abstract class BaseConnector extends EventEmitter {
   emitData(event: ConnectorDataEvent): boolean {
     if (BaseConnector.DEBUG_SYNC_LIMIT > 0 && this._emitCount >= BaseConnector.DEBUG_SYNC_LIMIT) {
       if (this._emitCount === BaseConnector.DEBUG_SYNC_LIMIT) {
-        this.log('warn', `DEBUG_SYNC_LIMIT reached (${BaseConnector.DEBUG_SYNC_LIMIT}), stopping sync`);
+        this.log(
+          'warn',
+          `DEBUG_SYNC_LIMIT reached (${BaseConnector.DEBUG_SYNC_LIMIT}), stopping sync`,
+        );
         this._abortController?.abort();
       }
       this._emitCount++;
@@ -77,12 +80,19 @@ export abstract class BaseConnector extends EventEmitter {
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-        .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'");
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'");
     }
     // Strip invisible Unicode: zero-width joiners/spaces, soft hyphens, etc.
-    text = text.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD\u034F\u061C\u180E\u2000-\u200F\u202A-\u202E\u2066-\u2069]/g, '');
+    // eslint-disable-next-line no-misleading-character-class -- intentionally matching combining/invisible codepoints
+    text = text.replace(
+      /[\u200B-\u200D\u2060\uFEFF\u00AD\u034F\u061C\u180E\u2000-\u200F\u202A-\u202E\u2066-\u2069]/gu,
+      '',
+    );
     // Strip tracking/encoded URLs (long URL-encoded strings)
     text = text.replace(/https?:\/\/\S*(?:click\?upn=|ls\/click|url\d+\.\S+\/ls\/)\S*/gi, '');
     // Collapse whitespace
@@ -91,9 +101,15 @@ export abstract class BaseConnector extends EventEmitter {
   }
 
   /** Prepare embedding data. Default: return text + participants as person entities. */
-  embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult | Promise<EmbedResult> {
-    const entities = (event.content?.participants || []).map(p => ({
-      type: 'person', id: p, role: 'participant',
+  embed(
+    event: ConnectorDataEvent,
+    cleanedText: string,
+    _ctx: PipelineContext,
+  ): EmbedResult | Promise<EmbedResult> {
+    const entities = (event.content?.participants || []).map((p) => ({
+      type: 'person',
+      id: p,
+      role: 'participant',
     }));
     return { text: cleanedText, entities };
   }

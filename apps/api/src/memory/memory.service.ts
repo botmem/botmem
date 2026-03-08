@@ -7,9 +7,17 @@ import { QdrantService } from './qdrant.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
-import { memories, memoryLinks, memoryContacts, contacts, contactIdentifiers, accounts, settings } from '../db/schema';
+import {
+  memories,
+  memoryLinks,
+  memoryContacts,
+  contacts,
+  contactIdentifiers,
+  accounts,
+  settings,
+} from '../db/schema';
 import { parseNlq } from './nlq-parser';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 const { removeStopwords } = require('stopword');
 
 interface SearchFilters {
@@ -21,8 +29,8 @@ interface SearchFilters {
   to?: string;
   userId?: string;
   memoryBankId?: string;
-  memoryBankIds?: string[];  // API key memory bank scoping
-  accountIds?: string[];     // User isolation — filter by user's accounts
+  memoryBankIds?: string[]; // API key memory bank scoping
+  accountIds?: string[]; // User isolation — filter by user's accounts
 }
 
 /** Strip accents/diacritics for fuzzy matching (amélie → amelie) */
@@ -81,8 +89,8 @@ export interface SearchResponse {
 function nameWordsMatch(contactName: string, candidateWords: string[]): boolean {
   if (!contactName) return false;
   const nameWords = stripAccents(contactName.toLowerCase()).split(/\s+/);
-  return candidateWords.every(cw =>
-    nameWords.some(nw => {
+  return candidateWords.every((cw) =>
+    nameWords.some((nw) => {
       if (nw === cw) return true;
       // Only allow prefix matching for longer candidates (5+ chars) with high coverage
       if (cw.length >= 5 && nw.startsWith(cw) && cw.length / nw.length >= 0.8) return true;
@@ -93,7 +101,8 @@ function nameWordsMatch(contactName: string, candidateWords: string[]): boolean 
 
 @Injectable()
 export class MemoryService {
-  private contactsCache: { data: { id: string; displayName: string }[]; expires: number } | null = null;
+  private contactsCache: { data: { id: string; displayName: string }[]; expires: number } | null =
+    null;
   private static CONTACTS_CACHE_TTL = 60_000; // 60s
 
   constructor(
@@ -121,7 +130,7 @@ export class MemoryService {
       .select({ id: accounts.id })
       .from(accounts)
       .where(eq(accounts.userId, userId));
-    return rows.map(r => r.id);
+    return rows.map((r) => r.id);
   }
 
   private async getCachedContacts(): Promise<{ id: string; displayName: string }[]> {
@@ -143,8 +152,13 @@ export class MemoryService {
     }
   }
 
-  private getWeights(connectorType: string): { semantic: number; recency: number; importance: number; trust: number } {
-    const defaults = { semantic: 0.40, recency: 0.25, importance: 0.20, trust: 0.15 };
+  private getWeights(connectorType: string): {
+    semantic: number;
+    recency: number;
+    importance: number;
+    trust: number;
+  } {
+    const defaults = { semantic: 0.4, recency: 0.25, importance: 0.2, trust: 0.15 };
     try {
       const w = this.connectors.get(connectorType).manifest.weights;
       return {
@@ -179,7 +193,7 @@ export class MemoryService {
     while (i < remaining.length) {
       let matched = false;
       for (let spanLen = remaining.length - i; spanLen >= 1; spanLen--) {
-        const candidateWords = remaining.slice(i, i + spanLen).map(w => stripAccents(w));
+        const candidateWords = remaining.slice(i, i + spanLen).map((w) => stripAccents(w));
 
         for (const c of allContacts) {
           if (!nameWordsMatch(c.displayName, candidateWords)) continue;
@@ -187,7 +201,7 @@ export class MemoryService {
           // portion of the name (avoid "car" matching "Nomi Car Lift")
           const nameWordCount = (c.displayName || '').trim().split(/\s+/).length;
           if (candidateWords.length === 1 && nameWordCount > 2) continue;
-          if (!resolved.some(r => r.id === c.id)) {
+          if (!resolved.some((r) => r.id === c.id)) {
             resolved.push(c);
           }
           for (let j = i; j < i + spanLen; j++) usedIndices.add(j);
@@ -202,15 +216,21 @@ export class MemoryService {
       if (!matched) i++;
     }
 
-    const topicWords = removeStopwords(
-      remaining.filter((_, idx) => !usedIndices.has(idx)),
-    );
-    const contactIds = resolved.map(c => c.id);
+    const topicWords = removeStopwords(remaining.filter((_, idx) => !usedIndices.has(idx)));
+    const contactIds = resolved.map((c) => c.id);
 
     return { contacts: resolved, topicWords, contactIds };
   }
 
-  async search(query: string, filters?: SearchFilters, limit = 20, rerank = false, userId?: string, memoryBankId?: string, memoryBankIds?: string[]): Promise<SearchResponse> {
+  async search(
+    query: string,
+    filters?: SearchFilters,
+    limit = 20,
+    rerank = false,
+    userId?: string,
+    memoryBankId?: string,
+    memoryBankIds?: string[],
+  ): Promise<SearchResponse> {
     if (!query.trim()) return { items: [], fallback: false };
 
     // --- User isolation: resolve account IDs ---
@@ -256,9 +276,11 @@ export class MemoryService {
       const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
       const qdrantResults = await this.qdrant.search(vector, effectiveLimit * 3, qdrantFilter);
       const linkedMemoryIds = new Set(
-        (await db.select({ memoryId: memoryContacts.memoryId })
-          .from(memoryContacts)
-          .where(eq(memoryContacts.contactId, effectiveFilters.contactId!))
+        (
+          await db
+            .select({ memoryId: memoryContacts.memoryId })
+            .from(memoryContacts)
+            .where(eq(memoryContacts.contactId, effectiveFilters.contactId!))
         ).map((r) => r.memoryId),
       );
       const results: SearchResult[] = [];
@@ -273,7 +295,9 @@ export class MemoryService {
       const sorted = results.sort((a, b) => b.score - a.score);
       // Fire afterSearch hook (fire-and-forget)
       void this.pluginRegistry.fireHook('afterSearch', {
-        query, resultCount: sorted.length, topScore: sorted[0]?.score,
+        query,
+        resultCount: sorted.length,
+        topScore: sorted[0]?.score,
       });
       return {
         items: sorted,
@@ -293,7 +317,7 @@ export class MemoryService {
     const queryLower = query.toLowerCase();
     const queryWords = queryLower
       .split(/\s+/)
-      .map(w => w.replace(/'s$/i, ''))
+      .map((w) => w.replace(/'s$/i, ''))
       .filter((w) => w.length >= 2);
 
     // Phase 1: Entity resolution (greedy multi-word span matching)
@@ -305,7 +329,11 @@ export class MemoryService {
     // Phase 2: Vector search (use clean query for embeddings, apply effectiveFilters)
     const vector = await this.ollama.embed(embeddingQuery);
     const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
-    const qdrantResults = await this.qdrant.search(vector, effectiveLimit * 2, Object.keys(qdrantFilter).length ? qdrantFilter : undefined);
+    const qdrantResults = await this.qdrant.search(
+      vector,
+      effectiveLimit * 2,
+      Object.keys(qdrantFilter).length ? qdrantFilter : undefined,
+    );
     const semanticScores = new Map<string, number>();
     for (const point of qdrantResults) semanticScores.set(point.id, point.score);
 
@@ -320,13 +348,11 @@ export class MemoryService {
         .select({ memoryId: memoryContacts.memoryId })
         .from(memoryContacts)
         .where(inArray(memoryContacts.contactId, contactIds));
-      const allContactMemoryIds = new Set(linked.map(r => r.memoryId));
+      const allContactMemoryIds = new Set(linked.map((r) => r.memoryId));
 
       if (hasTopics) {
         // Intersect: contact memories filtered by topic words
-        const topicConditions: any[] = [
-          inArray(memoryContacts.contactId, contactIds),
-        ];
+        const topicConditions: any[] = [inArray(memoryContacts.contactId, contactIds)];
         for (const tw of topicWords) {
           topicConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + tw + '%'}` as any);
         }
@@ -354,7 +380,7 @@ export class MemoryService {
       if (searchWords.length > 0) {
         try {
           // FTS5 query: each word as a prefix match, AND logic
-          const ftsQuery = searchWords.map(w => `"${w}"*`).join(' AND ');
+          const ftsQuery = searchWords.map((w) => `"${w}"*`).join(' AND ');
           const ftsMatches = this.dbService.sqlite
             .prepare('SELECT id FROM memories_fts WHERE memories_fts MATCH ? LIMIT ?')
             .all(ftsQuery, limit * 2) as { id: string }[];
@@ -365,10 +391,14 @@ export class MemoryService {
           for (const word of searchWords) {
             textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}` as any);
           }
-          if (effectiveFilters.sourceType) textConditions.push(eq(memories.sourceType, effectiveFilters.sourceType));
-          if (effectiveFilters.connectorType) textConditions.push(eq(memories.connectorType, effectiveFilters.connectorType));
-          if (effectiveFilters.from) textConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}` as any);
-          if (effectiveFilters.to) textConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}` as any);
+          if (effectiveFilters.sourceType)
+            textConditions.push(eq(memories.sourceType, effectiveFilters.sourceType));
+          if (effectiveFilters.connectorType)
+            textConditions.push(eq(memories.connectorType, effectiveFilters.connectorType));
+          if (effectiveFilters.from)
+            textConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}` as any);
+          if (effectiveFilters.to)
+            textConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}` as any);
           const textMatches = await db
             .select({ id: memories.id })
             .from(memories)
@@ -401,10 +431,12 @@ export class MemoryService {
         return {
           items: [],
           fallback: false,
-          resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
+          resolvedEntities: hasContacts
+            ? { contacts: resolvedContacts, topicWords, topicMatchCount }
+            : undefined,
           parsed: {
             temporal: nlq.temporal,
-            entities: resolvedContacts.map(c => ({ id: c.id, displayName: c.displayName })),
+            entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
             intent: nlq.intent,
             cleanQuery: nlq.cleanQuery,
             sourceType: nlq.sourceTypeHint ?? undefined,
@@ -414,12 +446,16 @@ export class MemoryService {
     }
 
     // Batch fetch all candidate rows in one query
-    const candidateRows: Array<{ id: string; row: { memory: typeof memories.$inferSelect; accountIdentifier: string | null } }> = [];
+    const candidateRows: Array<{
+      id: string;
+      row: { memory: typeof memories.$inferSelect; accountIdentifier: string | null };
+    }> = [];
     const batchRows = await this.fetchMemoryRowsBatch([...allCandidateIds]);
     for (const [id, row] of batchRows) {
       const mem = row.memory;
       if (effectiveFilters.sourceType && mem.sourceType !== effectiveFilters.sourceType) continue;
-      if (effectiveFilters.connectorType && mem.connectorType !== effectiveFilters.connectorType) continue;
+      if (effectiveFilters.connectorType && mem.connectorType !== effectiveFilters.connectorType)
+        continue;
       // Apply temporal filters in SQL-fetched rows
       if (effectiveFilters.from && mem.eventTime < effectiveFilters.from) continue;
       if (effectiveFilters.to && mem.eventTime > effectiveFilters.to) continue;
@@ -434,7 +470,7 @@ export class MemoryService {
       );
       const rerankCandidates = sortedCandidates.slice(0, 15);
       if (rerankCandidates.length > 0) {
-        const rerankTexts = rerankCandidates.map(c => c.row.memory.text);
+        const rerankTexts = rerankCandidates.map((c) => c.row.memory.text);
         const scores = await this.ollama.rerank(query, rerankTexts);
         for (let i = 0; i < rerankCandidates.length; i++) {
           rerankScores.set(rerankCandidates[i].id, scores[i]);
@@ -448,9 +484,14 @@ export class MemoryService {
       const semanticScore = semanticScores.get(id) ?? 0;
       const rerankScore = rerankScores.get(id) ?? 0;
       const textBoost = textMatchIds.has(id) ? 0.45 : 0;
-      const contactBoost = contactMatchIds.has(id) ? 0.40 : 0;
+      const contactBoost = contactMatchIds.has(id) ? 0.4 : 0;
 
-      const { score, weights } = this.computeWeights(semanticScore, rerankScore, row.memory, nlq.intent);
+      const { score, weights } = this.computeWeights(
+        semanticScore,
+        rerankScore,
+        row.memory,
+        nlq.intent,
+      );
       const boostedScore = Math.min(score + textBoost + contactBoost, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
@@ -469,35 +510,56 @@ export class MemoryService {
       delete fallbackFilters.from;
       delete fallbackFilters.to;
       const fallbackQdrantFilter = this.buildQdrantFilter(fallbackFilters);
-      const fallbackQdrantResults = await this.qdrant.search(vector, effectiveLimit * 2, Object.keys(fallbackQdrantFilter).length ? fallbackQdrantFilter : undefined);
-      const fallbackIds = new Set(fallbackQdrantResults.map(p => p.id));
+      const fallbackQdrantResults = await this.qdrant.search(
+        vector,
+        effectiveLimit * 2,
+        Object.keys(fallbackQdrantFilter).length ? fallbackQdrantFilter : undefined,
+      );
+      const fallbackIds = new Set(fallbackQdrantResults.map((p) => p.id));
       const fallbackBatch = await this.fetchMemoryRowsBatch([...fallbackIds]);
       const fallbackScores = new Map<string, number>();
       for (const p of fallbackQdrantResults) fallbackScores.set(p.id, p.score);
       const fallbackResults: SearchResult[] = [];
       for (const [fid, frow] of fallbackBatch) {
-        if (fallbackFilters.sourceType && frow.memory.sourceType !== fallbackFilters.sourceType) continue;
-        if (fallbackFilters.connectorType && frow.memory.connectorType !== fallbackFilters.connectorType) continue;
-        const { score, weights } = this.computeWeights(fallbackScores.get(fid) ?? 0, 0, frow.memory, nlq.intent);
+        if (fallbackFilters.sourceType && frow.memory.sourceType !== fallbackFilters.sourceType)
+          continue;
+        if (
+          fallbackFilters.connectorType &&
+          frow.memory.connectorType !== fallbackFilters.connectorType
+        )
+          continue;
+        const { score, weights } = this.computeWeights(
+          fallbackScores.get(fid) ?? 0,
+          0,
+          frow.memory,
+          nlq.intent,
+        );
         fallbackResults.push(this.toSearchResult(frow, score, weights));
       }
-      returnItems = fallbackResults.filter(r => r.score >= MIN_SCORE).sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
+      returnItems = fallbackResults
+        .filter((r) => r.score >= MIN_SCORE)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, effectiveLimit);
       temporalFallback = true;
     }
 
     // Fire afterSearch hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterSearch', {
-      query, resultCount: returnItems.length, topScore: returnItems[0]?.score,
+      query,
+      resultCount: returnItems.length,
+      topScore: returnItems[0]?.score,
     });
 
     return {
       items: returnItems,
       fallback: !hasExactMatches,
-      resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
+      resolvedEntities: hasContacts
+        ? { contacts: resolvedContacts, topicWords, topicMatchCount }
+        : undefined,
       parsed: {
         temporal: nlq.temporal,
         temporalFallback,
-        entities: resolvedContacts.map(c => ({ id: c.id, displayName: c.displayName })),
+        entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
         intent: nlq.intent,
         cleanQuery: nlq.cleanQuery,
         sourceType: nlq.sourceTypeHint ?? undefined,
@@ -514,8 +576,15 @@ export class MemoryService {
     return rows.length ? rows[0] : null;
   }
 
-  private async fetchMemoryRowsBatch(ids: string[]): Promise<Map<string, { memory: typeof memories.$inferSelect; accountIdentifier: string | null }>> {
-    const result = new Map<string, { memory: typeof memories.$inferSelect; accountIdentifier: string | null }>();
+  private async fetchMemoryRowsBatch(
+    ids: string[],
+  ): Promise<
+    Map<string, { memory: typeof memories.$inferSelect; accountIdentifier: string | null }>
+  > {
+    const result = new Map<
+      string,
+      { memory: typeof memories.$inferSelect; accountIdentifier: string | null }
+    >();
     if (!ids.length) return result;
     // SQLite has a variable limit (~999), batch in chunks
     for (let i = 0; i < ids.length; i += 500) {
@@ -557,23 +626,22 @@ export class MemoryService {
   }
 
   async getById(id: string) {
-    const rows = await this.dbService.db
-      .select()
-      .from(memories)
-      .where(eq(memories.id, id));
+    const rows = await this.dbService.db.select().from(memories).where(eq(memories.id, id));
     return rows.length ? this.crypto.decryptMemoryFields(rows[0]) : null;
   }
 
-  async list(params: {
-    limit?: number;
-    offset?: number;
-    connectorType?: string;
-    sourceType?: string;
-    sortBy?: 'eventTime' | 'ingestTime';
-    userId?: string;
-    memoryBankId?: string;
-    memoryBankIds?: string[];
-  } = {}) {
+  async list(
+    params: {
+      limit?: number;
+      offset?: number;
+      connectorType?: string;
+      sourceType?: string;
+      sortBy?: 'eventTime' | 'ingestTime';
+      userId?: string;
+      memoryBankId?: string;
+      memoryBankIds?: string[];
+    } = {},
+  ) {
     const db = this.dbService.db;
     const limit = params.limit || 50;
     const offset = params.offset || 0;
@@ -583,9 +651,7 @@ export class MemoryService {
     const userAccountIds = await this.getUserAccountIds(params.userId);
 
     // Show memories as soon as embedding is done
-    const conditions: any[] = [
-      eq(memories.embeddingStatus, 'done'),
-    ];
+    const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return { items: [], total: 0 };
       conditions.push(inArray(memories.accountId, userAccountIds));
@@ -604,10 +670,14 @@ export class MemoryService {
 
     const where = and(...conditions)!;
 
-    const totalRows = await db.select({ count: sql<number>`COUNT(*)` }).from(memories).where(where);
+    const totalRows = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(memories)
+      .where(where);
     const total = totalRows[0]?.count || 0;
 
-    const itemsQuery = db.select({ memory: memories, accountIdentifier: accounts.identifier })
+    const itemsQuery = db
+      .select({ memory: memories, accountIdentifier: accounts.identifier })
       .from(memories)
       .leftJoin(accounts, eq(memories.accountId, accounts.id))
       .where(where)
@@ -615,7 +685,10 @@ export class MemoryService {
       .limit(limit)
       .offset(offset);
     const rows = await itemsQuery;
-    const items = rows.map((r) => ({ ...this.crypto.decryptMemoryFields(r.memory), accountIdentifier: r.accountIdentifier }));
+    const items = rows.map((r) => ({
+      ...this.crypto.decryptMemoryFields(r.memory),
+      accountIdentifier: r.accountIdentifier,
+    }));
 
     return { items, total };
   }
@@ -644,7 +717,14 @@ export class MemoryService {
       createdAt: now,
     });
 
-    return { id, text: data.text, sourceType: data.sourceType, connectorType: data.connectorType, eventTime: now, createdAt: now };
+    return {
+      id,
+      text: data.text,
+      sourceType: data.sourceType,
+      connectorType: data.connectorType,
+      eventTime: now,
+      createdAt: now,
+    };
   }
 
   async delete(id: string) {
@@ -662,7 +742,8 @@ export class MemoryService {
     const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
     // User isolation
     if (userAccountIds !== null) {
-      if (userAccountIds.length === 0) return { total: 0, bySource: {}, byConnector: {}, byFactuality: {} };
+      if (userAccountIds.length === 0)
+        return { total: 0, bySource: {}, byConnector: {}, byFactuality: {} };
       conditions.push(inArray(memories.accountId, userAccountIds));
     }
     // Memory bank scoping for stats — if memoryBankIds provided (API key), filter by those banks
@@ -710,7 +791,13 @@ export class MemoryService {
     return { total, bySource, byConnector, byFactuality };
   }
 
-  async getGraphData(limit = 500, _linkLimit = 2000, userId?: string, memoryBankId?: string, memoryBankIds?: string[]) {
+  async getGraphData(
+    limit = 500,
+    _linkLimit = 2000,
+    userId?: string,
+    memoryBankId?: string,
+    memoryBankIds?: string[],
+  ) {
     const db = this.dbService.db;
     const userAccountIds = await this.getUserAccountIds(userId);
 
@@ -725,7 +812,8 @@ export class MemoryService {
     } else if (memoryBankIds?.length) {
       memoryBankConditions.push(inArray(memories.memoryBankId, memoryBankIds));
     }
-    const memoryBankFilter = memoryBankConditions.length > 1 ? and(...memoryBankConditions)! : memoryBankConditions[0];
+    const memoryBankFilter =
+      memoryBankConditions.length > 1 ? and(...memoryBankConditions)! : memoryBankConditions[0];
 
     // Fetch user's recent memories first (user-scoped)
     const recentMemories = await db
@@ -739,10 +827,13 @@ export class MemoryService {
 
     // Fetch links only for user's memories (batched)
     const memoryIdList = [...memoryIds];
-    let allLinks: Array<typeof memoryLinks.$inferSelect> = [];
+    const allLinks: Array<typeof memoryLinks.$inferSelect> = [];
     for (let i = 0; i < memoryIdList.length; i += 500) {
       const batch = memoryIdList.slice(i, i + 500);
-      const srcLinks = await db.select().from(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch));
+      const srcLinks = await db
+        .select()
+        .from(memoryLinks)
+        .where(inArray(memoryLinks.srcMemoryId, batch));
       allLinks.push(...srcLinks);
     }
 
@@ -752,16 +843,22 @@ export class MemoryService {
       if (!memoryIds.has(link.dstMemoryId)) linkedIdSet.add(link.dstMemoryId);
     }
     const missingLinkedIds = [...linkedIdSet];
-    const linkedMemories: Array<typeof recentMemories[0]> = [];
+    const linkedMemories: Array<(typeof recentMemories)[0]> = [];
     for (let i = 0; i < missingLinkedIds.length; i += 100) {
       const batch = missingLinkedIds.slice(i, i + 100);
       if (!batch.length) break;
       // Apply user isolation to linked memories too
-      const linkedConditions: any[] = [inArray(memories.id, batch), eq(memories.embeddingStatus, 'done')];
+      const linkedConditions: any[] = [
+        inArray(memories.id, batch),
+        eq(memories.embeddingStatus, 'done'),
+      ];
       if (userAccountIds !== null && userAccountIds.length > 0) {
         linkedConditions.push(inArray(memories.accountId, userAccountIds));
       }
-      const rows = await db.select().from(memories).where(and(...linkedConditions));
+      const rows = await db
+        .select()
+        .from(memories)
+        .where(and(...linkedConditions));
       linkedMemories.push(...rows);
     }
 
@@ -774,10 +871,13 @@ export class MemoryService {
 
     // Fetch contacts and identifiers — scope to user's memories only
     const memoryIdArray = [...memoryIds];
-    let allMemoryContacts: Array<typeof memoryContacts.$inferSelect> = [];
+    const allMemoryContacts: Array<typeof memoryContacts.$inferSelect> = [];
     for (let i = 0; i < memoryIdArray.length; i += 500) {
       const batch = memoryIdArray.slice(i, i + 500);
-      const rows = await db.select().from(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
+      const rows = await db
+        .select()
+        .from(memoryContacts)
+        .where(inArray(memoryContacts.memoryId, batch));
       allMemoryContacts.push(...rows);
     }
     const relevantMemoryContacts = allMemoryContacts;
@@ -785,31 +885,44 @@ export class MemoryService {
     const relevantContactIdSet = new Set(relevantMemoryContacts.map((mc) => mc.contactId));
 
     // Always include self-contact in the graph
-    const selfRow = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'selfContactId')).limit(1);
+    const selfRow = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'selfContactId'))
+      .limit(1);
     const selfContactId = selfRow[0]?.value;
     if (selfContactId) {
       relevantContactIdSet.add(selfContactId);
       // Add all self-contact memory links as edges (even if memory isn't in graph slice)
-      const selfLinks = allMemoryContacts.filter((mc) => mc.contactId === selfContactId && memoryIds.has(mc.memoryId));
+      const selfLinks = allMemoryContacts.filter(
+        (mc) => mc.contactId === selfContactId && memoryIds.has(mc.memoryId),
+      );
       for (const sl of selfLinks) {
-        if (!relevantMemoryContacts.some((mc) => mc.memoryId === sl.memoryId && mc.contactId === sl.contactId)) {
+        if (
+          !relevantMemoryContacts.some(
+            (mc) => mc.memoryId === sl.memoryId && mc.contactId === sl.contactId,
+          )
+        ) {
           relevantMemoryContacts.push(sl);
         }
       }
     }
 
     const contactIdArray = [...relevantContactIdSet];
-    let relevantContacts: Array<typeof contacts.$inferSelect> = [];
+    const relevantContacts: Array<typeof contacts.$inferSelect> = [];
     for (let i = 0; i < contactIdArray.length; i += 500) {
       const batch = contactIdArray.slice(i, i + 500);
       const rows = await db.select().from(contacts).where(inArray(contacts.id, batch));
       relevantContacts.push(...rows);
     }
 
-    let relevantIdentifiers: Array<typeof contactIdentifiers.$inferSelect> = [];
+    const relevantIdentifiers: Array<typeof contactIdentifiers.$inferSelect> = [];
     for (let i = 0; i < contactIdArray.length; i += 500) {
       const batch = contactIdArray.slice(i, i + 500);
-      const rows = await db.select().from(contactIdentifiers).where(inArray(contactIdentifiers.contactId, batch));
+      const rows = await db
+        .select()
+        .from(contactIdentifiers)
+        .where(inArray(contactIdentifiers.contactId, batch));
       relevantIdentifiers.push(...rows);
     }
 
@@ -820,12 +933,22 @@ export class MemoryService {
     const memoryNodes = allMemories.map((raw) => {
       const m = this.crypto.decryptMemoryFields(raw);
       let entities: any[] = [];
-      try { entities = JSON.parse(m.entities); } catch {}
+      try {
+        entities = JSON.parse(m.entities);
+      } catch {
+        /* empty */
+      }
 
       let factLabel = 'UNVERIFIED';
-      try { factLabel = JSON.parse(m.factuality).label; } catch {}
+      try {
+        factLabel = JSON.parse(m.factuality).label;
+      } catch {
+        /* empty */
+      }
 
-      const dominantEntity = entities.find((e: any) => (e.type === 'person' || e.type === 'organization') && e.value);
+      const dominantEntity = entities.find(
+        (e: any) => (e.type === 'person' || e.type === 'organization') && e.value,
+      );
       let cluster = 0;
       if (dominantEntity) {
         const key = String(dominantEntity.value).toLowerCase();
@@ -835,13 +958,24 @@ export class MemoryService {
 
       const trust = this.getTrustScore(m.connectorType);
       const importance = Math.min(0.3 + entities.length * 0.1 + trust * 0.3, 1.0);
-      const entityNames = entities.map((e: any) => e.value || '').filter(Boolean).slice(0, 5);
+      const entityNames = entities
+        .map((e: any) => e.value || '')
+        .filter(Boolean)
+        .slice(0, 5);
 
       let weights: Record<string, number> = {};
-      try { weights = JSON.parse(m.weights); } catch {}
+      try {
+        weights = JSON.parse(m.weights);
+      } catch {
+        /* empty */
+      }
 
       let metadata: Record<string, unknown> = {};
-      try { metadata = JSON.parse(m.metadata); } catch {}
+      try {
+        metadata = JSON.parse(m.metadata);
+      } catch {
+        /* empty */
+      }
 
       return {
         id: m.id,
@@ -876,7 +1010,12 @@ export class MemoryService {
       if (entityClusters.has(nameKey)) cluster = entityClusters.get(nameKey)!;
 
       const entityType = (c as any).entityType || 'person';
-      const nodeType = entityType === 'group' ? 'group' as const : entityType === 'device' ? 'device' as const : 'contact' as const;
+      const nodeType =
+        entityType === 'group'
+          ? ('group' as const)
+          : entityType === 'device'
+            ? ('device' as const)
+            : ('contact' as const);
 
       return {
         id: `contact-${c.id}`,
@@ -911,11 +1050,18 @@ export class MemoryService {
 
     // Build file/attachment nodes from memories in the current graph slice.
     // Extract from already-decrypted allMemories to avoid json_extract on encrypted metadata.
-    const fileCounts = new Map<string, { count: number; mimeType: string; connectorType: string }>();
+    const fileCounts = new Map<
+      string,
+      { count: number; mimeType: string; connectorType: string }
+    >();
     for (const raw of allMemories) {
       const m = this.crypto.decryptMemoryFields(raw);
       let meta: any = {};
-      try { meta = JSON.parse(m.metadata); } catch { continue; }
+      try {
+        meta = JSON.parse(m.metadata);
+      } catch {
+        continue;
+      }
       const atts = meta.attachments as Array<{ filename?: string; mimeType?: string }> | undefined;
       if (!atts) continue;
       for (const att of atts) {
@@ -925,7 +1071,11 @@ export class MemoryService {
         if (existing) {
           existing.count++;
         } else {
-          fileCounts.set(name, { count: 1, mimeType: att.mimeType || 'unknown', connectorType: m.connectorType });
+          fileCounts.set(name, {
+            count: 1,
+            mimeType: att.mimeType || 'unknown',
+            connectorType: m.connectorType,
+          });
         }
       }
     }
@@ -956,7 +1106,11 @@ export class MemoryService {
     const fileEdges: typeof edges = [];
     for (const m of allMemories) {
       let meta: any = {};
-      try { meta = JSON.parse(this.crypto.decrypt(m.metadata) ?? m.metadata); } catch { continue; }
+      try {
+        meta = JSON.parse(this.crypto.decrypt(m.metadata) ?? m.metadata);
+      } catch {
+        continue;
+      }
       const attachments = meta.attachments as Array<{ filename?: string }> | undefined;
       if (!attachments?.length) continue;
       for (const att of attachments) {
@@ -989,17 +1143,36 @@ export class MemoryService {
     const mem = this.crypto.decryptMemoryFields(rawMem);
 
     let entities: any[] = [];
-    try { entities = JSON.parse(mem.entities); } catch {}
+    try {
+      entities = JSON.parse(mem.entities);
+    } catch {
+      /* empty */
+    }
     let factLabel = 'UNVERIFIED';
-    try { factLabel = JSON.parse(mem.factuality).label; } catch {}
+    try {
+      factLabel = JSON.parse(mem.factuality).label;
+    } catch {
+      /* empty */
+    }
     let weights: Record<string, number> = {};
-    try { weights = JSON.parse(mem.weights); } catch {}
+    try {
+      weights = JSON.parse(mem.weights);
+    } catch {
+      /* empty */
+    }
     let metadata: Record<string, unknown> = {};
-    try { metadata = JSON.parse(mem.metadata); } catch {}
+    try {
+      metadata = JSON.parse(mem.metadata);
+    } catch {
+      /* empty */
+    }
 
     const trust = this.getTrustScore(mem.connectorType);
     const importance = Math.min(0.3 + entities.length * 0.1 + trust * 0.3, 1.0);
-    const entityNames = entities.map((e: any) => e.value || '').filter(Boolean).slice(0, 5);
+    const entityNames = entities
+      .map((e: any) => e.value || '')
+      .filter(Boolean)
+      .slice(0, 5);
 
     const node = {
       id: mem.id,
@@ -1018,8 +1191,12 @@ export class MemoryService {
     };
 
     // Links from/to this memory
-    const links = await db.select().from(memoryLinks)
-      .where(sql`${memoryLinks.srcMemoryId} = ${memoryId} OR ${memoryLinks.dstMemoryId} = ${memoryId}`);
+    const links = await db
+      .select()
+      .from(memoryLinks)
+      .where(
+        sql`${memoryLinks.srcMemoryId} = ${memoryId} OR ${memoryLinks.dstMemoryId} = ${memoryId}`,
+      );
     const graphLinks = links.map((l) => ({
       source: l.srcMemoryId,
       target: l.dstMemoryId,
@@ -1028,7 +1205,10 @@ export class MemoryService {
     }));
 
     // Contact associations
-    const mcRows = await db.select().from(memoryContacts).where(eq(memoryContacts.memoryId, memoryId));
+    const mcRows = await db
+      .select()
+      .from(memoryContacts)
+      .where(eq(memoryContacts.memoryId, memoryId));
     const contactIds = mcRows.map((mc) => mc.contactId);
     const contactNodes: any[] = [];
     const contactEdges = mcRows.map((mc) => ({
@@ -1040,7 +1220,10 @@ export class MemoryService {
 
     if (contactIds.length) {
       const contactRows = await db.select().from(contacts).where(inArray(contacts.id, contactIds));
-      const identRows = await db.select().from(contactIdentifiers).where(inArray(contactIdentifiers.contactId, contactIds));
+      const identRows = await db
+        .select()
+        .from(contactIdentifiers)
+        .where(inArray(contactIdentifiers.contactId, contactIds));
       const identByContact = new Map<string, string[]>();
       for (const i of identRows) {
         const list = identByContact.get(i.contactId) || [];
@@ -1050,7 +1233,12 @@ export class MemoryService {
       for (const c of contactRows) {
         const connectors = [...new Set(identByContact.get(c.id) || [])];
         const entityType = (c as any).entityType || 'person';
-        const nodeType = entityType === 'group' ? 'group' as const : entityType === 'device' ? 'device' as const : 'contact' as const;
+        const nodeType =
+          entityType === 'group'
+            ? ('group' as const)
+            : entityType === 'device'
+              ? ('device' as const)
+              : ('contact' as const);
         contactNodes.push({
           id: `contact-${c.id}`,
           label: c.displayName || 'Unknown',
@@ -1074,9 +1262,21 @@ export class MemoryService {
     };
   }
 
-  private computeWeights(semanticScore: number, rerankScore: number, mem: any, intent?: 'recall' | 'browse' | 'find'): {
+  private computeWeights(
+    semanticScore: number,
+    rerankScore: number,
+    mem: any,
+    intent?: 'recall' | 'browse' | 'find',
+  ): {
     score: number;
-    weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
+    weights: {
+      semantic: number;
+      rerank: number;
+      recency: number;
+      importance: number;
+      trust: number;
+      final: number;
+    };
   } {
     const isPinned = mem.pinned === 1;
     const recallCount = mem.recallCount || 0;
@@ -1088,7 +1288,9 @@ export class MemoryService {
     let entityCount = 0;
     try {
       entityCount = JSON.parse(mem.entities).length;
-    } catch {}
+    } catch {
+      /* empty */
+    }
     // Base importance + recall boost (capped at +0.2)
     const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
     const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
@@ -1099,13 +1301,23 @@ export class MemoryService {
     // Browse intent boosts recency weight significantly.
     let final: number;
     if (intent === 'browse') {
-      final = rerankScore > 0
-        ? 0.25 * semanticScore + 0.20 * rerankScore + 0.40 * recency + 0.10 * importance + 0.05 * trust
-        : 0.40 * semanticScore + 0.40 * recency + 0.15 * importance + 0.05 * trust;
+      final =
+        rerankScore > 0
+          ? 0.25 * semanticScore +
+            0.2 * rerankScore +
+            0.4 * recency +
+            0.1 * importance +
+            0.05 * trust
+          : 0.4 * semanticScore + 0.4 * recency + 0.15 * importance + 0.05 * trust;
     } else {
-      final = rerankScore > 0
-        ? 0.40 * semanticScore + 0.30 * rerankScore + 0.15 * recency + 0.10 * importance + 0.05 * trust
-        : 0.70 * semanticScore + 0.15 * recency + 0.10 * importance + 0.05 * trust;
+      final =
+        rerankScore > 0
+          ? 0.4 * semanticScore +
+            0.3 * rerankScore +
+            0.15 * recency +
+            0.1 * importance +
+            0.05 * trust
+          : 0.7 * semanticScore + 0.15 * recency + 0.1 * importance + 0.05 * trust;
     }
 
     // Scorer plugin bonus (clamped to +/-0.05, averaged across plugins)
@@ -1113,7 +1325,17 @@ export class MemoryService {
     if (scorers.length > 0) {
       let pluginBonus = 0;
       for (const scorer of scorers) {
-        try { pluginBonus += scorer.score(mem, { semantic: semanticScore, rerank: rerankScore, recency, importance, trust }); } catch { /* ignore */ }
+        try {
+          pluginBonus += scorer.score(mem, {
+            semantic: semanticScore,
+            rerank: rerankScore,
+            recency,
+            importance,
+            trust,
+          });
+        } catch {
+          /* ignore */
+        }
       }
       pluginBonus = Math.max(-0.05, Math.min(0.05, pluginBonus / scorers.length));
       final = Math.max(0, Math.min(1, final + pluginBonus));
@@ -1167,13 +1389,19 @@ export class MemoryService {
       conditions.push(eq(memories.sourceType, params.sourceType));
     }
     if (params.query) {
-      const words = params.query.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+      const words = params.query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length >= 2);
       for (const word of words) {
         conditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}`);
       }
     }
 
-    const totalRows = await db.select({ count: sql<number>`COUNT(*)` }).from(memories).where(and(...conditions)!);
+    const totalRows = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(memories)
+      .where(and(...conditions)!);
     const total = totalRows[0]?.count || 0;
 
     const rows = await db
@@ -1184,7 +1412,7 @@ export class MemoryService {
       .orderBy(sql`${memories.eventTime} ASC`)
       .limit(limit);
 
-    const items = rows.map(r => ({ ...r.memory, accountIdentifier: r.accountIdentifier }));
+    const items = rows.map((r) => ({ ...r.memory, accountIdentifier: r.accountIdentifier }));
     return { items, total };
   }
 
@@ -1196,8 +1424,14 @@ export class MemoryService {
 
     // 1. Direct graph links (memoryLinks table)
     const linkedIds = new Set<string>();
-    const outLinks = await db.select().from(memoryLinks).where(eq(memoryLinks.srcMemoryId, memoryId));
-    const inLinks = await db.select().from(memoryLinks).where(eq(memoryLinks.dstMemoryId, memoryId));
+    const outLinks = await db
+      .select()
+      .from(memoryLinks)
+      .where(eq(memoryLinks.srcMemoryId, memoryId));
+    const inLinks = await db
+      .select()
+      .from(memoryLinks)
+      .where(eq(memoryLinks.dstMemoryId, memoryId));
     for (const l of [...outLinks, ...inLinks]) {
       linkedIds.add(l.srcMemoryId === memoryId ? l.dstMemoryId : l.srcMemoryId);
     }
@@ -1211,7 +1445,7 @@ export class MemoryService {
       .select({ contactId: memoryContacts.contactId })
       .from(memoryContacts)
       .where(eq(memoryContacts.memoryId, memoryId));
-    const contactIdList = contactLinks.map(c => c.contactId);
+    const contactIdList = contactLinks.map((c) => c.contactId);
 
     if (contactIdList.length > 0) {
       const coMemories = await db
@@ -1235,8 +1469,9 @@ export class MemoryService {
       const mem = row.memory;
 
       // Score by: graph link > vector similarity > contact co-occurrence
-      const graphLink = outLinks.some(l => l.dstMemoryId === id) || inLinks.some(l => l.srcMemoryId === id);
-      const vectorScore = recommended.find(r => r.id === id)?.score ?? 0;
+      const graphLink =
+        outLinks.some((l) => l.dstMemoryId === id) || inLinks.some((l) => l.srcMemoryId === id);
+      const vectorScore = recommended.find((r) => r.id === id)?.score ?? 0;
       const score = (graphLink ? 0.5 : 0) + vectorScore * 0.3 + 0.2;
 
       items.push({
@@ -1257,7 +1492,18 @@ export class MemoryService {
 
   /** Canonical entity types */
   getEntityTypes(): string[] {
-    return ['person', 'organization', 'location', 'event', 'product', 'topic', 'pet', 'group', 'device', 'other'];
+    return [
+      'person',
+      'organization',
+      'location',
+      'event',
+      'product',
+      'topic',
+      'pet',
+      'group',
+      'device',
+      'other',
+    ];
   }
 
   /** Phase 10: Search entities across all memories */
@@ -1275,18 +1521,33 @@ export class MemoryService {
         eventTime: memories.eventTime,
       })
       .from(memories)
-      .where(and(
-        eq(memories.embeddingStatus, 'done'),
-        sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
-      ))
+      .where(
+        and(
+          eq(memories.embeddingStatus, 'done'),
+          sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
+        ),
+      )
       .limit(limit * 5);
 
     // Extract and aggregate matching entities
-    const entityMap = new Map<string, { value: string; type: string; memoryCount: number; memoryIds: string[]; connectors: Set<string> }>();
+    const entityMap = new Map<
+      string,
+      {
+        value: string;
+        type: string;
+        memoryCount: number;
+        memoryIds: string[];
+        connectors: Set<string>;
+      }
+    >();
 
     for (const row of rows) {
       let entities: any[] = [];
-      try { entities = JSON.parse(row.entities); } catch { continue; }
+      try {
+        entities = JSON.parse(row.entities);
+      } catch {
+        continue;
+      }
 
       for (const e of entities) {
         const value = e.value || e.name || e.id;
@@ -1313,12 +1574,12 @@ export class MemoryService {
     // Filter by type if specified
     let entries = [...entityMap.values()];
     if (types && types.length > 0) {
-      const typeSet = new Set(types.map(t => t.toLowerCase()));
-      entries = entries.filter(e => typeSet.has(e.type.toLowerCase()));
+      const typeSet = new Set(types.map((t) => t.toLowerCase()));
+      entries = entries.filter((e) => typeSet.has(e.type.toLowerCase()));
     }
 
     const entities = entries
-      .map(e => ({ ...e, connectors: [...e.connectors] }))
+      .map((e) => ({ ...e, connectors: [...e.connectors] }))
       .sort((a, b) => b.memoryCount - a.memoryCount)
       .slice(0, limit);
 
@@ -1341,18 +1602,24 @@ export class MemoryService {
         eventTime: memories.eventTime,
       })
       .from(memories)
-      .where(and(
-        eq(memories.embeddingStatus, 'done'),
-        sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
-      ))
+      .where(
+        and(
+          eq(memories.embeddingStatus, 'done'),
+          sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
+        ),
+      )
       .orderBy(sql`${memories.eventTime} DESC`)
       .limit(limit);
 
     // Collect co-occurring entities
     const coEntities = new Map<string, { value: string; type: string; count: number }>();
-    const memoryItems = rows.map(row => {
+    const memoryItems = rows.map((row) => {
       let entities: any[] = [];
-      try { entities = JSON.parse(row.entities); } catch {}
+      try {
+        entities = JSON.parse(row.entities);
+      } catch {
+        /* empty */
+      }
 
       for (const e of entities) {
         const val = e.value || e.name || e.id;
@@ -1360,8 +1627,11 @@ export class MemoryService {
         const key = `${e.type}:${String(val).toLowerCase()}`;
         if (String(val).toLowerCase() === queryLower) continue;
         const existing = coEntities.get(key);
-        if (existing) { existing.count++; }
-        else { coEntities.set(key, { value: String(val), type: e.type, count: 1 }); }
+        if (existing) {
+          existing.count++;
+        } else {
+          coEntities.set(key, { value: String(val), type: e.type, count: 1 });
+        }
       }
 
       return {
@@ -1373,9 +1643,7 @@ export class MemoryService {
       };
     });
 
-    const relatedEntities = [...coEntities.values()]
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 20);
+    const relatedEntities = [...coEntities.values()].sort((a, b) => b.count - a.count).slice(0, 20);
 
     // Also check contacts matching this entity
     const matchingContacts = await db

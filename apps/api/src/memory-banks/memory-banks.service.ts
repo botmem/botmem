@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { memoryBanks, memories, memoryLinks, memoryContacts } from '../db/schema';
+import { memoryBanks } from '../db/schema';
 import { QdrantService } from '../memory/qdrant.service';
 
 @Injectable()
@@ -86,12 +86,24 @@ export class MemoryBanksService {
       for (let i = 0; i < memoryIds.length; i += 500) {
         const batch = memoryIds.slice(i, i + 500);
         const placeholders = batch.map(() => '?').join(',');
-        this.dbService.sqlite.prepare(`DELETE FROM memory_contacts WHERE memory_id IN (${placeholders})`).run(...batch);
-        this.dbService.sqlite.prepare(`DELETE FROM memory_links WHERE src_memory_id IN (${placeholders}) OR dst_memory_id IN (${placeholders})`).run(...batch, ...batch);
-        this.dbService.sqlite.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...batch);
+        this.dbService.sqlite
+          .prepare(`DELETE FROM memory_contacts WHERE memory_id IN (${placeholders})`)
+          .run(...batch);
+        this.dbService.sqlite
+          .prepare(
+            `DELETE FROM memory_links WHERE src_memory_id IN (${placeholders}) OR dst_memory_id IN (${placeholders})`,
+          )
+          .run(...batch, ...batch);
+        this.dbService.sqlite
+          .prepare(`DELETE FROM memories WHERE id IN (${placeholders})`)
+          .run(...batch);
         // Remove from Qdrant
         for (const id of batch) {
-          try { await this.qdrant.remove(id); } catch { /* best-effort */ }
+          try {
+            await this.qdrant.remove(id);
+          } catch {
+            /* best-effort */
+          }
         }
       }
     }
@@ -125,13 +137,15 @@ export class MemoryBanksService {
   /** Get memory count per memory bank */
   async getMemoryCounts(userId: string): Promise<Record<string, number>> {
     const rows = this.dbService.sqlite
-      .prepare(`
+      .prepare(
+        `
         SELECT b.id, COUNT(m.id) as count
         FROM memory_banks b
         LEFT JOIN memories m ON m.memory_bank_id = b.id
         WHERE b.user_id = ?
         GROUP BY b.id
-      `)
+      `,
+      )
       .all(userId) as { id: string; count: number }[];
     const counts: Record<string, number> = {};
     for (const row of rows) counts[row.id] = row.count;
