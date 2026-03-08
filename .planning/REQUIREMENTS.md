@@ -11,7 +11,7 @@
 - [ ] **AUTH-01**: Register with email + password (bcrypt hash, minimum 8 chars)
 - [ ] **AUTH-02**: Login → JWT access token (15min) + httpOnly refresh cookie (7d)
 - [ ] **AUTH-03**: Refresh access token via `POST /auth/refresh` using refresh cookie
-- [ ] **AUTH-04**: Password reset via email link (cryptographic token, 1hr expiry)
+- [x] **AUTH-04**: Password reset via email link (cryptographic token, 1hr expiry)
 - [ ] **AUTH-05**: Session persistence via refresh token rotation (old token invalidated on use)
 
 ### Firebase Auth (Prod-Core)
@@ -80,7 +80,7 @@
 | AUTH-01 | Phase 16 | Pending |
 | AUTH-02 | Phase 16 | Pending |
 | AUTH-03 | Phase 16 | Pending |
-| AUTH-04 | Phase 16 | Pending |
+| AUTH-04 | Phase 16 | Complete |
 | AUTH-05 | Phase 16 | Pending |
 | SEC-01 | Phase 17 | Pending |
 | SEC-02 | Phase 17 | Pending |

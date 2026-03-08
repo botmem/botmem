@@ -197,7 +197,7 @@ Phase 10: Source Citations (deferred)
 
 Plans:
 - [ ] 16-01-PLAN.md -- Backend auth infrastructure: schema, JWT, register/login/refresh/logout
-- [ ] 16-02-PLAN.md -- Password reset infrastructure: passwordResets table, MailService
+- [x] 16-02-PLAN.md -- Password reset infrastructure: passwordResets table, MailService
 - [ ] 16-03-PLAN.md -- Frontend auth rewrite + password reset endpoints wiring
 
 ### Phase 17: API Security
@@ -326,7 +326,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. NLQ Parsing | v1.4 | 2/2 | Complete | 2026-03-08 |
 | 10. Source Citations | v1.4 | 0/? | Deferred | - |
 | 11. Repo & Infrastructure | v2.0 | 3/3 | Complete | 2026-03-08 |
-| 16. User Authentication | v2.0 | 0/3 | Planning | - |
+| 16. User Authentication | v2.0 | 1/3 | In Progress | - |
 | 17. API Security | v2.0 | 0/? | Not started | - |
 | 18. API Keys | v2.0 | 0/? | Not started | - |
 | 19. Memory Banks | v2.0 | 0/? | Not started | - |
