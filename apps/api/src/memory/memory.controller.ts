@@ -1,8 +1,19 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, Res, HttpStatus, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Query,
+  Body,
+  Res,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { MemoryService, SearchResult } from './memory.service';
+import { MemoryService } from './memory.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { OllamaService } from './ollama.service';
@@ -35,7 +46,12 @@ export class MemoryController {
 
   @Get('queue-status')
   async getQueueStatus() {
-    const queues = { clean: this.cleanQueue, embed: this.embedQueue, enrich: this.enrichQueue, backfill: this.backfillQueue };
+    const queues = {
+      clean: this.cleanQueue,
+      embed: this.embedQueue,
+      enrich: this.enrichQueue,
+      backfill: this.backfillQueue,
+    };
     const status: Record<string, unknown> = {};
     for (const [name, queue] of Object.entries(queues)) {
       const [waiting, active, failed, delayed, completed] = await Promise.all([
@@ -90,7 +106,11 @@ export class MemoryController {
 
     // Find failed and stuck pending memories
     const failed = await db
-      .select({ id: memories.id, sourceId: memories.sourceId, connectorType: memories.connectorType })
+      .select({
+        id: memories.id,
+        sourceId: memories.sourceId,
+        connectorType: memories.connectorType,
+      })
       .from(memories)
       .where(sql`${memories.embeddingStatus} IN ('failed', 'pending')`)
       .limit(batchLimit);
@@ -110,9 +130,11 @@ export class MemoryController {
 
         if (!rawRows.length) continue;
 
-        // Delete the failed memory (and its contact links) so embed processor can recreate
-        await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
-        await db.delete(memories).where(eq(memories.id, mem.id));
+        // Delete the failed memory (and its contact links) atomically
+        this.dbService.db.transaction((tx) => {
+          tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id)).run();
+          tx.delete(memories).where(eq(memories.id, mem.id)).run();
+        });
 
         // Re-enqueue through pipeline with generous retries
         await this.cleanQueue.add(
@@ -165,7 +187,15 @@ export class MemoryController {
 
     // Find memories marked done in SQLite that might be missing from Qdrant
     const doneMemories = await db
-      .select({ id: memories.id, text: memories.text, sourceType: memories.sourceType, connectorType: memories.connectorType, eventTime: memories.eventTime, accountId: memories.accountId, memoryBankId: memories.memoryBankId })
+      .select({
+        id: memories.id,
+        text: memories.text,
+        sourceType: memories.sourceType,
+        connectorType: memories.connectorType,
+        eventTime: memories.eventTime,
+        accountId: memories.accountId,
+        memoryBankId: memories.memoryBankId,
+      })
       .from(memories)
       .where(eq(memories.embeddingStatus, 'done'))
       .limit(batchLimit);
@@ -179,7 +209,10 @@ export class MemoryController {
     for (const mem of doneMemories) {
       try {
         const exists = await this.qdrant.pointExists(mem.id);
-        if (exists) { skipped++; continue; }
+        if (exists) {
+          skipped++;
+          continue;
+        }
 
         const maxChars = 6000;
         const text = mem.text.length > maxChars ? mem.text.slice(0, maxChars) : mem.text;
@@ -223,9 +256,15 @@ export class MemoryController {
     @Query('memoryBankId') memoryBankId?: string,
   ) {
     return this.memoryService.timeline({
-      from, to, connectorType, sourceType, query,
+      from,
+      to,
+      connectorType,
+      sourceType,
+      query,
       limit: limit ? parseInt(limit, 10) : undefined,
-      userId: user.id, memoryBankId, memoryBankIds: user.memoryBankIds,
+      userId: user.id,
+      memoryBankId,
+      memoryBankIds: user.memoryBankIds,
     });
   }
 
@@ -241,15 +280,17 @@ export class MemoryController {
     @Query('type') type?: string,
   ) {
     if (!q) return { entities: [], total: 0 };
-    const types = type ? type.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+    const types = type
+      ? type
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : undefined;
     return this.memoryService.searchEntities(q, limit ? parseInt(limit, 10) : undefined, types);
   }
 
   @Get('entities/:value/graph')
-  async getEntityGraph(
-    @Param('value') value: string,
-    @Query('limit') limit?: string,
-  ) {
+  async getEntityGraph(@Param('value') value: string, @Query('limit') limit?: string) {
     return this.memoryService.getEntityGraph(
       decodeURIComponent(value),
       limit ? parseInt(limit, 10) : undefined,
@@ -261,7 +302,8 @@ export class MemoryController {
     const memory = await this.memoryService.getById(id);
     if (!memory) return res.status(HttpStatus.NOT_FOUND).json({ error: 'not found' });
 
-    const metadata = typeof memory.metadata === 'string' ? JSON.parse(memory.metadata) : (memory.metadata || {});
+    const metadata =
+      typeof memory.metadata === 'string' ? JSON.parse(memory.metadata) : memory.metadata || {};
     const fileUrl: string | undefined = metadata.fileUrl;
     if (!fileUrl) return res.status(HttpStatus.NOT_FOUND).json({ error: 'no file' });
 
@@ -278,7 +320,9 @@ export class MemoryController {
             headers['Authorization'] = `Bearer ${authContext.accessToken}`;
           }
         }
-      } catch {}
+      } catch {
+        /* auth headers are best-effort */
+      }
     }
 
     // Use thumbnail size instead of preview for faster loading
@@ -300,10 +344,7 @@ export class MemoryController {
   }
 
   @Get(':id/related')
-  async getRelated(
-    @Param('id') id: string,
-    @Query('limit') limit?: string,
-  ) {
+  async getRelated(@Param('id') id: string, @Query('limit') limit?: string) {
     return this.memoryService.getRelated(id, limit ? parseInt(limit, 10) : undefined);
   }
 
@@ -317,7 +358,15 @@ export class MemoryController {
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },
     @Body() dto: SearchMemoriesDto,
   ) {
-    return this.memoryService.search(dto.query, dto.filters, dto.limit, dto.rerank, user.id, dto.memoryBankId, user.memoryBankIds);
+    return this.memoryService.search(
+      dto.query,
+      dto.filters,
+      dto.limit,
+      dto.rerank,
+      user.id,
+      dto.memoryBankId,
+      user.memoryBankIds,
+    );
   }
 
   @RequiresJwt()
@@ -362,7 +411,10 @@ export class MemoryController {
   @RequiresJwt()
   @Post(':id/recall')
   async recall(@Param('id') id: string) {
-    await this.dbService.db.update(memories).set({ recallCount: sql`recall_count + 1` }).where(eq(memories.id, id));
+    await this.dbService.db
+      .update(memories)
+      .set({ recallCount: sql`recall_count + 1` })
+      .where(eq(memories.id, id));
     return { ok: true };
   }
 

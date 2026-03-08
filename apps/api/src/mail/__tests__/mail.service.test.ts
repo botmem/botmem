@@ -31,20 +31,18 @@ describe('MailService', () => {
       mockCreateTransport.mockClear();
     });
 
-    it('should log reset URL to console instead of sending email', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    it('should log reset URL via NestJS Logger instead of sending email', async () => {
+      const loggerSpy = vi.spyOn((mailService as any).logger, 'log').mockImplementation(() => {});
 
       await mailService.sendResetEmail('user@example.com', 'https://botmem.xyz/reset?token=abc');
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('user@example.com'),
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('user@example.com'));
+      expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining('https://botmem.xyz/reset?token=abc'),
       );
       expect(mockSendMail).not.toHaveBeenCalled();
 
-      consoleSpy.mockRestore();
+      loggerSpy.mockRestore();
     });
   });
 
@@ -64,7 +62,10 @@ describe('MailService', () => {
     });
 
     it('should send email via nodemailer transport', async () => {
-      await mailService.sendResetEmail('recipient@example.com', 'https://botmem.xyz/reset?token=xyz');
+      await mailService.sendResetEmail(
+        'recipient@example.com',
+        'https://botmem.xyz/reset?token=xyz',
+      );
 
       expect(mockCreateTransport).toHaveBeenCalledWith({
         host: 'smtp.example.com',
