@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+# Run typecheck and tests on packages changed since origin/main
+# Falls back to all packages if origin/main doesn't exist
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  pnpm turbo typecheck test --filter='...[origin/main...HEAD]'
+else
+  pnpm turbo typecheck test
+fi
