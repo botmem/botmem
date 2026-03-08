@@ -96,7 +96,7 @@ export const memoryLinks = sqliteTable('memory_links', {
 export const contacts = sqliteTable('contacts', {
   id: text('id').primaryKey(),
   displayName: text('display_name').notNull(),
-  entityType: text('entity_type').notNull().default('person'), // person | group | organization | device
+  entityType: text('entity_type').notNull().default('person'), // person | organization | location | event | product | topic | pet | group | device | other
   avatars: text('avatars').notNull().default('[]'),
   metadata: text('metadata').notNull().default('{}'), // JSON
   createdAt: text('created_at').notNull(),
