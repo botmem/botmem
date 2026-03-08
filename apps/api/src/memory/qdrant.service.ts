@@ -165,6 +165,17 @@ export class QdrantService implements OnModuleInit {
     }
   }
 
+  async setPayload(
+    payload: Record<string, unknown>,
+    filter: Record<string, unknown>,
+  ): Promise<void> {
+    await this.client.setPayload(QdrantService.COLLECTION, {
+      payload,
+      filter,
+      wait: true,
+    });
+  }
+
   async remove(memoryId: string): Promise<void> {
     try {
       await this.client.delete(QdrantService.COLLECTION, {
