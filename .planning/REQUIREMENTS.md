@@ -135,6 +135,65 @@
 
 - [x] CFG-01-02, VER-01-05, COV-01-02
 
+## v2.1 Requirements -- Data Quality & Pipeline Integrity
+
+**Defined:** 2026-03-08
+
+### Source Type Classification
+
+- [ ] **SRC-01**: Photos connector emits `photo` source type instead of `file`
+- [ ] **SRC-02**: Existing photo memories reclassified from `file` to `photo` in SQLite
+- [ ] **SRC-03**: Qdrant vector payloads updated with corrected `source_type` for photos
+- [ ] **SRC-04**: `SOURCE_TYPE_ALIASES` hack removed from NLQ parser and memory service
+
+### Entity Extraction Quality
+
+- [ ] **ENT-01**: Entity extraction enforces canonical 10-type taxonomy via post-processing validation
+- [ ] **ENT-02**: Garbage entity values stripped (empty strings, single characters, pronouns, URLs, generic terms)
+- [ ] **ENT-03**: Duplicate entities within a single memory are deduplicated by normalized value+type
+- [ ] **ENT-04**: Entity extraction prompt improved with connector-aware examples and stricter instructions
+- [ ] **ENT-05**: Entity count capped per memory to prevent extraction bloat
+
+### Entity Format & Storage
+
+- [ ] **FMT-01**: Entity format unified to single `{type, value}` shape across embed and enrich steps
+- [ ] **FMT-02**: `createLinks` duplicate link bug fixed with existence check before insert
+- [ ] **FMT-03**: Embed-step entities persisted in memory metadata for traceability
+
+### Data Backfill
+
+- [ ] **BKF-01**: Backfill pipeline re-enriches existing memories with corrected entity extraction
+- [ ] **BKF-02**: Backfill is resumable and interruptible (tracks progress, skips completed)
+- [ ] **BKF-03**: Backfill progress visible via WebSocket real-time updates
+- [ ] **BKF-04**: Backfill supports selective filtering by connector type
+
+### Verification
+
+- [ ] **VER-01**: Fresh re-sync of a connector produces correct source types and clean entities without backfill
+- [ ] **VER-02**: Photo search returns only photos (not Slack file attachments)
+- [ ] **VER-03**: Entity graph shows deduplicated, correctly-typed entities
+- [ ] **VER-04**: NLQ queries for photos use `photo` source type naturally
+
+### v2.1 Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Cross-memory entity dedup (global entity table) | Adds significant complexity; per-memory dedup is sufficient for v2.1 |
+| Entity linking to external knowledge bases | Overkill for personal memory system |
+| Upgrading Ollama model (qwen3:0.6b → larger) | Test improvements with current model first |
+| rawEvents payload JSON mutation | Treat rawEvents as immutable audit log |
+
+### v2.1 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| (populated during roadmap creation) | | |
+
+**v2.1 Coverage:**
+- v2.1 requirements: 18 total (SRC: 4, ENT: 5, FMT: 3, BKF: 4, VER: 4)
+- Mapped to phases: 0
+- Unmapped: 18 ⚠️
+
 ## Future Requirements
 
 Deferred to future releases. Tracked but not in current roadmap.
@@ -171,4 +230,4 @@ Deferred to future releases. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after v2.0 milestone start*
+*Last updated: 2026-03-08 after v2.1 requirements defined*
