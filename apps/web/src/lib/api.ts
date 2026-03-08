@@ -2,8 +2,6 @@ import { useAuthStore } from '../store/authStore';
 
 const API_BASE = '/api';
 
-let refreshPromise: Promise<boolean> | null = null;
-
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const state = useAuthStore.getState();
   const headers: Record<string, string> = {
@@ -22,17 +20,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    // Attempt refresh with mutex to prevent concurrent refreshes
-    if (!refreshPromise) {
-      refreshPromise = useAuthStore
-        .getState()
-        .refreshSession()
-        .finally(() => {
-          refreshPromise = null;
-        });
-    }
-
-    const refreshed = await refreshPromise;
+    // refreshSession() has a built-in mutex — safe to call from multiple places
+    const refreshed = await useAuthStore.getState().refreshSession();
     if (refreshed) {
       // Retry original request with new token
       const newState = useAuthStore.getState();
@@ -291,6 +280,16 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Backfill
+  backfillEnrich: (connectorType?: string) =>
+    request<{ jobId: string | null; enqueued: number; total: number; message?: string }>(
+      '/memories/backfill-enrich',
+      {
+        method: 'POST',
+        body: JSON.stringify(connectorType ? { connectorType } : {}),
+      },
+    ),
+
   // Admin / Danger Zone
   purgeMemories: () => request<any>('/memories/purge', { method: 'POST' }),
   resetVectorIndex: () => request<any>('/memories/vector-index/reset', { method: 'POST' }),
@@ -299,7 +298,11 @@ export const api = {
 // WebSocket connection
 export function createWsConnection(): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return new WebSocket(`${protocol}//${window.location.host}/events`);
+  const token = useAuthStore.getState().accessToken;
+  const url = token
+    ? `${protocol}//${window.location.host}/events?token=${encodeURIComponent(token)}`
+    : `${protocol}//${window.location.host}/events`;
+  return new WebSocket(url);
 }
 
 export function subscribeToChannel(ws: WebSocket, channel: string) {
