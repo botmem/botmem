@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Search Intelligence
 status: completed
-stopped_at: Phase 9 context gathered
-last_updated: "2026-03-08T11:14:10.494Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-03-08T12:04:43.070Z"
 last_activity: 2026-03-08 -- Phase 8.1 Plan 02 complete (auto-merge with safety-tiered rules)
 progress:
   total_phases: 16
-  completed_phases: 9
-  total_plans: 21
-  completed_plans: 19
+  completed_phases: 10
+  total_plans: 23
+  completed_plans: 21
   percent: 90
 ---
 
@@ -57,6 +57,7 @@ Progress: [█████████░] 90%
 | Phase 08 P02 | 2min | 2 tasks | 6 files |
 | Phase 08.1 P01 | 11min | 2 tasks | 2 files |
 | Phase 08.1 P02 | 2min | 2 tasks | 2 files |
+| Phase 11 P02 | 1min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,7 @@ Recent decisions affecting current work:
 - [Phase 08]: Migration uses better-sqlite3 directly for one-time scripts, with conditional column existence checks
 - [Phase 08.1]: Strict 3x threshold for entity type reclassification to avoid false positives from noisy entity extraction data
 - [Phase 08.1]: Safety-tiered auto-merge: non-person exact-name and sparse-to-rich are auto-merged, person-to-person preserved for manual review
+- [Phase 11]: Keep origin remote as personal repo, open-core remote for org
 
 ### Pending Todos
 
@@ -97,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08T11:14:10.492Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-temporal-reasoning/09-CONTEXT.md
+Last session: 2026-03-08T12:04:43.068Z
+Stopped at: Completed 11-02-PLAN.md
+Resume file: None

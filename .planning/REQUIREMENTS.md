@@ -71,9 +71,9 @@ Requirements for production deployment and open-core split. Each maps to roadmap
 
 ### Repository & Organization
 
-- [ ] **REPO-01**: GitHub org `botmem` is created and configured
-- [ ] **REPO-02**: Open-core public repo is created with sanitized git history (no secrets)
-- [ ] **REPO-03**: Prod-core private repo is created with deployment configs and business docs
+- [x] **REPO-01**: GitHub org `botmem` is created and configured
+- [x] **REPO-02**: Open-core public repo is created with sanitized git history (no secrets)
+- [x] **REPO-03**: Prod-core private repo is created with deployment configs and business docs
 - [x] **REPO-04**: Git history is sanitized to remove all credentials, API keys, and secrets before public push
 
 ### Database
@@ -160,9 +160,9 @@ Deferred to future releases. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REPO-01 | Phase 11 | Pending |
-| REPO-02 | Phase 11 | Pending |
-| REPO-03 | Phase 11 | Pending |
+| REPO-01 | Phase 11 | Complete |
+| REPO-02 | Phase 11 | Complete |
+| REPO-03 | Phase 11 | Complete |
 | REPO-04 | Phase 11 | Complete |
 | DB-01 | Phase 12 | Pending |
 | DB-02 | Phase 12 | Pending |

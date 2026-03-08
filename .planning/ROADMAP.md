@@ -210,7 +210,7 @@ Plans:
 
 **Milestone Goal:** Deploy Botmem to production on a Vultr VPS with proper infrastructure (Postgres, Firebase auth, Caddy SSL, OpenRouter inference), split the codebase into open-core (public) and prod-core (private) under a GitHub org, and wire CI/CD for automatic deployment.
 
-- [ ] **Phase 11: Repository & Infrastructure Foundation** - GitHub org, repo split with sanitized history, VPS provisioning, DNS configuration
+- [x] **Phase 11: Repository & Infrastructure Foundation** - GitHub org, repo split with sanitized history, VPS provisioning, DNS configuration (completed 2026-03-08)
 - [ ] **Phase 12: PostgreSQL Dual-Database** - Parallel schema file, shared database interface, conditional driver, FTS5-to-tsvector port
 - [ ] **Phase 13: Inference Abstraction & Authentication** - InferenceService with Ollama/OpenRouter providers, Firebase auth with opt-in guard, React login UI
 - [ ] **Phase 14: Docker Compose Production Stack** - Multi-stage Dockerfile, production compose, Caddy reverse proxy with SSL
@@ -225,7 +225,7 @@ Plans:
   2. Running `git log --all -p` on the public repo and grepping for known secret patterns (OAuth client secrets, API keys, tokens) returns zero matches
   3. The Vultr VPS is reachable via SSH, has Docker and Docker Compose installed, 2GB swap configured, and firewall allows only ports 22, 80, 443
   4. Visiting `http://botmem.xyz` in a browser resolves to the Vultr VPS IP address (DNS A record propagated)
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 11-01-PLAN.md -- Clean inline secrets and sanitize git history (REPO-04)
@@ -294,7 +294,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 8.1 Contact Auto-Merge | 2/2 | Complete   | 2026-03-08 | - |
 | 9. NLQ Parsing | v1.4 | 0/2 | Not started | - |
 | 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
-| 11. Repo & Infrastructure | v2.0 | 1/3 | In Progress | - |
+| 11. Repo & Infrastructure | 3/3 | Complete   | 2026-03-08 | - |
 | 12. PostgreSQL Dual-Database | v2.0 | 0/? | Not started | - |
 | 13. Inference & Auth | v2.0 | 0/? | Not started | - |
 | 14. Docker Production Stack | v2.0 | 0/? | Not started | - |
