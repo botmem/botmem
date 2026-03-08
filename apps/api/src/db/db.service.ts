@@ -176,6 +176,18 @@ export class DbService implements OnModuleInit {
         used_at TEXT,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        name TEXT NOT NULL,
+        key_hash TEXT NOT NULL,
+        last_four TEXT NOT NULL,
+        bank_ids TEXT,
+        expires_at TEXT,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
 
     // Migrations for existing databases
@@ -218,6 +230,8 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_raw_events_source_id ON raw_events(source_id);
       CREATE INDEX IF NOT EXISTS idx_raw_events_job_id ON raw_events(job_id);
       CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
+      CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+      CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
     `);
 
     // FTS5 full-text search index on memories.text (standalone, not content-sync)

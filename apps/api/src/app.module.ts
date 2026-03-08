@@ -19,6 +19,7 @@ import { MeModule } from './me/me.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { MailModule } from './mail/mail.module';
 import { UserAuthModule } from './user-auth/user-auth.module';
+import { ApiKeysModule } from './api-keys/api-keys.module';
 import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
 import { JwtAuthGuard } from './user-auth/jwt-auth.guard';
@@ -53,6 +54,7 @@ const isDev = process.env.NODE_ENV !== 'production';
     MeModule,
     MailModule,
     UserAuthModule,
+    ApiKeysModule,
   ],
   providers: [
     {

@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
+import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import type { ConnectorAccount, SyncSchedule } from '@botmem/shared';
 
 function toApiAccount(row: any): ConnectorAccount {
@@ -30,6 +31,7 @@ export class AccountsController {
     return toApiAccount(await this.accountsService.getById(id));
   }
 
+  @RequiresJwt()
   @Post()
   async create(@Body() body: { connectorType: string; identifier: string }) {
     // Dedup: return existing account if one already exists for this connector+identifier
@@ -39,12 +41,14 @@ export class AccountsController {
     return toApiAccount(row);
   }
 
+  @RequiresJwt()
   @Patch(':id')
   async update(@Param('id') id: string, @Body() body: { schedule?: SyncSchedule }) {
     const row = await this.accountsService.update(id, body);
     return toApiAccount(row);
   }
 
+  @RequiresJwt()
   @Delete(':id')
   async remove(@Param('id') id: string) {
     await this.accountsService.remove(id);

@@ -9,6 +9,7 @@ import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
 import { memories, memoryContacts, rawEvents } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
+import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 
 @Controller('memories')
 export class MemoryController {
@@ -71,6 +72,7 @@ export class MemoryController {
     });
   }
 
+  @RequiresJwt()
   @Post('retry-failed')
   async retryFailed(@Query('limit') limitParam?: string) {
     const db = this.dbService.db;
@@ -118,6 +120,7 @@ export class MemoryController {
     return { enqueued, errors, total: failed.length };
   }
 
+  @RequiresJwt()
   @Post('backfill-contacts')
   async backfillContacts() {
     const db = this.dbService.db;
@@ -144,6 +147,7 @@ export class MemoryController {
     return { enqueued, total: unlinked.length };
   }
 
+  @RequiresJwt()
   @Post('backfill-embeddings')
   async backfillEmbeddings(@Query('limit') limitParam?: string) {
     const db = this.dbService.db;
@@ -301,6 +305,7 @@ export class MemoryController {
     return this.memoryService.search(body.query, body.filters, body.limit, body.rerank);
   }
 
+  @RequiresJwt()
   @Post('relabel-unknown')
   async relabelUnknown() {
     const db = this.dbService.db;
@@ -325,24 +330,28 @@ export class MemoryController {
     };
   }
 
+  @RequiresJwt()
   @Post(':id/pin')
   async pin(@Param('id') id: string) {
     await this.dbService.db.update(memories).set({ pinned: 1 }).where(eq(memories.id, id));
     return { ok: true };
   }
 
+  @RequiresJwt()
   @Delete(':id/pin')
   async unpin(@Param('id') id: string) {
     await this.dbService.db.update(memories).set({ pinned: 0 }).where(eq(memories.id, id));
     return { ok: true };
   }
 
+  @RequiresJwt()
   @Post(':id/recall')
   async recall(@Param('id') id: string) {
     await this.dbService.db.update(memories).set({ recallCount: sql`recall_count + 1` }).where(eq(memories.id, id));
     return { ok: true };
   }
 
+  @RequiresJwt()
   @Delete(':id')
   async delete(@Param('id') id: string) {
     await this.memoryService.delete(id);

@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Body } from '@nestjs/common';
 import { SettingsService } from './settings.service';
+import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 
 @Controller('settings')
 export class SettingsController {
@@ -10,6 +11,7 @@ export class SettingsController {
     return this.settingsService.getAll();
   }
 
+  @RequiresJwt()
   @Patch()
   update(@Body() body: Record<string, string>) {
     for (const [key, value] of Object.entries(body)) {

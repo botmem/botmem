@@ -158,6 +158,20 @@ export const passwordResets = sqliteTable('password_resets', {
   createdAt: text('created_at').notNull(),
 });
 
+// --- API Keys table ---
+
+export const apiKeys = sqliteTable('api_keys', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  name: text('name').notNull(),
+  keyHash: text('key_hash').notNull(),
+  lastFour: text('last_four').notNull(),
+  bankIds: text('bank_ids'), // nullable JSON array — null = all banks
+  expiresAt: text('expires_at'),
+  revokedAt: text('revoked_at'),
+  createdAt: text('created_at').notNull(),
+});
+
 // --- Settings table ---
 
 export const settings = sqliteTable('settings', {
