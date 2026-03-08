@@ -163,10 +163,10 @@
 
 ### Data Backfill
 
-- [ ] **BKF-01**: Backfill pipeline re-enriches existing memories with corrected entity extraction
-- [ ] **BKF-02**: Backfill is resumable and interruptible (tracks progress, skips completed)
-- [ ] **BKF-03**: Backfill progress visible via WebSocket real-time updates
-- [ ] **BKF-04**: Backfill supports selective filtering by connector type
+- [x] **BKF-01**: Backfill pipeline re-enriches existing memories with corrected entity extraction
+- [x] **BKF-02**: Backfill is resumable and interruptible (tracks progress, skips completed)
+- [x] **BKF-03**: Backfill progress visible via WebSocket real-time updates
+- [x] **BKF-04**: Backfill supports selective filtering by connector type
 
 ### Verification
 
@@ -200,10 +200,10 @@
 | ENT-03      | Phase 26 | Complete |
 | ENT-04      | Phase 26 | Complete |
 | ENT-05      | Phase 26 | Complete |
-| BKF-01      | Phase 27 | Pending  |
-| BKF-02      | Phase 27 | Pending  |
-| BKF-03      | Phase 27 | Pending  |
-| BKF-04      | Phase 27 | Pending  |
+| BKF-01      | Phase 27 | Complete |
+| BKF-02      | Phase 27 | Complete |
+| BKF-03      | Phase 27 | Complete |
+| BKF-04      | Phase 27 | Complete |
 | VER-01      | Phase 28 | Pending  |
 | VER-02      | Phase 28 | Pending  |
 | VER-03      | Phase 28 | Pending  |

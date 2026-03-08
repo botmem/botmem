@@ -222,7 +222,7 @@ Phase 10: Source Citations (deferred)
 
 - [x] **Phase 25: Source Type Reclassification** - Fix photos connector, backfill SQLite + Qdrant, remove SOURCE_TYPE_ALIASES hack (SRC-01 through SRC-04) (completed 2026-03-08)
 - [x] **Phase 26: Entity Format & Quality** - Unified entity shape, improved extraction prompt, normalizer with dedup/clean/validate, entity cap (FMT-01 through FMT-03, ENT-01 through ENT-05) (completed 2026-03-08)
-- [ ] **Phase 27: Data Backfill** - Re-enrich existing memories with corrected pipeline, resumable, filterable, real-time progress (BKF-01 through BKF-04)
+- [x] **Phase 27: Data Backfill** - Re-enrich existing memories with corrected pipeline, resumable, filterable, real-time progress (BKF-01 through BKF-04) (completed 2026-03-09)
 - [ ] **Phase 28: Verification** - End-to-end validation that search, graph, and NLQ produce correct results (VER-01 through VER-04)
 
 ## v3.0 Monorepo & Developer Experience (Phases 29-33)
@@ -481,7 +481,7 @@ Plans:
 
 Plans:
 
-- [ ] 27-01-PLAN.md -- Backend backfill pipeline (schema, processor, endpoint) + frontend trigger button (BKF-01, BKF-02, BKF-03, BKF-04)
+- [x] 27-01-PLAN.md -- Backend backfill pipeline (schema, processor, endpoint) + frontend trigger button (BKF-01, BKF-02, BKF-03, BKF-04)
 
 ### Phase 28: Verification
 

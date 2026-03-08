@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
-status: completed
-stopped_at: Completed 34-03-PLAN.md
-last_updated: '2026-03-08T19:54:12.244Z'
-last_activity: 2026-03-08 -- Phase 34 Plan 03 complete (security hardening + authorization + error logging)
+status: in-progress
+stopped_at: Completed 27-01-PLAN.md
+last_updated: '2026-03-09T20:24:16.000Z'
+last_activity: 2026-03-09 -- Phase 27 Plan 01 complete (backfill-enrich pipeline with resumability)
 progress:
   total_phases: 27
-  completed_phases: 18
-  total_plans: 35
-  completed_plans: 35
+  completed_phases: 19
+  total_plans: 36
+  completed_plans: 36
 ---
 
 # Project State
@@ -20,22 +20,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 34 complete (all plans)
+**Current focus:** v2.0 Security, Auth & Encryption -- Phase 27 Plan 01 complete (data backfill)
 
 ## Current Position
 
-Phase: 34 (NestJS Best Practices Maturation)
-Plan: 03 of 03 (complete)
-Status: Phase 34 complete (all 3 plans done)
-Last activity: 2026-03-08 -- Phase 34 Plan 03 complete (security hardening + authorization + error logging)
+Phase: 27 (Data Backfill)
+Plan: 01 of 01 (complete)
+Status: Phase 27 complete (all plans done)
+Last activity: 2026-03-09 -- Phase 27 Plan 01 complete (backfill-enrich pipeline with resumability)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 16
-- Average duration: 4min
-- Total execution time: 68min
+- Total plans completed: 18
+- Average duration: 5min
+- Total execution time: 96min
 
 | Phase | Plan | Duration | Tasks | Files |
 | ----- | ---- | -------- | ----- | ----- |
@@ -55,6 +55,8 @@ Last activity: 2026-03-08 -- Phase 34 Plan 03 complete (security hardening + aut
 | 32    | 01   | 3min     | 2     | 14    |
 | 34    | 02   | 10min    | 2     | 16    |
 | 34    | 03   | 7min     | 2     | 12    |
+| 33    | 01   | 22min    | 2     | 5     |
+| 27    | 01   | 6min     | 2     | 7     |
 
 ## Accumulated Context
 
@@ -143,11 +145,24 @@ Recent decisions affecting current work:
 - [34-03]: Agent controller removes fail() wrapper entirely, lets NestJS exception filter handle errors
 - [34-03]: Contacts getSuggestions/getMemories accept optional userId for backward compatibility
 
+### Decisions (Phase 33)
+
+- [33-01]: ServeStaticModule guarded with existsSync, not NODE_ENV alone -- supports API-only Docker images
+- [33-01]: 4-stage Docker build: base, pruner (turbo prune), builder (compile+prod prune), runner (minimal alpine)
+- [33-01]: --ignore-scripts + selective rebuild for native modules to skip husky prepare in Docker
+- [33-01]: Workspace packages copied to runner to preserve pnpm symlink resolution for @botmem/\* imports
+
 ### Decisions (Phase 32)
 
 - [32-01]: pnpm catalog for typescript, vitest, vite, @vitest/coverage-v8 -- four deps centralized
 - [32-01]: Pre-push hook uses turbo filter to only check changed packages, not full monorepo
 - [32-01]: lint-staged runs eslint --fix then prettier --write on .ts/.tsx files
+
+### Decisions (Phase 27)
+
+- [27-01]: enrichedAt nullable column as resumability marker -- skip already-processed memories on restart
+- [27-01]: Worker concurrency default 2 to avoid overwhelming Ollama during backfill
+- [27-01]: BullMQ jobId set to memory ID for idempotent enqueuing -- prevents duplicates on retry/resume
 
 ### Pending Todos
 
@@ -164,6 +179,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T19:45:50Z
-Stopped at: Completed 34-03-PLAN.md
-Resume: Phase 34 complete. Next phase TBD.
+Last session: 2026-03-09T20:24:16Z
+Stopped at: Completed 27-01-PLAN.md
+Resume: Phase 27 complete. Next phase TBD.
