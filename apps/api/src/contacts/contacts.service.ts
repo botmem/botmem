@@ -559,10 +559,12 @@ export class ContactsService {
   > {
     const db = this.dbService.db;
 
-    // Load person contacts only — devices/groups should not appear in merge suggestions
-    const allContacts = await db.select().from(contacts).where(
-      sql`COALESCE(${contacts.entityType}, 'person') = 'person'`,
-    );
+    // Run auto-merge first to clean up obvious duplicates
+    await this.autoMerge();
+
+    // Load all contacts — auto-merge handles non-person dedup,
+    // remaining non-person suggestions are valid for manual review
+    const allContacts = await db.select().from(contacts);
     const allIdentifiers = await db.select().from(contactIdentifiers);
     const allDismissals = await db.select().from(mergeDismissals);
     const allMemoryContacts = await db.select().from(memoryContacts);
@@ -995,6 +997,136 @@ export class ContactsService {
       .where(inArray(contactIdentifiers.id, identifierIds));
 
     return this.getById(newId) as Promise<ContactWithIdentifiers>;
+  }
+
+  /**
+   * Auto-merge obvious contact duplicates using safety-tiered rules.
+   * Tier 1: Non-person exact name matches (organizations, products, etc.)
+   * Tier 2: Sparse-to-rich exact name matches (name-only into structured)
+   * Tier 3: Person-to-person (skipped — left for manual review)
+   */
+  async autoMerge(): Promise<{
+    merged: number;
+    byRule: { nonPerson: number; sparseToRich: number };
+    details: Array<{ targetId: string; sourceId: string; targetName: string; rule: string }>;
+  }> {
+    const db = this.dbService.db;
+    const NON_PERSON_TYPES = new Set(['organization', 'product', 'location', 'event', 'topic', 'pet', 'device', 'other', 'group']);
+
+    // Load all contacts and identifiers in bulk
+    const allContacts = await db.select().from(contacts);
+    const allIdentifiers = await db.select().from(contactIdentifiers);
+
+    // Build contactId -> identifiers map
+    const identsMap = new Map<string, typeof allIdentifiers>();
+    for (const ident of allIdentifiers) {
+      const list = identsMap.get(ident.contactId) || [];
+      list.push(ident);
+      identsMap.set(ident.contactId, list);
+    }
+
+    // Group contacts by normalized display name
+    const nameGroups = new Map<string, typeof allContacts>();
+    for (const contact of allContacts) {
+      const key = contact.displayName.toLowerCase().trim();
+      if (!key) continue;
+      const group = nameGroups.get(key) || [];
+      group.push(contact);
+      nameGroups.set(key, group);
+    }
+
+    const result = {
+      merged: 0,
+      byRule: { nonPerson: 0, sparseToRich: 0 },
+      details: [] as Array<{ targetId: string; sourceId: string; targetName: string; rule: string }>,
+    };
+
+    // Track merged-away IDs to skip them in later processing
+    const mergedAway = new Set<string>();
+
+    for (const [, group] of nameGroups) {
+      if (group.length < 2) continue;
+
+      // Filter out already-merged contacts
+      let active = group.filter((c) => !mergedAway.has(c.id));
+      if (active.length < 2) continue;
+
+      // --- Tier 1: Non-person exact name match ---
+      const nonPersonInGroup = active.filter((c) => {
+        const entityType = c.entityType || 'person';
+        return NON_PERSON_TYPES.has(entityType);
+      });
+
+      if (nonPersonInGroup.length >= 2) {
+        // Pick the one with the most identifiers as target
+        nonPersonInGroup.sort((a, b) => {
+          const aCount = (identsMap.get(a.id) || []).length;
+          const bCount = (identsMap.get(b.id) || []).length;
+          return bCount - aCount;
+        });
+        const target = nonPersonInGroup[0];
+        for (let i = 1; i < nonPersonInGroup.length; i++) {
+          const source = nonPersonInGroup[i];
+          try {
+            await this.mergeContacts(target.id, source.id);
+            mergedAway.add(source.id);
+            result.merged++;
+            result.byRule.nonPerson++;
+            result.details.push({
+              targetId: target.id,
+              sourceId: source.id,
+              targetName: target.displayName,
+              rule: 'nonPerson',
+            });
+          } catch {
+            // Concurrent merge or already merged — continue
+          }
+        }
+        // Refresh active list after Tier 1
+        active = active.filter((c) => !mergedAway.has(c.id));
+      }
+
+      if (active.length < 2) continue;
+
+      // --- Tier 2: Sparse-to-rich exact name match ---
+      const isSparse = (c: typeof active[0]): boolean => {
+        const idents = identsMap.get(c.id) || [];
+        return idents.every((i) => i.identifierType === 'name');
+      };
+      const isRich = (c: typeof active[0]): boolean => {
+        const idents = identsMap.get(c.id) || [];
+        return idents.some((i) => i.identifierType !== 'name');
+      };
+
+      const sparseContacts = active.filter(isSparse);
+      const richContacts = active.filter(isRich);
+
+      if (sparseContacts.length > 0 && richContacts.length === 1) {
+        // Exactly one rich contact — merge all sparse into it
+        const target = richContacts[0];
+        for (const sparse of sparseContacts) {
+          try {
+            await this.mergeContacts(target.id, sparse.id);
+            mergedAway.add(sparse.id);
+            result.merged++;
+            result.byRule.sparseToRich++;
+            result.details.push({
+              targetId: target.id,
+              sourceId: sparse.id,
+              targetName: target.displayName,
+              rule: 'sparseToRich',
+            });
+          } catch {
+            // Concurrent merge or already merged — continue
+          }
+        }
+      }
+      // If multiple rich contacts match, skip (ambiguous)
+
+      // --- Tier 3: Person-to-person — skip (manual review) ---
+    }
+
+    return result;
   }
 
   async dismissSuggestion(contactId1: string, contactId2: string): Promise<void> {

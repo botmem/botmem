@@ -23,6 +23,11 @@ export class ContactsController {
     return this.contactsService.getSuggestions();
   }
 
+  @Post('auto-merge')
+  async autoMerge() {
+    return this.contactsService.autoMerge();
+  }
+
   @Post('reclassify')
   async reclassify() {
     return this.contactsService.reclassifyEntityTypes();
