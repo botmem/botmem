@@ -21,7 +21,7 @@ export function filterReducer(state: FilterState, action: FilterAction): FilterS
   switch (action.type) {
     case 'toggleSourceType': {
       const next = new Set(state.hiddenSourceTypes);
-      next.has(action.source) ? next.delete(action.source) : next.add(action.source);
+      if (next.has(action.source)) { next.delete(action.source); } else { next.add(action.source); }
       return { ...state, hiddenSourceTypes: next };
     }
     case 'toggleContacts': return { ...state, hideContacts: !state.hideContacts };
@@ -30,7 +30,7 @@ export function filterReducer(state: FilterState, action: FilterAction): FilterS
     case 'toggleDevices': return { ...state, hideDevices: !state.hideDevices };
     case 'toggleEdgeType': {
       const next = new Set(state.hiddenEdgeTypes);
-      next.has(action.edgeType) ? next.delete(action.edgeType) : next.add(action.edgeType);
+      if (next.has(action.edgeType)) { next.delete(action.edgeType); } else { next.add(action.edgeType); }
       return { ...state, hiddenEdgeTypes: next };
     }
   }

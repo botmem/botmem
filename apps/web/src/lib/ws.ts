@@ -37,7 +37,7 @@ class WsClient {
       try {
         const msg = JSON.parse(event.data);
         for (const handler of this.handlers) handler(msg);
-      } catch {}
+      } catch { /* empty */ }
     };
 
     this.ws.onclose = () => {

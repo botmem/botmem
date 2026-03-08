@@ -1,5 +1,5 @@
 import type { GraphNode } from '@botmem/shared';
-import { CONNECTOR_COLORS, truncate, formatDate } from '@botmem/shared';
+import { CONNECTOR_COLORS, formatDate } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { IDENTIFIER_COLORS } from '../contacts/constants';
