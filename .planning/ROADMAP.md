@@ -382,7 +382,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 26-01-PLAN.md -- Entity normalizer pure function with tests + updated extraction prompt (FMT-01, ENT-01, ENT-02, ENT-03, ENT-04, ENT-05)
+- [x] 26-01-PLAN.md -- Entity normalizer pure function with tests + updated extraction prompt (FMT-01, ENT-01, ENT-02, ENT-03, ENT-04, ENT-05)
 - [ ] 26-02-PLAN.md -- Wire normalizer into enrich + embed pipeline, fix createLinks duplicate bug (FMT-02, FMT-03)
 
 ### Phase 27: Data Backfill
@@ -495,7 +495,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 23. Row Level Security | v2.0 | 0/? | Not started | - |
 | 24. Firebase Auth (Prod-Core) | v2.0 | 0/? | Not started | - |
 | 25. Source Type Reclassification | v2.1 | Complete | 2026-03-08 | 2026-03-08 |
-| 26. Entity Format & Quality | v2.1 | 0/2 | Not started | - |
+| 26. Entity Format & Quality | v2.1 | 1/2 | In progress | - |
 | 27. Data Backfill | v2.1 | 0/? | Not started | - |
 | 28. Verification | v2.1 | 0/? | Not started | - |
 | 29. Foundation Config | v3.0 | Complete    | 2026-03-08 | 2026-03-08 |

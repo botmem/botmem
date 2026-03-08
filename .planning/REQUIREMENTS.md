@@ -148,15 +148,15 @@
 
 ### Entity Extraction Quality
 
-- [ ] **ENT-01**: Entity extraction enforces canonical 10-type taxonomy via post-processing validation
-- [ ] **ENT-02**: Garbage entity values stripped (empty strings, single characters, pronouns, URLs, generic terms)
-- [ ] **ENT-03**: Duplicate entities within a single memory are deduplicated by normalized value+type
-- [ ] **ENT-04**: Entity extraction prompt improved with connector-aware examples and stricter instructions
-- [ ] **ENT-05**: Entity count capped per memory to prevent extraction bloat
+- [x] **ENT-01**: Entity extraction enforces canonical 10-type taxonomy via post-processing validation
+- [x] **ENT-02**: Garbage entity values stripped (empty strings, single characters, pronouns, URLs, generic terms)
+- [x] **ENT-03**: Duplicate entities within a single memory are deduplicated by normalized value+type
+- [x] **ENT-04**: Entity extraction prompt improved with connector-aware examples and stricter instructions
+- [x] **ENT-05**: Entity count capped per memory to prevent extraction bloat
 
 ### Entity Format & Storage
 
-- [ ] **FMT-01**: Entity format unified to single `{type, value}` shape across embed and enrich steps
+- [x] **FMT-01**: Entity format unified to single `{type, value}` shape across embed and enrich steps
 - [ ] **FMT-02**: `createLinks` duplicate link bug fixed with existence check before insert
 - [ ] **FMT-03**: Embed-step entities persisted in memory metadata for traceability
 
@@ -191,14 +191,14 @@
 | SRC-02 | Phase 25 | Complete |
 | SRC-03 | Phase 25 | Complete |
 | SRC-04 | Phase 25 | Complete |
-| FMT-01 | Phase 26 | Pending |
+| FMT-01 | Phase 26 | Complete |
 | FMT-02 | Phase 26 | Pending |
 | FMT-03 | Phase 26 | Pending |
-| ENT-01 | Phase 26 | Pending |
-| ENT-02 | Phase 26 | Pending |
-| ENT-03 | Phase 26 | Pending |
-| ENT-04 | Phase 26 | Pending |
-| ENT-05 | Phase 26 | Pending |
+| ENT-01 | Phase 26 | Complete |
+| ENT-02 | Phase 26 | Complete |
+| ENT-03 | Phase 26 | Complete |
+| ENT-04 | Phase 26 | Complete |
+| ENT-05 | Phase 26 | Complete |
 | BKF-01 | Phase 27 | Pending |
 | BKF-02 | Phase 27 | Pending |
 | BKF-03 | Phase 27 | Pending |

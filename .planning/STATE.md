@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: completed
-stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-03-08T17:29:44.215Z"
-last_activity: 2026-03-08 -- Phase 29 Plan 01 complete (ESLint 9, Prettier, typecheck, .env.example)
+stopped_at: Completed 26-01-PLAN.md
+last_updated: "2026-03-08T17:30:18Z"
+last_activity: 2026-03-08 -- Phase 26 Plan 01 complete (entity normalizer + updated extraction prompt)
 progress:
   total_phases: 26
   completed_phases: 13
@@ -20,21 +20,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 29 complete, ready for Phase 30
+**Current focus:** v2.1 Data Quality & Pipeline Integrity -- Phase 26 Plan 01 complete, Plan 02 next
 
 ## Current Position
 
-Phase: 29 (Foundation Config) -- complete
-Plan: 01 (complete)
-Status: Phase 29 complete, ready for Phase 30
-Last activity: 2026-03-08 -- Phase 29 Plan 01 complete (ESLint 9, Prettier, typecheck, .env.example)
+Phase: 26 (Entity Format & Quality) -- in progress
+Plan: 01 (complete), 02 (next)
+Status: Phase 26 Plan 01 complete, ready for Plan 02
+Last activity: 2026-03-08 -- Phase 26 Plan 01 complete (entity normalizer + updated extraction prompt)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 4min
-- Total execution time: 28min
+- Total execution time: 31min
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -45,6 +45,7 @@ Last activity: 2026-03-08 -- Phase 29 Plan 01 complete (ESLint 9, Prettier, type
 | 25 | 01 | 3min | 2 | 4 |
 | 25 | 02 | 1min | 1 | 1 |
 | 29 | 01 | 4min | 2 | 18 |
+| 26 | 01 | 3min | 2 | 3 |
 
 ## Accumulated Context
 
@@ -91,6 +92,12 @@ Recent decisions affecting current work:
 - [29-01]: Web uses tsc --noEmit (not tsc -b --noEmit) to avoid TS6310 with referenced composite projects
 - [29-01]: APP_SECRET added to .env.example -- was in config.service.ts but missing from plan template
 
+### Decisions (Phase 26)
+
+- [26-01]: 10-type canonical taxonomy (lowercase): person, organization, location, date, event, product, concept, quantity, language, other
+- [26-01]: Normalizer is a pure function (no DI, no side effects) for easy testing and reuse
+- [26-01]: Embed-shape entities (type/id/role) handled by parsing compound id format (name:X|email:Y)
+
 ### Pending Todos
 
 None yet.
@@ -106,6 +113,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T17:25:00.000Z
-Stopped at: Completed 29-01-PLAN.md
-Resume: /gsd:plan-phase 30
+Last session: 2026-03-08T17:30:18Z
+Stopped at: Completed 26-01-PLAN.md
+Resume: /gsd:execute-phase 26-02
