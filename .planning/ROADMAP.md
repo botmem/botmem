@@ -437,7 +437,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 30-01-PLAN.md -- Dev workflow overhaul: CJS exports, turbo watch, nest build --watch (DEV-01, DEV-02, DEV-03, DEV-04)
+- [x] 30-01-PLAN.md -- Dev workflow overhaul: CJS exports, turbo watch, nest build --watch (DEV-01, DEV-02, DEV-03, DEV-04) (completed 2026-03-08)
 - [x] 30-02-PLAN.md -- Health endpoint with Redis/Qdrant/SQLite probes (DOCK-04) (completed 2026-03-08)
 
 ### Phase 31: Docker & Infrastructure
@@ -503,7 +503,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 27. Data Backfill | v2.1 | 0/? | Not started | - |
 | 28. Verification | v2.1 | 0/? | Not started | - |
 | 29. Foundation Config | v3.0 | Complete    | 2026-03-08 | 2026-03-08 |
-| 30. Dev Workflow Fix | v3.0 | 0/? | Not started | - |
+| 30. Dev Workflow Fix | v3.0 | 2/2 | Complete | 2026-03-08 |
 | 31. Docker & Infrastructure | v3.0 | 0/? | Not started | - |
 | 32. Build Optimization | v3.0 | 0/? | Not started | - |
 | 33. Production Docker | v3.0 | 0/? | Not started | - |

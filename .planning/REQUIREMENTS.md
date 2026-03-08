@@ -226,10 +226,10 @@
 
 ### Dev Workflow
 
-- [ ] **DEV-01**: Running `pnpm dev` starts the full dev environment without port conflicts or restart storms
-- [ ] **DEV-02**: File changes in workspace packages trigger dependency-aware restarts without manual pre-builds
-- [ ] **DEV-03**: Adding a new connector package requires zero changes to the root dev script or watch config
-- [ ] **DEV-04**: All library packages have proper conditional exports fields enabling clean resolution by both CJS and ESM consumers
+- [x] **DEV-01**: Running `pnpm dev` starts the full dev environment without port conflicts or restart storms
+- [x] **DEV-02**: File changes in workspace packages trigger dependency-aware restarts without manual pre-builds
+- [x] **DEV-03**: Adding a new connector package requires zero changes to the root dev script or watch config
+- [x] **DEV-04**: All library packages have proper conditional exports fields enabling clean resolution by both CJS and ESM consumers
 
 ### Docker & Infrastructure
 
@@ -264,10 +264,10 @@
 | QUAL-02 | Phase 29 | Complete |
 | QUAL-03 | Phase 29 | Complete |
 | QUAL-04 | Phase 32 | Pending |
-| DEV-01 | Phase 30 | Pending |
-| DEV-02 | Phase 30 | Pending |
-| DEV-03 | Phase 30 | Pending |
-| DEV-04 | Phase 30 | Pending |
+| DEV-01 | Phase 30 | Complete |
+| DEV-02 | Phase 30 | Complete |
+| DEV-03 | Phase 30 | Complete |
+| DEV-04 | Phase 30 | Complete |
 | DOCK-01 | Phase 31 | Pending |
 | DOCK-02 | Phase 31 | Pending |
 | DOCK-03 | Phase 29 | Complete |

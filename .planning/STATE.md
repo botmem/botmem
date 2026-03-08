@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: in-progress
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-03-08T17:46:00Z"
-last_activity: 2026-03-08 -- Phase 30 Plan 02 complete (health endpoint with service probes)
+stopped_at: Completed 30-01-PLAN.md
+last_updated: "2026-03-08T17:48:18Z"
+last_activity: 2026-03-08 -- Phase 30 Plan 01 complete (CJS exports, turbo watch, nest build --watch)
 progress:
   total_phases: 30
-  completed_phases: 15
+  completed_phases: 16
   total_plans: 31
-  completed_plans: 29
+  completed_plans: 30
 ---
 
 # Project State
@@ -20,21 +20,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 30 Plan 02 complete
+**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 30 complete
 
 ## Current Position
 
-Phase: 30 (Dev Workflow Fix) -- in progress
-Plan: 02 (complete)
-Status: Phase 30 Plan 02 complete (health endpoint), Plan 01 pending
-Last activity: 2026-03-08 -- Phase 30 Plan 02 complete (health endpoint with sqlite/redis/qdrant probes)
+Phase: 30 (Dev Workflow Fix) -- complete
+Plan: 01 (complete), 02 (complete)
+Status: Phase 30 complete, ready for Phase 31 (Docker & Infrastructure)
+Last activity: 2026-03-08 -- Phase 30 Plan 01 complete (CJS exports, turbo watch, nest build --watch)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: 4min
-- Total execution time: 35min
+- Total execution time: 40min
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -48,6 +48,7 @@ Last activity: 2026-03-08 -- Phase 30 Plan 02 complete (health endpoint with sql
 | 26 | 01 | 3min | 2 | 3 |
 | 26 | 02 | 2min | 2 | 2 |
 | 30 | 02 | 2min | 1 | 3 |
+| 30 | 01 | 5min | 2 | 27 |
 
 ## Accumulated Context
 
@@ -107,6 +108,10 @@ Recent decisions affecting current work:
 - [30-02]: Lazy ioredis connection (lazyConnect: true) -- only probes on health check, not on startup
 - [30-02]: Promise.allSettled for concurrent health probing -- one slow service does not block others
 - [30-02]: Health endpoint always returns HTTP 200 -- reports status, never fails itself
+- [30-01]: CJS output for all library packages -- module:CommonJS + moduleResolution:node overrides base ESNext config
+- [30-01]: Vite source condition -- shared package exports 'source' field, Vite resolves it for dev builds
+- [30-01]: SWC builder in nest-cli.json for faster incremental rebuilds than tsc
+- [30-01]: Web dev script renamed to dev:standalone to prevent turbo from starting conflicting Vite server
 
 ### Pending Todos
 
@@ -123,6 +128,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T17:46:00Z
-Stopped at: Completed 30-02-PLAN.md
-Resume: /gsd:execute-phase 30-01 (or continue to Phase 31)
+Last session: 2026-03-08T17:48:18Z
+Stopped at: Completed 30-01-PLAN.md
+Resume: /gsd:execute-phase 31-01
