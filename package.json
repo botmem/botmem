@@ -2,7 +2,7 @@
   "name": "botmem",
   "private": true,
   "scripts": {
-    "dev": "turbo watch dev",
+    "dev": "pnpm --filter @botmem/api dev",
     "dev:all": "turbo watch dev --concurrency 20",
     "build": "turbo build",
     "lint": "turbo lint",
@@ -13,14 +13,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/coverage-v8": "catalog:",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
     "prettier": "^3.4.0",
     "turbo": "^2.4.0",
-    "typescript": "^5.7.0",
+    "typescript": "catalog:",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@9.15.0"
 }
