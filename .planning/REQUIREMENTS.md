@@ -1,7 +1,69 @@
-# Requirements: Botmem v2.0 — Production Deployment & Open-Core Split
+# Requirements: Botmem
+
+**Core Value:** Every piece of personal communication is searchable, connected, and queryable — with factuality labeling so the user knows what's verified vs. hearsay.
+
+## v1.4 Requirements — Search Intelligence
 
 **Defined:** 2026-03-08
-**Core Value:** Every piece of personal communication is searchable, connected, and queryable — with factuality labeling so the user knows what's verified vs. hearsay.
+
+### Entity Classification
+
+- [ ] **ENT-01**: Entity extraction uses canonical type taxonomy (person, organization, location, event, product, topic, pet) enforced via Ollama structured output (`format` parameter)
+- [ ] **ENT-02**: All existing memories have entity types backfilled to canonical taxonomy via SQL string replacement (no LLM re-run)
+- [ ] **ENT-03**: User can filter entity search by type (e.g. `/entities/search?q=Nugget&type=pet`)
+
+### NLQ Parsing
+
+- [ ] **NLQ-01**: User can search with temporal references ("last week", "in January", "yesterday") and get date-filtered results via chrono-node deterministic parsing
+- [ ] **NLQ-02**: User can search with person/place/org names in natural language and get entity-boosted results
+- [ ] **NLQ-03**: Search classifies query intent (recall/browse/find) to optimize result ranking and filtering
+
+### Source Citations
+
+- [ ] **CIT-01**: Search results include source citations (memory ID, timestamp, connector type, participant names) suitable for assistant drill-down
+
+### Performance
+
+- [ ] **PERF-01**: Search with NLQ enhancements completes in <500ms (no LLM calls in search hot path)
+
+### v1.4 Future (deferred to v1.5)
+
+- **SUM-01**: LLM summarization of top search results into assistant-style answer
+- **SUM-02**: Async delivery of summaries via WebSocket (non-blocking search)
+
+### v1.4 Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Conversational follow-up | Multi-turn requires session state, not v1 scope |
+| Agentic multi-step search | Over-engineering for single-user system |
+| Fine-tuning entity models | qwen3:0.6b + structured output sufficient |
+| External NER services | Keep local-first |
+| LLM calls in search hot path | Violates PERF-01 (<500ms) |
+
+### v1.4 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ENT-01 | TBD | Pending |
+| ENT-02 | TBD | Pending |
+| ENT-03 | TBD | Pending |
+| NLQ-01 | TBD | Pending |
+| NLQ-02 | TBD | Pending |
+| NLQ-03 | TBD | Pending |
+| CIT-01 | TBD | Pending |
+| PERF-01 | TBD | Pending |
+
+**v1.4 Coverage:**
+- v1.4 requirements: 8 total
+- Mapped to phases: 0 (pending roadmap)
+- Unmapped: 8
+
+---
+
+## v2.0 Requirements — Production Deployment & Open-Core Split
+
+**Defined:** 2026-03-08
 
 ## v2.0 Requirements
 
