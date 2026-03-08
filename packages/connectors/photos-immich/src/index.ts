@@ -211,7 +211,7 @@ export class ImmichConnector extends BaseConnector {
       const timestamp = asset.fileCreatedAt || asset.localDateTime || asset.createdAt;
 
       this.emitData({
-        sourceType: 'file',
+        sourceType: 'photo',
         sourceId: asset.id,
         timestamp,
         content: {
