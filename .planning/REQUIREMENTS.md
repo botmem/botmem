@@ -27,15 +27,15 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Web Analytics
 
-- [ ] **WEB-01**: PostHog web analytics dashboard shows page views, unique visitors, and session counts
+- [x] **WEB-01**: PostHog web analytics dashboard shows page views, unique visitors, and session counts
 - [x] **WEB-02**: Navigation paths between pages are trackable in PostHog
 - [x] **WEB-03**: UTM parameters and referrer data are captured when present
 
 ### Product Analytics
 
-- [ ] **PROD-01**: A PostHog dashboard exists with saved insights for key Botmem metrics (searches/day, syncs/day, memories created)
-- [ ] **PROD-02**: A funnel insight tracks the connector setup flow: visit connectors → start auth → complete sync
-- [ ] **PROD-03**: A retention insight measures how often the user returns to search memories
+- [x] **PROD-01**: A PostHog dashboard exists with saved insights for key Botmem metrics (searches/day, syncs/day, memories created)
+- [x] **PROD-02**: A funnel insight tracks the connector setup flow: visit connectors → start auth → complete sync
+- [x] **PROD-03**: A retention insight measures how often the user returns to search memories
 
 ### User Identity
 
@@ -75,12 +75,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 | ERR-01 | Phase 5 | Complete |
 | ERR-02 | Phase 6 | Complete |
 | ERR-03 | Phase 5 | Complete |
-| WEB-01 | Phase 6 | Pending |
+| WEB-01 | Phase 6 | Complete |
 | WEB-02 | Phase 6 | Complete |
 | WEB-03 | Phase 5 | Complete |
-| PROD-01 | Phase 6 | Pending |
-| PROD-02 | Phase 6 | Pending |
-| PROD-03 | Phase 6 | Pending |
+| PROD-01 | Phase 6 | Complete |
+| PROD-02 | Phase 6 | Complete |
+| PROD-03 | Phase 6 | Complete |
 | ID-01 | Phase 5 | Complete |
 | ID-02 | Phase 5 | Complete |
 
