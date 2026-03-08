@@ -193,6 +193,19 @@ export const api = {
   revokeApiKey: (id: string) =>
     request<{ success: boolean }>(`/api-keys/${id}`, { method: 'DELETE' }),
 
+  // Memory Banks
+  listMemoryBanks: () =>
+    request<{ memoryBanks: Array<{ id: string; name: string; isDefault: number; memoryCount: number; createdAt: string; updatedAt: string }> }>('/memory-banks'),
+  createMemoryBank: (name: string) =>
+    request<{ id: string; name: string; isDefault: number }>('/memory-banks', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  renameMemoryBank: (id: string, name: string) =>
+    request<any>(`/memory-banks/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteMemoryBank: (id: string) =>
+    request<{ deleted: boolean; memoriesDeleted: number }>(`/memory-banks/${id}`, { method: 'DELETE' }),
+
   // Admin / Danger Zone
   purgeMemories: () =>
     request<any>('/memories/purge', { method: 'POST' }),

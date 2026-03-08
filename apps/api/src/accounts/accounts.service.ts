@@ -16,11 +16,13 @@ export class AccountsService {
     connectorType: string;
     identifier: string;
     authContext?: string;
+    userId?: string;
   }) {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     await this.db.insert(accounts).values({
       id,
+      userId: data.userId || null,
       connectorType: data.connectorType,
       identifier: data.identifier,
       status: 'connected',
@@ -33,7 +35,10 @@ export class AccountsService {
     return this.getById(id);
   }
 
-  async getAll() {
+  async getAll(userId?: string) {
+    if (userId) {
+      return this.db.select().from(accounts).where(eq(accounts.userId, userId));
+    }
     return this.db.select().from(accounts);
   }
 

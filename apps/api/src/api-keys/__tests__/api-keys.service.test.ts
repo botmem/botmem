@@ -25,7 +25,7 @@ function createTestDb() {
       name TEXT NOT NULL,
       key_hash TEXT NOT NULL,
       last_four TEXT NOT NULL,
-      bank_ids TEXT,
+      memory_bank_ids TEXT,
       expires_at TEXT,
       revoked_at TEXT,
       created_at TEXT NOT NULL

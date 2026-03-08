@@ -34,10 +34,11 @@ describe('AccountsController', () => {
 
   it('list returns mapped accounts', async () => {
     (service.getAll as any).mockResolvedValue([fakeRow]);
-    const result = await controller.list();
+    const result = await controller.list({ id: 'user-1' });
     expect(result.accounts).toHaveLength(1);
     expect(result.accounts[0].type).toBe('gmail');
     expect(result.accounts[0].memoriesIngested).toBe(10);
+    expect(service.getAll).toHaveBeenCalledWith('user-1');
   });
 
   it('get returns single mapped account', async () => {
@@ -49,8 +50,8 @@ describe('AccountsController', () => {
 
   it('create calls service and maps result', async () => {
     (service.create as any).mockResolvedValue(fakeRow);
-    const result = await controller.create({ connectorType: 'gmail', identifier: 'test@gmail.com' });
-    expect(service.create).toHaveBeenCalledWith({ connectorType: 'gmail', identifier: 'test@gmail.com' });
+    const result = await controller.create({ id: 'user-1' }, { connectorType: 'gmail', identifier: 'test@gmail.com' });
+    expect(service.create).toHaveBeenCalledWith({ connectorType: 'gmail', identifier: 'test@gmail.com', userId: 'user-1' });
     expect(result.id).toBe('a1');
   });
 

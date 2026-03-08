@@ -2,6 +2,7 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
 export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),  // nullable for migration — will be set for all rows
   connectorType: text('connector_type').notNull(),
   identifier: text('identifier').notNull(),
   status: text('status').notNull().default('disconnected'),
@@ -65,6 +66,7 @@ export const rawEvents = sqliteTable('raw_events', {
 export const memories = sqliteTable('memories', {
   id: text('id').primaryKey(),
   accountId: text('account_id').references(() => accounts.id),
+  memoryBankId: text('memory_bank_id'),  // nullable for migration -- will be set for all rows
   connectorType: text('connector_type').notNull(),
   sourceType: text('source_type').notNull(), // email | message | photo | location
   sourceId: text('source_id').notNull(),
@@ -95,6 +97,7 @@ export const memoryLinks = sqliteTable('memory_links', {
 
 export const contacts = sqliteTable('contacts', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),  // nullable for migration — will be set for all rows
   displayName: text('display_name').notNull(),
   entityType: text('entity_type').notNull().default('person'), // person | organization | location | event | product | topic | pet | group | device | other
   avatars: text('avatars').notNull().default('[]'),
@@ -158,6 +161,17 @@ export const passwordResets = sqliteTable('password_resets', {
   createdAt: text('created_at').notNull(),
 });
 
+// --- Memory Banks table ---
+
+export const memoryBanks = sqliteTable('memory_banks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  isDefault: integer('is_default').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 // --- API Keys table ---
 
 export const apiKeys = sqliteTable('api_keys', {
@@ -166,7 +180,7 @@ export const apiKeys = sqliteTable('api_keys', {
   name: text('name').notNull(),
   keyHash: text('key_hash').notNull(),
   lastFour: text('last_four').notNull(),
-  bankIds: text('bank_ids'), // nullable JSON array — null = all banks
+  memoryBankIds: text('memory_bank_ids'), // nullable JSON array — null = all memory banks
   expiresAt: text('expires_at'),
   revokedAt: text('revoked_at'),
   createdAt: text('created_at').notNull(),

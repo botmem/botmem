@@ -56,7 +56,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
           id: keyRecord.userId,
           apiKeyId: keyRecord.id,
           scopes: ['read'],
-          bankIds: keyRecord.bankIds ? JSON.parse(keyRecord.bankIds) : null,
+          memoryBankIds: keyRecord.memoryBankIds ? JSON.parse(keyRecord.memoryBankIds) : null,
         };
         return true;
       }

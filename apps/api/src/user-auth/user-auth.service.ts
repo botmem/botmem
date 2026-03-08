@@ -10,6 +10,7 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { UsersService } from './users.service';
 import { ConfigService } from '../config/config.service';
 import { MailService } from '../mail/mail.service';
+import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 
 // Dummy hash used for timing attack prevention when user not found
 const DUMMY_HASH = '$2b$12$LJ3m4ys3Gz8h/.0MStlQiee6RjGHPnRYVwO3BSXK8X8A.VFj0e6Vu';
@@ -21,6 +22,7 @@ export class UserAuthService {
     private usersService: UsersService,
     private config: ConfigService,
     private mailService: MailService,
+    private memoryBanksService: MemoryBanksService,
   ) {}
 
   async register(email: string, password: string, name: string) {
@@ -45,6 +47,9 @@ export class UserAuthService {
       }
       throw err;
     }
+
+    // Create default memory bank for the new user
+    await this.memoryBanksService.getOrCreateDefault(user!.id);
 
     const tokens = await this.generateTokenPair(user!.id, user!.email);
     return {

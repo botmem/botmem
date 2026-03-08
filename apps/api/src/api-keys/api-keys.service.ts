@@ -52,7 +52,7 @@ export class ApiKeysService {
       name,
       keyHash: hash,
       lastFour,
-      bankIds: null,
+      memoryBankIds: null,
       expiresAt: expiresAt || null,
       revokedAt: null,
       createdAt: now,
