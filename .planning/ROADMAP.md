@@ -213,7 +213,7 @@ Phase 10: Source Citations (deferred)
 - Each phase is independently shippable. Phase 30 alone delivers the highest value.
 
 **Summary:**
-- [ ] **Phase 29: Foundation Config** - ESLint 9, Prettier, typecheck task, .env.example documentation (QUAL-01, QUAL-02, QUAL-03, DOCK-03)
+- [x] **Phase 29: Foundation Config** - ESLint 9, Prettier, typecheck task, .env.example documentation (QUAL-01, QUAL-02, QUAL-03, DOCK-03) (completed 2026-03-08)
 - [ ] **Phase 30: Dev Workflow Fix** - Replace nodemon, turbo watch, proper exports, health endpoint (DEV-01, DEV-02, DEV-03, DEV-04, DOCK-04)
 - [ ] **Phase 31: Docker & Infrastructure** - Compose profiles, Makefile, health checks on all services (DOCK-01, DOCK-02)
 - [ ] **Phase 32: Build Optimization** - pnpm catalogs, Husky + lint-staged pre-commit/pre-push hooks (BUILD-01, QUAL-04)
@@ -498,7 +498,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 26. Entity Format & Quality | v2.1 | 0/2 | Not started | - |
 | 27. Data Backfill | v2.1 | 0/? | Not started | - |
 | 28. Verification | v2.1 | 0/? | Not started | - |
-| 29. Foundation Config | v3.0 | 1/1 | Complete | 2026-03-08 |
+| 29. Foundation Config | v3.0 | Complete    | 2026-03-08 | 2026-03-08 |
 | 30. Dev Workflow Fix | v3.0 | 0/? | Not started | - |
 | 31. Docker & Infrastructure | v3.0 | 0/? | Not started | - |
 | 32. Build Optimization | v3.0 | 0/? | Not started | - |
