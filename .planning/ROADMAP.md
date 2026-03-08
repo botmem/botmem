@@ -549,7 +549,11 @@ Plans:
 1. `docker build` produces a production image using multi-stage build with `turbo prune` that includes only the API and its workspace dependencies -- not the web app or dev tooling
 2. The production image size is under 500MB (compared to a naive full-monorepo image)
 3. The production container starts and responds to `GET /api/health` with correct connectivity status
-   **Plans**: TBD
+   **Plans**: 1 plan
+
+Plans:
+
+- [ ] 33-01-PLAN.md -- Multi-stage Dockerfile with turbo prune, .dockerignore, .npmrc, ServeStaticModule guard (BUILD-02)
 
 ## Progress
 
