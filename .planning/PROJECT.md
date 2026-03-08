@@ -69,6 +69,19 @@ Every piece of personal communication and digital interaction is searchable, con
 - PostgreSQL dual-driver with RLS for prod-core data isolation
 - CORS locked to FRONTEND_URL, auth guard on all endpoints
 
+## Queued Milestone: v2.1 Data Quality & Pipeline Integrity
+
+**Goal:** Fix source type misclassification (photos stored as `file`), tame entity extraction chaos (100+ hallucinated types instead of 10 canonical), deduplicate entities, unify entity format, and backfill existing data — so search, filtering, and the memory graph actually work correctly.
+
+**Target features:**
+- Fix source type classification: photos emit `photo` not `file`, backfill existing records
+- Enforce canonical entity type taxonomy (10 types) with structured output constraints
+- Deduplicate entities within and across memories
+- Unify entity format (embed vs enrich step produce different shapes)
+- Clean up empty/garbage entity values
+- Fix entity misclassification (names classified as locations/organizations)
+- Backfill pipeline to re-enrich existing memories with corrected extraction
+
 ## Queued Milestone: v3.0 Production Deployment & CI/CD
 
 **Goal:** Deploy Botmem to production with Docker/Caddy/CI-CD, OpenRouter inference abstraction, and automated deployment pipelines. (Deferred from old v2.0.)
@@ -127,4 +140,4 @@ Every piece of personal communication and digital interaction is searchable, con
 | AES-256-GCM encryption at rest | Protect auth context and credentials in SQLite/Postgres | — Pending |
 
 ---
-*Last updated: 2026-03-08 after v1.4 milestone start*
+*Last updated: 2026-03-08 after v2.1 milestone defined*
