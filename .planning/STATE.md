@@ -4,8 +4,8 @@ milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: executing
 stopped_at: Phase 18 context gathered
-last_updated: "2026-03-08T14:47:49.043Z"
-last_activity: 2026-03-08 -- Phase 17 Plan 01 complete (API security lockdown)
+last_updated: "2026-03-08T15:37:00.000Z"
+last_activity: 2026-03-08 -- Phase 25 Plan 01 complete (source type reclassification)
 progress:
   total_phases: 17
   completed_phases: 10
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v2.0 Security, Auth & Encryption -- Phase 17 API Security
+**Current focus:** v2.1 Source Type Reclassification -- Phase 25
 
 ## Current Position
 
-Phase: 17-api-security (Plan 1 of 1)
-Plan: 17-01 (complete)
+Phase: 25-source-type-reclassification (Plan 1 of 2)
+Plan: 25-01 (complete)
 Status: Executing
-Last activity: 2026-03-08 -- Phase 17 Plan 01 complete (API security lockdown)
+Last activity: 2026-03-08 -- Phase 25 Plan 01 complete (source type reclassification)
 
 Progress: [██░░░░░░░░] 24%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: 5min
-- Total execution time: 20min
+- Total execution time: 23min
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -45,6 +45,7 @@ Progress: [██░░░░░░░░] 24%
 | 16 | 02 | 4min | 2 | 7 |
 | 16 | 03 | 5min | 3 | 15 |
 | 17 | 01 | 5min | 2 | 13 |
+| 25 | 01 | 3min | 2 | 4 |
 
 ## Accumulated Context
 
@@ -80,6 +81,10 @@ Recent decisions affecting current work:
 - [17-01]: WebSocket auth via token query param (not header) for browser WebSocket API compatibility
 - [17-01]: WsClient refuses to connect without token -- prevents pre-auth connection attempts
 
+### Decisions (Phase 25)
+
+- [25-01]: Migration scripts use main().catch() pattern instead of top-level await for tsx CJS compatibility
+
 ### Pending Todos
 
 None yet.
@@ -94,6 +99,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T14:47:49.032Z
-Stopped at: Phase 18 context gathered
-Resume file: .planning/phases/18-api-keys/18-CONTEXT.md
+Last session: 2026-03-08T15:37:00.000Z
+Stopped at: Completed 25-01-PLAN.md
+Resume file: .planning/phases/25-source-type-reclassification/25-02-PLAN.md
