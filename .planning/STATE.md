@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: in-progress
-stopped_at: Completed 32-01-PLAN.md
-last_updated: '2026-03-08T19:34:00Z'
-last_activity: 2026-03-08 -- Phase 32 Plan 01 complete (pnpm catalogs + Husky git hooks)
+stopped_at: Completed 34-02-PLAN.md
+last_updated: '2026-03-08T19:35:32Z'
+last_activity: 2026-03-08 -- Phase 34 Plan 02 complete (structured logging + transaction atomicity)
 progress:
   total_phases: 27
   completed_phases: 17
   total_plans: 34
-  completed_plans: 33
+  completed_plans: 34
 ---
 
 # Project State
@@ -20,22 +20,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 32 complete
+**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 34 Plan 02 complete
 
 ## Current Position
 
-Phase: 32 (Build Optimization) -- complete
-Plan: 01 (complete) -- pnpm catalogs + Husky git hooks
-Status: Phase 32 complete, ready for Phase 33 (Production Docker)
-Last activity: 2026-03-08 -- Phase 32 Plan 01 complete (pnpm catalogs + Husky git hooks)
+Phase: 34 (NestJS Best Practices Maturation)
+Plan: 02 of 03 (complete)
+Status: Phase 34 Plan 02 complete, ready for Plan 03
+Last activity: 2026-03-08 -- Phase 34 Plan 02 complete (structured logging + transaction atomicity)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: 4min
-- Total execution time: 51min
+- Total execution time: 61min
 
 | Phase | Plan | Duration | Tasks | Files |
 | ----- | ---- | -------- | ----- | ----- |
@@ -53,6 +53,7 @@ Last activity: 2026-03-08 -- Phase 32 Plan 01 complete (pnpm catalogs + Husky gi
 | 31    | 01   | 2min     | 2     | 2     |
 | 34    | 01   | 6min     | 2     | 29    |
 | 32    | 01   | 3min     | 2     | 14    |
+| 34    | 02   | 10min    | 2     | 16    |
 
 ## Accumulated Context
 
@@ -129,6 +130,12 @@ Recent decisions affecting current work:
 - [34-01]: Single default throttle tier (100/min) with per-route overrides for auth and AI endpoints
 - [34-01]: UpdateAccountDto uses SyncSchedule type from @botmem/shared for compile-time type safety
 
+### Decisions (Phase 34-02)
+
+- [34-02]: Logger pattern: class-level `new Logger(ClassName.name)` for services, module-level `new Logger('Bootstrap')` for main.ts
+- [34-02]: Error logging passes err.stack as second param to logger.error() for NestJS stack trace support
+- [34-02]: Transaction scope limited to multi-table cascading deletes only -- single-table operations left as-is
+
 ### Decisions (Phase 32)
 
 - [32-01]: pnpm catalog for typescript, vitest, vite, @vitest/coverage-v8 -- four deps centralized
@@ -150,6 +157,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T19:34:00Z
-Stopped at: Completed 32-01-PLAN.md
-Resume: /gsd:execute-phase 33-01
+Last session: 2026-03-08T19:35:32Z
+Stopped at: Completed 34-02-PLAN.md
+Resume: /gsd:execute-phase 34-03
