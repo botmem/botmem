@@ -176,6 +176,15 @@ export class QdrantService implements OnModuleInit {
     });
   }
 
+  async healthCheck(): Promise<boolean> {
+    try {
+      await this.client.getCollections();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async remove(memoryId: string): Promise<void> {
     try {
       await this.client.delete(QdrantService.COLLECTION, {
