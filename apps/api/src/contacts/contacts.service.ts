@@ -202,6 +202,16 @@ export class ContactsService {
         .where(eq(contacts.id, contactId));
     }
 
+    // Update entityType if caller provides a non-person type and contact is currently person-typed
+    if (entityType && entityType !== 'person') {
+      const current = await db.select({ entityType: contacts.entityType }).from(contacts).where(eq(contacts.id, contactId));
+      if (current.length && (!current[0].entityType || current[0].entityType === 'person')) {
+        await db.update(contacts)
+          .set({ entityType, updatedAt: new Date().toISOString() })
+          .where(eq(contacts.id, contactId));
+      }
+    }
+
     // Auto-merge: if any non-name identifier on this contact also belongs to
     // another contact, absorb that contact automatically.
     try {
