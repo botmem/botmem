@@ -61,4 +61,44 @@ export class ConfigService {
   get decayCron(): string {
     return process.env.DECAY_CRON || '0 3 * * *';
   }
+
+  // --- SMTP config ---
+
+  get smtpHost(): string {
+    return process.env.SMTP_HOST || '';
+  }
+
+  get smtpPort(): number {
+    return Number.parseInt(process.env.SMTP_PORT || '587', 10);
+  }
+
+  get smtpUser(): string {
+    return process.env.SMTP_USER || '';
+  }
+
+  get smtpPass(): string {
+    return process.env.SMTP_PASS || '';
+  }
+
+  get smtpFrom(): string {
+    return process.env.SMTP_FROM || this.smtpUser || 'noreply@botmem.xyz';
+  }
+
+  get smtpConfigured(): boolean {
+    return this.smtpHost !== '';
+  }
+
+  // --- JWT config ---
+
+  get jwtSecret(): string {
+    return process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production';
+  }
+
+  get jwtAccessExpiresIn(): string {
+    return process.env.JWT_ACCESS_EXPIRES_IN || '15m';
+  }
+
+  get jwtRefreshExpiresIn(): string {
+    return process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+  }
 }
