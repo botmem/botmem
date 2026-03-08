@@ -1,0 +1,16 @@
+node_modules
+.git
+.turbo
+dist
+coverage
+data
+*.log
+.env*
+!.env.example
+.DS_Store
+.planning
+.claude
+.claude-flow
+apps/api/data
+apps/web/dist
+convo.md
