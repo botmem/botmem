@@ -22,7 +22,14 @@ function computeWeights(
   getTrustScore: (ct: string) => number = () => 0.7,
 ): {
   score: number;
-  weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
+  weights: {
+    semantic: number;
+    rerank: number;
+    recency: number;
+    importance: number;
+    trust: number;
+    final: number;
+  };
 } {
   const isPinned = mem.pinned === 1;
   const recallCount = mem.recallCount || 0;
@@ -33,14 +40,17 @@ function computeWeights(
   let entityCount = 0;
   try {
     entityCount = JSON.parse(mem.entities).length;
-  } catch {}
+  } catch {
+    /* empty */
+  }
   const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
   const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
   const trust = getTrustScore(mem.connectorType);
 
-  let final = rerankScore > 0
-    ? 0.40 * semanticScore + 0.30 * rerankScore + 0.15 * recency + 0.10 * importance + 0.05 * trust
-    : 0.70 * semanticScore + 0.15 * recency + 0.10 * importance + 0.05 * trust;
+  let final =
+    rerankScore > 0
+      ? 0.4 * semanticScore + 0.3 * rerankScore + 0.15 * recency + 0.1 * importance + 0.05 * trust
+      : 0.7 * semanticScore + 0.15 * recency + 0.1 * importance + 0.05 * trust;
 
   if (isPinned) final = Math.max(final, 0.75);
 
@@ -74,14 +84,14 @@ describe('computeWeights with pinning and recall', () => {
     const withRecall = computeWeights(0.5, 0, { ...baseMem, recallCount: 5 });
     const without = computeWeights(0.5, 0, { ...baseMem, recallCount: 0 });
     const importanceDiff = withRecall.weights.importance - without.weights.importance;
-    expect(importanceDiff).toBeCloseTo(0.10, 5);
+    expect(importanceDiff).toBeCloseTo(0.1, 5);
   });
 
   it('Test 4: recallCount=15 caps importance boost at 0.20 (not 0.30)', () => {
     const withRecall = computeWeights(0.5, 0, { ...baseMem, recallCount: 15 });
     const without = computeWeights(0.5, 0, { ...baseMem, recallCount: 0 });
     const importanceDiff = withRecall.weights.importance - without.weights.importance;
-    expect(importanceDiff).toBeCloseTo(0.20, 5);
+    expect(importanceDiff).toBeCloseTo(0.2, 5);
   });
 
   it('Test 5: pinned=0 and recallCount=0 behaves same as before (no floor, normal recency)', () => {
@@ -93,7 +103,7 @@ describe('computeWeights with pinning and recall', () => {
     const expectedRecency = Math.exp(-0.015 * 90);
     expect(result.weights.recency).toBeCloseTo(expectedRecency, 2);
     // Score should NOT be forced to 0.75
-    const expectedFinal = 0.70 * 0.5 + 0.15 * expectedRecency + 0.10 * 0.5 + 0.05 * 0.7;
+    const expectedFinal = 0.7 * 0.5 + 0.15 * expectedRecency + 0.1 * 0.5 + 0.05 * 0.7;
     expect(result.score).toBeCloseTo(expectedFinal, 2);
   });
 });

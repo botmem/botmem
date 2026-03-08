@@ -58,7 +58,9 @@ function createMockConnectorsService() {
 
 function createMockAccountsService() {
   return {
-    getById: vi.fn().mockResolvedValue({ id: 'acc-1', connectorType: 'gmail', identifier: 'test@gmail.com' }),
+    getById: vi
+      .fn()
+      .mockResolvedValue({ id: 'acc-1', connectorType: 'gmail', identifier: 'test@gmail.com' }),
   };
 }
 
@@ -136,9 +138,14 @@ describe('EmbedProcessor', () => {
     // Seed test data
     const now = new Date().toISOString();
     await db.insert(accounts).values({
-      id: 'acc-1', connectorType: 'gmail', identifier: 'test@gmail.com',
-      status: 'connected', schedule: 'manual', itemsSynced: 0,
-      createdAt: now, updatedAt: now,
+      id: 'acc-1',
+      connectorType: 'gmail',
+      identifier: 'test@gmail.com',
+      status: 'connected',
+      schedule: 'manual',
+      itemsSynced: 0,
+      createdAt: now,
+      updatedAt: now,
     });
 
     await db.insert(rawEvents).values({
@@ -204,7 +211,9 @@ describe('EmbedProcessor', () => {
     // The error may or may not propagate depending on error handling
     try {
       await processor.process(job);
-    } catch {}
+    } catch {
+      /* empty */
+    }
 
     const mems = await db.select().from(memories);
     expect(mems).toHaveLength(1);

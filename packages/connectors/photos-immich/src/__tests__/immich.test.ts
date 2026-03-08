@@ -60,7 +60,7 @@ function mockFetchForSync(
   assets: unknown[],
   opts: { nextPage?: string; imageCount?: number } = {},
 ) {
-  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+  return vi.fn().mockImplementation((url: string, _init?: RequestInit) => {
     const urlStr = typeof url === 'string' ? url : '';
 
     if (urlStr.includes('/api/assets/statistics')) {
@@ -144,9 +144,9 @@ describe('ImmichConnector', () => {
 
     it('throws when server unreachable', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
-      await expect(
-        connector.initiateAuth({ host: 'http://bad', apiKey: 'bad' }),
-      ).rejects.toThrow('Failed to connect');
+      await expect(connector.initiateAuth({ host: 'http://bad', apiKey: 'bad' })).rejects.toThrow(
+        'Failed to connect',
+      );
     });
   });
 
@@ -263,10 +263,7 @@ describe('ImmichConnector', () => {
     });
 
     it('returns hasMore=true and advances page when nextPage exists', async () => {
-      vi.stubGlobal(
-        'fetch',
-        mockFetchForSync([makeAsset()], { nextPage: 'some-cursor-token' }),
-      );
+      vi.stubGlobal('fetch', mockFetchForSync([makeAsset()], { nextPage: 'some-cursor-token' }));
 
       connector.on('data', () => {});
       const result = await connector.sync(makeSyncCtx());

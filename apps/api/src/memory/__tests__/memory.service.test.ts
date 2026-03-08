@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MemoryService } from '../memory.service';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
-import { accounts, memories, memoryLinks, memoryContacts, contacts, contactIdentifiers } from '../../db/schema';
+import { accounts, memories, memoryLinks } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 function makeDbService(db: any) {
@@ -146,9 +146,7 @@ describe('MemoryService', () => {
         [0.1, 0.2, 0.3],
         expect.any(Number),
         expect.objectContaining({
-          must: expect.arrayContaining([
-            { key: 'source_type', match: { value: 'email' } },
-          ]),
+          must: expect.arrayContaining([{ key: 'source_type', match: { value: 'email' } }]),
         }),
       );
     });

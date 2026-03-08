@@ -66,9 +66,7 @@ export async function syncLocations(
   const client = new OwnTracksClient(host, username, password);
 
   // Parse cursor state
-  let state: CursorState = ctx.cursor
-    ? JSON.parse(ctx.cursor)
-    : { pairs: {}, pairIndex: 0 };
+  const state: CursorState = ctx.cursor ? JSON.parse(ctx.cursor) : { pairs: {}, pairIndex: 0 };
 
   // Discover user/device pairs
   const users = filterUser ? [filterUser] : await client.listUsers(ctx.signal);

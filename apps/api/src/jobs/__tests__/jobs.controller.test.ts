@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { JobsController } from '../jobs.controller';
 import { JobsService } from '../jobs.service';
 import { AccountsService } from '../../accounts/accounts.service';
@@ -23,7 +23,16 @@ function createMocks() {
   const enrichQueue = {} as any;
   const backfillQueue = {} as any;
 
-  return { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue };
+  return {
+    jobsService,
+    accountsService,
+    dbService,
+    syncQueue,
+    cleanQueue,
+    embedQueue,
+    enrichQueue,
+    backfillQueue,
+  };
 }
 
 const fakeJobRow = {
@@ -41,10 +50,28 @@ const fakeJobRow = {
 
 describe('JobsController', () => {
   it('list returns mapped jobs', async () => {
-    const { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue } = createMocks();
+    const {
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    } = createMocks();
     (jobsService.getAll as any).mockResolvedValue([fakeJobRow]);
 
-    const controller = new JobsController(jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue);
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    );
     const result = await controller.list();
 
     expect(result.jobs).toHaveLength(1);
@@ -53,40 +80,116 @@ describe('JobsController', () => {
   });
 
   it('list passes accountId filter', async () => {
-    const { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue } = createMocks();
+    const {
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    } = createMocks();
     (jobsService.getAll as any).mockResolvedValue([]);
 
-    const controller = new JobsController(jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue);
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    );
     await controller.list('a1');
 
     expect(jobsService.getAll).toHaveBeenCalledWith({ accountId: 'a1' });
   });
 
   it('get returns mapped job', async () => {
-    const { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue } = createMocks();
+    const {
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    } = createMocks();
     (jobsService.getById as any).mockResolvedValue(fakeJobRow);
 
-    const controller = new JobsController(jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue);
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    );
     const result = await controller.get('j1');
 
     expect(result.id).toBe('j1');
   });
 
   it('get returns error for not found', async () => {
-    const { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue } = createMocks();
+    const {
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    } = createMocks();
     (jobsService.getById as any).mockResolvedValue(null);
 
-    const controller = new JobsController(jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue);
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    );
     const result = await controller.get('nonexistent');
     expect(result).toEqual({ error: 'not found' });
   });
 
   it('triggerSync fetches account and triggers', async () => {
-    const { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue } = createMocks();
-    (accountsService.getById as any).mockResolvedValue({ id: 'a1', connectorType: 'gmail', identifier: 'test@gmail.com' });
+    const {
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    } = createMocks();
+    (accountsService.getById as any).mockResolvedValue({
+      id: 'a1',
+      connectorType: 'gmail',
+      identifier: 'test@gmail.com',
+    });
     (jobsService.triggerSync as any).mockResolvedValue(fakeJobRow);
 
-    const controller = new JobsController(jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue);
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    );
     const result = await controller.triggerSync('a1');
 
     expect(accountsService.getById).toHaveBeenCalledWith('a1');
@@ -95,10 +198,28 @@ describe('JobsController', () => {
   });
 
   it('cancel calls service and returns ok', async () => {
-    const { jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue } = createMocks();
+    const {
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    } = createMocks();
     (jobsService.cancel as any).mockResolvedValue(undefined);
 
-    const controller = new JobsController(jobsService, accountsService, dbService, syncQueue, cleanQueue, embedQueue, enrichQueue, backfillQueue);
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      dbService,
+      syncQueue,
+      cleanQueue,
+      embedQueue,
+      enrichQueue,
+      backfillQueue,
+    );
     const result = await controller.cancel('j1');
 
     expect(jobsService.cancel).toHaveBeenCalledWith('j1');

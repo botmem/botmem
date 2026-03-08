@@ -8,7 +8,9 @@ try {
   BUILD_HASH = require('child_process')
     .execSync('git rev-parse --short HEAD', { encoding: 'utf-8' })
     .trim();
-} catch {}
+} catch {
+  /* empty */
+}
 
 @Public()
 @Controller('version')

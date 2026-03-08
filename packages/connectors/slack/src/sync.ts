@@ -1,4 +1,4 @@
-import { WebClient, LogLevel } from '@slack/web-api';
+import { WebClient } from '@slack/web-api';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 /** Delay helper for rate limiting */
@@ -19,7 +19,7 @@ export interface UserProfile {
 
 interface CursorState {
   channels: Record<string, string>; // channelId -> latest timestamp
-  channelList?: string;             // cursor for channel pagination
+  channelList?: string; // cursor for channel pagination
 }
 
 /** Identify self via auth.test */
@@ -68,18 +68,20 @@ function userName(users: Map<string, UserProfile>, id: string): string {
 
 /** Resolve Slack mrkdwn to human-readable text */
 function normalizeSlackText(text: string, users: Map<string, UserProfile>): string {
-  return text
-    // User mentions: <@U123> or <@U123|name>
-    .replace(/<@([A-Z0-9]+)(?:\|([^>]+))?>/g, (_m, id, label) => {
-      return `@${label || userName(users, id)}`;
-    })
-    // Special mentions: <!channel>, <!here>, <!everyone>
-    .replace(/<!(\w+)(?:\|([^>]+))?>/g, (_m, cmd, label) => `@${label || cmd}`)
-    // Links: <url|label> or <url>
-    .replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, '$2 ($1)')
-    .replace(/<(https?:\/\/[^>]+)>/g, '$1')
-    // Emoji shortcodes: :tada: → remove colons for readability
-    .replace(/:([a-z0-9_+-]+):/g, '$1');
+  return (
+    text
+      // User mentions: <@U123> or <@U123|name>
+      .replace(/<@([A-Z0-9]+)(?:\|([^>]+))?>/g, (_m, id, label) => {
+        return `@${label || userName(users, id)}`;
+      })
+      // Special mentions: <!channel>, <!here>, <!everyone>
+      .replace(/<!(\w+)(?:\|([^>]+))?>/g, (_m, cmd, label) => `@${label || cmd}`)
+      // Links: <url|label> or <url>
+      .replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, '$2 ($1)')
+      .replace(/<(https?:\/\/[^>]+)>/g, '$1')
+      // Emoji shortcodes: :tada: → remove colons for readability
+      .replace(/:([a-z0-9_+-]+):/g, '$1')
+  );
 }
 
 /** Extract user IDs mentioned in message text */
@@ -92,7 +94,11 @@ function extractMentionedIds(text: string): string[] {
 }
 
 /** Determine conversation type label for metadata */
-function channelType(channel: { is_im?: boolean; is_mpim?: boolean; is_private?: boolean }): string {
+function channelType(channel: {
+  is_im?: boolean;
+  is_mpim?: boolean;
+  is_private?: boolean;
+}): string {
   if (channel.is_im) return 'dm';
   if (channel.is_mpim) return 'group-dm';
   if (channel.is_private) return 'private-channel';
@@ -143,7 +149,11 @@ async function fetchThreadContext(
 function buildParticipantData(
   participantIds: Map<string, Set<string>>, // userId -> roles
   users: Map<string, UserProfile>,
-): { participants: string[]; participantProfiles: Record<string, UserProfile>; roles: Record<string, string[]> } {
+): {
+  participants: string[];
+  participantProfiles: Record<string, UserProfile>;
+  roles: Record<string, string[]>;
+} {
   const participants: string[] = [];
   const participantProfiles: Record<string, UserProfile> = {};
   const roles: Record<string, string[]> = {};
@@ -177,7 +187,7 @@ export async function syncSlack(
   if (selfId) {
     ctx.logger.info(`Identified self as user ${selfId}`);
   } else {
-    ctx.logger.warn('Could not identify self — messages won\'t have sender/recipient context');
+    ctx.logger.warn("Could not identify self — messages won't have sender/recipient context");
   }
 
   // Pre-fetch users for mention resolution
@@ -257,7 +267,14 @@ export async function syncSlack(
           if (!msg.ts) continue;
 
           // Allow some useful subtypes but skip noise
-          const skipSubtypes = new Set(['channel_join', 'channel_leave', 'channel_archive', 'channel_unarchive', 'pinned_item', 'unpinned_item']);
+          const skipSubtypes = new Set([
+            'channel_join',
+            'channel_leave',
+            'channel_archive',
+            'channel_unarchive',
+            'pinned_item',
+            'unpinned_item',
+          ]);
           if (msg.subtype && skipSubtypes.has(msg.subtype)) continue;
 
           const rawText = msg.text || '';
@@ -314,8 +331,8 @@ export async function syncSlack(
           const files = (msg as any).files || [];
           const attachments = (msg as any).attachments || [];
           if (files.length > 0) {
-            const fileLines = files.map((f: any) =>
-              `[file: ${f.name || 'untitled'}${f.filetype ? ` (${f.filetype})` : ''}]`
+            const fileLines = files.map(
+              (f: any) => `[file: ${f.name || 'untitled'}${f.filetype ? ` (${f.filetype})` : ''}]`,
             );
             filesContext += fileLines.join(' ');
           }
@@ -349,7 +366,10 @@ export async function syncSlack(
           if (reactionContext.length > 0) fullText += `\nReactions: ${reactionContext.join(', ')}`;
           if (threadContext) fullText += `\n--- thread replies ---\n${threadContext}`;
 
-          const { participants, participantProfiles, roles } = buildParticipantData(participantRoles, users);
+          const { participants, participantProfiles, roles } = buildParticipantData(
+            participantRoles,
+            users,
+          );
 
           emit({
             sourceType: 'message',

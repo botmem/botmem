@@ -54,7 +54,10 @@ export class MeService {
     // Get user's accounts only
     const accountConditions: any[] = [];
     if (userId) accountConditions.push(eq(accounts.userId, userId));
-    const allAccounts = await db.select().from(accounts).where(accountConditions.length ? and(...accountConditions) : undefined);
+    const allAccounts = await db
+      .select()
+      .from(accounts)
+      .where(accountConditions.length ? and(...accountConditions) : undefined);
     if (!allAccounts.length) return null;
 
     // Build normalized identifier lookup values from accounts
@@ -145,7 +148,10 @@ export class MeService {
       // Verify it still exists (and belongs to user if userId given)
       const conditions: any[] = [eq(contacts.id, row.value)];
       if (userId) conditions.push(eq(contacts.userId, userId));
-      const exists = await db.select({ id: contacts.id }).from(contacts).where(and(...conditions));
+      const exists = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(...conditions));
       if (exists.length) return row.value;
     }
 
@@ -165,8 +171,20 @@ export class MeService {
    * Find contacts that look like duplicates of "me" — candidates for merge.
    * Uses same heuristics as merge suggestions: name substring match + shared identifiers.
    */
-  async getMergeCandidates(userId?: string): Promise<
-    Array<{ id: string; displayName: string; avatars: string; reason: string; identifiers: Array<{ identifierType: string; identifierValue: string; connectorType: string | null }> }>
+  async getMergeCandidates(
+    userId?: string,
+  ): Promise<
+    Array<{
+      id: string;
+      displayName: string;
+      avatars: string;
+      reason: string;
+      identifiers: Array<{
+        identifierType: string;
+        identifierValue: string;
+        connectorType: string | null;
+      }>;
+    }>
   > {
     const selfId = await this.resolveSelfContactId(userId);
     if (!selfId) return [];
@@ -181,14 +199,24 @@ export class MeService {
     if (selfName.length < 2) return [];
 
     // Load self identifiers (email, phone, etc.)
-    const selfIdents = await db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, selfId));
-    const selfIdentValues = new Set(selfIdents.map((i) => `${i.identifierType}:${i.identifierValue}`));
+    const selfIdents = await db
+      .select()
+      .from(contactIdentifiers)
+      .where(eq(contactIdentifiers.contactId, selfId));
+    const selfIdentValues = new Set(
+      selfIdents.map((i) => `${i.identifierType}:${i.identifierValue}`),
+    );
 
     // Load dismissed pairs involving self
-    const dismissedRows = await db.select().from(mergeDismissals).where(
-      sql`${mergeDismissals.contactId1} = ${selfId} OR ${mergeDismissals.contactId2} = ${selfId}`,
+    const dismissedRows = await db
+      .select()
+      .from(mergeDismissals)
+      .where(
+        sql`${mergeDismissals.contactId1} = ${selfId} OR ${mergeDismissals.contactId2} = ${selfId}`,
+      );
+    const dismissedIds = new Set(
+      dismissedRows.map((d) => (d.contactId1 === selfId ? d.contactId2 : d.contactId1)),
     );
-    const dismissedIds = new Set(dismissedRows.map((d) => d.contactId1 === selfId ? d.contactId2 : d.contactId1));
 
     // Find candidates: persons with matching name or shared identifiers (user-scoped)
     const personConditions: any[] = [
@@ -196,9 +224,22 @@ export class MeService {
       sql`COALESCE(${contacts.entityType}, 'person') = 'person'`,
     ];
     if (userId) personConditions.push(eq(contacts.userId, userId));
-    const allPersons = await db.select().from(contacts).where(and(...personConditions));
+    const allPersons = await db
+      .select()
+      .from(contacts)
+      .where(and(...personConditions));
 
-    const candidates: Array<{ id: string; displayName: string; avatars: string; reason: string; identifiers: Array<{ identifierType: string; identifierValue: string; connectorType: string | null }> }> = [];
+    const candidates: Array<{
+      id: string;
+      displayName: string;
+      avatars: string;
+      reason: string;
+      identifiers: Array<{
+        identifierType: string;
+        identifierValue: string;
+        connectorType: string | null;
+      }>;
+    }> = [];
 
     for (const c of allPersons) {
       if (dismissedIds.has(c.id)) continue;
@@ -209,7 +250,10 @@ export class MeService {
       let reason = '';
 
       // Check shared identifiers (email/phone) — highest confidence, check first
-      const cIdents = await db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, c.id));
+      const cIdents = await db
+        .select()
+        .from(contactIdentifiers)
+        .where(eq(contactIdentifiers.contactId, c.id));
       for (const ci of cIdents) {
         if (ci.identifierType === 'name') continue;
         if (selfIdentValues.has(`${ci.identifierType}:${ci.identifierValue}`)) {
@@ -227,9 +271,17 @@ export class MeService {
       if (!reason) {
         const shorter = Math.min(selfName.length, cName.length);
         const longer = Math.max(selfName.length, cName.length);
-        if (shorter >= 4 && shorter / longer >= 0.4 && (selfName.includes(cName) || cName.includes(selfName))) {
+        if (
+          shorter >= 4 &&
+          shorter / longer >= 0.4 &&
+          (selfName.includes(cName) || cName.includes(selfName))
+        ) {
           // Only suggest if they also share a non-name identifier
-          const hasSharedIdent = cIdents.some((ci) => ci.identifierType !== 'name' && selfIdentValues.has(`${ci.identifierType}:${ci.identifierValue}`));
+          const hasSharedIdent = cIdents.some(
+            (ci) =>
+              ci.identifierType !== 'name' &&
+              selfIdentValues.has(`${ci.identifierType}:${ci.identifierValue}`),
+          );
           if (hasSharedIdent) {
             reason = `Name matches: "${self.displayName}" and "${c.displayName}"`;
           }
@@ -239,7 +291,10 @@ export class MeService {
       if (!reason) continue;
 
       // Load identifiers for display
-      const idents = await db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, c.id));
+      const idents = await db
+        .select()
+        .from(contactIdentifiers)
+        .where(eq(contactIdentifiers.contactId, c.id));
       candidates.push({
         id: c.id,
         displayName: c.displayName,
@@ -266,7 +321,7 @@ export class MeService {
     const selfContactId = await this.resolveSelfContactId(userId);
 
     // Build identity from self contact
-    let identity: {
+    const identity: {
       name: string | null;
       email: string | null;
       phone: string | null;
@@ -281,10 +336,7 @@ export class MeService {
     };
 
     if (selfContactId) {
-      const contactRows = await db
-        .select()
-        .from(contacts)
-        .where(eq(contacts.id, selfContactId));
+      const contactRows = await db.select().from(contacts).where(eq(contacts.id, selfContactId));
 
       if (contactRows.length) {
         const contact = contactRows[0];
@@ -324,16 +376,17 @@ export class MeService {
       itemsSynced: acct.itemsSynced,
     }));
 
-    const userAccountIds = userAccounts.map(a => a.id);
+    const userAccountIds = userAccounts.map((a) => a.id);
 
     // Stats — only count fully-processed memories for this user
     const doneConditions: any[] = [eq(memories.embeddingStatus, 'done')];
     if (userAccountIds.length > 0) {
       doneConditions.push(inArray(memories.accountId, userAccountIds));
     }
-    const doneFilter = userAccountIds.length === 0 && userId
-      ? sql`1=0`  // User has no accounts — zero results
-      : and(...doneConditions);
+    const doneFilter =
+      userAccountIds.length === 0 && userId
+        ? sql`1=0` // User has no accounts — zero results
+        : and(...doneConditions);
 
     const totalMemoriesResult = await db
       .select({ count: sql<number>`count(*)` })
@@ -405,7 +458,9 @@ export class MeService {
     const entityCounts = new Map<string, number>();
     for (const row of allEntitiesRows) {
       try {
-        const entities: Array<{ name?: string; type?: string; value?: string }> = JSON.parse(row.entities);
+        const entities: Array<{ name?: string; type?: string; value?: string }> = JSON.parse(
+          row.entities,
+        );
         for (const entity of entities) {
           const key = entity.name || entity.value || '';
           if (key) {

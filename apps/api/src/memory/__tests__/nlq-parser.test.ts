@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseNlq, type NlqParsed } from '../nlq-parser';
+import { parseNlq } from '../nlq-parser';
 
 // Fixed reference date for deterministic tests: March 8, 2026 (Sunday)
 const REF = new Date('2026-03-08T12:00:00Z');
