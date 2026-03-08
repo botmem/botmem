@@ -157,8 +157,8 @@
 ### Entity Format & Storage
 
 - [x] **FMT-01**: Entity format unified to single `{type, value}` shape across embed and enrich steps
-- [ ] **FMT-02**: `createLinks` duplicate link bug fixed with existence check before insert
-- [ ] **FMT-03**: Embed-step entities persisted in memory metadata for traceability
+- [x] **FMT-02**: `createLinks` duplicate link bug fixed with existence check before insert
+- [x] **FMT-03**: Embed-step entities persisted in memory metadata for traceability
 
 ### Data Backfill
 
@@ -192,8 +192,8 @@
 | SRC-03 | Phase 25 | Complete |
 | SRC-04 | Phase 25 | Complete |
 | FMT-01 | Phase 26 | Complete |
-| FMT-02 | Phase 26 | Pending |
-| FMT-03 | Phase 26 | Pending |
+| FMT-02 | Phase 26 | Complete |
+| FMT-03 | Phase 26 | Complete |
 | ENT-01 | Phase 26 | Complete |
 | ENT-02 | Phase 26 | Complete |
 | ENT-03 | Phase 26 | Complete |
