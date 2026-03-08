@@ -7,7 +7,10 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, WebSocket } from 'ws';
+import { JwtService } from '@nestjs/jwt';
+import { IncomingMessage } from 'http';
 import { EventsService } from './events.service';
+import { ConfigService } from '../config/config.service';
 
 @WebSocketGateway({ path: '/events' })
 export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
@@ -16,7 +19,11 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   private subscriptions = new Map<WebSocket, Set<string>>();
 
-  constructor(private events: EventsService) {}
+  constructor(
+    private events: EventsService,
+    private jwtService: JwtService,
+    private config: ConfigService,
+  ) {}
 
   afterInit() {
     this.events.on('ws:broadcast', ({ channel, event, data }) => {
@@ -29,8 +36,22 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     });
   }
 
-  handleConnection(client: WebSocket) {
-    this.subscriptions.set(client, new Set());
+  handleConnection(client: WebSocket, req: IncomingMessage) {
+    const url = new URL(req.url!, `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+
+    if (!token) {
+      client.close(4401, 'Unauthorized');
+      return;
+    }
+
+    try {
+      this.jwtService.verify(token, { secret: this.config.jwtAccessSecret });
+      this.subscriptions.set(client, new Set());
+    } catch {
+      client.close(4401, 'Invalid token');
+      return;
+    }
   }
 
   handleDisconnect(client: WebSocket) {
