@@ -182,6 +182,17 @@ export const api = {
   updateSettings: (settings: Record<string, string>) =>
     request<Record<string, string>>('/settings', { method: 'PATCH', body: JSON.stringify(settings) }),
 
+  // API Keys
+  listApiKeys: () =>
+    request<Array<{ id: string; name: string; lastFour: string; createdAt: string; expiresAt: string | null; revokedAt: string | null }>>('/api-keys'),
+  createApiKey: (name: string, expiresAt?: string) =>
+    request<{ key: string; id: string; name: string; lastFour: string }>('/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name, expiresAt: expiresAt || undefined }),
+    }),
+  revokeApiKey: (id: string) =>
+    request<{ success: boolean }>(`/api-keys/${id}`, { method: 'DELETE' }),
+
   // Admin / Danger Zone
   purgeMemories: () =>
     request<any>('/memories/purge', { method: 'POST' }),

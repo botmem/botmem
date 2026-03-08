@@ -7,10 +7,11 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 describe('JwtAuthGuard (global)', () => {
   let guard: JwtAuthGuard;
   let reflector: Reflector;
+  const mockApiKeysService = { validateKey: vi.fn() } as any;
 
   beforeEach(() => {
     reflector = new Reflector();
-    guard = new JwtAuthGuard(reflector);
+    guard = new JwtAuthGuard(reflector, mockApiKeysService);
   });
 
   function mockContext(isPublic: boolean): ExecutionContext {
@@ -33,15 +34,15 @@ describe('JwtAuthGuard (global)', () => {
     } as unknown as ExecutionContext;
   }
 
-  it('should allow access to @Public() decorated routes', () => {
+  it('should allow access to @Public() decorated routes', async () => {
     const ctx = mockContext(true);
-    const result = guard.canActivate(ctx);
+    const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
   });
 
-  it('should check IS_PUBLIC_KEY metadata', () => {
+  it('should check IS_PUBLIC_KEY metadata', async () => {
     const ctx = mockContext(true);
-    guard.canActivate(ctx);
+    await guard.canActivate(ctx);
     expect(reflector.getAllAndOverride).toHaveBeenCalledWith(IS_PUBLIC_KEY, [
       ctx.getHandler(),
       ctx.getClass(),
@@ -53,8 +54,7 @@ describe('JwtAuthGuard (global)', () => {
     // super.canActivate returns a Promise that rejects because there's
     // no passport strategy registered in the test context.
     // This confirms the guard IS delegating to passport for auth.
-    const result = guard.canActivate(ctx);
-    await expect(Promise.resolve(result)).rejects.toThrow(
+    await expect(guard.canActivate(ctx)).rejects.toThrow(
       'Unknown authentication strategy "jwt"',
     );
   });

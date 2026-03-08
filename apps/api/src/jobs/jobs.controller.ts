@@ -6,6 +6,7 @@ import { JobsService } from './jobs.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { DbService } from '../db/db.service';
 import { rawEvents, memories, memoryContacts } from '../db/schema';
+import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import type { Job } from '@botmem/shared';
 
 function toApiJob(row: any): Job {
@@ -75,6 +76,7 @@ export class JobsController {
     return toApiJob(row);
   }
 
+  @RequiresJwt()
   @Post('sync/:accountId')
   async triggerSync(@Param('accountId') accountId: string) {
     const account = await this.accountsService.getById(accountId);
@@ -82,6 +84,7 @@ export class JobsController {
     return { job: toApiJob(row) };
   }
 
+  @RequiresJwt()
   @Post('retry-failed')
   async retryFailed() {
     const rows = await this.jobsService.getAll();
@@ -162,6 +165,7 @@ export class JobsController {
     return { ok: true, retried };
   }
 
+  @RequiresJwt()
   @Delete(':id')
   async cancel(@Param('id') id: string) {
     await this.jobsService.cancel(id);

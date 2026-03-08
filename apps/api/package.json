@@ -48,6 +48,7 @@
     "posthog-node": "^5.28.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
+    "stopword": "^3.1.5",
     "ws": "^8.19.0",
     "xlsx": "^0.18.5"
   },

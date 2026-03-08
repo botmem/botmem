@@ -9,6 +9,7 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { AgentService } from './agent.service';
+import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 
 // ── Response wrapper ─────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ export class AgentController {
   constructor(private readonly agentService: AgentService) {}
 
   /** Natural language memory search with enriched results. */
+  @RequiresJwt()
   @Post('ask')
   @HttpCode(200)
   async ask(
@@ -87,6 +89,7 @@ export class AgentController {
   }
 
   /** Quick memory insertion from agent. */
+  @RequiresJwt()
   @Post('remember')
   async remember(
     @Body() body: { text?: string; metadata?: Record<string, unknown> },
@@ -107,6 +110,7 @@ export class AgentController {
   }
 
   /** Delete a memory and its vector. */
+  @RequiresJwt()
   @Delete('forget/:id')
   async forget(@Param('id') id: string) {
     const start = Date.now();
@@ -143,6 +147,7 @@ export class AgentController {
   }
 
   /** Search + LLM summarization of matching memories. */
+  @RequiresJwt()
   @Post('summarize')
   @HttpCode(200)
   async summarize(
