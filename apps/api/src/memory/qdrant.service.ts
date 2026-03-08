@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { ConfigService } from '../config/config.service';
 
@@ -10,6 +10,7 @@ export interface ScoredPoint {
 
 @Injectable()
 export class QdrantService implements OnModuleInit {
+  private readonly logger = new Logger(QdrantService.name);
   private client: QdrantClient;
   private static readonly COLLECTION = 'memories';
 
@@ -28,7 +29,7 @@ export class QdrantService implements OnModuleInit {
       // Create datetime payload index on event_time for temporal filtering
       await this.ensureTemporalIndex();
     } catch (err) {
-      console.error('Qdrant collection init failed (will retry on first embed):', err);
+      this.logger.error('Qdrant collection init failed (will retry on first embed)', err instanceof Error ? err.stack : String(err));
     }
   }
 
@@ -52,7 +53,7 @@ export class QdrantService implements OnModuleInit {
     } catch (err: any) {
       // 400 = index already exists, safe to ignore
       if (err?.status !== 400 && !err?.message?.includes('already exists')) {
-        console.error('Failed to create event_time payload index:', err);
+        this.logger.error('Failed to create event_time payload index', err instanceof Error ? err.stack : String(err));
       }
     }
   }

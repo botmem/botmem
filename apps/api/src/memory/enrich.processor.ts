@@ -1,10 +1,11 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { EnrichService } from './enrich.service';
 import { MemoryService } from './memory.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -14,10 +15,12 @@ import { rawEvents, memories } from '../db/schema';
 
 @Processor('enrich')
 export class EnrichProcessor extends WorkerHost implements OnModuleInit {
+  private readonly logger = new Logger(EnrichProcessor.name);
   constructor(
     private dbService: DbService,
     private enrichService: EnrichService,
     private memoryService: MemoryService,
+    private crypto: CryptoService,
     private events: EventsService,
     private logsService: LogsService,
     private jobsService: JobsService,
@@ -28,7 +31,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   }
 
   onModuleInit() {
-    this.worker.on('error', (err) => console.warn('[enrich worker]', err.message));
+    this.worker.on('error', (err) => this.logger.warn(`[enrich worker] ${err.message}`));
     const concurrency = parseInt(this.settingsService.get('enrich_concurrency'), 10) || 8;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
@@ -50,7 +53,6 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
 
     const parentJobId = rawRows[0]?.jobId;
     const connectorType = rawRows[0]?.connectorType || 'unknown';
-    const accountId = rawRows[0]?.accountId;
 
     // Run enrichment
     await this.enrichService.enrich(memoryId);
@@ -68,6 +70,9 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       entities: mem?.entities, factuality: mem?.factuality,
     });
 
+    // Encrypt memory fields at rest before marking as done
+    this.encryptMemoryAtRest(memoryId);
+
     // Mark memory as done
     await this.dbService.db.update(memories)
       .set({ embeddingStatus: 'done' })
@@ -83,12 +88,32 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     // Emit graph delta for incremental graph updates
     this.emitGraphDelta(memoryId);
 
-    // Debounced dashboard stats
-    this.events.emitDebounced('dashboard:stats', 'dashboard', 'dashboard:stats',
-      () => this.memoryService.getStats());
+    // Dashboard stats are fetched per-user via REST — no global WS broadcast
 
     // Advance parent job progress
     await this.advanceAndComplete(parentJobId);
+  }
+
+  private encryptMemoryAtRest(memoryId: string) {
+    try {
+      const [mem] = this.dbService.db
+        .select({ text: memories.text, entities: memories.entities, claims: memories.claims, metadata: memories.metadata })
+        .from(memories)
+        .where(eq(memories.id, memoryId))
+        .all();
+      if (!mem) return;
+
+      const enc = this.crypto.encryptMemoryFields({
+        text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata,
+      });
+      this.dbService.db
+        .update(memories)
+        .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
+        .where(eq(memories.id, memoryId))
+        .run();
+    } catch (err: any) {
+      this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
+    }
   }
 
   private emitGraphDelta(memoryId: string) {

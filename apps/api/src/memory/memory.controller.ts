@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, Res, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Body, Res, HttpStatus, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -11,9 +11,11 @@ import { memories, memoryContacts, rawEvents } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
+import { SearchMemoriesDto } from './dto/search-memories.dto';
 
 @Controller('memories')
 export class MemoryController {
+  private readonly logger = new Logger(MemoryController.name);
   constructor(
     private memoryService: MemoryService,
     private dbService: DbService,
@@ -121,7 +123,7 @@ export class MemoryController {
         enqueued++;
       } catch (err: any) {
         errors++;
-        console.error(`[retry-failed] ${mem.id}: ${err?.message}`);
+        this.logger.error(`[retry-failed] ${mem.id}: ${err?.message}`);
       }
     }
 
@@ -313,9 +315,9 @@ export class MemoryController {
   @Post('search')
   async search(
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },
-    @Body() body: { query: string; filters?: Record<string, string>; limit?: number; rerank?: boolean; memoryBankId?: string },
+    @Body() dto: SearchMemoriesDto,
   ) {
-    return this.memoryService.search(body.query, body.filters, body.limit, body.rerank, user.id, body.memoryBankId, user.memoryBankIds);
+    return this.memoryService.search(dto.query, dto.filters, dto.limit, dto.rerank, user.id, dto.memoryBankId, user.memoryBankIds);
   }
 
   @RequiresJwt()

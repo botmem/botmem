@@ -11,7 +11,9 @@ import { JwtService } from '@nestjs/jwt';
 import { IncomingMessage } from 'http';
 import { EventsService } from './events.service';
 import { ConfigService } from '../config/config.service';
+import { SkipThrottle } from '@nestjs/throttler';
 
+@SkipThrottle()
 @WebSocketGateway({ path: '/events' })
 export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

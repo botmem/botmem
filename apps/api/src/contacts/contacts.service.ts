@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, eq, like, or, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -83,9 +83,10 @@ export interface ContactWithIdentifiers {
 
 @Injectable()
 export class ContactsService {
+  private readonly logger = new Logger(ContactsService.name);
   constructor(private dbService: DbService) {}
 
-  async resolveContact(rawIdentifiers: IdentifierInput[], entityType?: 'person' | 'group' | 'organization' | 'device'): Promise<ContactWithIdentifiers> {
+  async resolveContact(rawIdentifiers: IdentifierInput[], entityType?: 'person' | 'group' | 'organization' | 'device', userId?: string): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
     // Normalize + deduplicate identifiers
@@ -106,12 +107,27 @@ export class ContactsService {
 
     for (const ident of identifiers) {
       if (ident.type === 'name') continue; // Skip name-based matching
-      const rows = await db
-        .select({ contactId: contactIdentifiers.contactId })
-        .from(contactIdentifiers)
-        .where(
-          sql`${contactIdentifiers.identifierType} = ${ident.type} AND ${contactIdentifiers.identifierValue} = ${ident.value}`,
-        );
+      // Scope to same-user contacts to prevent cross-user merging
+      let rows;
+      if (userId) {
+        rows = await db
+          .select({ contactId: contactIdentifiers.contactId })
+          .from(contactIdentifiers)
+          .innerJoin(contacts, eq(contacts.id, contactIdentifiers.contactId))
+          .where(
+            and(
+              sql`${contactIdentifiers.identifierType} = ${ident.type} AND ${contactIdentifiers.identifierValue} = ${ident.value}`,
+              eq(contacts.userId, userId),
+            ),
+          );
+      } else {
+        rows = await db
+          .select({ contactId: contactIdentifiers.contactId })
+          .from(contactIdentifiers)
+          .where(
+            sql`${contactIdentifiers.identifierType} = ${ident.type} AND ${contactIdentifiers.identifierValue} = ${ident.value}`,
+          );
+      }
       for (const row of rows) {
         matchedContactIds.add(row.contactId);
       }
@@ -131,6 +147,7 @@ export class ContactsService {
         id: contactId,
         displayName,
         entityType: entityType || 'person',
+        userId: userId || null,
         createdAt: now,
         updatedAt: now,
       });
@@ -231,7 +248,7 @@ export class ContactsService {
       }
     } catch (err) {
       // Auto-merge is best-effort — don't fail the resolve
-      console.warn('[resolveContact] auto-merge failed:', err);
+      this.logger.warn(`[resolveContact] auto-merge failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     const result = await this.getById(contactId);
@@ -276,7 +293,7 @@ export class ContactsService {
     };
   }
 
-  async list(params: { limit?: number; offset?: number; entityType?: string } = {}): Promise<{
+  async list(params: { limit?: number; offset?: number; entityType?: string; userId?: string } = {}): Promise<{
     items: ContactWithIdentifiers[];
     total: number;
   }> {
@@ -284,9 +301,10 @@ export class ContactsService {
     const limit = params.limit || 50;
     const offset = params.offset || 0;
 
-    const where = params.entityType
-      ? eq(contacts.entityType, params.entityType)
-      : undefined;
+    const conditions: any[] = [];
+    if (params.entityType) conditions.push(eq(contacts.entityType, params.entityType));
+    if (params.userId) conditions.push(eq(contacts.userId, params.userId));
+    const where = conditions.length ? and(...conditions) : undefined;
 
     // Get total count without fetching all rows
     const countResult = await db

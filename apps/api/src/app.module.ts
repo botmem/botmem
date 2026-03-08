@@ -21,8 +21,10 @@ import { MailModule } from './mail/mail.module';
 import { UserAuthModule } from './user-auth/user-auth.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { MemoryBanksModule } from './memory-banks/memory-banks.module';
+import { CryptoModule } from './crypto/crypto.module';
 import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from './user-auth/jwt-auth.guard';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -38,6 +40,7 @@ const isDev = process.env.NODE_ENV !== 'production';
             exclude: ['/api/{*path}'],
           }),
         ]),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
     AnalyticsModule,
     ConfigModule,
     DbModule,
@@ -57,11 +60,16 @@ const isDev = process.env.NODE_ENV !== 'production';
     UserAuthModule,
     ApiKeysModule,
     MemoryBanksModule,
+    CryptoModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })

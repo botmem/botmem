@@ -10,6 +10,10 @@ import {
 } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { Throttle } from '@nestjs/throttler';
+import { AskDto } from './dto/ask.dto';
+import { RememberDto } from './dto/remember.dto';
+import { SummarizeDto } from './dto/summarize.dto';
 
 // ── Response wrapper ─────────────────────────────────────────────────
 
@@ -29,18 +33,17 @@ export class AgentController {
 
   /** Natural language memory search with enriched results. */
   @RequiresJwt()
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('ask')
   @HttpCode(200)
   async ask(
-    @Body() body: { query?: string; filters?: { sourceType?: string; connectorType?: string; contactId?: string }; limit?: number },
+    @Body() dto: AskDto,
   ) {
     const start = Date.now();
     try {
-      if (!body.query?.trim()) return fail('query is required');
-
-      const result = await this.agentService.ask(body.query, {
-        filters: body.filters,
-        limit: body.limit,
+      const result = await this.agentService.ask(dto.query, {
+        filters: dto.filters,
+        limit: dto.limit,
       });
 
       const sources = [...new Set(result.results.map((r) => r.connectorType))];
@@ -92,13 +95,11 @@ export class AgentController {
   @RequiresJwt()
   @Post('remember')
   async remember(
-    @Body() body: { text?: string; metadata?: Record<string, unknown> },
+    @Body() dto: RememberDto,
   ) {
     const start = Date.now();
     try {
-      if (!body.text?.trim()) return fail('text is required');
-
-      const result = await this.agentService.remember(body.text, body.metadata);
+      const result = await this.agentService.remember(dto.text, dto.metadata);
       return ok(result, {
         queryTime: Date.now() - start,
         resultCount: 1,
@@ -148,16 +149,15 @@ export class AgentController {
 
   /** Search + LLM summarization of matching memories. */
   @RequiresJwt()
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('summarize')
   @HttpCode(200)
   async summarize(
-    @Body() body: { query?: string; maxResults?: number },
+    @Body() dto: SummarizeDto,
   ) {
     const start = Date.now();
     try {
-      if (!body.query?.trim()) return fail('query is required');
-
-      const result = await this.agentService.summarize(body.query, body.maxResults);
+      const result = await this.agentService.summarize(dto.query, dto.maxResults);
 
       const sources = [...new Set(result.memories.map((r) => r.connectorType))];
       return ok(result, {

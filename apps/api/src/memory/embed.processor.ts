@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
@@ -16,6 +16,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { rawEvents, memories, memoryLinks, settings, accounts, memoryBanks } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import { normalizeEntities } from './entity-normalizer';
@@ -26,6 +27,7 @@ const TRUNCATION_SUFFIX = '\n\n---\n*[Truncated]*';
 
 @Processor('embed')
 export class EmbedProcessor extends WorkerHost implements OnModuleInit {
+  private readonly logger = new Logger(EmbedProcessor.name);
   constructor(
     private dbService: DbService,
     private ollama: OllamaService,
@@ -40,13 +42,14 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
     private analytics: AnalyticsService,
+    private crypto: CryptoService,
     @InjectQueue('enrich') private enrichQueue: Queue,
   ) {
     super();
   }
 
   onModuleInit() {
-    this.worker.on('error', (err) => console.warn('[embed worker]', err.message));
+    this.worker.on('error', (err) => this.logger.warn(`[embed worker] ${err.message}`));
     const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 8;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
@@ -109,12 +112,14 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     // Create memory record — resolve memoryBankId from account's user
     const memoryId = randomUUID();
     const now = new Date().toISOString();
-    const mergedMetadata = { ...metadata, ...(embedResult.metadata || {}), embedEntities };
+    const mergedMetadata: Record<string, unknown> = { ...metadata, ...(embedResult.metadata || {}), embedEntities };
 
     // Look up the account's userId to find their default memory bank
     let memoryBankId: string | null = null;
+    let ownerUserId: string | null = null;
     try {
       const [acct] = await this.dbService.db.select({ userId: accounts.userId }).from(accounts).where(eq(accounts.id, rawEvent.accountId));
+      ownerUserId = acct?.userId || null;
       if (acct?.userId) {
         const [defaultBank] = await this.dbService.db.select({ id: memoryBanks.id }).from(memoryBanks)
           .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, 1)));
@@ -187,14 +192,14 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
       for (const { entityType, role, identifiers } of buckets) {
         const resolveType = entityType === 'person' ? undefined : entityType;
-        const contact = await this.contactsService.resolveContact(identifiers, resolveType as any);
+        const contact = await this.contactsService.resolveContact(identifiers, resolveType as any, ownerUserId || undefined);
         if (contact) {
           await this.contactsService.linkMemory(memoryId, contact.id, role);
           contactCount++;
         }
       }
     } catch (err) {
-      console.error('Contact resolution failed:', err);
+      this.logger.error('Contact resolution failed', err instanceof Error ? err.stack : String(err));
     }
     const contactMs = Date.now() - t0;
 
@@ -277,7 +282,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
         );
       } else {
-        // No enrich — mark done directly
+        // No enrich — encrypt at rest and mark done directly
+        this.encryptMemoryAtRest(memoryId);
         await this.dbService.db.update(memories)
           .set({ embeddingStatus: 'done' })
           .where(eq(memories.id, memoryId));
@@ -289,8 +295,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         });
         // Emit graph delta + debounced stats for no-enrich path
         this.emitGraphDelta(memoryId);
-        this.events.emitDebounced('dashboard:stats', 'dashboard', 'dashboard:stats',
-          () => this.memoryService.getStats());
+        // Dashboard stats are fetched per-user via REST — no global WS broadcast
         await this.advanceAndComplete(parentJobId);
       }
     } catch (err: any) {
@@ -302,6 +307,28 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'error',
         `[embed:fail] ${event.sourceType} after ${totalMs}ms: ${err?.message || err}`);
       throw err;
+    }
+  }
+
+  private encryptMemoryAtRest(memoryId: string) {
+    try {
+      const [mem] = this.dbService.db
+        .select({ text: memories.text, entities: memories.entities, claims: memories.claims, metadata: memories.metadata })
+        .from(memories)
+        .where(eq(memories.id, memoryId))
+        .all();
+      if (!mem) return;
+
+      const enc = this.crypto.encryptMemoryFields({
+        text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata,
+      });
+      this.dbService.db
+        .update(memories)
+        .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
+        .where(eq(memories.id, memoryId))
+        .run();
+    } catch (err: any) {
+      this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
     }
   }
 

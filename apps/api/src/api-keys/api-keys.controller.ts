@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Param, Body } from '@nestjs/common';
 import { ApiKeysService } from './api-keys.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
 @RequiresJwt()
 @Controller('api-keys')
@@ -11,9 +12,9 @@ export class ApiKeysController {
   @Post()
   async create(
     @CurrentUser() user: { id: string },
-    @Body() body: { name: string; expiresAt?: string },
+    @Body() dto: CreateApiKeyDto,
   ) {
-    return this.apiKeysService.create(user.id, body.name, body.expiresAt);
+    return this.apiKeysService.create(user.id, dto.name, dto.expiresAt);
   }
 
   @Get()

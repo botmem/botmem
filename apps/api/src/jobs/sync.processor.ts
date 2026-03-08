@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { ConnectorsService } from '../connectors/connectors.service';
@@ -18,6 +18,7 @@ import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/c
 
 @Processor('sync')
 export class SyncProcessor extends WorkerHost implements OnModuleInit {
+  private readonly logger = new Logger(SyncProcessor.name);
   constructor(
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
@@ -35,7 +36,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
   }
 
   onModuleInit() {
-    this.worker.on('error', (err) => console.warn('[sync worker]', err.message));
+    this.worker.on('error', (err) => this.logger.warn(`[sync worker] ${err.message}`));
     const concurrency = parseInt(this.settingsService.get('sync_concurrency'), 10) || 2;
     this.worker.concurrency = concurrency;
     // Settings-based sync_debug_limit takes priority over env var

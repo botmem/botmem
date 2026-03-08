@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
@@ -10,6 +11,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
 import { AnalyticsService } from './analytics/analytics.service';
 import { HttpAdapterHost } from '@nestjs/core';
+
+const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   const express = (await import('express')).default;
@@ -53,18 +56,28 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
+  // Global validation: reject invalid input, strip unknown properties
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    transform: true,
+    transformOptions: { enableImplicitConversion: true },
+  }));
+
   // Global exception filter: sends 5xx errors to PostHog
   const analyticsService = app.get(AnalyticsService);
   const httpAdapterHost = app.get(HttpAdapterHost);
   app.useGlobalFilters(new PostHogExceptionFilter(analyticsService, httpAdapterHost));
 
-  // Force-exit if graceful shutdown takes too long (e.g. BullMQ/Redis stalling)
-  const forceExit = () => {
-    console.log('Shutting down...');
+  // Graceful shutdown: close HTTP server immediately to release the port,
+  // then force-exit if cleanup (BullMQ/Redis) stalls
+  const httpServer = app.getHttpServer();
+  const shutdown = () => {
+    logger.log('Shutting down...');
+    httpServer.close();
     setTimeout(() => process.exit(0), 3000).unref();
   };
-  process.on('SIGTERM', forceExit);
-  process.on('SIGINT', forceExit);
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
   // SPA fallback: serve index.html for non-API, non-asset GET requests (after NestJS routes)
   if (isDev && vite) {
@@ -82,7 +95,8 @@ async function bootstrap() {
 
   const port = config.port;
   await app.listen(port);
-  console.log(`botmem running on http://localhost:${port}`);
+  logger.log(`botmem running on http://localhost:${port}`);
 }
 
 bootstrap();
+
