@@ -6,13 +6,20 @@
     "dev:all": "turbo dev --concurrency 20",
     "build": "turbo build",
     "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "format": "prettier --write \"apps/*/src/**/*.{ts,tsx}\" \"packages/*/src/**/*.{ts,tsx}\" \"packages/connectors/*/src/**/*.{ts,tsx}\"",
     "test": "turbo test",
     "test:coverage": "turbo test:coverage"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "prettier": "^3.4.0",
     "turbo": "^2.4.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
     "vitest": "^3.0.0"
   },
   "packageManager": "pnpm@9.15.0"

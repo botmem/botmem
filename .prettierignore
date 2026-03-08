@@ -1,0 +1,8 @@
+dist
+node_modules
+coverage
+data
+pnpm-lock.yaml
+*.db
+*.db-shm
+*.db-wal
