@@ -2,124 +2,130 @@
 
 **Core Value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
 
-## v1.4 Requirements -- Search Intelligence
+## v2.0 Requirements -- Security, Auth & Encryption
 
 **Defined:** 2026-03-08
 
-### Entity Classification
+### User Auth (Open-Core) — always required, no bypass
 
-- [x] **ENT-01**: Entity extraction uses canonical type taxonomy (person, organization, location, event, product, topic, pet, group, device, other) enforced via Ollama structured output (`format` parameter)
-- [x] **ENT-02**: All existing memories have entity types backfilled to canonical taxonomy via SQL string replacement (no LLM re-run)
-- [x] **ENT-03**: User can filter entity search by type (e.g. `/entities/search?q=Nugget&type=pet`)
+- [ ] **AUTH-01**: Register with email + password (bcrypt hash, minimum 8 chars)
+- [ ] **AUTH-02**: Login → JWT access token (15min) + httpOnly refresh cookie (7d)
+- [ ] **AUTH-03**: Refresh access token via `POST /auth/refresh` using refresh cookie
+- [ ] **AUTH-04**: Password reset via email link (cryptographic token, 1hr expiry)
+- [ ] **AUTH-05**: Session persistence via refresh token rotation (old token invalidated on use)
 
-### NLQ Parsing
+### Firebase Auth (Prod-Core)
 
-- [x] **NLQ-01**: User can search with temporal references ("last week", "in January", "yesterday") and get date-filtered results via chrono-node deterministic parsing
-- [x] **NLQ-02**: User can search with person/place/org names in natural language and get entity-boosted results
-- [x] **NLQ-03**: Search classifies query intent (recall/browse/find) to optimize result ranking and filtering
+- [ ] **FBAUTH-01**: NestJS guard verifies Firebase ID tokens via `firebase-admin` SDK
+- [ ] **FBAUTH-02**: React login/register UI with Firebase client SDK (email+password, Google, GitHub)
+- [ ] **FBAUTH-03**: `AUTH_PROVIDER=local|firebase` env var selects auth provider at startup
+- [ ] **FBAUTH-04**: Firebase social login (Google, GitHub) available in prod-core only
 
-### Source Citations
+### API Security
 
-- [ ] **CIT-01**: Search results include source citations (memory ID, timestamp, connector type, participant names) suitable for assistant drill-down
+- [ ] **SEC-01**: Auth guard on all endpoints (except `/health`, `/version`, `/auth/*`)
+- [ ] **SEC-02**: CORS locked to `FRONTEND_URL` origin(s), credentials mode enabled
 
-### Performance
+### API Keys
 
-- [x] **PERF-01**: Search with NLQ enhancements completes in <500ms (no LLM calls in search hot path)
+- [ ] **KEY-01**: Create multiple named API keys per user (cryptographic generation, stored hashed)
+- [ ] **KEY-02**: All API keys are read-only (search, list memories/contacts — no writes, no sync, no delete)
+- [ ] **KEY-03**: Keys scoped to specific memory bank(s) at creation time
+- [ ] **KEY-04**: List and revoke API keys via authenticated endpoints
+- [ ] **KEY-05**: API keys authenticate via `Authorization: Bearer <key>` header, coexist with JWT auth
 
-### v1.4 Future (deferred to v1.5)
+### Memory Banks
 
-- **SUM-01**: LLM summarization of top search results into assistant-style answer
-- **SUM-02**: Async delivery of summaries via WebSocket (non-blocking search)
+- [ ] **BANK-01**: Create, list, rename, and delete memory banks per user
+- [ ] **BANK-02**: Select target memory bank at sync time (connector sync config)
+- [ ] **BANK-03**: Search scoped to accessible bank(s) — user's own banks + API key bank scope
+- [ ] **BANK-04**: Default bank created on registration + migration of existing data into default bank
 
-### v1.4 Out of Scope
+### Encryption at Rest (Open-Core)
 
-| Feature | Reason |
-|---------|--------|
-| Conversational follow-up | Multi-turn requires session state, not v1 scope |
-| Agentic multi-step search | Over-engineering for single-user system |
-| Fine-tuning entity models | qwen3:0.6b + structured output sufficient |
-| External NER services | Keep local-first |
-| LLM calls in search hot path | Violates PERF-01 (<500ms) |
+- [ ] **ENC-01**: AES-256-GCM encryption for `authContext` (accounts table) and `connectorCredentials` table, key derived from `APP_SECRET` env var
+- [ ] **ENC-02**: Migration script to encrypt existing plaintext credentials with zero downtime
 
-### v1.4 Traceability
+### E2EE (Prod-Core)
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| ENT-01 | Phase 8 | Complete |
-| ENT-02 | Phase 8 | Complete |
-| ENT-03 | Phase 8 | Complete |
-| NLQ-01 | Phase 9 | Complete |
-| NLQ-02 | Phase 9 | Complete |
-| NLQ-03 | Phase 9 | Complete |
-| PERF-01 | Phase 9 | Complete |
-| CIT-01 | Phase 10 | Pending |
-
-**v1.4 Coverage:**
-- v1.4 requirements: 8 total
-- Mapped to phases: 8
-- Unmapped: 0
-
----
-
-## v2.0 Requirements -- Production Deployment & Open-Core Split
-
-**Defined:** 2026-03-08
-
-## v2.0 Requirements
-
-Requirements for production deployment and open-core split. Each maps to roadmap phases.
-
-### Repository & Organization
-
-- [x] **REPO-01**: GitHub org `botmem` is created and configured
-- [x] **REPO-02**: Open-core public repo is created with sanitized git history (no secrets)
-- [x] **REPO-03**: Prod-core private repo is created with deployment configs and business docs
-- [x] **REPO-04**: Git history is sanitized to remove all credentials, API keys, and secrets before public push
+- [ ] **E2EE-01**: Encryption key derived from user password via Argon2id (client-side, in browser)
+- [ ] **E2EE-02**: Memory text + metadata encrypted client-side before storage (server never sees plaintext)
+- [ ] **E2EE-03**: Embedding vectors stay plaintext (semantic search continues to work)
+- [ ] **E2EE-04**: Password change re-derives key + re-encrypts all user memories (batched, resumable)
 
 ### Database
 
-- [ ] **DB-01**: PostgreSQL schema file (`schema.pg.ts`) mirrors SQLite schema with identical logical structure
-- [ ] **DB-02**: Shared database interface abstracts over SQLite and PostgreSQL drivers (application code is dialect-agnostic)
-- [ ] **DB-03**: Conditional DbService initializes correct driver based on environment config (`DB_DRIVER=sqlite|postgres`)
-- [ ] **DB-04**: SQLite FTS5 is ported to PostgreSQL tsvector + GIN index for full-text search
-- [ ] **DB-05**: All raw SQLite-specific SQL (`json_extract`, `.get()`, `.prepare()`, `PRAGMA`) is abstracted behind the shared interface
+- [ ] **DB-01**: PostgreSQL schema (`schema.pg.ts`) mirrors SQLite schema with identical logical structure
+- [ ] **DB-02**: Shared database interface abstracts over SQLite and PostgreSQL (application code is dialect-agnostic)
+- [ ] **DB-03**: Conditional DbService initializes correct driver based on `DB_DRIVER=sqlite|postgres` env var
+- [ ] **DB-04**: SQLite FTS5 ported to PostgreSQL tsvector + GIN index for full-text search
+- [ ] **DB-05**: PostgreSQL RLS policies isolate user data — each user sees only their own memories, accounts, contacts
 
-### Inference
+### v2.0 Out of Scope
 
-- [ ] **INF-01**: InferenceService interface abstracts embed, generate, and rerank operations
-- [ ] **INF-02**: OllamaProvider implements InferenceService using existing Ollama HTTP API
-- [ ] **INF-03**: OpenRouterProvider implements InferenceService using OpenAI-compatible API (`openai` SDK)
-- [ ] **INF-04**: Provider selection is controlled by environment config (`INFERENCE_PROVIDER=ollama|openrouter`)
-- [ ] **INF-05**: Scoring formula redistributes weights when reranker is unavailable (rerank weight -> semantic + recency)
+| Feature | Reason |
+|---------|--------|
+| OAuth social login on open-core | Firebase handles social login for prod-core only |
+| Write-capable API keys | Read-only is sufficient for agent/CLI use; writes require full auth |
+| Multi-tenancy admin dashboard | Single-user focus; admin features deferred |
+| Docker/Caddy/CI-CD deployment | Deferred to v3.0 |
+| OpenRouter inference abstraction | Deferred to v3.0 |
+| Rate limiting | Can be added later without architectural changes |
+| Key escrow / recovery | Zero-knowledge design: lost password = lost data (by design) |
 
-### Authentication
+### v2.0 Traceability
 
-- [ ] **AUTH-01**: Firebase project is created under amroessams@gmail.com via gcloud CLI
-- [ ] **AUTH-02**: NestJS guard verifies Firebase ID tokens via `firebase-admin` SDK
-- [ ] **AUTH-03**: Auth guard is opt-in via `@RequireAuth()` decorator (not global -- preserves OAuth callbacks, WebSocket, CLI access)
-- [ ] **AUTH-04**: Auth is disabled when Firebase config is absent (open-core runs without auth)
-- [ ] **AUTH-05**: React login/register UI with Firebase client SDK
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| AUTH-01 | Phase 16 | Pending |
+| AUTH-02 | Phase 16 | Pending |
+| AUTH-03 | Phase 16 | Pending |
+| AUTH-04 | Phase 16 | Pending |
+| AUTH-05 | Phase 16 | Pending |
+| SEC-01 | Phase 17 | Pending |
+| SEC-02 | Phase 17 | Pending |
+| KEY-01 | Phase 18 | Pending |
+| KEY-02 | Phase 18 | Pending |
+| KEY-03 | Phase 18 | Pending |
+| KEY-04 | Phase 18 | Pending |
+| KEY-05 | Phase 18 | Pending |
+| BANK-01 | Phase 19 | Pending |
+| BANK-02 | Phase 19 | Pending |
+| BANK-03 | Phase 19 | Pending |
+| BANK-04 | Phase 19 | Pending |
+| ENC-01 | Phase 20 | Pending |
+| ENC-02 | Phase 20 | Pending |
+| E2EE-01 | Phase 21 | Pending |
+| E2EE-02 | Phase 21 | Pending |
+| E2EE-03 | Phase 21 | Pending |
+| E2EE-04 | Phase 21 | Pending |
+| DB-01 | Phase 22 | Pending |
+| DB-02 | Phase 22 | Pending |
+| DB-03 | Phase 22 | Pending |
+| DB-04 | Phase 22 | Pending |
+| DB-05 | Phase 23 | Pending |
+| FBAUTH-01 | Phase 24 | Pending |
+| FBAUTH-02 | Phase 24 | Pending |
+| FBAUTH-03 | Phase 24 | Pending |
+| FBAUTH-04 | Phase 24 | Pending |
 
-### Deployment
-
-- [ ] **DEP-01**: $12/mo Vultr VPS (2GB RAM) is provisioned with Docker, swap (2GB), and firewall rules
-- [ ] **DEP-02**: Multi-stage Dockerfile builds API + web into a single optimized image
-- [ ] **DEP-03**: `docker-compose.prod.yml` orchestrates API, PostgreSQL, Redis, Qdrant, and Caddy
-- [ ] **DEP-04**: Caddyfile configures reverse proxy with automatic Let's Encrypt SSL for botmem.xyz
-- [ ] **DEP-05**: Spaceship DNS A record points botmem.xyz (and www) to Vultr VPS IP
-
-### CI/CD
-
-- [ ] **CICD-01**: GitHub Actions workflow for open-core repo: lint, test, build on push/PR
-- [ ] **CICD-02**: GitHub Actions workflow for prod-core repo: lint, test, build, deploy to Vultr on push to main
-- [ ] **CICD-03**: Deployment pipeline SSHs into VPS, pulls latest image, runs docker compose up
-
-### Website & Documentation
-
-- [ ] **SITE-01**: Landing page updated with open-core vs production differentiation (features comparison, self-host vs hosted)
-- [ ] **SITE-02**: Documentation updated with deployment guide, auth setup, OpenRouter config, and self-hosting instructions
+**v2.0 Coverage:**
+- v2.0 requirements: 30 total (AUTH: 5, FBAUTH: 4, SEC: 2, KEY: 5, BANK: 4, ENC: 2, E2EE: 4, DB: 5)
+- Mapped to phases: 30 (Phases 16-24, skipping FBAUTH to end)
+- Unmapped: 0
 
 ## Previous Milestones (Completed)
+
+### v1.4 -- Search Intelligence (Complete)
+
+- [x] ENT-01, ENT-02, ENT-03 (Entity Classification)
+- [x] NLQ-01, NLQ-02, NLQ-03 (NLQ Parsing)
+- [x] PERF-01 (Search Performance)
+- [ ] CIT-01 (Source Citations — deferred)
+
+### v1.3 -- Test Coverage (Complete)
+
+- [x] Test infrastructure fixes
 
 ### v1.2 -- PostHog Deep Analytics (Complete)
 
@@ -133,17 +139,25 @@ Requirements for production deployment and open-core split. Each maps to roadmap
 
 Deferred to future releases. Tracked but not in current roadmap.
 
+### v3.0 — Production Deployment & CI/CD
+
+- **DEP-01**: Vultr VPS provisioning with Docker and swap
+- **DEP-02**: Multi-stage Dockerfile for API + web
+- **DEP-03**: `docker-compose.prod.yml` with Postgres, Redis, Qdrant, Caddy
+- **DEP-04**: Caddyfile with automatic Let's Encrypt SSL
+- **DEP-05**: DNS A record for botmem.xyz
+- **CICD-01**: GitHub Actions for open-core (lint, test, build)
+- **CICD-02**: GitHub Actions for prod-core (lint, test, build, deploy)
+- **CICD-03**: SSH deployment pipeline
+- **INF-01**: InferenceService interface (Ollama/OpenRouter)
+- **INF-02-05**: Provider implementations and fallback scoring
+
 ### Monitoring & Operations
 
-- **OPS-01**: Uptime monitoring and alerting (e.g., UptimeRobot, Grafana)
+- **OPS-01**: Uptime monitoring and alerting
 - **OPS-02**: Log aggregation from Docker containers
-- **OPS-03**: Automated PostgreSQL backup schedule (pg_dump cron)
+- **OPS-03**: Automated PostgreSQL backup schedule
 - **OPS-04**: Blue-green or rolling deployment strategy
-
-### Multi-tenancy
-
-- **MT-01**: Multiple user accounts with isolated data
-- **MT-02**: Admin dashboard for user management
 
 ## Out of Scope
 
@@ -151,50 +165,10 @@ Deferred to future releases. Tracked but not in current roadmap.
 |---------|--------|
 | Kubernetes / container orchestration | Single VPS is sufficient at this scale |
 | Custom domain per user | Single-tenant production deployment |
-| Self-hosted Firebase alternative (Supabase Auth) | Firebase free tier is sufficient, Google ecosystem integration |
 | CDN / edge caching | Unnecessary for single-user production instance |
 | Multi-region deployment | Single VPS, single region |
-| Blue-green deployment | Overkill for solo developer; simple docker compose restart is fine for v2.0 |
-
-## Traceability
-
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| REPO-01 | Phase 11 | Complete |
-| REPO-02 | Phase 11 | Complete |
-| REPO-03 | Phase 11 | Complete |
-| REPO-04 | Phase 11 | Complete |
-| DB-01 | Phase 12 | Pending |
-| DB-02 | Phase 12 | Pending |
-| DB-03 | Phase 12 | Pending |
-| DB-04 | Phase 12 | Pending |
-| DB-05 | Phase 12 | Pending |
-| INF-01 | Phase 13 | Pending |
-| INF-02 | Phase 13 | Pending |
-| INF-03 | Phase 13 | Pending |
-| INF-04 | Phase 13 | Pending |
-| INF-05 | Phase 13 | Pending |
-| AUTH-01 | Phase 13 | Pending |
-| AUTH-02 | Phase 13 | Pending |
-| AUTH-03 | Phase 13 | Pending |
-| AUTH-04 | Phase 13 | Pending |
-| AUTH-05 | Phase 13 | Pending |
-| DEP-01 | Phase 11 | Pending |
-| DEP-02 | Phase 14 | Pending |
-| DEP-03 | Phase 14 | Pending |
-| DEP-04 | Phase 14 | Pending |
-| DEP-05 | Phase 11 | Pending |
-| CICD-01 | Phase 15 | Pending |
-| CICD-02 | Phase 15 | Pending |
-| CICD-03 | Phase 15 | Pending |
-| SITE-01 | Phase 15 | Pending |
-| SITE-02 | Phase 15 | Pending |
-
-**Coverage:**
-- v2.0 requirements: 29 total
-- Mapped to phases: 29
-- Unmapped: 0
+| Key escrow / password recovery | Zero-knowledge E2EE by design |
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after v1.4 roadmap creation*
+*Last updated: 2026-03-08 after v2.0 milestone start*

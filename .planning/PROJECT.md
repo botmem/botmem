@@ -39,39 +39,39 @@ Every piece of personal communication and digital interaction is searchable, con
 - ✓ PostHog cloud analytics activation and end-to-end event verification — v1.1
 - ✓ Configurable PostHog host (EU/US) via POSTHOG_HOST env var — v1.1
 - ✓ connector_setup, graph_view, graph_node_click tracking events — v1.1
+- ✓ Entity type taxonomy with canonical types via Ollama structured output — v1.4
+- ✓ Contact auto-merge with safety-tiered rules — v1.4
+- ✓ Natural language query parsing (temporal + intent + entity extraction) — v1.4
+- ✓ GitHub org with open-core/prod-core repo split — v2.0 (Phase 11)
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] Natural language query parsing (entity/topic/temporal extraction from freeform questions)
-- [ ] LLM summarization of search results (assistant-style answers)
-- [ ] Entity type classification cleanup (consistent typing across enrichment pipeline)
+- [ ] User authentication (email+password, JWT access+refresh tokens)
+- [ ] API keys (named, read-only, bank-scoped)
+- [ ] Memory banks (data isolation, sync-time selection)
+- [ ] Encryption at rest (AES-256-GCM for credentials)
+- [ ] E2EE for prod-core (Argon2id key derivation, client-side encryption)
+- [ ] PostgreSQL dual-driver with RLS
+- [ ] Firebase auth for prod-core
 
-## Current Milestone: v1.4 Search Intelligence
+## Current Milestone: v2.0 Security, Auth & Encryption
 
-**Goal:** Make Botmem's search layer intelligent enough for a personal AI assistant — parse natural language queries into structured filters, summarize search results via LLM, and fix inconsistent entity type classification so entities are reliable for filtering and display.
-
-**Target features:**
-- Natural language query parsing (extract entities, topics, temporal references from freeform questions)
-- LLM summarization of search results (assistant-style answers, not just raw memory list)
-- Entity type classification cleanup (consistent typing: person, organization, location, event, product)
-
-## Queued Milestone: v2.0 Production Deployment & Open-Core Split
-
-**Goal:** Deploy Botmem to production on a Vultr VPS with proper infrastructure (Postgres, Firebase auth, Caddy SSL, OpenRouter inference), split the monorepo into open-core (public) and prod-core (private) under a GitHub org, and wire CI/CD pipelines for automatic deployment.
+**Goal:** Add user authentication, API keys, memory banks, encryption at rest, E2EE for prod-core, and PostgreSQL with RLS — transforming Botmem from a completely open system into a properly secured personal memory platform.
 
 **Target features:**
-- GitHub org (`botmem`) with public open-core repo and private prod-core repo
-- SQLite → PostgreSQL migration for production
-- Firebase authentication (project under amroessams@gmail.com)
-- OpenRouter API integration for production inference (keep Ollama for open-core)
-- Vultr $5 VPS provisioning and server configuration
-- Docker Compose production stack (API, web, Postgres, Redis, Qdrant, Caddy)
-- Caddy reverse proxy with automatic SSL (Let's Encrypt)
-- DNS configuration on Spaceship (botmem.xyz → Vultr IP)
-- GitHub Actions CI/CD pipelines for both open-core and prod-core builds
-- End-to-end production verification
+- User auth: email+password (open-core), Firebase (prod-core) — always required, no bypass
+- API keys: named, read-only, scoped to memory bank(s)
+- Memory banks: data isolation units, selected at sync time
+- Encryption at rest: AES-256-GCM for auth context + connector credentials
+- E2EE (prod-core): Argon2id key derivation, client-side encryption of memory text+metadata
+- PostgreSQL dual-driver with RLS for prod-core data isolation
+- CORS locked to FRONTEND_URL, auth guard on all endpoints
+
+## Queued Milestone: v3.0 Production Deployment & CI/CD
+
+**Goal:** Deploy Botmem to production with Docker/Caddy/CI-CD, OpenRouter inference abstraction, and automated deployment pipelines. (Deferred from old v2.0.)
 
 ### Out of Scope
 
@@ -119,11 +119,12 @@ Every piece of personal communication and digital interaction is searchable, con
 | PostHog for analytics | Self-hostable, privacy-respecting, generous free tier | ✓ Good |
 | PostHog cloud over self-hosted | 16GB RAM requirement disproportionate for single-user | ✓ Good |
 
-| SQLite → PostgreSQL for production | Production needs concurrent writes, proper migrations, multi-connection support | — Pending |
-| Firebase for auth | Google ecosystem, generous free tier, easy integration | — Pending |
-| OpenRouter for prod inference | API-based, no GPU needed on VPS, keeps open-core Ollama-compatible | — Pending |
-| Open-core / prod-core split | Public OSS version + private production with business docs | — Pending |
-| Caddy over Nginx | Automatic HTTPS, simpler config, built-in Let's Encrypt | — Pending |
+| SQLite → PostgreSQL for production | Production needs concurrent writes, RLS for data isolation | — Pending |
+| Local auth (open-core) + Firebase (prod-core) | Open-core self-contained, prod-core gets social login | — Pending |
+| Auth always on, no bypass | Security-first: every endpoint requires authentication | — Pending |
+| E2EE with Argon2id key derivation | Zero-knowledge: server never sees plaintext, lost password = lost data | — Pending |
+| Memory banks for data isolation | Logical partitioning for sync scoping and API key access | — Pending |
+| AES-256-GCM encryption at rest | Protect auth context and credentials in SQLite/Postgres | — Pending |
 
 ---
 *Last updated: 2026-03-08 after v1.4 milestone start*
