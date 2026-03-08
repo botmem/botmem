@@ -8,7 +8,18 @@ export const ENTITY_FORMAT_SCHEMA = {
         properties: {
           type: {
             type: 'string',
-            enum: ['person', 'organization', 'location', 'event', 'product', 'topic', 'pet', 'group', 'device', 'other'],
+            enum: [
+              'person',
+              'organization',
+              'location',
+              'date',
+              'event',
+              'product',
+              'concept',
+              'quantity',
+              'language',
+              'other',
+            ],
           },
           value: { type: 'string' },
         },
@@ -20,14 +31,26 @@ export const ENTITY_FORMAT_SCHEMA = {
 };
 
 export function entityExtractionPrompt(text: string): string {
-  return `Extract entities from the following text. Return a JSON object with an "entities" array. Each entity has "type" and "value".
+  return `Extract named entities from the following text. Return a JSON object with an "entities" array. Each entity has "type" and "value".
 
-Allowed types: person, organization, location, event, product, topic, pet, group, device, other.
+Allowed types and examples:
+- person: named people ("John Smith", "Dr. Lee", "Mom")
+- organization: companies, teams, institutions ("Google", "UN", "Engineering Team")
+- location: places, addresses, regions ("New York", "Building 42", "Japan")
+- date: named temporal references ("March 2024", "next Tuesday", "Q3") — NOT relative words like "yesterday" or "now"
+- event: named occurrences ("board meeting", "product launch", "wedding")
+- product: named products, software, devices ("iPhone 15", "Slack", "MacBook")
+- concept: topics, ideas, methodologies ("machine learning", "agile methodology", "budget")
+- quantity: amounts, measurements, percentages ("$500", "3 million users", "50%")
+- language: human or programming languages ("English", "Python", "Arabic")
+- other: only when the entity clearly does not fit any other type
 
 Rules:
-- Do NOT extract time references, amounts, or metrics -- those are memory metadata, not entities.
-- Only use "pet" when the text clearly describes an animal.
-- Use "other" only when the entity does not fit any other type.
+- Extract ONLY named entities — specific people, places, things, or concepts.
+- Do NOT extract: greetings ("hello", "thanks", "bye"), pronouns ("I", "you", "he", "she"), generic terms ("ok", "yes", "no", "sure", "please"), single characters, or bare URLs.
+- Do NOT extract actions, verbs, or adjectives as entities.
+- Extract at most 30 entities. Focus on the most important and specific ones.
+- Use "other" sparingly — most entities should fit one of the specific types above.
 
 Text: "${text}"`;
 }
