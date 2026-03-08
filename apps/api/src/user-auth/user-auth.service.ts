@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { UsersService } from './users.service';
 import { ConfigService } from '../config/config.service';
+import { MailService } from '../mail/mail.service';
 
 // Dummy hash used for timing attack prevention when user not found
 const DUMMY_HASH = '$2b$12$LJ3m4ys3Gz8h/.0MStlQiee6RjGHPnRYVwO3BSXK8X8A.VFj0e6Vu';
@@ -19,6 +20,7 @@ export class UserAuthService {
     private jwt: JwtService,
     private usersService: UsersService,
     private config: ConfigService,
+    private mailService: MailService,
   ) {}
 
   async register(email: string, password: string, name: string) {
@@ -123,6 +125,63 @@ export class UserAuthService {
     if (stored) {
       await this.usersService.revokeRefreshToken(stored.id);
     }
+  }
+
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      // No user found -- return silently to prevent email enumeration
+      return;
+    }
+
+    // Generate a random token and store its SHA-256 hash
+    const token = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    // Invalidate any existing unused reset tokens for this user
+    await this.usersService.invalidateUserResets(user.id);
+
+    // Store the hash with 1 hour expiry
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await this.usersService.createPasswordReset(user.id, tokenHash, expiresAt);
+
+    // Build reset URL and send email
+    const resetUrl = `${this.config.frontendUrl}/reset-password?token=${token}`;
+    await this.mailService.sendResetEmail(user.email, resetUrl);
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters long');
+    }
+
+    // Hash the submitted token to look up in DB
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const reset = await this.usersService.findPasswordReset(tokenHash);
+
+    if (!reset) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    if (reset.usedAt) {
+      throw new BadRequestException('Reset token already used');
+    }
+
+    if (new Date(reset.expiresAt) < new Date()) {
+      throw new BadRequestException('Reset token expired');
+    }
+
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    // Update the user's password
+    await this.usersService.updatePasswordHash(reset.userId, passwordHash);
+
+    // Mark the token as used
+    await this.usersService.markResetUsed(reset.id);
+
+    // Revoke all refresh tokens for the user
+    await this.usersService.revokeAllUserTokens(reset.userId);
   }
 
   private async generateTokenPair(

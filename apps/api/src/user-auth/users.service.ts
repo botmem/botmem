@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { DbService } from '../db/db.service';
-import { users, refreshTokens } from '../db/schema';
+import { users, refreshTokens, passwordResets } from '../db/schema';
 
 @Injectable()
 export class UsersService {
@@ -91,5 +91,51 @@ export class UsersService {
       .update(refreshTokens)
       .set({ revokedAt: now })
       .where(eq(refreshTokens.userId, userId));
+  }
+
+  async updatePasswordHash(userId: string, newHash: string) {
+    const now = new Date().toISOString();
+    await this.db.db
+      .update(users)
+      .set({ passwordHash: newHash, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  async createPasswordReset(userId: string, tokenHash: string, expiresAt: string) {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    await this.db.db.insert(passwordResets).values({
+      id,
+      userId,
+      tokenHash,
+      expiresAt,
+      createdAt: now,
+    });
+    return { id, userId, tokenHash, expiresAt, createdAt: now };
+  }
+
+  async invalidateUserResets(userId: string) {
+    const now = new Date().toISOString();
+    await this.db.db
+      .update(passwordResets)
+      .set({ usedAt: now })
+      .where(and(eq(passwordResets.userId, userId), isNull(passwordResets.usedAt)));
+  }
+
+  async findPasswordReset(tokenHash: string) {
+    const rows = await this.db.db
+      .select()
+      .from(passwordResets)
+      .where(eq(passwordResets.tokenHash, tokenHash))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async markResetUsed(id: string) {
+    const now = new Date().toISOString();
+    await this.db.db
+      .update(passwordResets)
+      .set({ usedAt: now })
+      .where(eq(passwordResets.id, id));
   }
 }

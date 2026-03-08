@@ -102,6 +102,22 @@ export class UserAuthController {
     return { ok: true };
   }
 
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(200)
+  async forgotPassword(@Body() body: { email: string }) {
+    await this.authService.forgotPassword(body.email);
+    return { ok: true };
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  async resetPassword(@Body() body: { token: string; newPassword: string }) {
+    await this.authService.resetPassword(body.token, body.newPassword);
+    return { ok: true };
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async me(@CurrentUser() user: { id: string; email: string }) {
