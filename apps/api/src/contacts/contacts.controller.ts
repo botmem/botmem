@@ -23,6 +23,11 @@ export class ContactsController {
     return this.contactsService.getSuggestions();
   }
 
+  @Post('reclassify')
+  async reclassify() {
+    return this.contactsService.reclassifyEntityTypes();
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string) {
     return this.contactsService.getById(id);

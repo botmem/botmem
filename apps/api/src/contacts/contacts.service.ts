@@ -810,6 +810,106 @@ export class ContactsService {
     return { normalized, deduped, merged };
   }
 
+  /**
+   * Reclassify contacts whose entityType is 'person' by cross-referencing
+   * entity data from their linked memories. If a contact's displayName
+   * appears as a non-person entity type in linked memories, update
+   * the contact's entityType to the most common non-person type found.
+   */
+  async reclassifyEntityTypes(): Promise<{
+    reclassified: number;
+    details: Array<{ contactId: string; displayName: string; oldType: string; newType: string }>;
+  }> {
+    const db = this.dbService.db;
+    const NON_PERSON_TYPES = ['organization', 'product', 'location', 'event', 'topic', 'pet', 'group', 'device'];
+
+    // Get all person-typed contacts (including NULL/empty coalesced to person)
+    const personContacts = await db
+      .select()
+      .from(contacts)
+      .where(sql`COALESCE(${contacts.entityType}, 'person') = 'person'`);
+
+    const details: Array<{ contactId: string; displayName: string; oldType: string; newType: string }> = [];
+
+    for (const contact of personContacts) {
+      // Skip contacts whose displayName is a phone number, Slack ID, or too short
+      const name = contact.displayName.trim();
+      if (name.length < 2) continue;
+      if (/^[+\d\s()-]+$/.test(name)) continue; // Phone numbers
+      if (/^u[a-z0-9]{8,}$/i.test(name)) continue; // Slack user IDs
+
+      // Get all memories linked to this contact
+      const linkedMemories = await db
+        .select({ entities: memories.entities })
+        .from(memoryContacts)
+        .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
+        .where(eq(memoryContacts.contactId, contact.id));
+
+      // Count ALL entity type occurrences matching this contact's name
+      const typeCounts = new Map<string, number>();
+      const contactNameLower = contact.displayName.toLowerCase();
+
+      for (const mem of linkedMemories) {
+        let entitiesArr: Array<{ value: string; type: string }>;
+        try {
+          entitiesArr = JSON.parse(mem.entities || '[]');
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(entitiesArr)) continue;
+
+        for (const entity of entitiesArr) {
+          if (!entity.value || !entity.type) continue;
+          if (typeof entity.value !== 'string') continue;
+          if (entity.value.toLowerCase() === contactNameLower) {
+            typeCounts.set(entity.type, (typeCounts.get(entity.type) || 0) + 1);
+          }
+        }
+      }
+
+      // Only consider non-person types
+      const nonPersonCounts = new Map<string, number>();
+      for (const [type, count] of typeCounts) {
+        if (NON_PERSON_TYPES.includes(type)) {
+          nonPersonCounts.set(type, count);
+        }
+      }
+      if (nonPersonCounts.size === 0) continue;
+
+      // Find the most common non-person type
+      let bestType = '';
+      let bestCount = 0;
+      for (const [type, count] of nonPersonCounts) {
+        if (count > bestCount) {
+          bestType = type;
+          bestCount = count;
+        }
+      }
+
+      // Only reclassify if overwhelmingly non-person:
+      // - Zero person-type matches and at least 2 non-person matches, OR
+      // - Non-person count >= 3x person count (very strong signal)
+      const personCount = typeCounts.get('person') || 0;
+      if (personCount === 0 && bestCount < 2) continue;
+      if (personCount > 0 && bestCount < personCount * 3) continue;
+
+      // Update the contact
+      await db
+        .update(contacts)
+        .set({ entityType: bestType, updatedAt: new Date().toISOString() })
+        .where(eq(contacts.id, contact.id));
+
+      details.push({
+        contactId: contact.id,
+        displayName: contact.displayName,
+        oldType: contact.entityType || 'person',
+        newType: bestType,
+      });
+    }
+
+    return { reclassified: details.length, details };
+  }
+
   async removeIdentifier(contactId: string, identifierId: string): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
