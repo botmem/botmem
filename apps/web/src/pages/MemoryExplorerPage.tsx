@@ -17,7 +17,7 @@ export function MemoryExplorerPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const prevQueryRef = useRef(undefined as string | undefined);
   const prevSourceRef = useRef<SourceType | null | undefined>(undefined);
-  const { filtered, query, filters, setQuery, setFilters, loading, searchFallback, resolvedEntities } = useMemories();
+  const { filtered, query, filters, setQuery, setFilters, loading, searchFallback, resolvedEntities, parsed } = useMemories();
 
   // Reset to page 1 when filters/query change (synchronous state adjustment during render)
   if (prevQueryRef.current !== query || prevSourceRef.current !== filters.source) {
@@ -72,6 +72,7 @@ export function MemoryExplorerPage() {
                     resultCount={filtered.length}
                     searchFallback={searchFallback}
                     query={query}
+                    parsed={parsed}
                   />
                 )}
                 {loading && <Skeleton variant="card" count={3} />}
