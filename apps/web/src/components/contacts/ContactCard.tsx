@@ -1,4 +1,4 @@
-import { cn } from '@botmem/shared';
+import { cn, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 import { IDENTIFIER_COLORS } from './constants';
 
@@ -43,21 +43,38 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
       style={isSelf ? { borderColor: SELF_COLOR, boxShadow: `0 0 10px ${SELF_COLOR}30` } : undefined}
     >
       <div className="flex items-center gap-3">
-        {avatar ? (
-          <img
-            src={avatar.url}
-            alt={contact.displayName}
-            className="border-3 w-10 h-10 object-cover shrink-0"
-            style={{ borderColor: isSelf ? SELF_COLOR : undefined }}
-          />
-        ) : (
-          <div
-            className="border-3 border-nb-border w-10 h-10 flex items-center justify-center shrink-0"
-            style={{ backgroundColor: isSelf ? SELF_COLOR : undefined, borderColor: isSelf ? SELF_COLOR : undefined }}
-          >
-            <span className="font-display text-sm font-bold text-black">{isSelf ? '\u2605' : initials}</span>
-          </div>
-        )}
+        <div className="relative shrink-0">
+          {avatar ? (
+            <img
+              src={avatar.url}
+              alt={contact.displayName}
+              className="border-3 w-10 h-10 object-cover"
+              style={{ borderColor: isSelf ? SELF_COLOR : undefined }}
+            />
+          ) : (
+            <div
+              className="border-3 border-nb-border w-10 h-10 flex items-center justify-center"
+              style={{ backgroundColor: isSelf ? SELF_COLOR : undefined, borderColor: isSelf ? SELF_COLOR : undefined }}
+            >
+              <span className="font-display text-sm font-bold text-black">{isSelf ? '\u2605' : initials}</span>
+            </div>
+          )}
+          {/* Connector source badges */}
+          {contact.connectorSources.length > 0 && (
+            <div className="absolute -bottom-1 -right-1 flex gap-0.5">
+              {contact.connectorSources.map((src) => (
+                <div
+                  key={src}
+                  className="w-4 h-4 border border-nb-border flex items-center justify-center"
+                  style={{ backgroundColor: CONNECTOR_COLORS[src] || '#999' }}
+                  title={src}
+                >
+                  <span className="text-[8px] font-bold text-black">{src[0].toUpperCase()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="flex-1 min-w-0">
           <h3 className={cn('font-display font-bold uppercase tracking-wider text-nb-text truncate', compact ? 'text-xs' : 'text-sm')}>
@@ -74,12 +91,6 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
               <Badge className="text-[10px] py-0 leading-tight">+{extraCount}</Badge>
             )}
           </div>
-
-          {!compact && contact.connectorSources.length > 0 && (
-            <p className="font-mono text-[10px] text-nb-muted mt-1 truncate">
-              {contact.connectorSources.join(' / ')}
-            </p>
-          )}
         </div>
       </div>
     </div>

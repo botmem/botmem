@@ -10,42 +10,50 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 
 const PAGE_SIZE = 20;
+const ALL_SOURCES: SourceType[] = ['email', 'message', 'photo', 'location', 'file'];
 
 export function MemoryExplorerPage() {
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
-  const [page, setPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const lastAutoSelectQuery = useRef('');
   const prevQueryRef = useRef(undefined as string | undefined);
   const prevSourceRef = useRef<SourceType | null | undefined>(undefined);
   const { filtered, query, filters, setQuery, setFilters, loading, searchFallback, resolvedEntities, parsed } = useMemories();
 
-  // Reset to page 1 when filters/query change (synchronous state adjustment during render)
+  // Reset visibleCount when filters/query change (synchronous state adjustment during render)
   if (prevQueryRef.current !== query || prevSourceRef.current !== filters.source) {
     prevQueryRef.current = query;
     prevSourceRef.current = filters.source;
-    if (page !== 1) setPage(1);
+    if (visibleCount !== PAGE_SIZE) setVisibleCount(PAGE_SIZE);
   }
 
-  const availableSources = useMemo(
-    () => [...new Set(filtered.map((m) => m.source))] as SourceType[],
-    [filtered],
-  );
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = useMemo(
-    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filtered, page],
-  );
-
-  // Scroll list to top on page change
-  useEffect(() => { listRef.current?.scrollTo(0, 0); }, [page]);
-
-  // Auto-select top result when search completes
+  // Auto-select top result only when a new search completes (not on every filtered change)
   useEffect(() => {
-    if (!loading && query.trim() && filtered.length > 0) {
+    if (!loading && query.trim() && filtered.length > 0 && lastAutoSelectQuery.current !== query) {
+      lastAutoSelectQuery.current = query;
       setSelectedMemory(filtered[0]);
     }
   }, [loading, query, filtered]);
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && visibleCount < filtered.length) {
+          setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filtered.length));
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visibleCount, filtered.length]);
 
   return (
     <PageContainer>
@@ -58,7 +66,7 @@ export function MemoryExplorerPage() {
               onSourceChange={(s) => setFilters({ source: s })}
               resultCount={filtered.length}
               loading={loading}
-              availableSources={availableSources}
+              availableSources={ALL_SOURCES}
             />
 
             <div className="mt-4 flex gap-4 min-h-0 flex-1">
@@ -76,13 +84,13 @@ export function MemoryExplorerPage() {
                   />
                 )}
                 {loading && <Skeleton variant="card" count={3} />}
-                {!loading && paged.map((m, i) => (
+                {!loading && visible.map((m, i) => (
                   <MemoryCard
                     key={m.id}
                     memory={m}
                     onClick={() => setSelectedMemory(m)}
                     selected={selectedMemory?.id === m.id}
-                    topResult={i === 0 && page === 1 && !!query.trim()}
+                    topResult={i === 0 && !!query.trim()}
                   />
                 ))}
                 {!loading && filtered.length === 0 && (
@@ -91,6 +99,11 @@ export function MemoryExplorerPage() {
                     title="No Memories Found"
                     subtitle="Try adjusting your filters"
                   />
+                )}
+                {!loading && visibleCount < filtered.length && (
+                  <div ref={sentinelRef} className="py-4 text-center">
+                    <span className="font-mono text-xs text-nb-muted uppercase">Loading more...</span>
+                  </div>
                 )}
               </div>
 
@@ -103,29 +116,6 @@ export function MemoryExplorerPage() {
                 </div>
               )}
             </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 pt-3 border-t-2 border-nb-border mt-3 shrink-0">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="border-2 border-nb-border px-3 py-1 font-mono text-xs font-bold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-nb-surface-hover transition-colors"
-                >
-                  ← PREV
-                </button>
-                <span className="font-mono text-xs text-nb-muted px-2">
-                  {page} / {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="border-2 border-nb-border px-3 py-1 font-mono text-xs font-bold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-nb-surface-hover transition-colors"
-                >
-                  NEXT →
-                </button>
-              </div>
-            )}
           </div>
       </div>
     </PageContainer>

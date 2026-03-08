@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import { BotmemClient, BotmemApiError } from './client.js';
 import { formatStatus } from './format.js';
 import { runSearch, searchHelp } from './commands/search.js';
@@ -9,6 +12,18 @@ import { runJobs, runSync, runRetry, runAccounts } from './commands/jobs.js';
 import { runTimeline, timelineHelp } from './commands/timeline.js';
 import { runEntities, runRelated, entitiesHelp, relatedHelp } from './commands/entities.js';
 
+const TOKEN_DIR = join(homedir(), '.botmem');
+const TOKEN_FILE = join(TOKEN_DIR, 'token');
+
+function loadStoredToken(): string | null {
+  try { return readFileSync(TOKEN_FILE, 'utf-8').trim(); } catch { return null; }
+}
+
+function storeToken(token: string) {
+  mkdirSync(TOKEN_DIR, { recursive: true });
+  writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
+}
+
 const HELP = `
   botmem -- Query and manage your personal memory system
 
@@ -16,6 +31,7 @@ const HELP = `
     botmem <command> [options]
 
   COMMANDS
+    login                   Authenticate and store token
     search <query>          Search memories semantically
     timeline                Query memories by time range
     related <id>            Find memories related to a given memory
@@ -32,6 +48,10 @@ const HELP = `
     sync <accountId>        Trigger a connector sync
     retry                   Retry all failed jobs and memories
     accounts                List connected accounts
+
+  AUTHENTICATION
+    botmem login                   Log in and store token in ~/.botmem/token
+    --token <jwt>                  Pass token directly (env: BOTMEM_TOKEN)
 
   GLOBAL OPTIONS
     --api-url <url>   API base URL (env: BOTMEM_API_URL, default: http://localhost:12412/api)
@@ -135,6 +155,7 @@ const COMMAND_HELP: Record<string, string> = {
 
 function parseGlobalArgs(argv: string[]) {
   let apiUrl = process.env['BOTMEM_API_URL'] || 'http://localhost:12412/api';
+  let token = process.env['BOTMEM_TOKEN'] || '';
   let json = false;
   let help = false;
   const rest: string[] = [];
@@ -143,6 +164,8 @@ function parseGlobalArgs(argv: string[]) {
     const a = argv[i];
     if (a === '--api-url') {
       apiUrl = argv[++i];
+    } else if (a === '--token') {
+      token = argv[++i];
     } else if (a === '--json') {
       json = true;
     } else if (a === '--help' || a === '-h') {
@@ -152,7 +175,10 @@ function parseGlobalArgs(argv: string[]) {
     }
   }
 
-  return { apiUrl, json, help, rest };
+  // Resolve token: explicit flag > env var > stored file
+  if (!token) token = loadStoredToken() || '';
+
+  return { apiUrl, token, json, help, rest };
 }
 
 async function runStatus(client: BotmemClient, json: boolean) {
@@ -169,9 +195,30 @@ async function runStatus(client: BotmemClient, json: boolean) {
   }
 }
 
+async function runLogin(client: BotmemClient, args: string[]) {
+  // Accept email/password as positional args or prompt-style from env
+  let email = args[0] || process.env['BOTMEM_EMAIL'] || '';
+  let password = args[1] || process.env['BOTMEM_PASSWORD'] || '';
+
+  if (!email || !password) {
+    // Read from stdin if not provided
+    const readline = await import('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+    const ask = (q: string): Promise<string> => new Promise(r => rl.question(q, r));
+    if (!email) email = await ask('Email: ');
+    if (!password) password = await ask('Password: ');
+    rl.close();
+  }
+
+  const result = await client.login(email, password);
+  storeToken(result.accessToken);
+  console.log(`Logged in as ${result.user.name} (${result.user.email})`);
+  console.log(`Token stored in ${TOKEN_FILE}`);
+}
+
 async function main() {
   const argv = process.argv.slice(2);
-  const { apiUrl, json, help, rest } = parseGlobalArgs(argv);
+  const { apiUrl, token, json, help, rest } = parseGlobalArgs(argv);
 
   const command = rest[0];
   const commandArgs = rest.slice(1);
@@ -192,9 +239,13 @@ async function main() {
   }
 
   const client = new BotmemClient(apiUrl);
+  if (token) client.setToken(token);
 
   try {
     switch (command) {
+      case 'login':
+        await runLogin(client, commandArgs);
+        return;
       case 'search':
         if (help) { console.log(COMMAND_HELP['search']); return; }
         await runSearch(client, commandArgs, json);

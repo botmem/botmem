@@ -39,11 +39,20 @@ function LegendToggle({ active, onClick, icon, label }: {
 }
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
-  email: 'Emails',
+  email: 'Email',
   message: 'Messages',
   location: 'Locations',
-  file: 'Photos',
+  file: 'Files',
   photo: 'Photos',
+};
+
+const EDGE_TYPE_LABELS: Record<string, string> = {
+  involves: 'Mentions',
+  source: 'From',
+  contradicts: 'Conflicts with',
+  supports: 'Supports',
+  related: 'Related',
+  attachment: 'Attachment',
 };
 
 interface GraphLegendProps {
@@ -170,7 +179,7 @@ export function GraphLegend({
                         />
                       </span>
                     }
-                    label={type}
+                    label={EDGE_TYPE_LABELS[type] || type}
                   />
                 ))}
               </div>

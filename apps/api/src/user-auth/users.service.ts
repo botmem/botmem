@@ -131,6 +131,14 @@ export class UsersService {
     return rows[0] ?? null;
   }
 
+  async setOnboarded(userId: string) {
+    const now = new Date().toISOString();
+    await this.db.db
+      .update(users)
+      .set({ onboarded: 1, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
   async markResetUsed(id: string) {
     const now = new Date().toISOString();
     await this.db.db

@@ -101,12 +101,12 @@ export const useContactStore = create<ContactState>((set, get) => ({
     set({ searchQuery: query });
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-      if (query.trim()) {
+      if (query.trim().length >= 3) {
         get().searchContacts(query);
-      } else {
+      } else if (!query.trim()) {
         get().loadContacts();
       }
-    }, 300);
+    }, 500);
   },
 
   loadSuggestions: async () => {

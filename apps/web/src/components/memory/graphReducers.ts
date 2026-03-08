@@ -7,7 +7,6 @@ export type FilterState = {
   hideFiles: boolean;
   hideDevices: boolean;
   hiddenEdgeTypes: Set<string>;
-  minConnections: number;
 };
 
 export type FilterAction =
@@ -16,8 +15,7 @@ export type FilterAction =
   | { type: 'toggleGroups' }
   | { type: 'toggleFiles' }
   | { type: 'toggleDevices' }
-  | { type: 'toggleEdgeType'; edgeType: string }
-  | { type: 'setMinConnections'; value: number };
+  | { type: 'toggleEdgeType'; edgeType: string };
 
 export function filterReducer(state: FilterState, action: FilterAction): FilterState {
   switch (action.type) {
@@ -35,7 +33,6 @@ export function filterReducer(state: FilterState, action: FilterAction): FilterS
       next.has(action.edgeType) ? next.delete(action.edgeType) : next.add(action.edgeType);
       return { ...state, hiddenEdgeTypes: next };
     }
-    case 'setMinConnections': return { ...state, minConnections: action.value };
   }
 }
 

@@ -35,7 +35,6 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     hideFiles: false,
     hideDevices: false,
     hiddenEdgeTypes: new Set<string>(),
-    minConnections: 1,
   });
 
   const [search, dispatchSearch] = useReducer(searchReducer, {
@@ -64,12 +63,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     }).catch(() => {});
   }, []);
 
-  // Periodic graph refresh every 15s
-  useEffect(() => {
-    if (!onReload) return;
-    const interval = setInterval(() => { onReload(); }, 15000);
-    return () => clearInterval(interval);
-  }, [onReload]);
+  // Graph updates are now driven by WebSocket deltas — no polling needed
 
   const hasTrackedView = useRef(false);
   useEffect(() => {
@@ -125,10 +119,22 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     return Array.from(types).sort();
   }, [data.links]);
 
+  // Adaptive performance config based on node count
+  const adaptiveConfig = useMemo(() => {
+    const count = data.nodes.length;
+    return {
+      cooldownTicks: count > 300 ? 50 : 100,
+      performanceMode: count > 300,
+      hideDecorativeLinks: count > 500,
+      autoMinConnections: count > 800 ? 3 : count > 500 ? 2 : null,
+      disableLinkDash: count > 800,
+    };
+  }, [data.nodes.length]);
+
   const { filteredData, isInitialRender, searchMatchIds, highlightedIds, focusVisibleIds, adjacency, linkColor, linkWidth } = useFilteredGraph({
     data, filters, search, dispatchSearch, connectionCounts, selfNodeId,
     focusedNodeId: ui.focusedNodeId, focusExpansion: ui.focusExpansion, onReload,
-    graphRef, containerRef, dimensions,
+    graphRef, containerRef, dimensions, adaptiveConfig,
   });
 
   const handleNodeDoubleClick = useCallback((node: any) => {
@@ -190,36 +196,27 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
   return (
     <div className={ui.isFullscreen ? 'fixed inset-0 z-50 bg-nb-bg flex flex-col p-4 overflow-hidden' : ''}>
       {/* Controls */}
-      <div className="flex items-end gap-3 mb-2">
-        <div className="flex-1">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="flex-1 relative">
           <input
             ref={searchInputRef}
             type="text"
             value={search.term}
             onChange={(e) => dispatchSearch({ type: 'setTerm', term: e.target.value })}
             placeholder="SEARCH NODES, ENTITIES..."
-            className="w-full border-3 px-3 py-1.5 font-mono text-xs bg-nb-surface text-nb-text focus:outline-none focus:border-nb-lime placeholder:text-nb-muted placeholder:uppercase transition-all duration-300"
+            className="w-full border-3 px-3 py-1.5 pr-24 font-mono text-xs bg-nb-surface text-nb-text focus:outline-none focus:border-nb-lime placeholder:text-nb-muted placeholder:uppercase transition-all duration-300"
             style={{
-              borderColor: ui.searchFocused ? '#C4F53A' : undefined,
-              boxShadow: ui.searchFocused ? '0 0 8px #C4F53A60' : undefined,
+              borderColor: search.pending ? '#C4F53A' : ui.searchFocused ? '#C4F53A' : undefined,
+              boxShadow: search.pending ? '0 0 8px #C4F53A40' : ui.searchFocused ? '0 0 8px #C4F53A60' : undefined,
             }}
           />
+          {search.pending && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              <div className="w-3 h-3 border-2 border-nb-lime border-t-transparent rounded-full animate-spin" />
+              <span className="font-mono text-[10px] text-nb-lime uppercase">Searching...</span>
+            </div>
+          )}
         </div>
-        {!search.term.trim() && (
-          <div className="w-36">
-            <label className="font-mono text-[10px] uppercase text-nb-muted block mb-0.5">
-              Min conn: {filters.minConnections}
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={10}
-              value={filters.minConnections}
-              onChange={(e) => dispatchFilter({ type: 'setMinConnections', value: Number(e.target.value) })}
-              className="w-full accent-[#A3E635]"
-            />
-          </div>
-        )}
       </div>
 
       {/* Status bar */}
@@ -227,6 +224,14 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
         <span>{visibleNodes} / {totalNodes} nodes</span>
         <span>{filteredData.links.length} edges</span>
         {search.term && <span>{matchCount} matches</span>}
+        {adaptiveConfig.performanceMode && (
+          <span className="text-nb-lime cursor-help relative group" title="">
+            &#9889;
+            <span className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-nb-surface border-2 border-nb-border px-2 py-1 text-[10px] text-nb-text normal-case whitespace-nowrap shadow-lg">
+              {totalNodes}+ nodes — reduced detail for performance
+            </span>
+          </span>
+        )}
       </div>
 
       {!search.pending && search.results && search.term.trim() && (
@@ -246,7 +251,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
           nodePointerAreaPaint={nodePointerArea}
           linkColor={linkColor}
           linkWidth={linkWidth}
-          linkLineDash={(link: any) => (link.linkType === 'involves' || link.linkType === 'source') ? [4, 2] : []}
+          linkLineDash={adaptiveConfig.disableLinkDash ? undefined : (link: any) => (link.linkType === 'involves' || link.linkType === 'source') ? [4, 2] : []}
           onNodeClick={(node: any) => {
             dispatchUI({ type: 'selectNode', node });
             trackEvent('graph_node_click', {
@@ -256,7 +261,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
           onNodeDoubleClick={handleNodeDoubleClick}
           onNodeDragEnd={(node: any) => { node.fx = undefined; node.fy = undefined; }}
           onBackgroundClick={() => dispatchUI({ type: 'clearFocus' })}
-          cooldownTicks={100}
+          cooldownTicks={adaptiveConfig.cooldownTicks}
           onEngineStop={() => {
             if (isInitialRender.current) {
               isInitialRender.current = false;

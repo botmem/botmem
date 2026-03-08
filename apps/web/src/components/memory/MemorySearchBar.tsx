@@ -54,7 +54,12 @@ export function MemorySearchBar({
         ))}
         {resultCount !== undefined && (
           <span className="ml-auto font-mono text-xs text-nb-muted uppercase">
-            {loading ? 'SEARCHING...' : `${resultCount} memories found`}
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3 h-3 border-2 border-nb-text border-t-transparent rounded-full animate-spin" />
+                SEARCHING...
+              </span>
+            ) : `${resultCount} memories found`}
           </span>
         )}
       </div>

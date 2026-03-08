@@ -119,7 +119,23 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, doMerge, doSkip, doUndo]);
 
-  if (suggestions.length === 0) return null;
+  const hasAutoOpened = useRef(false);
+  useEffect(() => {
+    if (suggestions.length > 0 && !hasAutoOpened.current) {
+      hasAutoOpened.current = true;
+      setIsOpen(true);
+    }
+  }, [suggestions.length]);
+
+  if (suggestions.length === 0) {
+    return (
+      <div className="w-full mb-4 border-3 border-nb-border bg-nb-surface shadow-nb px-4 py-3 flex items-center gap-3 opacity-60">
+        <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-muted">
+          No merge suggestions
+        </span>
+      </div>
+    );
+  }
 
   // Collapsed bar
   if (!isOpen) {

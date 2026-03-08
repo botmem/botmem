@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { EnrichService } from './enrich.service';
+import { MemoryService } from './memory.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -16,6 +17,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     private dbService: DbService,
     private enrichService: EnrichService,
+    private memoryService: MemoryService,
     private events: EventsService,
     private logsService: LogsService,
     private jobsService: JobsService,
@@ -78,8 +80,21 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       text: mem?.text?.slice(0, 100),
     });
 
+    // Emit graph delta for incremental graph updates
+    this.emitGraphDelta(memoryId);
+
+    // Debounced dashboard stats
+    this.events.emitDebounced('dashboard:stats', 'dashboard', 'dashboard:stats',
+      () => this.memoryService.getStats());
+
     // Advance parent job progress
     await this.advanceAndComplete(parentJobId);
+  }
+
+  private emitGraphDelta(memoryId: string) {
+    this.memoryService.buildGraphDelta(memoryId).then((delta) => {
+      if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
+    }).catch(() => {});
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {
@@ -94,6 +109,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       const done = await this.jobsService.tryCompleteJob(jobId);
       if (done) {
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+        this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'enrich_complete', jobId });
       }
     } catch {
       // Non-fatal

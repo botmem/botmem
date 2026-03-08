@@ -5,6 +5,7 @@ import { cn, CONNECTOR_COLORS } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { getConnectorIcon } from '../lib/connectorMeta';
 import { ConnectorAccountRow } from '../components/connectors/ConnectorAccountRow';
 import { ConnectorSetupModal } from '../components/connectors/ConnectorSetupModal';
 import { connectorConfigs } from '../mock/connectors';
@@ -12,14 +13,6 @@ import { useConnectors } from '../hooks/useConnectors';
 import { api, createWsConnection, subscribeToChannel } from '../lib/api';
 import { EmptyState } from '../components/ui/EmptyState';
 
-const connectorIcons: Record<string, string> = {
-  gmail: '✉',
-  whatsapp: '💬',
-  slack: '#',
-  imessage: '◯',
-  photos: '📷',
-  locations: '📍',
-};
 
 function ConnectorStatusDot({ type }: { type: string }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -94,10 +87,7 @@ export function ConnectorsPage() {
 
   return (
     <PageContainer>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="font-display text-xl font-bold uppercase text-nb-text">All Connectors</h2>
-        <Button onClick={() => setModalType(displayConfigs[0]?.type || 'gmail')}>+ ADD CONNECTOR</Button>
-      </div>
+      <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-6">All Connectors</h2>
 
       <div className="flex flex-col gap-3">
         {displayConfigs.map((cfg) => {
@@ -116,7 +106,7 @@ export function ConnectorsPage() {
                     className="w-10 h-10 border-3 border-nb-border flex items-center justify-center text-lg font-bold"
                     style={{ backgroundColor: cfg.color || CONNECTOR_COLORS[cfg.type] }}
                   >
-                    {connectorIcons[cfg.type] || '⚡'}
+                    {getConnectorIcon(cfg.type)}
                   </div>
                   <div className="text-left">
                     <div className="flex items-center">

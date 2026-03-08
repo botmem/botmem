@@ -1,15 +1,69 @@
 import { NavLink } from 'react-router-dom';
 import { cn } from '@botmem/shared';
 import { useAuth } from '../../hooks/useAuth';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
-const navItems = [
-  { to: '/me', label: 'ME', icon: '▣' },
-  { to: '/dashboard', label: 'DASHBOARD', icon: '◈' },
-  { to: '/connectors', label: 'CONNECTORS', icon: '⚡' },
-  { to: '/memories', label: 'MEMORIES', icon: '◉' },
-  { to: '/contacts', label: 'PEOPLE', icon: '◎' },
-  { to: '/settings', label: 'SETTINGS', icon: '⚙' },
+const s = 16;
+const navItems: { to: string; label: string; icon: ReactNode }[] = [
+  {
+    to: '/me', label: 'ME',
+    icon: (
+      <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8" cy="5" r="3" />
+        <path d="M2.5 15a5.5 5.5 0 0 1 11 0" />
+      </svg>
+    ),
+  },
+  {
+    to: '/dashboard', label: 'DASHBOARD',
+    icon: (
+      <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="1" width="5.5" height="5.5" />
+        <rect x="9.5" y="1" width="5.5" height="5.5" />
+        <rect x="1" y="9.5" width="5.5" height="5.5" />
+        <rect x="9.5" y="9.5" width="5.5" height="5.5" />
+      </svg>
+    ),
+  },
+  {
+    to: '/connectors', label: 'CONNECTORS',
+    icon: (
+      <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 6.5a2.5 2.5 0 1 1-1.5 1.5" />
+        <path d="M10 9.5a2.5 2.5 0 1 1 1.5-1.5" />
+      </svg>
+    ),
+  },
+  {
+    to: '/memories', label: 'MEMORIES',
+    icon: (
+      <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8" cy="6" r="4" />
+        <circle cx="5" cy="10" r="3.5" />
+        <circle cx="11" cy="10" r="3.5" />
+      </svg>
+    ),
+  },
+  {
+    to: '/contacts', label: 'PEOPLE',
+    icon: (
+      <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="6" cy="4.5" r="2.5" />
+        <path d="M1 14a5 5 0 0 1 10 0" />
+        <circle cx="12" cy="5" r="2" />
+        <path d="M15 14a3.5 3.5 0 0 0-4.5-3.3" />
+      </svg>
+    ),
+  },
+  {
+    to: '/settings', label: 'SETTINGS',
+    icon: (
+      <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8" cy="8" r="2.5" />
+        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M13.1 2.9l-1.4 1.4M4.3 11.7l-1.4 1.4" />
+      </svg>
+    ),
+  },
 ];
 
 export function Sidebar() {
@@ -52,7 +106,7 @@ export function Sidebar() {
               )
             }
           >
-            <span className="text-lg">{item.icon}</span>
+            <span className="w-5 h-5 flex items-center justify-center">{item.icon}</span>
             {!collapsed && <span>{item.label}</span>}
           </NavLink>
         ))}

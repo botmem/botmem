@@ -9,14 +9,6 @@ export function useJobs() {
     store.fetchLogs();
     store.fetchQueueStats();
     store.connectWs();
-
-    // Poll for job and queue updates as fallback
-    const interval = setInterval(() => {
-      store.fetchJobs();
-      store.fetchQueueStats();
-    }, 3000);
-
-    return () => clearInterval(interval);
   }, []);
 
   return store;

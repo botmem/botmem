@@ -9,7 +9,7 @@ import { MemoryGraph } from '../components/memory/MemoryGraph';
 import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
-import { api } from '../lib/api';
+import { useJobStore } from '../store/jobStore';
 
 const dashTabs = [
   { id: 'overview', label: 'OVERVIEW' },
@@ -17,20 +17,14 @@ const dashTabs = [
 ];
 
 export function DashboardPage() {
-  const { jobs, logs, queueStats, cancelJob, reprioritize, clearLogs, fetchJobs, fetchQueueStats } = useJobs();
+  const { jobs, logs, queueStats, cancelJob, reprioritize, clearLogs } = useJobs();
   const { accounts } = useConnectors();
-  const { graphData, loadGraph } = useMemories();
-  const [memoryStats, setMemoryStats] = useState<{ total: number; bySource: Record<string, number>; byConnector: Record<string, number> } | null>(null);
+  const { graphData, loadGraph, memoryStats } = useMemories();
+  const { retrying, retryAllFailed } = useJobStore();
   const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
     loadGraph();
-    api.getMemoryStats().then(setMemoryStats).catch(() => {});
-    // Poll memory stats at the same 3s cadence as queue stats (via useJobs)
-    const interval = setInterval(() => {
-      api.getMemoryStats().then(setMemoryStats).catch(() => {});
-    }, 3000);
-    return () => { clearInterval(interval); };
   }, []);
 
   const totalMemories = memoryStats?.total ?? 0;
@@ -57,12 +51,17 @@ export function DashboardPage() {
 
   return (
     <PageContainer>
-      {/* Tabs: Overview / Logs */}
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
 
       <div className="mt-4" style={{ minHeight: 560 }}>
         {activeTab === 'overview' && (
           <>
+            {/* Graph FIRST */}
+            <div className="mb-6">
+              <MemoryGraph data={graphData} onReload={loadGraph} />
+            </div>
+
+            {/* Metrics cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               {stats.map((s) => (
                 <Card key={s.label} className="p-0 overflow-hidden">
@@ -76,12 +75,11 @@ export function DashboardPage() {
                     <p className="font-display text-4xl font-bold text-nb-text">{s.value}</p>
                     {s.label === 'FAILED JOBS' && failedJobs > 0 && (
                       <button
-                        onClick={() => {
-                          api.retryFailedJobs().then(() => { fetchJobs(); fetchQueueStats(); }).catch(() => {});
-                        }}
-                        className="font-mono text-[10px] font-bold uppercase px-2 py-1 border-2 border-nb-red text-nb-red cursor-pointer hover:bg-nb-red hover:text-black transition-colors"
+                        onClick={retryAllFailed}
+                        disabled={retrying}
+                        className="font-mono text-[10px] font-bold uppercase px-2 py-1 border-2 border-nb-red text-nb-red cursor-pointer hover:bg-nb-red hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        RETRY ALL
+                        {retrying ? 'RETRYING...' : 'RETRY ALL'}
                       </button>
                     )}
                   </div>
@@ -89,28 +87,25 @@ export function DashboardPage() {
               ))}
             </div>
 
+            {/* Pipeline view */}
             {queueStats && (
               <div className="mb-6">
                 <PipelineView queueStats={queueStats} />
               </div>
             )}
+          </>
+        )}
 
+        {activeTab === 'logs' && (
+          <div className="flex flex-col gap-6">
             <JobTable
               jobs={jobs}
               onCancel={cancelJob}
               onMove={reprioritize}
             />
-          </>
+            <ConnectorLogFeed logs={logs} onClear={clearLogs} />
+          </div>
         )}
-
-        {activeTab === 'logs' && (
-          <ConnectorLogFeed logs={logs} onClear={clearLogs} />
-        )}
-      </div>
-
-      {/* Graph */}
-      <div className="mt-6">
-        <MemoryGraph data={graphData} onReload={loadGraph} />
       </div>
     </PageContainer>
   );

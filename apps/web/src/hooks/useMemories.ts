@@ -7,6 +7,7 @@ export function useMemories() {
 
   useEffect(() => {
     store.loadMemories();
+    store.connectWs();
   }, []);
 
   return { ...store, filtered };

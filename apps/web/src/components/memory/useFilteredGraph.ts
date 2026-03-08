@@ -3,6 +3,14 @@ import type { GraphData } from '@botmem/shared';
 import type { FilterState, SearchState, SearchAction } from './graphReducers';
 import { api } from '../../lib/api';
 
+interface AdaptiveConfig {
+  cooldownTicks: number;
+  performanceMode: boolean;
+  hideDecorativeLinks: boolean;
+  autoMinConnections: number | null;
+  disableLinkDash: boolean;
+}
+
 interface UseFilteredGraphArgs {
   data: GraphData;
   filters: FilterState;
@@ -16,18 +24,21 @@ interface UseFilteredGraphArgs {
   graphRef: React.RefObject<any>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   dimensions: { width: number; height: number };
+  adaptiveConfig?: AdaptiveConfig;
 }
 
 export function useFilteredGraph({
   data, filters, search, dispatchSearch, connectionCounts, selfNodeId,
   focusedNodeId, focusExpansion, onReload,
-  graphRef, containerRef, dimensions,
+  graphRef, containerRef, dimensions, adaptiveConfig,
 }: UseFilteredGraphArgs) {
   const nodePositionsRef = useRef<Map<string, { x: number; y: number; vx: number; vy: number }>>(new Map());
   const isInitialRender = useRef(true);
   const prevFilteredRef = useRef<{ nodes: any[]; links: any[] } | null>(null);
   const prevDataRef = useRef(data);
+  const prevNodeIdsRef = useRef<Set<string>>(new Set());
   const isDataRefresh = useRef(false);
+  const isIncremental = useRef(false);
 
   const searchMatchIds = useMemo(() => {
     if (search.pending && !search.results) return new Set<string>();
@@ -69,6 +80,12 @@ export function useFilteredGraph({
 
   const filteredData = useMemo(() => {
     const searchVisible = contactFilterIds ?? highlightedIds;
+    // Dynamic minConnections: when search is active, show all matched nodes (0)
+    // Otherwise, scale based on total node count to reduce clutter
+    const searchActive = !!(contactFilterIds ?? highlightedIds);
+    const nodeCount = data.nodes.length;
+    const dynamicMin = searchActive ? 0 : (nodeCount > 800 ? 3 : nodeCount > 500 ? 2 : nodeCount > 200 ? 1 : 0);
+    const effectiveMinConn = dynamicMin;
     const keepNodes = new Set<string>();
     for (const node of data.nodes) {
       if (searchVisible && !searchVisible.has(node.id)) continue;
@@ -84,7 +101,7 @@ export function useFilteredGraph({
       const isSearchMatch = searchVisible && searchVisible.has(node.id);
       if (!isSearchMatch) {
         const count = connectionCounts.get(node.id) || 0;
-        if (count < filters.minConnections) continue;
+        if (count < effectiveMinConn) continue;
       }
       keepNodes.add(node.id);
     }
@@ -106,6 +123,8 @@ export function useFilteredGraph({
       if (!keepNodes.has(src) || !keepNodes.has(tgt)) return false;
       const type = l.linkType || 'related';
       if (filters.hiddenEdgeTypes.has(type)) return false;
+      // Hide decorative link types in performance mode
+      if (adaptiveConfig?.hideDecorativeLinks && (type === 'involves' || type === 'source')) return false;
       return true;
     });
 
@@ -141,9 +160,11 @@ export function useFilteredGraph({
         }
         const pos = nodePositionsRef.current.get(n.id);
         if (pos) {
-          if (isDataRefresh.current) {
+          if (isDataRefresh.current && !isIncremental.current) {
+            // Full refresh: pin nodes to prevent layout reset
             return { ...n, x: pos.x, y: pos.y, fx: pos.x, fy: pos.y, vx: 0, vy: 0 };
           }
+          // Incremental or filter change: let simulation absorb gently
           return { ...n, x: pos.x, y: pos.y, vx: pos.vx, vy: pos.vy };
         }
         const nb = neighborPos.get(n.id);
@@ -160,15 +181,27 @@ export function useFilteredGraph({
     }
 
     return { nodes, links };
-  }, [data, connectionCounts, filters, contactFilterIds, highlightedIds, search.results]);
+  }, [data, connectionCounts, filters, contactFilterIds, highlightedIds, search.results, adaptiveConfig]);
 
-  // Track data vs filter changes
+  // Track data vs filter changes — detect incremental vs full refresh
   useEffect(() => {
     if (data !== prevDataRef.current) {
       isDataRefresh.current = true;
+      const currentIds = new Set(data.nodes.map((n) => n.id));
+      const prevIds = prevNodeIdsRef.current;
+      // Incremental: previous nodes are a subset of current nodes (additions only)
+      let allPrevExist = prevIds.size > 0;
+      if (allPrevExist) {
+        for (const id of prevIds) {
+          if (!currentIds.has(id)) { allPrevExist = false; break; }
+        }
+      }
+      isIncremental.current = allPrevExist && currentIds.size > prevIds.size;
+      prevNodeIdsRef.current = currentIds;
       prevDataRef.current = data;
     } else {
       isDataRefresh.current = false;
+      isIncremental.current = false;
     }
   });
 
@@ -207,8 +240,9 @@ export function useFilteredGraph({
       dispatchSearch({ type: 'clearSearch' });
       return;
     }
-    dispatchSearch({ type: 'startSearch' });
+    if (trimmed.length < 3) return;
     const timer = setTimeout(async () => {
+      dispatchSearch({ type: 'startSearch' });
       try {
         const res = await api.searchMemories(trimmed, undefined, 200);
         const memoryIds = new Set(res.items.map((item: any) => item.id));
@@ -226,7 +260,7 @@ export function useFilteredGraph({
       } catch {
         dispatchSearch({ type: 'searchComplete', results: null });
       }
-    }, 300);
+    }, 500);
     return () => clearTimeout(timer);
   }, [search.term]);
 
@@ -295,10 +329,10 @@ export function useFilteredGraph({
   }, [searchMatchIds, highlightedIds, focusVisibleIds]);
 
   const linkWidth = useCallback((link: any) => {
-    if (link.linkType === 'involves') return 1;
+    if (link.linkType === 'involves') return adaptiveConfig?.performanceMode ? 0.5 : 1;
     if (link.linkType === 'source') return 0.5;
     return 2;
-  }, []);
+  }, [adaptiveConfig?.performanceMode]);
 
   return {
     filteredData, isInitialRender,

@@ -6,6 +6,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
+import { MemoryService } from './memory.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
@@ -28,6 +29,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private dbService: DbService,
     private ollama: OllamaService,
     private qdrant: QdrantService,
+    private memoryService: MemoryService,
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
     private contactsService: ContactsService,
@@ -260,6 +262,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           connectorType: rawEvent.connectorType,
           text: currentText.slice(0, 100),
         });
+        // Emit graph delta + debounced stats for no-enrich path
+        this.emitGraphDelta(memoryId);
+        this.events.emitDebounced('dashboard:stats', 'dashboard', 'dashboard:stats',
+          () => this.memoryService.getStats());
         await this.advanceAndComplete(parentJobId);
       }
     } catch (err: any) {
@@ -443,6 +449,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         }
       }
     }
+  }
+
+  private emitGraphDelta(memoryId: string) {
+    this.memoryService.buildGraphDelta(memoryId).then((delta) => {
+      if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
+    }).catch(() => {});
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {

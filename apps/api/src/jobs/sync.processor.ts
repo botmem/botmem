@@ -180,6 +180,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           completedAt: new Date().toISOString(),
         });
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
+        this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_complete', jobId });
       } else {
         // Set total to actual emitted count so progress never exceeds it
         await this.jobsService.updateJob(jobId, { total: totalProcessed });
@@ -218,6 +219,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       });
       await this.accountsService.update(accountId, { status: 'error', lastError: err.message });
       this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'failed' });
+      this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_failed', jobId });
       throw err;
     } finally {
       // Wait for all pending DB writes to complete before removing listeners
