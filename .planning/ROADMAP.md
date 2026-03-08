@@ -217,7 +217,7 @@ Plans:
   2. Running `git log --all -p` on the public repo and grepping for known secret patterns (OAuth client secrets, API keys, tokens) returns zero matches
   3. The Vultr VPS is reachable via SSH, has Docker and Docker Compose installed, 2GB swap configured, and firewall allows only ports 22, 80, 443
   4. Visiting `http://botmem.xyz` in a browser resolves to the Vultr VPS IP address (DNS A record propagated)
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 11-01-PLAN.md -- Clean inline secrets and sanitize git history (REPO-04)
@@ -286,7 +286,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 8.1 Contact Auto-Merge | v1.4 | 0/? | Not started | - |
 | 9. NLQ Parsing | v1.4 | 0/? | Not started | - |
 | 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
-| 11. Repo & Infrastructure | v2.0 | 0/3 | Planned | - |
+| 11. Repo & Infrastructure | 1/3 | In Progress|  | - |
 | 12. PostgreSQL Dual-Database | v2.0 | 0/? | Not started | - |
 | 13. Inference & Auth | v2.0 | 0/? | Not started | - |
 | 14. Docker Production Stack | v2.0 | 0/? | Not started | - |

@@ -1,8 +1,8 @@
 # Requirements: Botmem
 
-**Core Value:** Every piece of personal communication is searchable, connected, and queryable — with factuality labeling so the user knows what's verified vs. hearsay.
+**Core Value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
 
-## v1.4 Requirements — Search Intelligence
+## v1.4 Requirements -- Search Intelligence
 
 **Defined:** 2026-03-08
 
@@ -45,23 +45,23 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENT-01 | TBD | Pending |
-| ENT-02 | TBD | Pending |
-| ENT-03 | TBD | Pending |
-| NLQ-01 | TBD | Pending |
-| NLQ-02 | TBD | Pending |
-| NLQ-03 | TBD | Pending |
-| CIT-01 | TBD | Pending |
-| PERF-01 | TBD | Pending |
+| ENT-01 | Phase 8 | Pending |
+| ENT-02 | Phase 8 | Pending |
+| ENT-03 | Phase 8 | Pending |
+| NLQ-01 | Phase 9 | Pending |
+| NLQ-02 | Phase 9 | Pending |
+| NLQ-03 | Phase 9 | Pending |
+| PERF-01 | Phase 9 | Pending |
+| CIT-01 | Phase 10 | Pending |
 
 **v1.4 Coverage:**
 - v1.4 requirements: 8 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 8
+- Mapped to phases: 8
+- Unmapped: 0
 
 ---
 
-## v2.0 Requirements — Production Deployment & Open-Core Split
+## v2.0 Requirements -- Production Deployment & Open-Core Split
 
 **Defined:** 2026-03-08
 
@@ -74,7 +74,7 @@ Requirements for production deployment and open-core split. Each maps to roadmap
 - [ ] **REPO-01**: GitHub org `botmem` is created and configured
 - [ ] **REPO-02**: Open-core public repo is created with sanitized git history (no secrets)
 - [ ] **REPO-03**: Prod-core private repo is created with deployment configs and business docs
-- [ ] **REPO-04**: Git history is sanitized to remove all credentials, API keys, and secrets before public push
+- [x] **REPO-04**: Git history is sanitized to remove all credentials, API keys, and secrets before public push
 
 ### Database
 
@@ -90,13 +90,13 @@ Requirements for production deployment and open-core split. Each maps to roadmap
 - [ ] **INF-02**: OllamaProvider implements InferenceService using existing Ollama HTTP API
 - [ ] **INF-03**: OpenRouterProvider implements InferenceService using OpenAI-compatible API (`openai` SDK)
 - [ ] **INF-04**: Provider selection is controlled by environment config (`INFERENCE_PROVIDER=ollama|openrouter`)
-- [ ] **INF-05**: Scoring formula redistributes weights when reranker is unavailable (rerank weight → semantic + recency)
+- [ ] **INF-05**: Scoring formula redistributes weights when reranker is unavailable (rerank weight -> semantic + recency)
 
 ### Authentication
 
 - [ ] **AUTH-01**: Firebase project is created under amroessams@gmail.com via gcloud CLI
 - [ ] **AUTH-02**: NestJS guard verifies Firebase ID tokens via `firebase-admin` SDK
-- [ ] **AUTH-03**: Auth guard is opt-in via `@RequireAuth()` decorator (not global — preserves OAuth callbacks, WebSocket, CLI access)
+- [ ] **AUTH-03**: Auth guard is opt-in via `@RequireAuth()` decorator (not global -- preserves OAuth callbacks, WebSocket, CLI access)
 - [ ] **AUTH-04**: Auth is disabled when Firebase config is absent (open-core runs without auth)
 - [ ] **AUTH-05**: React login/register UI with Firebase client SDK
 
@@ -121,13 +121,13 @@ Requirements for production deployment and open-core split. Each maps to roadmap
 
 ## Previous Milestones (Completed)
 
-### v1.2 — PostHog Deep Analytics (Complete)
+### v1.2 -- PostHog Deep Analytics (Complete)
 
-- [x] REPLAY-01–03, HEAT-01–03, ERR-01–03, WEB-01–03, PROD-01–03, ID-01–02
+- [x] REPLAY-01-03, HEAT-01-03, ERR-01-03, WEB-01-03, PROD-01-03, ID-01-02
 
-### v1.1 — PostHog Analytics Activation (Complete)
+### v1.1 -- PostHog Analytics Activation (Complete)
 
-- [x] CFG-01–02, VER-01–05, COV-01–02
+- [x] CFG-01-02, VER-01-05, COV-01-02
 
 ## Future Requirements
 
@@ -163,7 +163,7 @@ Deferred to future releases. Tracked but not in current roadmap.
 | REPO-01 | Phase 11 | Pending |
 | REPO-02 | Phase 11 | Pending |
 | REPO-03 | Phase 11 | Pending |
-| REPO-04 | Phase 11 | Pending |
+| REPO-04 | Phase 11 | Complete |
 | DB-01 | Phase 12 | Pending |
 | DB-02 | Phase 12 | Pending |
 | DB-03 | Phase 12 | Pending |
@@ -197,4 +197,4 @@ Deferred to future releases. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after roadmap creation*
+*Last updated: 2026-03-08 after v1.4 roadmap creation*
