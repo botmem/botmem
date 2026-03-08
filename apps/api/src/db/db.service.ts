@@ -177,13 +177,22 @@ export class DbService implements OnModuleInit {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS memory_banks (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS api_keys (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id),
         name TEXT NOT NULL,
         key_hash TEXT NOT NULL,
         last_four TEXT NOT NULL,
-        bank_ids TEXT,
+        memory_bank_ids TEXT,
         expires_at TEXT,
         revoked_at TEXT,
         created_at TEXT NOT NULL
@@ -216,6 +225,38 @@ export class DbService implements OnModuleInit {
       // Column already exists
     }
 
+    // Phase 19: Add userId to accounts
+    try {
+      this.sqlite.exec(`ALTER TABLE accounts ADD COLUMN user_id TEXT`);
+    } catch { /* Column already exists */ }
+
+    // Phase 19: Add userId to contacts
+    try {
+      this.sqlite.exec(`ALTER TABLE contacts ADD COLUMN user_id TEXT`);
+    } catch { /* Column already exists */ }
+
+    // Phase 19: Add memoryBankId to memories
+    try {
+      this.sqlite.exec(`ALTER TABLE memories ADD COLUMN memory_bank_id TEXT`);
+    } catch { /* Column already exists */ }
+    // Migration: rename bank_id to memory_bank_id if old column exists
+    try {
+      this.sqlite.exec(`ALTER TABLE memories RENAME COLUMN bank_id TO memory_bank_id`);
+    } catch { /* Column already renamed or doesn't exist */ }
+
+    // Migration: rename old 'banks' table to 'memory_banks' if it exists
+    try {
+      this.sqlite.exec(`ALTER TABLE banks RENAME TO memory_banks`);
+    } catch { /* Table already renamed or doesn't exist */ }
+
+    // Migration: rename bank_ids to memory_bank_ids in api_keys if old column exists
+    try {
+      this.sqlite.exec(`ALTER TABLE api_keys RENAME COLUMN bank_ids TO memory_bank_ids`);
+    } catch { /* Column already renamed or doesn't exist */ }
+
+    // Phase 19: Migrate existing data — assign all to first user + create default memory bank
+    this.migrateUserOwnership();
+
     // Indexes for performance
     this.sqlite.exec(`
       CREATE INDEX IF NOT EXISTS idx_contact_identifiers_contact_id ON contact_identifiers(contact_id);
@@ -232,6 +273,10 @@ export class DbService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
       CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
       CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+      CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
+      CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
+      CREATE INDEX IF NOT EXISTS idx_memories_memory_bank_id ON memories(memory_bank_id);
+      CREATE INDEX IF NOT EXISTS idx_memory_banks_user_id ON memory_banks(user_id);
     `);
 
     // FTS5 full-text search index on memories.text (standalone, not content-sync)
@@ -289,6 +334,11 @@ export class DbService implements OnModuleInit {
       `);
     } catch { /* Triggers are best-effort */ }
 
+    // Unique index on memory_banks per user
+    try {
+      this.sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_banks_user_default ON memory_banks(user_id, is_default) WHERE is_default = 1`);
+    } catch { /* Best-effort */ }
+
     // Unique index on memories(source_id, connector_type) for dedup enforcement
     try {
       this.sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_source_dedup ON memories(source_id, connector_type)`);
@@ -304,6 +354,44 @@ export class DbService implements OnModuleInit {
       } catch {
         // Best-effort — app-level dedup will still work
       }
+    }
+  }
+
+  /**
+   * Phase 19 migration: assign all existing accounts/contacts/memories to the
+   * first user found, and create a default memory bank if none exists.
+   * Idempotent — skips if already migrated.
+   */
+  private migrateUserOwnership() {
+    const firstUser = this.sqlite.prepare('SELECT id FROM users LIMIT 1').get() as { id: string } | undefined;
+    if (!firstUser) return; // No users yet — nothing to migrate
+
+    const userId = firstUser.id;
+
+    // Assign unowned accounts to this user
+    this.sqlite.prepare('UPDATE accounts SET user_id = ? WHERE user_id IS NULL').run(userId);
+
+    // Assign unowned contacts to this user
+    this.sqlite.prepare('UPDATE contacts SET user_id = ? WHERE user_id IS NULL').run(userId);
+
+    // Create default memory bank if user doesn't have one
+    const existingBank = this.sqlite.prepare('SELECT id FROM memory_banks WHERE user_id = ? AND is_default = 1').get(userId) as { id: string } | undefined;
+    let defaultMemoryBankId: string;
+    if (!existingBank) {
+      defaultMemoryBankId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      this.sqlite.prepare(
+        'INSERT INTO memory_banks (id, user_id, name, is_default, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
+      ).run(defaultMemoryBankId, userId, 'Default', now, now);
+      console.log(`[migration] Created default memory bank ${defaultMemoryBankId} for user ${userId}`);
+    } else {
+      defaultMemoryBankId = existingBank.id;
+    }
+
+    // Assign memories without a memory bank to the default
+    const result = this.sqlite.prepare('UPDATE memories SET memory_bank_id = ? WHERE memory_bank_id IS NULL').run(defaultMemoryBankId);
+    if ((result as any).changes > 0) {
+      console.log(`[migration] Assigned ${(result as any).changes} memories to default memory bank`);
     }
   }
 }

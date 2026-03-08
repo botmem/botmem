@@ -16,7 +16,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
-import { rawEvents, memories, memoryLinks, settings } from '../db/schema';
+import { rawEvents, memories, memoryLinks, settings, accounts, memoryBanks } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
@@ -95,15 +95,27 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const embedResult = await connector.embed(event, text, ctx);
     const embedText = embedResult.text || text;
 
-    // Create memory record
+    // Create memory record — resolve memoryBankId from account's user
     const memoryId = randomUUID();
     const now = new Date().toISOString();
     const mergedMetadata = { ...metadata, ...(embedResult.metadata || {}) };
+
+    // Look up the account's userId to find their default memory bank
+    let memoryBankId: string | null = null;
+    try {
+      const [acct] = await this.dbService.db.select({ userId: accounts.userId }).from(accounts).where(eq(accounts.id, rawEvent.accountId));
+      if (acct?.userId) {
+        const [defaultBank] = await this.dbService.db.select({ id: memoryBanks.id }).from(memoryBanks)
+          .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, 1)));
+        memoryBankId = defaultBank?.id || null;
+      }
+    } catch { /* best-effort */ }
 
     let t0 = Date.now();
     await this.dbService.db.insert(memories).values({
       id: memoryId,
       accountId: rawEvent.accountId,
+      memoryBankId,
       connectorType: rawEvent.connectorType,
       sourceType: event.sourceType,
       sourceId: event.sourceId,
@@ -199,6 +211,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         connector_type: rawEvent.connectorType,
         event_time: event.timestamp,
         account_id: rawEvent.accountId,
+        memory_bank_id: memoryBankId,
       });
       const qdrantMs = Date.now() - t0;
 
@@ -235,6 +248,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
               connector_type: rawEvent.connectorType,
               event_time: event.timestamp,
               account_id: rawEvent.accountId,
+              memory_bank_id: memoryBankId,
             });
           }
         } catch (err: any) {

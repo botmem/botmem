@@ -9,6 +9,8 @@ import {
 import { UserAuthService } from '../user-auth.service';
 import { UsersService } from '../users.service';
 import { ConfigService } from '../../config/config.service';
+import { MailService } from '../../mail/mail.service';
+import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 import * as bcrypt from 'bcrypt';
 
 // Mock bcrypt for faster tests
@@ -67,6 +69,8 @@ describe('UserAuthService', () => {
         { provide: UsersService, useValue: usersService },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configService },
+        { provide: MailService, useValue: { sendPasswordResetEmail: vi.fn() } },
+        { provide: MemoryBanksService, useValue: { getOrCreateDefault: vi.fn().mockResolvedValue({ id: 'bank-1', name: 'Default' }) } },
       ],
     }).compile();
 

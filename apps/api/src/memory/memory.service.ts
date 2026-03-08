@@ -18,6 +18,9 @@ interface SearchFilters {
   factualityLabel?: string;
   from?: string;
   to?: string;
+  userId?: string;
+  memoryBankId?: string;
+  memoryBankIds?: string[];  // API key memory bank scoping
 }
 
 /** Strip accents/diacritics for fuzzy matching (amélie → amelie) */
@@ -190,12 +193,16 @@ export class MemoryService {
     return { contacts: resolved, topicWords, contactIds };
   }
 
-  async search(query: string, filters?: SearchFilters, limit = 20, rerank = false): Promise<SearchResponse> {
+  async search(query: string, filters?: SearchFilters, limit = 20, rerank = false, userId?: string, memoryBankId?: string, memoryBankIds?: string[]): Promise<SearchResponse> {
     if (!query.trim()) return { items: [], fallback: false };
 
     // --- NLQ parsing (pure, synchronous) ---
     const nlq = parseNlq(query);
     const effectiveFilters: SearchFilters = { ...filters };
+
+    // Apply memory bank scoping
+    if (memoryBankId) effectiveFilters.memoryBankId = memoryBankId;
+    else if (memoryBankIds?.length) effectiveFilters.memoryBankIds = memoryBankIds;
 
     // Apply temporal filters from NLQ (only if caller didn't provide explicit from/to)
     if (nlq.temporal && !filters?.from && !filters?.to) {
@@ -539,6 +546,9 @@ export class MemoryService {
     connectorType?: string;
     sourceType?: string;
     sortBy?: 'eventTime' | 'ingestTime';
+    userId?: string;
+    memoryBankId?: string;
+    memoryBankIds?: string[];
   } = {}) {
     const db = this.dbService.db;
     const limit = params.limit || 50;
@@ -546,7 +556,7 @@ export class MemoryService {
     const sortCol = params.sortBy === 'ingestTime' ? memories.ingestTime : memories.eventTime;
 
     // Show memories as soon as embedding is done
-    const conditions = [
+    const conditions: any[] = [
       eq(memories.embeddingStatus, 'done'),
     ];
     if (params.connectorType) {
@@ -554,6 +564,11 @@ export class MemoryService {
     }
     if (params.sourceType) {
       conditions.push(eq(memories.sourceType, params.sourceType));
+    }
+    if (params.memoryBankId) {
+      conditions.push(eq(memories.memoryBankId, params.memoryBankId));
+    } else if (params.memoryBankIds?.length) {
+      conditions.push(inArray(memories.memoryBankId, params.memoryBankIds));
     }
 
     const where = and(...conditions)!;
@@ -610,9 +625,14 @@ export class MemoryService {
     }
   }
 
-  async getStats() {
+  async getStats(userId?: string, memoryBankIds?: string[]) {
     const db = this.dbService.db;
-    const doneFilter = eq(memories.embeddingStatus, 'done');
+    const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    // Memory bank scoping for stats — if memoryBankIds provided (API key), filter by those banks
+    if (memoryBankIds?.length) {
+      conditions.push(inArray(memories.memoryBankId, memoryBankIds));
+    }
+    const doneFilter = conditions.length > 1 ? and(...conditions)! : conditions[0];
 
     const totalRows = await db
       .select({ count: sql<number>`COUNT(*)` })
@@ -653,7 +673,7 @@ export class MemoryService {
     return { total, bySource, byConnector, byFactuality };
   }
 
-  async getGraphData(limit = 500, linkLimit = 2000) {
+  async getGraphData(limit = 500, linkLimit = 2000, userId?: string, memoryBankId?: string, memoryBankIds?: string[]) {
     const db = this.dbService.db;
 
     // Fetch linked memories first, then fill with recent
@@ -665,11 +685,20 @@ export class MemoryService {
       linkedIdSet.add(link.dstMemoryId);
     }
 
+    // Build memory bank filter conditions
+    const memoryBankConditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    if (memoryBankId) {
+      memoryBankConditions.push(eq(memories.memoryBankId, memoryBankId));
+    } else if (memoryBankIds?.length) {
+      memoryBankConditions.push(inArray(memories.memoryBankId, memoryBankIds));
+    }
+    const memoryBankFilter = memoryBankConditions.length > 1 ? and(...memoryBankConditions)! : memoryBankConditions[0];
+
     // Fetch recent memories — show as soon as embedding is done
     const recentMemories = await db
       .select()
       .from(memories)
-      .where(eq(memories.embeddingStatus, 'done'))
+      .where(memoryBankFilter)
       .orderBy(sql`${memories.eventTime} DESC`)
       .limit(limit);
 
@@ -1048,10 +1077,18 @@ export class MemoryService {
     sourceType?: string;
     query?: string;
     limit?: number;
+    userId?: string;
+    memoryBankId?: string;
+    memoryBankIds?: string[];
   }) {
     const db = this.dbService.db;
     const limit = params.limit || 50;
     const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    if (params.memoryBankId) {
+      conditions.push(eq(memories.memoryBankId, params.memoryBankId));
+    } else if (params.memoryBankIds?.length) {
+      conditions.push(inArray(memories.memoryBankId, params.memoryBankIds));
+    }
 
     if (params.from) {
       conditions.push(sql`${memories.eventTime} >= ${params.from}`);
@@ -1306,6 +1343,13 @@ export class MemoryService {
       if (filters.from) range.gte = filters.from;
       if (filters.to) range.lte = filters.to;
       must.push({ key: 'event_time', range });
+    }
+    // User scoping — filter by memory_bank_id if present in Qdrant payload
+    if (filters.memoryBankId) {
+      must.push({ key: 'memory_bank_id', match: { value: filters.memoryBankId } });
+    } else if (filters.memoryBankIds?.length) {
+      // API key scoped to specific memory banks
+      must.push({ key: 'memory_bank_id', match: { any: filters.memoryBankIds } });
     }
 
     return must.length ? { must } : {};

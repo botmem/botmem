@@ -10,6 +10,7 @@ import { QdrantService } from './qdrant.service';
 import { memories, memoryContacts, rawEvents } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 
 @Controller('memories')
 export class MemoryController {
@@ -26,8 +27,8 @@ export class MemoryController {
   ) {}
 
   @Get('stats')
-  async getStats() {
-    return this.memoryService.getStats();
+  async getStats(@CurrentUser() user: { id: string; memoryBankIds?: string[] }) {
+    return this.memoryService.getStats(user.id, user.memoryBankIds);
   }
 
   @Get('queue-status')
@@ -49,26 +50,33 @@ export class MemoryController {
 
   @Get('graph')
   async getGraphData(
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
     @Query('memoryLimit') memoryLimit?: string,
     @Query('linkLimit') linkLimit?: string,
+    @Query('memoryBankId') memoryBankId?: string,
   ) {
     const ml = memoryLimit ? Math.min(parseInt(memoryLimit, 10) || 5000, 10000) : 5000;
     const ll = linkLimit ? Math.min(parseInt(linkLimit, 10) || 50000, 100000) : 50000;
-    return this.memoryService.getGraphData(ml, ll);
+    return this.memoryService.getGraphData(ml, ll, user.id, memoryBankId, user.memoryBankIds);
   }
 
   @Get()
   async list(
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('connectorType') connectorType?: string,
     @Query('sourceType') sourceType?: string,
+    @Query('memoryBankId') memoryBankId?: string,
   ) {
     return this.memoryService.list({
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
       connectorType,
       sourceType,
+      userId: user.id,
+      memoryBankId,
+      memoryBankIds: user.memoryBankIds,
     });
   }
 
@@ -155,7 +163,7 @@ export class MemoryController {
 
     // Find memories marked done in SQLite that might be missing from Qdrant
     const doneMemories = await db
-      .select({ id: memories.id, text: memories.text, sourceType: memories.sourceType, connectorType: memories.connectorType, eventTime: memories.eventTime, accountId: memories.accountId })
+      .select({ id: memories.id, text: memories.text, sourceType: memories.sourceType, connectorType: memories.connectorType, eventTime: memories.eventTime, accountId: memories.accountId, memoryBankId: memories.memoryBankId })
       .from(memories)
       .where(eq(memories.embeddingStatus, 'done'))
       .limit(batchLimit);
@@ -179,6 +187,7 @@ export class MemoryController {
           connector_type: mem.connectorType,
           event_time: mem.eventTime,
           account_id: mem.accountId,
+          memory_bank_id: (mem as any).memoryBankId || null,
         });
         reembedded++;
       } catch (err: any) {
@@ -202,16 +211,19 @@ export class MemoryController {
 
   @Get('timeline')
   async timeline(
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('connectorType') connectorType?: string,
     @Query('sourceType') sourceType?: string,
     @Query('query') query?: string,
     @Query('limit') limit?: string,
+    @Query('memoryBankId') memoryBankId?: string,
   ) {
     return this.memoryService.timeline({
       from, to, connectorType, sourceType, query,
       limit: limit ? parseInt(limit, 10) : undefined,
+      userId: user.id, memoryBankId, memoryBankIds: user.memoryBankIds,
     });
   }
 
@@ -300,9 +312,10 @@ export class MemoryController {
 
   @Post('search')
   async search(
-    @Body() body: { query: string; filters?: Record<string, string>; limit?: number; rerank?: boolean },
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
+    @Body() body: { query: string; filters?: Record<string, string>; limit?: number; rerank?: boolean; memoryBankId?: string },
   ) {
-    return this.memoryService.search(body.query, body.filters, body.limit, body.rerank);
+    return this.memoryService.search(body.query, body.filters, body.limit, body.rerank, user.id, body.memoryBankId, user.memoryBankIds);
   }
 
   @RequiresJwt()
