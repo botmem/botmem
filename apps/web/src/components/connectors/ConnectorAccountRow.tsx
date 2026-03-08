@@ -1,5 +1,5 @@
 import type { ConnectorAccount } from '@botmem/shared';
-import { formatRelative, CONNECTOR_COLORS } from '@botmem/shared';
+import { cn, formatRelative, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 
@@ -43,10 +43,18 @@ export function ConnectorAccountRow({ account, onRemove, onSyncNow }: ConnectorA
           </Button>
         </div>
       </div>
-      {account.status === 'error' && account.lastError && (
-        <div className="border-t-3 border-nb-border px-3 py-2 bg-red-950/30">
-          <p className="font-mono text-xs text-nb-red">
-            <span className="font-bold uppercase">Error: </span>
+      {account.lastError && (
+        <div className={cn(
+          'border-t-3 border-nb-border px-3 py-2',
+          account.status === 'error' ? 'bg-red-950/30' : 'bg-yellow-950/30',
+        )}>
+          <p className={cn(
+            'font-mono text-xs',
+            account.status === 'error' ? 'text-nb-red' : 'text-yellow-400',
+          )}>
+            <span className="font-bold uppercase">
+              {account.status === 'error' ? 'Error: ' : 'Warning: '}
+            </span>
             {account.lastError}
           </p>
         </div>

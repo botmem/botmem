@@ -9,7 +9,7 @@ import { ConnectorAccountRow } from '../components/connectors/ConnectorAccountRo
 import { ConnectorSetupModal } from '../components/connectors/ConnectorSetupModal';
 import { connectorConfigs } from '../mock/connectors';
 import { useConnectors } from '../hooks/useConnectors';
-import { api } from '../lib/api';
+import { api, createWsConnection, subscribeToChannel } from '../lib/api';
 import { EmptyState } from '../components/ui/EmptyState';
 
 const connectorIcons: Record<string, string> = {
@@ -61,6 +61,22 @@ export function ConnectorsPage() {
       setSearchParams({}, { replace: true });
     }
   }, []);
+
+  // Subscribe to connector warning notifications (e.g. WhatsApp decrypt failures)
+  useEffect(() => {
+    const ws = createWsConnection();
+    ws.onopen = () => subscribeToChannel(ws, 'notifications');
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.event === 'connector:warning') {
+          // Refresh accounts to pick up lastError changes
+          fetchAccounts();
+        }
+      } catch { /* ignore parse errors */ }
+    };
+    return () => ws.close();
+  }, [fetchAccounts]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
 
