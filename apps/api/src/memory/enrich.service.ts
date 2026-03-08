@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
 import { QdrantService } from './qdrant.service';
@@ -9,6 +9,7 @@ import { EventsService } from '../events/events.service';
 import { memories, memoryLinks } from '../db/schema';
 import { entityExtractionPrompt, factualityPrompt, ENTITY_FORMAT_SCHEMA } from './prompts';
 import { ConnectorsService } from '../connectors/connectors.service';
+import { normalizeEntities } from './entity-normalizer';
 
 const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
@@ -125,7 +126,7 @@ export class EnrichService {
     try {
       const response = await this.ollama.generate(entityExtractionPrompt(text), undefined, 2, ENTITY_FORMAT_SCHEMA);
       const parsed = JSON.parse(response);
-      return parsed.entities || [];
+      return normalizeEntities(parsed.entities || []);
     } catch {
       return [];
     }
@@ -184,14 +185,33 @@ export class EnrichService {
             }
           }
 
-          await this.dbService.db.insert(memoryLinks).values({
-            id: randomUUID(),
-            srcMemoryId: memoryId,
-            dstMemoryId: result.id,
-            linkType,
-            strength: result.score,
-            createdAt: new Date().toISOString(),
-          });
+          // Check for existing link in both directions to prevent duplicates
+          const existingLink = await this.dbService.db
+            .select({ id: memoryLinks.id })
+            .from(memoryLinks)
+            .where(and(
+              eq(memoryLinks.srcMemoryId, memoryId),
+              eq(memoryLinks.dstMemoryId, result.id),
+            ))
+            .limit(1);
+          const reverseLink = await this.dbService.db
+            .select({ id: memoryLinks.id })
+            .from(memoryLinks)
+            .where(and(
+              eq(memoryLinks.srcMemoryId, result.id),
+              eq(memoryLinks.dstMemoryId, memoryId),
+            ))
+            .limit(1);
+          if (!existingLink.length && !reverseLink.length) {
+            await this.dbService.db.insert(memoryLinks).values({
+              id: randomUUID(),
+              srcMemoryId: memoryId,
+              dstMemoryId: result.id,
+              linkType,
+              strength: result.score,
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
       }
     } catch {
