@@ -1,4 +1,21 @@
+# Botmem - Self-hosting Docker Compose
 services:
+  # Note: Dockerfile is added in a later phase. For now, run the API directly with 'pnpm dev'.
+  api:
+    build: .
+    ports:
+      - "12412:12412"
+    environment:
+      - DB_PATH=/data/botmem.db
+      - REDIS_URL=redis://redis:6379
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - botmem-data:/data
+    depends_on:
+      - redis
+      - qdrant
+
   redis:
     image: redis:7-alpine
     ports:
@@ -15,5 +32,6 @@ services:
       - qdrant-data:/qdrant/storage
 
 volumes:
+  botmem-data:
   redis-data:
   qdrant-data:
