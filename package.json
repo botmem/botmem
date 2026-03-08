@@ -2,7 +2,7 @@
   "name": "botmem",
   "private": true,
   "scripts": {
-    "dev": "turbo watch dev",
+    "dev": "turbo watch dev --concurrency 20",
     "dev:all": "turbo watch dev --concurrency 20",
     "build": "turbo build",
     "lint": "turbo lint",
