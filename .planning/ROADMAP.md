@@ -434,7 +434,11 @@ Plans:
   3. Creating a new connector package with the correct `package.json` and adding it as a dependency requires zero changes to root dev scripts or turbo watch config
   4. All library packages (`shared`, `connector-sdk`, `cli`) have proper conditional `exports` fields that resolve correctly for both CJS (NestJS API) and ESM (React web) consumers
   5. `GET /api/health` returns JSON with connectivity status of Redis, Qdrant, and SQLite -- each showing `connected: true/false`
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 30-01-PLAN.md -- Dev workflow overhaul: CJS exports, turbo watch, nest build --watch (DEV-01, DEV-02, DEV-03, DEV-04)
+- [ ] 30-02-PLAN.md -- Health endpoint with Redis/Qdrant/SQLite probes (DOCK-04)
 
 ### Phase 31: Docker & Infrastructure
 **Goal**: Developer can start all required infrastructure with one command, with Ollama available as an opt-in profile, and a Makefile providing a simple command layer for common operations
