@@ -14,7 +14,8 @@ import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
-import { rawEvents, memories, memoryLinks } from '../db/schema';
+import { AnalyticsService } from '../analytics/analytics.service';
+import { rawEvents, memories, memoryLinks, settings } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
@@ -35,6 +36,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private jobsService: JobsService,
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
+    private analytics: AnalyticsService,
     @InjectQueue('enrich') private enrichQueue: Queue,
   ) {
     super();
@@ -122,6 +124,18 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     t0 = Date.now();
     let contactCount = 0;
     try {
+      // Always link self-contact — the user is a participant in all their memories
+      const selfRow = await this.dbService.db
+        .select({ value: settings.value })
+        .from(settings)
+        .where(eq(settings.key, 'selfContactId'))
+        .limit(1);
+      const selfContactId = selfRow[0]?.value;
+      if (selfContactId) {
+        await this.contactsService.linkMemory(memoryId, selfContactId, 'participant');
+        contactCount++;
+      }
+
       const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> = [];
 
       for (const entity of embedResult.entities) {
@@ -194,6 +208,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
       this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
         `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);
+
+      this.analytics.capture('embed_complete', {
+        memory_id: memoryId,
+        source_type: event.sourceType,
+        connector_type: rawEvent.connectorType,
+      });
 
       // File processing (image → VL model description → re-embed)
       if (mergedMetadata.fileUrl && (mergedMetadata.mimetype as string)?.startsWith('image/')) {
@@ -269,7 +289,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
 
-    const res = await fetch(fileUrl, {
+    // Use thumbnail size for images to speed up VL model processing
+    const fetchUrl = mimetype.startsWith('image/')
+      ? fileUrl.replace('size=preview', 'size=thumbnail').replace('size=original', 'size=thumbnail')
+      : fileUrl;
+
+    const res = await fetch(fetchUrl, {
       headers,
       signal: AbortSignal.timeout(120_000),
     });
