@@ -330,7 +330,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 10. Source Citations | v1.4 | 0/? | Deferred | - |
 | 11. Repo & Infrastructure | v2.0 | 3/3 | Complete | 2026-03-08 |
 | 16. User Authentication | 3/3 | Complete   | 2026-03-08 | - |
-| 17. API Security | 1/1 | Complete   | 2026-03-08 | - |
+| 17. API Security | 1/1 | Complete    | 2026-03-08 | - |
 | 18. API Keys | v2.0 | 0/? | Not started | - |
 | 19. Memory Banks | v2.0 | 0/? | Not started | - |
 | 20. Encryption at Rest | v2.0 | 0/? | Not started | - |
