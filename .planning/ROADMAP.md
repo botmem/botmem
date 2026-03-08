@@ -343,7 +343,11 @@ Phases 12-15 (DB, Inference, Docker, CI/CD) are restructured:
   2. Searching for "photos" or filtering by `source_type=photo` returns only photo memories -- no Slack file attachments mixed in
   3. The `SOURCE_TYPE_ALIASES` mapping in NLQ parser and memory service is removed, and photo queries still work correctly using the native `photo` type
   4. Qdrant vector payloads for existing photo memories show `source_type: 'photo'` after backfill
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 25-01-PLAN.md -- Connector fix, QdrantService.setPayload, backfill migration script (SRC-01, SRC-02, SRC-03)
+- [ ] 25-02-PLAN.md -- Remove SOURCE_TYPE_ALIASES hack (SRC-04)
 
 ### Phase 26: Entity Format & Quality
 **Goal**: Entity extraction produces clean, correctly-typed, deduplicated entities in a single consistent format across the entire pipeline
@@ -408,7 +412,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 22. PostgreSQL Dual-Driver | v2.0 | 0/? | Not started | - |
 | 23. Row Level Security | v2.0 | 0/? | Not started | - |
 | 24. Firebase Auth (Prod-Core) | v2.0 | 0/? | Not started | - |
-| 25. Source Type Reclassification | v2.1 | 0/? | Not started | - |
+| 25. Source Type Reclassification | v2.1 | 0/2 | Not started | - |
 | 26. Entity Format & Quality | v2.1 | 0/? | Not started | - |
 | 27. Data Backfill | v2.1 | 0/? | Not started | - |
 | 28. Verification | v2.1 | 0/? | Not started | - |
