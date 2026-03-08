@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Security, Auth & Encryption
+milestone: v2.1
+milestone_name: Data Quality & Pipeline Integrity
 status: completed
-stopped_at: Completed 27-01-PLAN.md
-last_updated: '2026-03-08T20:31:13.449Z'
-last_activity: 2026-03-09 -- Phase 27 Plan 01 complete (backfill-enrich pipeline with resumability)
+stopped_at: Completed 28-01-PLAN.md
+last_updated: '2026-03-09T21:01:37.000Z'
+last_activity: 2026-03-09 -- Phase 28 Plan 01 complete (end-to-end data quality verification)
 progress:
-  total_phases: 27
-  completed_phases: 20
-  total_plans: 37
-  completed_plans: 37
+  total_phases: 28
+  completed_phases: 21
+  total_plans: 38
+  completed_plans: 38
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v2.0 Security, Auth & Encryption -- Phase 27 Plan 01 complete (data backfill)
+**Current focus:** v2.1 Data Quality & Pipeline Integrity -- Phase 28 Plan 01 complete (verification)
 
 ## Current Position
 
-Phase: 27 (Data Backfill)
+Phase: 28 (Verification)
 Plan: 01 of 01 (complete)
-Status: Phase 27 complete (all plans done)
-Last activity: 2026-03-09 -- Phase 27 Plan 01 complete (backfill-enrich pipeline with resumability)
+Status: Phase 28 complete (all plans done)
+Last activity: 2026-03-09 -- Phase 28 Plan 01 complete (end-to-end data quality verification)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Last activity: 2026-03-09 -- Phase 27 Plan 01 complete (backfill-enrich pipeline
 | 34    | 03   | 7min     | 2     | 12    |
 | 33    | 01   | 22min    | 2     | 5     |
 | 27    | 01   | 6min     | 2     | 7     |
+| 28    | 01   | 18min    | 2     | 1     |
 
 ## Accumulated Context
 
@@ -164,6 +165,12 @@ Recent decisions affecting current work:
 - [27-01]: Worker concurrency default 2 to avoid overwhelming Ollama during backfill
 - [27-01]: BullMQ jobId set to memory ID for idempotent enqueuing -- prevents duplicates on retry/resume
 
+### Decisions (Phase 28)
+
+- [28-01]: enriched_at column added to SQLite manually -- Phase 27 migration was never applied to existing DB
+- [28-01]: VER-02 photo search 0 results is a hybrid search design limitation, not data quality issue
+- [28-01]: Non-canonical entity types (time, amount, metric) are pre-existing, normalizer works for new data
+
 ### Pending Todos
 
 None yet.
@@ -179,6 +186,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-09T20:24:16Z
-Stopped at: Completed 27-01-PLAN.md
-Resume: Phase 27 complete. Next phase TBD.
+Last session: 2026-03-09T21:01:37Z
+Stopped at: Completed 28-01-PLAN.md
+Resume: Phase 28 complete. v2.1 Data Quality milestone verified. Next phase TBD.

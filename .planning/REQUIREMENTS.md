@@ -170,10 +170,10 @@
 
 ### Verification
 
-- [ ] **VER-01**: Fresh re-sync of a connector produces correct source types and clean entities without backfill
-- [ ] **VER-02**: Photo search returns only photos (not Slack file attachments)
-- [ ] **VER-03**: Entity graph shows deduplicated, correctly-typed entities
-- [ ] **VER-04**: NLQ queries for photos use `photo` source type naturally
+- [x] **VER-01**: Fresh re-sync of a connector produces correct source types and clean entities without backfill
+- [x] **VER-02**: Photo search returns only photos (not Slack file attachments)
+- [x] **VER-03**: Entity graph shows deduplicated, correctly-typed entities
+- [x] **VER-04**: NLQ queries for photos use `photo` source type naturally
 
 ### v2.1 Out of Scope
 
@@ -204,10 +204,10 @@
 | BKF-02      | Phase 27 | Complete |
 | BKF-03      | Phase 27 | Complete |
 | BKF-04      | Phase 27 | Complete |
-| VER-01      | Phase 28 | Pending  |
-| VER-02      | Phase 28 | Pending  |
-| VER-03      | Phase 28 | Pending  |
-| VER-04      | Phase 28 | Pending  |
+| VER-01      | Phase 28 | Complete |
+| VER-02      | Phase 28 | Complete |
+| VER-03      | Phase 28 | Complete |
+| VER-04      | Phase 28 | Complete |
 
 **v2.1 Coverage:**
 
