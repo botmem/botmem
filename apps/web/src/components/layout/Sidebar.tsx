@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { cn } from '@botmem/shared';
 import { useAuth } from '../../hooks/useAuth';
-import { useState, type ReactNode } from 'react';
+import { useMemoryBankStore } from '../../store/memoryBankStore';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 
 const s = 16;
 const navItems: { to: string; label: string; icon: ReactNode }[] = [
@@ -66,6 +67,119 @@ const navItems: { to: string; label: string; icon: ReactNode }[] = [
   },
 ];
 
+function BankSelector({ collapsed }: { collapsed: boolean }) {
+  const { memoryBanks, activeMemoryBankId, setActiveMemoryBank, loadMemoryBanks } =
+    useMemoryBankStore();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    loadMemoryBanks();
+  }, []);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const activeBank = memoryBanks.find((b) => b.id === activeMemoryBankId);
+  const label = activeBank ? activeBank.name : 'ALL BANKS';
+
+  if (collapsed) {
+    return (
+      <div ref={ref} className="relative px-2 py-2 border-b-3 border-nb-border">
+        <button
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center justify-center border-2 border-nb-border h-8 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+          title={label}
+        >
+          <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="2" width="12" height="4" />
+            <rect x="2" y="10" width="12" height="4" />
+            <circle cx="5" cy="4" r="0.5" fill="currentColor" />
+            <circle cx="5" cy="12" r="0.5" fill="currentColor" />
+          </svg>
+        </button>
+        {open && (
+          <div className="absolute left-full top-0 ml-1 z-50 border-3 border-nb-border bg-nb-surface shadow-nb min-w-48">
+            <button
+              onClick={() => { setActiveMemoryBank(null); setOpen(false); }}
+              className={cn(
+                'w-full text-left px-3 py-2 font-mono text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors',
+                !activeMemoryBankId ? 'bg-nb-lime text-black' : 'text-nb-text hover:bg-nb-surface-hover'
+              )}
+            >
+              ALL BANKS
+            </button>
+            {memoryBanks.map((bank) => (
+              <button
+                key={bank.id}
+                onClick={() => { setActiveMemoryBank(bank.id); setOpen(false); }}
+                className={cn(
+                  'w-full text-left px-3 py-2 font-mono text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors border-t-2 border-nb-border',
+                  activeMemoryBankId === bank.id ? 'bg-nb-lime text-black' : 'text-nb-text hover:bg-nb-surface-hover'
+                )}
+              >
+                {bank.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={ref} className="relative px-3 py-2 border-b-3 border-nb-border">
+      <label className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1 block">
+        BANK
+      </label>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between border-3 border-nb-border px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-nb-text bg-nb-surface hover:border-nb-lime transition-colors cursor-pointer"
+      >
+        <span className="truncate">{label}</span>
+        <span className="ml-2 text-nb-muted">{open ? '\u25B2' : '\u25BC'}</span>
+      </button>
+      {open && (
+        <div className="absolute left-3 right-3 top-full z-50 border-3 border-nb-border bg-nb-surface shadow-nb">
+          <button
+            onClick={() => { setActiveMemoryBank(null); setOpen(false); }}
+            className={cn(
+              'w-full text-left px-3 py-2 font-mono text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors',
+              !activeMemoryBankId ? 'bg-nb-lime text-black' : 'text-nb-text hover:bg-nb-surface-hover'
+            )}
+          >
+            ALL BANKS
+          </button>
+          {memoryBanks.map((bank) => (
+            <button
+              key={bank.id}
+              onClick={() => { setActiveMemoryBank(bank.id); setOpen(false); }}
+              className={cn(
+                'w-full text-left px-3 py-2 font-mono text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors border-t-2 border-nb-border',
+                activeMemoryBankId === bank.id ? 'bg-nb-lime text-black' : 'text-nb-text hover:bg-nb-surface-hover'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className="truncate">{bank.name}</span>
+                {bank.isDefault === 1 && (
+                  <span className="text-[9px] bg-nb-lime text-black px-1 border border-nb-border shrink-0">
+                    DEFAULT
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
@@ -88,9 +202,11 @@ export function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-bold hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
         >
-          {collapsed ? '→' : '←'}
+          {collapsed ? '\u2192' : '\u2190'}
         </button>
       </div>
+
+      <BankSelector collapsed={collapsed} />
 
       <nav className="flex-1 p-2 flex flex-col gap-1">
         {navItems.map((item) => (

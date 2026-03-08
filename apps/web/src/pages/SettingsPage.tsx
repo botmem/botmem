@@ -7,12 +7,14 @@ import { Input } from '../components/ui/Input';
 import { Toggle } from '../components/ui/Toggle';
 import { Tabs } from '../components/ui/Tabs';
 import { ApiKeysTab } from '../components/settings/ApiKeysTab';
+import { MemoryBanksTab } from '../components/settings/MemoryBanksTab';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../lib/api';
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'api-keys', label: 'API Keys' },
+  { id: 'memory-banks', label: 'Memory Banks' },
   { id: 'pipeline', label: 'Pipeline' },
 ];
 
@@ -135,6 +137,12 @@ export function SettingsPage() {
         {activeTab === 'api-keys' && (
           <Card>
             <ApiKeysTab />
+          </Card>
+        )}
+
+        {activeTab === 'memory-banks' && (
+          <Card>
+            <MemoryBanksTab />
           </Card>
         )}
 
