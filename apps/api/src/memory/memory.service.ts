@@ -949,8 +949,13 @@ export class MemoryService {
     return { items: items.slice(0, limit), source: memory };
   }
 
+  /** Canonical entity types */
+  getEntityTypes(): string[] {
+    return ['person', 'organization', 'location', 'event', 'product', 'topic', 'pet', 'group', 'device', 'other'];
+  }
+
   /** Phase 10: Search entities across all memories */
-  async searchEntities(query: string, limit = 50) {
+  async searchEntities(query: string, limit = 50, types?: string[]) {
     const db = this.dbService.db;
     const queryLower = query.toLowerCase();
 
@@ -999,7 +1004,14 @@ export class MemoryService {
       }
     }
 
-    const entities = [...entityMap.values()]
+    // Filter by type if specified
+    let entries = [...entityMap.values()];
+    if (types && types.length > 0) {
+      const typeSet = new Set(types.map(t => t.toLowerCase()));
+      entries = entries.filter(e => typeSet.has(e.type.toLowerCase()));
+    }
+
+    const entities = entries
       .map(e => ({ ...e, connectors: [...e.connectors] }))
       .sort((a, b) => b.memoryCount - a.memoryCount)
       .slice(0, limit);
