@@ -322,8 +322,11 @@ export class MemoryController {
             headers['Authorization'] = `Bearer ${authContext.accessToken}`;
           }
         }
-      } catch {
-        /* auth headers are best-effort */
+      } catch (err) {
+        this.logger.warn(
+          `Auth lookup failed for account ${memory.accountId}`,
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
 

@@ -1,12 +1,13 @@
-import { Controller, Get, Post, Delete, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { eq, and } from 'drizzle-orm';
 import { JobsService } from './jobs.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { DbService } from '../db/db.service';
-import { rawEvents, memories, memoryContacts } from '../db/schema';
+import { rawEvents, memories, memoryContacts, accounts } from '../db/schema';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import type { Job } from '@botmem/shared';
 
 function toApiJob(row: any): Job {
@@ -27,6 +28,7 @@ function toApiJob(row: any): Job {
 
 @Controller('jobs')
 export class JobsController {
+  private readonly logger = new Logger(JobsController.name);
   constructor(
     private jobsService: JobsService,
     private accountsService: AccountsService,
@@ -39,11 +41,18 @@ export class JobsController {
   ) {}
 
   @Get()
-  async list(@Query('accountId') accountId?: string) {
+  async list(@CurrentUser() user: { id: string }, @Query('accountId') accountId?: string) {
     // Detect stale running jobs so the UI sees accurate statuses
     await this.jobsService.markStaleRunning();
+    // User isolation: only show jobs for user's accounts
+    const userAccounts = await this.dbService.db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.userId, user.id));
+    const userAccountIds = new Set(userAccounts.map((a) => a.id));
     const rows = await this.jobsService.getAll({ accountId });
-    return { jobs: rows.map(toApiJob) };
+    const filtered = rows.filter((r) => userAccountIds.has(r.accountId));
+    return { jobs: filtered.map(toApiJob) };
   }
 
   @Get('queues')
@@ -80,7 +89,11 @@ export class JobsController {
   @Post('sync/:accountId')
   async triggerSync(@Param('accountId') accountId: string) {
     const account = await this.accountsService.getById(accountId);
-    const row = await this.jobsService.triggerSync(accountId, account.connectorType, account.identifier);
+    const row = await this.jobsService.triggerSync(
+      accountId,
+      account.connectorType,
+      account.identifier,
+    );
     return { job: toApiJob(row) };
   }
 
@@ -102,7 +115,11 @@ export class JobsController {
 
       // Only trigger one sync per account (avoid duplicates if multiple failed jobs for same account)
       if (!retriedAccountIds.has(job.accountId)) {
-        await this.jobsService.triggerSync(job.accountId, job.connectorType, job.accountIdentifier || undefined);
+        await this.jobsService.triggerSync(
+          job.accountId,
+          job.connectorType,
+          job.accountIdentifier || undefined,
+        );
         retriedAccountIds.add(job.accountId);
         retried++;
       }
@@ -122,25 +139,44 @@ export class JobsController {
           if (!rawEventId) continue;
 
           // Find the raw event to get source_id + connector_type
-          const raw = await db.select({ sourceId: rawEvents.sourceId, connectorType: rawEvents.connectorType })
-            .from(rawEvents).where(eq(rawEvents.id, rawEventId)).limit(1);
+          const raw = await db
+            .select({ sourceId: rawEvents.sourceId, connectorType: rawEvents.connectorType })
+            .from(rawEvents)
+            .where(eq(rawEvents.id, rawEventId))
+            .limit(1);
           if (!raw.length) continue;
 
           // Delete existing stale memory (if any) so clean processor won't skip as dedup
-          const existing = await db.select({ id: memories.id }).from(memories)
-            .where(and(eq(memories.sourceId, raw[0].sourceId), eq(memories.connectorType, raw[0].connectorType)))
+          const existing = await db
+            .select({ id: memories.id })
+            .from(memories)
+            .where(
+              and(
+                eq(memories.sourceId, raw[0].sourceId),
+                eq(memories.connectorType, raw[0].connectorType),
+              ),
+            )
             .limit(1);
           if (existing.length) {
             await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, existing[0].id));
             await db.delete(memories).where(eq(memories.id, existing[0].id));
           }
 
-          await this.cleanQueue.add('clean', { rawEventId }, {
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5000 },
-          });
+          await this.cleanQueue.add(
+            'clean',
+            { rawEventId },
+            {
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 5000 },
+            },
+          );
           retried++;
-        } catch { /* skip individual failures */ }
+        } catch (err) {
+          this.logger.warn(
+            'Pipeline retry failed for job',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
     }
 
@@ -155,12 +191,17 @@ export class JobsController {
           backoff: { type: 'exponential', delay: 5000 },
         });
         retried++;
-      } catch { /* skip individual failures */ }
+      } catch (err) {
+        this.logger.warn(
+          'Pipeline retry failed for enrich job',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
 
     // Clean failed sync jobs from BullMQ
     const failedSync = await this.syncQueue.getFailed(0, BATCH);
-    await Promise.allSettled(failedSync.map(fjob => fjob.remove()));
+    await Promise.allSettled(failedSync.map((fjob) => fjob.remove()));
 
     return { ok: true, retried };
   }

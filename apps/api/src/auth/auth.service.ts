@@ -12,7 +12,10 @@ import { connectorCredentials } from '../db/schema';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private pendingConfigs = new Map<string, { config: Record<string, unknown>; returnTo?: string; userId?: string }>();
+  private pendingConfigs = new Map<
+    string,
+    { config: Record<string, unknown>; returnTo?: string; userId?: string }
+  >();
   private creatingAccounts = new Set<string>();
 
   constructor(
@@ -36,7 +39,11 @@ export class AuthService {
       const decrypted = this.crypto.decrypt(row.credentials) || row.credentials;
       const parsed = JSON.parse(decrypted);
       return typeof parsed === 'object' && parsed !== null ? parsed : null;
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        'Failed to parse credentials',
+        err instanceof Error ? err.message : String(err),
+      );
       return null;
     }
   }
@@ -64,8 +71,15 @@ export class AuthService {
   }
 
   /** Create account, validate auth, trigger first sync. Returns existing account if already connected. */
-  private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>, userId?: string) {
-    this.logger.log(`[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}, userId=${userId}`);
+  private async createAndSync(
+    connectorType: string,
+    identifier: string,
+    auth: Record<string, unknown>,
+    userId?: string,
+  ) {
+    this.logger.log(
+      `[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}, userId=${userId}`,
+    );
     // Acquire lock BEFORE any async work — JS is single-threaded so this
     // synchronous check+set is atomic (no await between has() and add())
     const lockKey = `${connectorType}:${identifier}`;
@@ -73,7 +87,11 @@ export class AuthService {
       this.logger.warn(`[Auth] createAndSync: lock already held for ${lockKey}, waiting...`);
       // Instead of throwing, wait briefly and return existing account
       await new Promise((r) => setTimeout(r, 2000));
-      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier, userId);
+      const existing = await this.accountsService.findByTypeAndIdentifier(
+        connectorType,
+        identifier,
+        userId,
+      );
       if (existing) return existing;
       throw new BadRequestException(`Account ${identifier} is already being created`);
     }
@@ -81,7 +99,11 @@ export class AuthService {
 
     try {
       // Prevent duplicate accounts for the same connector + identifier FOR THIS USER
-      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier, userId);
+      const existing = await this.accountsService.findByTypeAndIdentifier(
+        connectorType,
+        identifier,
+        userId,
+      );
       if (existing) {
         // Update auth context and re-sync instead of throwing
         await this.accountsService.update(existing.id, {
@@ -138,8 +160,17 @@ export class AuthService {
     }
 
     if (result.type === 'complete') {
-      const identifier = result.auth.identifier || (result.auth as any).raw?.email || (config.identifier as string) || connectorType;
-      const account = await this.createAndSync(connectorType, identifier, result.auth as Record<string, unknown>, userId);
+      const identifier =
+        result.auth.identifier ||
+        (result.auth as any).raw?.email ||
+        (config.identifier as string) ||
+        connectorType;
+      const account = await this.createAndSync(
+        connectorType,
+        identifier,
+        result.auth as Record<string, unknown>,
+        userId,
+      );
       return { type: 'complete' as const, account };
     }
 
@@ -169,7 +200,12 @@ export class AuthService {
   private activeQrListeners = new Map<string, boolean>();
 
   /** After returning QR to frontend, listen for the connector's 'connected' event */
-  private listenForQrCompletion(connector: any, connectorType: string, wsChannel: string, userId?: string) {
+  private listenForQrCompletion(
+    connector: any,
+    connectorType: string,
+    wsChannel: string,
+    userId?: string,
+  ) {
     // Remove any previous listeners for this connector type
     if (this.activeQrListeners.get(connectorType)) {
       connector.removeAllListeners('connected');
@@ -178,7 +214,9 @@ export class AuthService {
 
     let handled = false;
     const handler = async (payload: { wsChannel: string; sessionDir: string; auth: any }) => {
-      this.logger.log(`[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`);
+      this.logger.log(
+        `[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`,
+      );
       // Guard against duplicate connected events
       if (handled) {
         this.logger.warn(`[Auth] Ignoring duplicate 'connected' event for ${connectorType}`);
@@ -206,7 +244,12 @@ export class AuthService {
           step: `Connected as ${identifier}, setting up...`,
         });
 
-        const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
+        const account = await this.createAndSync(
+          connectorType,
+          identifier,
+          auth as Record<string, unknown>,
+          userId,
+        );
         this.logger.log(`[Auth] Account created: id=${account.id}, identifier=${identifier}`);
 
         // Step 3: Done — broadcast completion
@@ -217,7 +260,10 @@ export class AuthService {
           identifier,
         });
       } catch (err: any) {
-        this.logger.error(`[Auth] QR completion error for ${connectorType}: ${err.message}`, err instanceof Error ? err.stack : String(err));
+        this.logger.error(
+          `[Auth] QR completion error for ${connectorType}: ${err.message}`,
+          err instanceof Error ? err.stack : String(err),
+        );
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'failed',
           step: err.message || 'Failed to complete authentication',
@@ -230,16 +276,22 @@ export class AuthService {
     // Forward QR refreshes to the frontend
     const qrHandler = (payload: { wsChannel: string; qrData: string }) => {
       if (payload.wsChannel === wsChannel) {
-        this.events.emitToChannel(wsChannel, 'auth:status', { status: 'pending', qrData: payload.qrData });
+        this.events.emitToChannel(wsChannel, 'auth:status', {
+          status: 'pending',
+          qrData: payload.qrData,
+        });
       }
     };
     connector.on('qr:update', qrHandler);
 
     // Clean up listeners after 5 minutes (timeout)
-    setTimeout(() => {
-      connector.removeListener('connected', handler);
-      connector.removeListener('qr:update', qrHandler);
-    }, 5 * 60 * 1000);
+    setTimeout(
+      () => {
+        connector.removeListener('connected', handler);
+        connector.removeListener('qr:update', qrHandler);
+      },
+      5 * 60 * 1000,
+    );
   }
 
   async handleCallback(connectorType: string, params: Record<string, unknown>) {
@@ -250,13 +302,23 @@ export class AuthService {
     const auth = await connector.completeAuth(mergedParams);
     this.pendingConfigs.delete(connectorType);
 
-    const identifier = auth.identifier || (auth as any).raw?.email || (params.identifier as string) || connectorType;
-    const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, pending?.userId);
+    const identifier =
+      auth.identifier || (auth as any).raw?.email || (params.identifier as string) || connectorType;
+    const account = await this.createAndSync(
+      connectorType,
+      identifier,
+      auth as Record<string, unknown>,
+      pending?.userId,
+    );
 
     return { account, returnTo: pending?.returnTo };
   }
 
-  async complete(connectorType: string, body: { accountId?: string; params: Record<string, unknown> }, userId?: string) {
+  async complete(
+    connectorType: string,
+    body: { accountId?: string; params: Record<string, unknown> },
+    userId?: string,
+  ) {
     const connector = this.connectors.get(connectorType);
     const auth = await connector.completeAuth(body.params);
 
@@ -267,7 +329,11 @@ export class AuthService {
       });
     }
 
-    const identifier = (body.params.identifier as string) || auth.identifier || (auth as any).raw?.email || connectorType;
+    const identifier =
+      (body.params.identifier as string) ||
+      auth.identifier ||
+      (auth as any).raw?.email ||
+      connectorType;
     return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
   }
 }

@@ -90,8 +90,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     const ctx = await this.buildPipelineContext(rawEvent.accountId, rawEvent.connectorType);
 
-    this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-      `[embed:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`);
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[embed:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+    );
 
     const pipelineStart = Date.now();
 
@@ -101,31 +105,45 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     // Convert embed entities to normalized {type, value} format for metadata persistence
     const embedEntities = normalizeEntities(
-      embedResult.entities.map(e => {
+      embedResult.entities.map((e) => {
         // Extract human-readable value from compound ID (e.g., "name:John|email:john@x.com")
         const namePart = e.id.split('|').find((p: string) => p.startsWith('name:'));
         const value = namePart ? namePart.slice(5) : e.id.split('|')[0].replace(/^\w+:/, '');
         return { type: e.type, value };
-      })
+      }),
     );
 
     // Create memory record — resolve memoryBankId from account's user
     const memoryId = randomUUID();
     const now = new Date().toISOString();
-    const mergedMetadata: Record<string, unknown> = { ...metadata, ...(embedResult.metadata || {}), embedEntities };
+    const mergedMetadata: Record<string, unknown> = {
+      ...metadata,
+      ...(embedResult.metadata || {}),
+      embedEntities,
+    };
 
     // Look up the account's userId to find their default memory bank
     let memoryBankId: string | null = null;
     let ownerUserId: string | null = null;
     try {
-      const [acct] = await this.dbService.db.select({ userId: accounts.userId }).from(accounts).where(eq(accounts.id, rawEvent.accountId));
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, rawEvent.accountId));
       ownerUserId = acct?.userId || null;
       if (acct?.userId) {
-        const [defaultBank] = await this.dbService.db.select({ id: memoryBanks.id }).from(memoryBanks)
+        const [defaultBank] = await this.dbService.db
+          .select({ id: memoryBanks.id })
+          .from(memoryBanks)
           .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, 1)));
         memoryBankId = defaultBank?.id || null;
       }
-    } catch { /* best-effort */ }
+    } catch (err) {
+      this.logger.warn(
+        'Memory bank lookup failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
 
     let t0 = Date.now();
     await this.dbService.db.insert(memories).values({
@@ -146,8 +164,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     // Fire afterIngest hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterIngest', {
-      id: memoryId, text: embedText, sourceType: event.sourceType,
-      connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+      id: memoryId,
+      text: embedText,
+      sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType,
+      eventTime: event.timestamp,
     });
 
     // Contact resolution + linking
@@ -166,7 +187,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         contactCount++;
       }
 
-      const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> = [];
+      const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> =
+        [];
 
       for (const entity of embedResult.entities) {
         if (entity.type === 'person' || entity.type === 'group' || entity.type === 'device') {
@@ -182,7 +204,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             }
           }
           if (!merged) {
-            buckets.push({ entityType: entity.type, role: entity.role, identifiers: [...identifiers] });
+            buckets.push({
+              entityType: entity.type,
+              role: entity.role,
+              identifiers: [...identifiers],
+            });
           }
         }
         if (entity.type === 'message' && entity.id.startsWith('thread:')) {
@@ -192,14 +218,21 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
       for (const { entityType, role, identifiers } of buckets) {
         const resolveType = entityType === 'person' ? undefined : entityType;
-        const contact = await this.contactsService.resolveContact(identifiers, resolveType as any, ownerUserId || undefined);
+        const contact = await this.contactsService.resolveContact(
+          identifiers,
+          resolveType as any,
+          ownerUserId || undefined,
+        );
         if (contact) {
           await this.contactsService.linkMemory(memoryId, contact.id, role);
           contactCount++;
         }
       }
     } catch (err) {
-      this.logger.error('Contact resolution failed', err instanceof Error ? err.stack : String(err));
+      this.logger.error(
+        'Contact resolution failed',
+        err instanceof Error ? err.stack : String(err),
+      );
     }
     const contactMs = Date.now() - t0;
 
@@ -207,15 +240,16 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     if (mergedMetadata.threadId) {
       try {
         await this.linkThread(memoryId, mergedMetadata.threadId as string, rawEvent.connectorType);
-      } catch {
-        // Thread linking is best-effort
+      } catch (err) {
+        this.logger.warn('Thread linking failed', err instanceof Error ? err.message : String(err));
       }
     }
 
     // Generate embedding + store in Qdrant
     const maxChars = 6000;
     let currentText = embedText;
-    const truncatedText = currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+    const truncatedText =
+      currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
     try {
       t0 = Date.now();
       let vector = await this.ollama.embed(truncatedText);
@@ -233,12 +267,19 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
       // Fire afterEmbed hook (fire-and-forget)
       void this.pluginRegistry.fireHook('afterEmbed', {
-        id: memoryId, text: embedText, sourceType: event.sourceType,
-        connectorType: rawEvent.connectorType, eventTime: event.timestamp,
+        id: memoryId,
+        text: embedText,
+        sourceType: event.sourceType,
+        connectorType: rawEvent.connectorType,
+        eventTime: event.timestamp,
       });
 
-      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-        `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`);
+      this.addLog(
+        rawEvent.connectorType,
+        rawEvent.accountId,
+        'info',
+        `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`,
+      );
 
       this.analytics.capture('embed_complete', {
         memory_id: memoryId,
@@ -257,7 +298,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
               .set({ text: currentText })
               .where(eq(memories.id, memoryId));
 
-            const reEmbedText = currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+            const reEmbedText =
+              currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
             vector = await this.ollama.embed(reEmbedText);
             await this.qdrant.upsert(memoryId, vector, {
               source_type: event.sourceType,
@@ -268,8 +310,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             });
           }
         } catch (err: any) {
-          this.addLog(rawEvent.connectorType, rawEvent.accountId, 'warn',
-            `[embed:file] ${mid} file processing failed: ${err?.message}`);
+          this.addLog(
+            rawEvent.connectorType,
+            rawEvent.accountId,
+            'warn',
+            `[embed:file] ${mid} file processing failed: ${err?.message}`,
+          );
         }
       }
 
@@ -284,7 +330,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       } else {
         // No enrich — encrypt at rest and mark done directly
         this.encryptMemoryAtRest(memoryId);
-        await this.dbService.db.update(memories)
+        await this.dbService.db
+          .update(memories)
           .set({ embeddingStatus: 'done' })
           .where(eq(memories.id, memoryId));
         this.events.emitToChannel('memories', 'memory:updated', {
@@ -304,8 +351,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         .update(memories)
         .set({ embeddingStatus: 'failed' })
         .where(eq(memories.id, memoryId));
-      this.addLog(rawEvent.connectorType, rawEvent.accountId, 'error',
-        `[embed:fail] ${event.sourceType} after ${totalMs}ms: ${err?.message || err}`);
+      this.addLog(
+        rawEvent.connectorType,
+        rawEvent.accountId,
+        'error',
+        `[embed:fail] ${event.sourceType} after ${totalMs}ms: ${err?.message || err}`,
+      );
       throw err;
     }
   }
@@ -313,14 +364,22 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   private encryptMemoryAtRest(memoryId: string) {
     try {
       const [mem] = this.dbService.db
-        .select({ text: memories.text, entities: memories.entities, claims: memories.claims, metadata: memories.metadata })
+        .select({
+          text: memories.text,
+          entities: memories.entities,
+          claims: memories.claims,
+          metadata: memories.metadata,
+        })
         .from(memories)
         .where(eq(memories.id, memoryId))
         .all();
       if (!mem) return;
 
       const enc = this.crypto.encryptMemoryFields({
-        text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata,
+        text: mem.text,
+        entities: mem.entities,
+        claims: mem.claims,
+        metadata: mem.metadata,
       });
       this.dbService.db
         .update(memories)
@@ -342,8 +401,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const fileName: string = metadata.fileName || '';
     const mid = memoryId.slice(0, 8);
 
-    this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-      `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'})`);
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'})`,
+    );
 
     const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
 
@@ -371,10 +434,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         .where(eq(memories.id, memoryId));
       const buffer = await res.arrayBuffer();
       const base64 = Buffer.from(buffer).toString('base64');
-      const description = await this.ollama.generate(
-        photoDescriptionPrompt(memory?.text || ''),
-        [base64],
-      );
+      const description = await this.ollama.generate(photoDescriptionPrompt(memory?.text || ''), [
+        base64,
+      ]);
       return description.trim() || null;
     }
 
@@ -387,12 +449,16 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;
       if (content.length > MAX_CONTENT_LENGTH) {
-        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+        content =
+          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
       }
       return content;
     }
 
-    if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx') {
+    if (
+      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      ext === 'docx'
+    ) {
       const mammoth = await import('mammoth');
       const buffer = Buffer.from(await res.arrayBuffer());
       const result = await mammoth.extractRawText({ buffer });
@@ -400,7 +466,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;
       if (content.length > MAX_CONTENT_LENGTH) {
-        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+        content =
+          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
       }
       return content;
     }
@@ -409,7 +476,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       mime === 'application/vnd.ms-excel' ||
       mime === 'text/csv' ||
-      ext === 'xlsx' || ext === 'xls' || ext === 'csv'
+      ext === 'xlsx' ||
+      ext === 'xls' ||
+      ext === 'csv'
     ) {
       const XLSX = await import('xlsx');
       const buffer = Buffer.from(await res.arrayBuffer());
@@ -436,7 +505,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       if (!sections.length) return null;
       let content = header ? `${header}\n\n${sections.join('\n\n')}` : sections.join('\n\n');
       if (content.length > MAX_CONTENT_LENGTH) {
-        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+        content =
+          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
       }
       return content;
     }
@@ -446,7 +516,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       if (!text.trim()) return null;
       let content = header ? `${header}\n\n${text.trim()}` : text.trim();
       if (content.length > MAX_CONTENT_LENGTH) {
-        content = content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+        content =
+          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
       }
       return content;
     }
@@ -454,7 +525,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     return null;
   }
 
-  private parseEntityIdentifiers(entity: { type: string; id: string; role: string }, connectorType: string): IdentifierInput[] {
+  private parseEntityIdentifiers(
+    entity: { type: string; id: string; role: string },
+    connectorType: string,
+  ): IdentifierInput[] {
     const identifiers: IdentifierInput[] = [];
     const parts = entity.id.split('|');
     for (const part of parts) {
@@ -462,7 +536,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       if (colonIdx === -1) {
         identifiers.push({ type: entity.type, value: part, connectorType });
       } else {
-        identifiers.push({ type: part.slice(0, colonIdx), value: part.slice(colonIdx + 1), connectorType });
+        identifiers.push({
+          type: part.slice(0, colonIdx),
+          value: part.slice(colonIdx + 1),
+          connectorType,
+        });
       }
     }
     return identifiers;
@@ -472,22 +550,21 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const threadSiblings = await this.dbService.db
       .select({ id: memories.id })
       .from(memories)
-      .where(and(
-        eq(memories.connectorType, connectorType),
-        sql`json_extract(${memories.metadata}, '$.threadId') = ${threadId}`,
-      ))
+      .where(
+        and(
+          eq(memories.connectorType, connectorType),
+          sql`json_extract(${memories.metadata}, '$.threadId') = ${threadId}`,
+        ),
+      )
       .limit(20);
-    const siblings = threadSiblings.filter(s => s.id !== memoryId);
+    const siblings = threadSiblings.filter((s) => s.id !== memoryId);
     if (siblings.length) {
       const now = new Date().toISOString();
       for (const sib of siblings) {
         const existingLink = await this.dbService.db
           .select({ id: memoryLinks.id })
           .from(memoryLinks)
-          .where(and(
-            eq(memoryLinks.srcMemoryId, sib.id),
-            eq(memoryLinks.dstMemoryId, memoryId),
-          ))
+          .where(and(eq(memoryLinks.srcMemoryId, sib.id), eq(memoryLinks.dstMemoryId, memoryId)))
           .limit(1);
         if (!existingLink.length) {
           await this.dbService.db.insert(memoryLinks).values({
@@ -504,9 +581,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   }
 
   private emitGraphDelta(memoryId: string) {
-    this.memoryService.buildGraphDelta(memoryId).then((delta) => {
-      if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
-    }).catch(() => {});
+    this.memoryService
+      .buildGraphDelta(memoryId)
+      .then((delta) => {
+        if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
+      })
+      .catch(() => {});
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {
@@ -522,17 +602,28 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       if (done) {
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.logger.warn(
+        'Job progress advance failed',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
-  private async buildPipelineContext(accountId: string, connectorType: string): Promise<PipelineContext> {
+  private async buildPipelineContext(
+    accountId: string,
+    connectorType: string,
+  ): Promise<PipelineContext> {
     let auth: any = {};
     try {
       const account = await this.accountsService.getById(accountId);
       if (account.authContext) auth = JSON.parse(account.authContext);
-    } catch {}
+    } catch (err) {
+      this.logger.warn(
+        'Auth context parse failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     const logger: ConnectorLogger = {
       info: (msg) => this.addLog(connectorType, accountId, 'info', msg),
       warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg),
@@ -567,7 +658,20 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
   private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
     const stage = 'embed';
-    this.logsService.add({ connectorType, accountId: accountId ?? undefined, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
+    this.logsService.add({
+      connectorType,
+      accountId: accountId ?? undefined,
+      stage,
+      level,
+      message,
+    });
+    this.events.emitToChannel('logs', 'log', {
+      connectorType,
+      accountId,
+      stage,
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }

@@ -7,6 +7,7 @@ import {
   Param,
   Query,
   HttpCode,
+  NotFoundException,
 } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
@@ -21,10 +22,6 @@ function ok<T>(data: T, meta?: { queryTime: number; resultCount: number; sources
   return { success: true as const, data, meta };
 }
 
-function fail(error: string) {
-  return { success: false as const, error };
-}
-
 // ── Controller ───────────────────────────────────────────────────────
 
 @Controller('agent')
@@ -36,25 +33,19 @@ export class AgentController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('ask')
   @HttpCode(200)
-  async ask(
-    @Body() dto: AskDto,
-  ) {
+  async ask(@Body() dto: AskDto) {
     const start = Date.now();
-    try {
-      const result = await this.agentService.ask(dto.query, {
-        filters: dto.filters,
-        limit: dto.limit,
-      });
+    const result = await this.agentService.ask(dto.query, {
+      filters: dto.filters,
+      limit: dto.limit,
+    });
 
-      const sources = [...new Set(result.results.map((r) => r.connectorType))];
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: result.results.length,
-        sources,
-      });
-    } catch (err: any) {
-      return fail(err.message || 'ask failed');
-    }
+    const sources = [...new Set(result.results.map((r) => r.connectorType))];
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: result.results.length,
+      sources,
+    });
   }
 
   /** Chronological memory retrieval with optional filters. */
@@ -67,47 +58,37 @@ export class AgentController {
     @Query('limit') limitStr?: string,
   ) {
     const start = Date.now();
-    try {
-      const days = daysStr ? parseInt(daysStr, 10) : undefined;
-      const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+    const days = daysStr ? parseInt(daysStr, 10) : undefined;
+    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
 
-      const result = await this.agentService.timeline({
-        contactId,
-        connectorType,
-        sourceType,
-        days,
-        limit,
-      });
+    const result = await this.agentService.timeline({
+      contactId,
+      connectorType,
+      sourceType,
+      days,
+      limit,
+    });
 
-      const allMems = Object.values(result.results).flat();
-      const sources = [...new Set(allMems.map((r) => r.connectorType))];
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: result.totalCount,
-        sources,
-      });
-    } catch (err: any) {
-      return fail(err.message || 'timeline failed');
-    }
+    const allMems = Object.values(result.results).flat();
+    const sources = [...new Set(allMems.map((r) => r.connectorType))];
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: result.totalCount,
+      sources,
+    });
   }
 
   /** Quick memory insertion from agent. */
   @RequiresJwt()
   @Post('remember')
-  async remember(
-    @Body() dto: RememberDto,
-  ) {
+  async remember(@Body() dto: RememberDto) {
     const start = Date.now();
-    try {
-      const result = await this.agentService.remember(dto.text, dto.metadata);
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: 1,
-        sources: ['agent'],
-      });
-    } catch (err: any) {
-      return fail(err.message || 'remember failed');
-    }
+    const result = await this.agentService.remember(dto.text, dto.metadata);
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: 1,
+      sources: ['agent'],
+    });
   }
 
   /** Delete a memory and its vector. */
@@ -115,36 +96,32 @@ export class AgentController {
   @Delete('forget/:id')
   async forget(@Param('id') id: string) {
     const start = Date.now();
-    try {
-      const result = await this.agentService.forget(id);
-      if (!result.deleted) return fail('memory not found');
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: 0,
-        sources: [],
-      });
-    } catch (err: any) {
-      return fail(err.message || 'forget failed');
+    const result = await this.agentService.forget(id);
+    if (!result.deleted) {
+      throw new NotFoundException('Memory not found');
     }
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: 0,
+      sources: [],
+    });
   }
 
   /** Full context about a person: contact details, identifiers, recent memories, stats. */
   @Get('context/:contactId')
   async context(@Param('contactId') contactId: string) {
     const start = Date.now();
-    try {
-      const result = await this.agentService.context(contactId);
-      if (!result) return fail('contact not found');
-
-      const sources = [...new Set(result.recentMemories.map((r) => r.connectorType))];
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: result.recentMemories.length,
-        sources,
-      });
-    } catch (err: any) {
-      return fail(err.message || 'context failed');
+    const result = await this.agentService.context(contactId);
+    if (!result) {
+      throw new NotFoundException('Contact not found');
     }
+
+    const sources = [...new Set(result.recentMemories.map((r) => r.connectorType))];
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: result.recentMemories.length,
+      sources,
+    });
   }
 
   /** Search + LLM summarization of matching memories. */
@@ -152,37 +129,27 @@ export class AgentController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('summarize')
   @HttpCode(200)
-  async summarize(
-    @Body() dto: SummarizeDto,
-  ) {
+  async summarize(@Body() dto: SummarizeDto) {
     const start = Date.now();
-    try {
-      const result = await this.agentService.summarize(dto.query, dto.maxResults);
+    const result = await this.agentService.summarize(dto.query, dto.maxResults);
 
-      const sources = [...new Set(result.memories.map((r) => r.connectorType))];
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: result.memories.length,
-        sources,
-      });
-    } catch (err: any) {
-      return fail(err.message || 'summarize failed');
-    }
+    const sources = [...new Set(result.memories.map((r) => r.connectorType))];
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: result.memories.length,
+      sources,
+    });
   }
 
   /** System health: memory count, contact count, model info. */
   @Get('status')
   async status() {
     const start = Date.now();
-    try {
-      const result = await this.agentService.status();
-      return ok(result, {
-        queryTime: Date.now() - start,
-        resultCount: result.memories.total,
-        sources: Object.keys(result.memories.byConnector),
-      });
-    } catch (err: any) {
-      return fail(err.message || 'status failed');
-    }
+    const result = await this.agentService.status();
+    return ok(result, {
+      queryTime: Date.now() - start,
+      resultCount: result.memories.total,
+      sources: Object.keys(result.memories.byConnector),
+    });
   }
 }

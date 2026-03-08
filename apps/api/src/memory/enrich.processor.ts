@@ -47,7 +47,11 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
 
     // Look up parent job ID from the raw event
     const rawRows = await this.dbService.db
-      .select({ jobId: rawEvents.jobId, connectorType: rawEvents.connectorType, accountId: rawEvents.accountId })
+      .select({
+        jobId: rawEvents.jobId,
+        connectorType: rawEvents.connectorType,
+        accountId: rawEvents.accountId,
+      })
       .from(rawEvents)
       .where(eq(rawEvents.id, rawEventId));
 
@@ -59,22 +63,32 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
 
     // Read enriched memory for hook and event
     const [mem] = await this.dbService.db
-      .select({ text: memories.text, sourceType: memories.sourceType, entities: memories.entities, factuality: memories.factuality })
+      .select({
+        text: memories.text,
+        sourceType: memories.sourceType,
+        entities: memories.entities,
+        factuality: memories.factuality,
+      })
       .from(memories)
       .where(eq(memories.id, memoryId));
 
     // Fire afterEnrich hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterEnrich', {
-      id: memoryId, text: mem?.text, sourceType: mem?.sourceType,
-      connectorType, eventTime: undefined,
-      entities: mem?.entities, factuality: mem?.factuality,
+      id: memoryId,
+      text: mem?.text,
+      sourceType: mem?.sourceType,
+      connectorType,
+      eventTime: undefined,
+      entities: mem?.entities,
+      factuality: mem?.factuality,
     });
 
     // Encrypt memory fields at rest before marking as done
     this.encryptMemoryAtRest(memoryId);
 
     // Mark memory as done
-    await this.dbService.db.update(memories)
+    await this.dbService.db
+      .update(memories)
       .set({ embeddingStatus: 'done' })
       .where(eq(memories.id, memoryId));
 
@@ -97,14 +111,22 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   private encryptMemoryAtRest(memoryId: string) {
     try {
       const [mem] = this.dbService.db
-        .select({ text: memories.text, entities: memories.entities, claims: memories.claims, metadata: memories.metadata })
+        .select({
+          text: memories.text,
+          entities: memories.entities,
+          claims: memories.claims,
+          metadata: memories.metadata,
+        })
         .from(memories)
         .where(eq(memories.id, memoryId))
         .all();
       if (!mem) return;
 
       const enc = this.crypto.encryptMemoryFields({
-        text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata,
+        text: mem.text,
+        entities: mem.entities,
+        claims: mem.claims,
+        metadata: mem.metadata,
       });
       this.dbService.db
         .update(memories)
@@ -117,9 +139,12 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   }
 
   private emitGraphDelta(memoryId: string) {
-    this.memoryService.buildGraphDelta(memoryId).then((delta) => {
-      if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
-    }).catch(() => {});
+    this.memoryService
+      .buildGraphDelta(memoryId)
+      .then((delta) => {
+        if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
+      })
+      .catch(() => {});
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {
@@ -134,10 +159,16 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       const done = await this.jobsService.tryCompleteJob(jobId);
       if (done) {
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
-        this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'enrich_complete', jobId });
+        this.events.emitToChannel('dashboard', 'dashboard:jobs', {
+          trigger: 'enrich_complete',
+          jobId,
+        });
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.logger.warn(
+        'Job progress advance failed',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 }
