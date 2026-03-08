@@ -3,6 +3,7 @@ import type { Memory, SourceType, GraphData } from '@botmem/shared';
 import { api } from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from './authStore';
+import { useMemoryBankStore } from './memoryBankStore';
 import { trackEvent } from '../lib/posthog';
 
 interface Filters {
@@ -113,7 +114,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   loadMemories: async () => {
     set({ loading: true });
     try {
-      const result = await api.listMemories({ limit: 100 });
+      const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+      const result = await api.listMemories({ limit: 100, memoryBankId: bankId || undefined });
       const mems = result.items.map(apiMemoryToShared);
       set({ memories: mems, loading: false, searchFallback: false, resolvedEntities: null, parsed: null });
     } catch (err) {
@@ -125,7 +127,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   searchMemories: async (query: string) => {
     set({ loading: true, searchFallback: false, resolvedEntities: null, parsed: null });
     try {
-      const result = await api.searchMemories(query) as any;
+      const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+      const result = await api.searchMemories(query, undefined, undefined, bankId || undefined) as any;
       const mems = result.items.map(apiMemoryToShared);
       trackEvent('search', { query_length: query.length, result_count: mems.length, fallback: result.fallback });
       set({ memories: mems, loading: false, searchFallback: result.fallback, resolvedEntities: result.resolvedEntities || null, parsed: result.parsed || null });
@@ -173,7 +176,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     const defaults = query.trim()
       ? { memoryLimit: 200, linkLimit: 1000 }
       : { memoryLimit: 300, linkLimit: 1500 };
-    const merged = { ...defaults, ...params };
+    const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+    const merged = { ...defaults, ...params, memoryBankId: bankId || undefined };
     try {
       const data = await api.getGraphData(merged);
       const graphData: GraphData = {
@@ -316,6 +320,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     });
 
     // Fetch initial stats
-    api.getMemoryStats().then((stats) => set({ memoryStats: stats })).catch(() => {});
+    const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+    api.getMemoryStats({ memoryBankId: bankId || undefined }).then((stats) => set({ memoryStats: stats })).catch(() => {});
   },
 }));

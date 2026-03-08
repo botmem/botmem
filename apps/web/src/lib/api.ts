@@ -111,18 +111,19 @@ export const api = {
   },
 
   // Memories
-  searchMemories: (query: string, filters?: Record<string, string>, limit?: number) =>
+  searchMemories: (query: string, filters?: Record<string, string>, limit?: number, memoryBankId?: string) =>
     request<{ items: any[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[]; topicMatchCount: number } }>('/memories/search', {
       method: 'POST',
-      body: JSON.stringify({ query, filters, limit }),
+      body: JSON.stringify({ query, filters, limit, memoryBankId: memoryBankId || undefined }),
     }),
-  listMemories: (params?: { limit?: number; offset?: number; connectorType?: string; sourceType?: string; sortBy?: string }) => {
+  listMemories: (params?: { limit?: number; offset?: number; connectorType?: string; sourceType?: string; sortBy?: string; memoryBankId?: string }) => {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.connectorType) query.set('connectorType', params.connectorType);
     if (params?.sourceType) query.set('sourceType', params.sourceType);
     if (params?.sortBy) query.set('sortBy', params.sortBy);
+    if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     return request<{ items: any[]; total: number }>(`/memories?${query}`);
   },
   getMemory: (id: string) => request<any>(`/memories/${id}`),
@@ -131,11 +132,17 @@ export const api = {
   recordRecall: (id: string) => request<{ ok: boolean }>(`/memories/${id}/recall`, { method: 'POST' }),
   deleteMemory: (id: string) =>
     request<any>(`/memories/${id}`, { method: 'DELETE' }),
-  getMemoryStats: () => request<any>('/memories/stats'),
-  getGraphData: (params?: { memoryLimit?: number; linkLimit?: number }) => {
+  getMemoryStats: (params?: { memoryBankId?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
+    const qs = query.toString();
+    return request<any>(`/memories/stats${qs ? `?${qs}` : ''}`);
+  },
+  getGraphData: (params?: { memoryLimit?: number; linkLimit?: number; memoryBankId?: string }) => {
     const query = new URLSearchParams();
     if (params?.memoryLimit) query.set('memoryLimit', String(params.memoryLimit));
     if (params?.linkLimit) query.set('linkLimit', String(params.linkLimit));
+    if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     const qs = query.toString();
     return request<any>(`/memories/graph${qs ? `?${qs}` : ''}`);
   },
