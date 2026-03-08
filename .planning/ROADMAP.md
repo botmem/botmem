@@ -495,7 +495,11 @@ Plans:
 3. The memory graph shows entities with correct canonical types, no duplicates within a memory, and no garbage nodes
 4. NLQ queries like "show me photos from last week" use `source_type: 'photo'` directly (no alias resolution) and return correct results
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+
+- [ ] 28-01-PLAN.md -- End-to-end verification of search, graph, and NLQ data quality (VER-01, VER-02, VER-03, VER-04)
 
 ## Phase Details (v3.0)
 
@@ -614,7 +618,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 25. Source Type Reclassification | v2.1      | Complete       | 2026-03-08  | 2026-03-08 |
 | 26. Entity Format & Quality      | v2.1      | Complete       | 2026-03-08  | 2026-03-08 |
 | 27. Data Backfill                | v2.1      | Complete       | 2026-03-08  | -          |
-| 28. Verification                 | v2.1      | 0/?            | Not started | -          |
+| 28. Verification                 | v2.1      | 0/1            | Not started | -          |
 | 29. Foundation Config            | v3.0      | Complete       | 2026-03-08  | 2026-03-08 |
 | 30. Dev Workflow Fix             | v3.0      | Complete       | 2026-03-08  | 2026-03-08 |
 | 31. Docker & Infrastructure      | v3.0      | Complete       | 2026-03-08  | 2026-03-08 |
