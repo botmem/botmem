@@ -144,7 +144,7 @@
 - [x] **SRC-01**: Photos connector emits `photo` source type instead of `file`
 - [x] **SRC-02**: Existing photo memories reclassified from `file` to `photo` in SQLite
 - [x] **SRC-03**: Qdrant vector payloads updated with corrected `source_type` for photos
-- [ ] **SRC-04**: `SOURCE_TYPE_ALIASES` hack removed from NLQ parser and memory service
+- [x] **SRC-04**: `SOURCE_TYPE_ALIASES` hack removed from NLQ parser and memory service
 
 ### Entity Extraction Quality
 
@@ -190,7 +190,7 @@
 | SRC-01 | Phase 25 | Complete |
 | SRC-02 | Phase 25 | Complete |
 | SRC-03 | Phase 25 | Complete |
-| SRC-04 | Phase 25 | Pending |
+| SRC-04 | Phase 25 | Complete |
 | FMT-01 | Phase 26 | Pending |
 | FMT-02 | Phase 26 | Pending |
 | FMT-03 | Phase 26 | Pending |
