@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  ForbiddenException,
+} from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
@@ -30,18 +39,23 @@ export class AccountsController {
   }
 
   @Get(':id')
-  async get(@Param('id') id: string) {
-    return toApiAccount(await this.accountsService.getById(id));
+  async get(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    const account = await this.accountsService.getById(id);
+    if (account.userId !== user.id) {
+      throw new ForbiddenException('Account does not belong to user');
+    }
+    return toApiAccount(account);
   }
 
   @RequiresJwt()
   @Post()
-  async create(
-    @CurrentUser() user: { id: string },
-    @Body() dto: CreateAccountDto,
-  ) {
+  async create(@CurrentUser() user: { id: string }, @Body() dto: CreateAccountDto) {
     // Dedup: return existing account if one already exists for this connector+identifier FOR THIS USER
-    const existing = await this.accountsService.findByTypeAndIdentifier(dto.connectorType, dto.identifier, user.id);
+    const existing = await this.accountsService.findByTypeAndIdentifier(
+      dto.connectorType,
+      dto.identifier,
+      user.id,
+    );
     if (existing) return toApiAccount(existing);
     const row = await this.accountsService.create({ ...dto, userId: user.id });
     return toApiAccount(row);

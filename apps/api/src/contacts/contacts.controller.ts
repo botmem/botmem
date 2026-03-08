@@ -28,8 +28,8 @@ export class ContactsController {
   }
 
   @Get('suggestions')
-  async getSuggestions() {
-    return this.contactsService.getSuggestions();
+  async getSuggestions(@CurrentUser() user: { id: string }) {
+    return this.contactsService.getSuggestions(user.id);
   }
 
   @RequiresJwt()
@@ -50,8 +50,8 @@ export class ContactsController {
   }
 
   @Get(':id/memories')
-  async getMemories(@Param('id') id: string) {
-    return this.contactsService.getMemories(id);
+  async getMemories(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.contactsService.getMemories(id, undefined, user.id);
   }
 
   @RequiresJwt()
@@ -109,5 +109,4 @@ export class ContactsController {
     await this.contactsService.undismissSuggestion(dto.contactId1, dto.contactId2);
     return { undismissed: true };
   }
-
 }

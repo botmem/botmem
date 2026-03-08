@@ -44,6 +44,7 @@ export class MemoryController {
     return this.memoryService.getStats(user.id, user.memoryBankIds);
   }
 
+  @RequiresJwt()
   @Get('queue-status')
   async getQueueStatus() {
     const queues = {
@@ -239,6 +240,7 @@ export class MemoryController {
     };
   }
 
+  @RequiresJwt()
   @Get('qdrant-info')
   async getQdrantInfo() {
     return this.qdrant.getCollectionInfo();

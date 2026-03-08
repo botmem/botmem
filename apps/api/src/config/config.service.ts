@@ -1,7 +1,39 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 @Injectable()
-export class ConfigService {
+export class ConfigService implements OnModuleInit {
+  private readonly logger = new Logger(ConfigService.name);
+
+  onModuleInit() {
+    this.validateProductionSecrets();
+  }
+
+  validateProductionSecrets(): void {
+    if (process.env.NODE_ENV !== 'production') return;
+
+    const defaults = [
+      { name: 'APP_SECRET', value: this.appSecret, default: 'dev-app-secret-change-in-production' },
+      {
+        name: 'JWT_ACCESS_SECRET',
+        value: this.jwtAccessSecret,
+        default: 'dev-access-secret-change-in-production',
+      },
+      {
+        name: 'JWT_REFRESH_SECRET',
+        value: this.jwtRefreshSecret,
+        default: 'dev-refresh-secret-change-in-production',
+      },
+    ];
+
+    for (const { name, value, default: def } of defaults) {
+      if (value === def) {
+        throw new Error(`FATAL: ${name} is using default value in production. Set a secure value.`);
+      }
+    }
+
+    this.logger.log('Production secret validation passed');
+  }
+
   get port(): number {
     return Number.parseInt(process.env.PORT || '12412', 10);
   }
@@ -60,6 +92,12 @@ export class ConfigService {
 
   get decayCron(): string {
     return process.env.DECAY_CRON || '0 3 * * *';
+  }
+
+  // --- Encryption ---
+
+  get appSecret(): string {
+    return process.env.APP_SECRET || 'dev-app-secret-change-in-production';
   }
 
   // --- SMTP config ---
