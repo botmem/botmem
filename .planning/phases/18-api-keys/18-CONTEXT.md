@@ -38,7 +38,7 @@ Named, read-only API keys for programmatic access to memories and contacts. User
 - **NOTE:** Remove bankIds nullability when Phase 19 memory banks are implemented — make bank scoping required
 
 ### Management UI
-- Settings page with tabbed sections: [Profile] [API Keys] [Security]
+- Settings page with tabbed sections: [Profile] [API Keys] [Pipeline]
 - API Keys tab shows list of keys with name, masked key, created date, expiry, and Revoke button
 - Shows count against limit (e.g., "3/10")
 - Create key: inline modal with name field + optional expiry date picker
