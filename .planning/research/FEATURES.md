@@ -1,125 +1,146 @@
 # Feature Landscape
 
-**Domain:** Data quality and pipeline integrity for a personal memory RAG system
+**Domain:** Monorepo tooling and developer experience for pnpm + NestJS + React
 **Researched:** 2026-03-08
+**Context:** Single-developer project with 10+ packages, existing Turborepo setup, targeting production-grade DX
 
 ## Table Stakes
 
-Features that are expected behaviors in any production entity extraction and data quality pipeline. Missing these means the system produces garbage results that undermine search, graph visualization, and downstream AI consumption.
+Features every serious pnpm monorepo has. Missing these means constant friction and wasted time.
 
-| Feature | Why Expected | Complexity | Dependencies | Notes |
-|---------|--------------|------------|--------------|-------|
-| **Source type correctness** | Source type drives filtering, graph coloring, and search scoping. Photos classified as `file` means 2,099 records are invisible to photo-specific queries. The SDK already defines the union type `'email' | 'message' | 'photo' | 'location' | 'file'` -- connectors just need to use the right value. | Low | `photos-immich` connector, `ConnectorDataEvent.sourceType` type definition | One-line fix in `photos-immich/src/index.ts` (change `'file'` to `'photo'`). Slack files should remain `file`. Backfill needed for existing records in both `rawEvents` and `memories` tables, plus Qdrant payload. |
-| **Canonical entity type enforcement** | Every NER/entity extraction system uses a fixed taxonomy. Without it, LLM hallucinations create unbounded type proliferation (the current 100+ types problem). Ollama's `format` parameter with JSON schema already supports `enum` constraints -- the schema `ENTITY_FORMAT_SCHEMA` is defined in `prompts.ts` with the correct enum, and it IS being passed to `ollama.generate()`. The model is simply not respecting it reliably at the 0.6B parameter scale. | Low | Existing `ENTITY_FORMAT_SCHEMA` in `prompts.ts`, Ollama structured output via `format` param | The schema is already passed. The fix is adding a post-processing validation layer that rejects any entity whose `type` is not in the canonical list. Belt-and-suspenders: trust the constraint but verify after. Grammar-based constrained generation (GBNF) in Ollama should enforce this at token level, but small models still produce invalid output occasionally. |
-| **Empty entity filtering** | Extracting entities with empty string values is a known failure mode of LLM-based NER. Post-processing must strip entities where `value` is empty or whitespace-only. Standard NER pipelines always include a validation/filtering step after extraction. 107 empty locations, 94 empty events, 80 empty orgs in the current DB. | Low | `enrich.service.ts` `extractEntities()` method | Add `.filter(e => e.value?.trim())` after parsing. Trivial fix. |
-| **Intra-memory entity deduplication** | Extracting the same entity twice within a single memory (e.g., same IP address appearing twice) inflates entity counts and clutters the graph. Standard NER post-processing deduplicates by (type, normalized_value) within a single document. | Low | `enrich.service.ts` `extractEntities()` method | Deduplicate by `type + value.toLowerCase().trim()` after extraction. Keep first occurrence. |
-| **Garbage entity value rejection** | Entity types like "battery", "wifi", "appium:platformVersion", "yes", "usdt" exist because the structured output constraint was not enforced or the model hallucinated despite it. With proper post-processing, any entity whose `type` is not in the canonical 10 gets discarded. | Low | Depends on canonical type enforcement above | Validate extracted entity types against the canonical list; discard non-matching. Combined with empty filtering into a single post-processing function. |
-| **Entity format unification** | Two pipeline steps produce incompatible entity shapes: embed step emits `{type, id, role}` for contact resolution (in `EmbedResult.entities`), enrich step emits `{type, value}` for storage (in `memories.entities` column). These serve different purposes but the stored format in the `memories.entities` column must be consistent. Currently both may write to the column at different times. | Med | `EmbedResult.entities` in connector-sdk, `enrich.service.ts`, `memories.entities` column, `embed.processor.ts` | The embed step entities are consumed during embed for contact linking -- they should NOT be persisted to `memories.entities`. The enrich step produces the final entities for storage. Ensure the embed step does not write entities to the memories table (currently it does not -- the `memories.entities` default is `[]` and only `enrich.service.ts` updates it). Verify this is actually the case and document the canonical format as `{type, value}`. |
-| **Entity misclassification fix** | "Amr Essam" appearing 181x as person but also 58x as location and 58x as organization means the LLM is misclassifying the same entity differently across memories. This is a prompt quality issue -- the current prompt does not provide enough guidance to distinguish entity types. | Med | `prompts.ts` `entityExtractionPrompt()`, possibly model size | Improve the prompt with clearer type definitions and examples. Add rules like: "A person's name is always 'person', never 'location' or 'organization' even if they are associated with a place or company." Consider few-shot examples in the prompt. |
-| **Backfill pipeline for corrections** | After fixing extraction logic, existing records (40K+ memories) contain dirty data. A backfill mechanism re-runs enrichment on existing memories with the corrected pipeline. The system already has a `backfill` BullMQ queue defined but unused. | Med | `backfill` queue (exists but unused), `enrich.service.ts`, idempotent Qdrant upserts, all extraction fixes must be complete first | Must be idempotent: re-enrich without creating duplicate memory links. Must be throttled to not starve live sync jobs. Needs a way to track which memories have been re-enriched. |
+| Feature | Why Expected | Complexity | Change Type | Notes |
+|---------|--------------|------------|-------------|-------|
+| Shared tsconfig bases (plural) | Prevents config drift. Currently `tsconfig.base.json` uses `moduleResolution: bundler` but API overrides to `node` + `commonjs`. Need separate bases: one for ESM packages, one for NestJS CJS. | Low | Config only | Create `tsconfig.nestjs.json` extending base with CJS overrides. All connectors + shared + web use the ESM base as-is |
+| ESLint shared config | No lint config exists anywhere. `turbo lint` has nothing to run. Zero linting across 10+ packages. | Medium | New config + per-package scripts | Root `eslint.config.mjs` (flat config) with `@typescript-eslint`. Each package gets `"lint": "eslint src"`. No need for a shared config package -- flat config at root with Turbo handles it |
+| Prettier + EditorConfig | Zero formatting config exists. No `.prettierrc`, no `.editorconfig`. Code style is whatever each file happened to be when written. | Low | Config only | Root `.prettierrc` + `.editorconfig`. Formatting enforced via lint-staged pre-commit, not as a Turbo task |
+| `typecheck` as a separate Turbo task | `tsc --noEmit` is not run anywhere independently. Type errors only surface during build, which is slow. Need a fast type-check gate. | Low | Config only | Add `"typecheck": "tsc --noEmit"` to each package, register in `turbo.json`. Runs in parallel across all packages |
+| Build pipeline quality gates | Current `turbo.json` has no dependency between build and quality checks. Tests can fail and build still succeeds. Build should not pass unless lint + typecheck + test pass. | Low | Config only | Update `turbo.json`: `"build": { "dependsOn": ["^build", "lint", "typecheck"] }`. Tests run in parallel with build, not as a gate (too slow for dev loop) |
+| Docker Compose for local dev | Current compose is a self-hosting/prod config (builds API from Dockerfile). Missing Ollama, no health checks, no dev profiles. New developer has to know to run services manually. | Medium | New compose file | Create `docker-compose.dev.yml` with Redis, Qdrant, Ollama (CPU). Keep existing `docker-compose.yml` for prod self-hosting |
+| `.env.example` with all variables | No `.env.example` exists. Developer must read CLAUDE.md to discover env vars. 11 variables with non-obvious defaults (e.g., Ollama at `192.168.10.250`). | Low | New file | List every variable from `config.service.ts` with safe defaults. Ollama default should be `http://localhost:11434` (not the private IP) |
+| `pnpm dev` starts everything reliably | Current root `dev` script pre-builds ALL connectors with explicit `--filter`, then starts only API + shared. Web is excluded. Adding a connector requires editing the root script. | Medium | Script rewrite | Turbo should handle dependency ordering via `dependsOn`. Root `dev` should just be `turbo dev`. Pre-build step is a workaround for missing Turbo config |
+| Hardcoded nodemon watch paths | `nodemon.json` explicitly lists every single connector dist path. Adding a new connector requires editing this file or the API won't reload. | Low | Config change | Use glob pattern `../../packages/*/dist` and `../../packages/connectors/*/dist`. Or migrate to `tsx watch` entirely |
+| `.npmrc` with monorepo settings | No `.npmrc` exists. Missing `shamefully-hoist=true` (known Docker build requirement per project memory), missing peer dependency config. | Low | New file | `shamefully-hoist=true`, `strict-peer-dependencies=false`, `auto-install-peers=true` |
+| Health check endpoint | Only `/api/version` exists. No endpoint verifies Redis, Qdrant, SQLite connectivity. Docker Compose `depends_on` cannot wait for readiness. | Low | Small code change | Add `GET /api/health` returning status of all dependencies. Used by Docker `healthcheck` and by developer to verify stack is up |
+| Consistent `exports` in package.json | `@botmem/shared` and `@botmem/connector-sdk` point `types` at `./src/index.ts` (source). Works in dev but breaks if someone consumes the built package. Inconsistent resolution between dev and prod. | Low | Package.json edits | Point `types` to `./dist/index.d.ts`. Use `"typesVersions"` or just ensure `tsc --watch` keeps `.d.ts` fresh during dev |
+| Git hooks with lint-staged | No pre-commit hooks. Bad formatting and lint errors only caught if developer manually runs checks. | Low | Config only | `husky` + `lint-staged`: run Prettier + ESLint on staged files only. Fast, non-intrusive |
 
 ## Differentiators
 
-Features that go beyond fixing bugs -- they make Botmem's entity extraction and data quality genuinely better than typical personal knowledge management tools. Not expected, but valuable.
+Features that dramatically improve solo-dev productivity. Not expected in every monorepo, but high ROI here.
 
-| Feature | Value Proposition | Complexity | Dependencies | Notes |
-|---------|-------------------|------------|--------------|-------|
-| **Source type auto-detection** | Instead of relying solely on connectors to set the right source type, infer it from content/metadata as a safety net. If an event has image MIME type metadata, it is a photo regardless of what the connector says. Defense-in-depth for source type correctness. | Low | `embed.processor.ts`, event metadata inspection | Check `metadata.mimetype` for `image/*` and override `sourceType` to `photo`. Low effort, prevents recurrence of the photos-as-files bug for any connector. |
-| **Cross-memory entity resolution** | Resolving "Amr Essam" (181 occurrences) into a single canonical entity reference enables accurate entity counts, relationship graphs, and "show me everything about X" queries. The contact system already does this for person entities via identifier matching. The gap is non-person entities (organizations, locations, products). | High | Contact system (already handles person entities), new entity registry or canonicalization layer | The contact system is the right model to follow. For non-person entities, a lightweight entity registry table with canonical names and aliases could work. But the complexity is in the resolution algorithm (fuzzy matching, handling abbreviations, context-dependent classification). Defer unless the graph is unusable without it. |
-| **Entity confidence scoring** | Adding per-entity confidence allows filtering low-confidence extractions and improving graph quality. The JSON schema can include a `confidence` float field. | Med | `ENTITY_FORMAT_SCHEMA` update, `enrich.service.ts` | Caution: qwen3:0.6b produces unreliable confidence scores. Small models are notoriously overconfident. More useful as a heuristic filter (drop below 0.3) than a precision metric. Better to fix extraction quality first. |
-| **Entity normalization** | "New York", "NYC", "new york city" should all resolve to the same entity. Normalization (lowercasing, alias resolution, canonicalization) improves dedup and graph connectivity. | High | Entity registry infrastructure, potentially external gazetteer | Full solution requires embedding-based similarity or an external knowledge base. A pragmatic first step is case-insensitive dedup + simple alias rules. Defer to a later milestone. |
-| **Enrichment quality metrics** | Track entity extraction quality over time: entities per memory, type distribution, empty rate, duplicate rate. Detect when the LLM is producing garbage (e.g., after a model update) and alert. | Med | New metrics collection in `enrich.service.ts`, PostHog integration | Useful for ongoing quality monitoring. Without this, data quality silently degrades after model updates or prompt changes. Could be a simple dashboard counter or PostHog events. |
-| **Backfill progress UI** | Show backfill progress in the frontend -- how many memories re-enriched, how many remaining, estimated time. The job system already supports progress tracking via WebSocket. | Low | Backfill pipeline (table stakes), existing job progress UI | Reuse the existing job progress WebSocket infrastructure. The backfill job just needs to report progress/total like sync jobs do. |
+| Feature | Value Proposition | Complexity | Change Type | Notes |
+|---------|-------------------|------------|-------------|-------|
+| pnpm catalogs | TypeScript (5.7), Vitest (3.0), Vite (6.1) versions duplicated across 10+ `package.json` files. Catalogs centralize version specifiers in `pnpm-workspace.yaml`. Change once, all packages get the same version. Eliminates version drift. | Medium | pnpm-workspace.yaml + all package.json | Requires pnpm 9.5+ (already on 9.15). Define `catalog:` section, replace version ranges with `catalog:default` protocol. Touches every package.json but is mechanical |
+| Docker Compose profiles | `--profile dev` = Redis+Qdrant+Ollama. `--profile ci` = Redis+Qdrant only. `--profile gpu` = Ollama with GPU passthrough. One file, multiple modes for different needs. | Medium | Compose rewrite | Use `profiles:` key on services. Default (no profile) = just Redis+Qdrant (backward compatible). `dev` adds Ollama |
+| Vitest workspace config | 10 separate `vitest.config.ts` files with duplicated config (coverage thresholds, SWC plugin, globals). Vitest workspace file at root defines all projects once. | Medium | New root config | Create `vitest.workspace.ts` at root. Remove per-package configs (or make them minimal overrides). Coverage thresholds defined once. Single `pnpm test` at root runs everything |
+| `tsx watch` replacing nodemon | nodemon + nest build + node = 3-step restart cycle. `tsx watch src/main.ts` = instant restart via esbuild, no intermediate build. Saves 2-5 seconds per reload. | Low | Config change | `tsx` uses esbuild. NestJS decorators work fine with SWC/esbuild at runtime. Keep `nest build` for production builds only. Dev loop becomes: tsx watches source, restarts on change |
+| Docker multi-stage build | Current Dockerfile exists but is basic. Proper multi-stage: deps -> build -> runtime. Reduces image from ~1GB to ~200MB. Faster deploys, less bandwidth. | Medium | Dockerfile rewrite | Stage 1: pnpm fetch (cached layer). Stage 2: build with Turbo. Stage 3: Alpine runtime with only dist + node_modules. `shamefully-hoist=true` in `.npmrc` required |
+| Root `setup` script | `pnpm install && docker compose up -d && pnpm build` as a single command. Currently requires reading docs and running 3 separate commands. | Low | Script in package.json | Add `"setup": "pnpm install && docker compose -f docker-compose.dev.yml up -d && pnpm build"` |
+| SWC for package builds | API already uses SWC. Library packages (`shared`, `connector-sdk`, connectors) use plain `tsc` which is 20-70x slower. | Medium | Config per package | Use SWC for JS emit, keep `tsc --emitDeclarationOnly` for `.d.ts` files. Two-step build: `swc src -d dist && tsc --emitDeclarationOnly`. Faster rebuild loop |
 
 ## Anti-Features
 
-Features to explicitly NOT build. These seem useful but create more problems than they solve in this context.
+Features to explicitly NOT build. Either overkill for a single developer or creates more problems than it solves.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Re-prompting / self-correction loops** | Sending extraction results back to the LLM to "verify" or "fix" doubles inference cost per memory. With 40K+ memories and a 0.6B model on remote Ollama, latency and compute cost compound. The structured output constraint plus post-processing is more reliable than asking the LLM to check itself. | Use structured output constraints (already in place) + deterministic post-processing validation. Let the schema enforce correctness at generation time, validate after. |
-| **Custom fine-tuned NER model** | Fine-tuning a model specifically for Botmem's entity types requires training data, evaluation infrastructure, and ongoing maintenance. The generic model + structured output + post-processing is sufficient for a personal system. | Stay with qwen3:0.6b + JSON schema constraints + post-processing. If quality is still poor after all fixes, upgrade to a larger model (qwen3:1.7b) rather than fine-tuning. Model upgrade is a config change, not a code change. |
-| **Real-time entity resolution across all memories** | Running entity resolution against the full memory corpus on every new ingestion is computationally prohibitive. Comparing each new entity against all existing entities creates O(n) growth per ingest. | Batch entity resolution as a periodic maintenance job (nightly or weekly). During ingestion, do simple exact-match dedup within the single memory only. |
-| **Complex ontology / OWL schema** | Building a formal ontology (class hierarchies, property constraints, reasoning rules) is massive overkill for 10 entity types in a personal system. The taxonomy does not need inheritance or property constraints. | Keep the flat enum taxonomy. Add a simple alias table only if normalization is needed later. The 10 canonical types are: person, organization, location, event, product, topic, pet, group, device, other. |
-| **User-defined entity types** | Allowing users to add custom entity types re-opens the taxonomy proliferation problem and requires schema migration, UI updates, and prompt changes for every new type. | The 10 canonical types cover personal memory use cases comprehensively. "other" exists as escape hatch. If a new type is genuinely needed, add it as a code change with prompt update. |
-| **Retroactive entity linking to contacts** | Trying to link all extracted "person" entities back to the contacts table after enrichment creates a coupling between the entity extraction and contact resolution systems that does not exist today. Contact resolution happens during the embed step, not the enrich step. | Keep contact resolution in the embed step where it already works. Entity extraction in the enrich step produces standalone entity references. They serve different purposes: contacts are for identity resolution, entities are for knowledge graph nodes. |
+| Changesets / automated versioning | All packages are private (`"private": true`), nothing published to npm. Version management overhead with zero benefit for internal-only packages. | Keep `version: 0.0.1` in all packages. Version the product via git tags |
+| Nx migration | Turbo already works. Nx is more complex to configure, has a steeper learning curve, and its advantages (computation cache graph, affected detection) only pay off at 50+ packages. Migration cost is high for marginal gain. | Keep Turborepo. It handles 10-15 packages perfectly |
+| Lerna | Dead tool. pnpm workspaces + Turbo already do everything Lerna did and more | Already using the right tools |
+| TypeScript project references | Sounds good for incremental builds but requires `composite: true` and `references` array in every `tsconfig.json`. Turbo already handles build ordering via `dependsOn: ["^build"]`. Project references add config complexity for no additional benefit when Turbo is present. | Turbo handles build ordering. TypeScript project references are redundant |
+| Module federation / micro-frontends | Single React app, single developer. Module federation adds webpack/Vite plugin complexity for zero benefit. This is not a micro-frontend architecture. | Single Vite build for the web app |
+| Monorepo-wide convenience scripts | Root `package.json` should have only: `dev`, `build`, `test`, `lint`, `typecheck`, `setup`. Proliferating scripts like `test:api`, `build:web`, `lint:shared` creates confusion about where to run what. | Minimal root scripts. Use `turbo run test --filter=@botmem/api` for targeted runs |
+| Verdaccio / private registry | All packages use `workspace:*` protocol. No need for a registry when nothing is published. | `workspace:*` handles internal dependency resolution |
+| Separate CI matrix jobs | Single developer. One `turbo run lint typecheck test build` command is sufficient. Matrix strategies with parallel jobs are for teams needing fast feedback across many PRs. | Single CI job with Turbo parallelism handles everything |
+| Commitlint / conventional commits enforcement | Adds pre-commit friction for a solo developer. Convention is good; enforcement tooling has maintenance cost that exceeds value for one person. | Follow conventional commit style by habit, not by hook |
+| Storybook | No component library, no design system, no team to collaborate with on UI components. Storybook is for shared component documentation across teams. | Test components with Vitest + Testing Library (already configured) |
+| Monorepo-wide eslint config package | Creating a `packages/eslint-config` shared package adds a build step and versioning. With ESLint flat config, a single `eslint.config.mjs` at the root covers all packages via Turbo's directory traversal. | Single root `eslint.config.mjs` with flat config format |
 
 ## Feature Dependencies
 
 ```
-Source type fix (photos-immich) --- independent, no dependencies
-    |
-    +---> Source type backfill (re-tag existing records in rawEvents, memories, Qdrant)
-
-Entity post-processing layer --- independent
-  (combines: empty filtering + intra-memory dedup + garbage type rejection + type validation)
-
-Entity misclassification fix (prompt improvement) --- independent
-    |
-    +---> Benefits from post-processing layer being in place first (catches remaining errors)
-
-Entity format unification --- independent
-    |
-    +---> Audit: verify embed step does not write to memories.entities
-
-Source type auto-detection --- independent (defense-in-depth, can ship anytime)
-    |
-    +---> Goes in embed.processor.ts, before memory record creation
-
-Backfill pipeline --- depends on ALL extraction fixes being complete first
-    +--- Requires: source type fix, entity post-processing, prompt improvement, format unification
-    +--- Must be idempotent (handle existing memory links)
-    +--- Must be throttled (not starve live sync/embed/enrich jobs)
-    +--- Needs progress tracking for UI
-
-Backfill progress UI --- depends on backfill pipeline
-    +--- Reuses existing job progress WebSocket infrastructure
+.npmrc setup ---------> pnpm catalogs (catalogs need .npmrc to be correct first)
+                    |
+ESLint flat config -+-> lint-staged + husky (lint must exist before staged linting)
+Prettier config ----+
+                    |
+typecheck task -----+-> build pipeline gates (tasks must exist before gating on them)
+lint task ----------+
+                    |
+health endpoint -------> Docker Compose dev health checks (endpoint must exist first)
+                    |
+.env.example ----------> Docker Compose dev (compose references same env vars)
+                    |
+tsconfig bases --------> SWC migration (need correct tsconfig before switching compilers)
+                    |
+nodemon fix / tsx ------> pnpm dev reliability (dev script depends on watch working)
 ```
 
 ## MVP Recommendation
 
-The v2.1 milestone should focus exclusively on table stakes. The problems are concrete, the fixes are well-scoped, and the current data quality is actively harming search and graph usability.
+Three phases, each self-contained and independently shippable.
 
-**Prioritize (Phase 1 -- Extraction Fixes):**
-1. Source type fix in photos-immich connector (one-line change)
-2. Entity post-processing layer: empty filtering + intra-memory dedup + type validation + garbage rejection (single function in `enrich.service.ts`, applied after `extractEntities()`)
-3. Entity misclassification prompt improvement (add type definitions and disambiguation rules to `entityExtractionPrompt()`)
-4. Entity format audit and unification (verify stored format, document canonical shape)
-5. Source type auto-detection safety net in embed processor
+### Phase 1: Foundation Config (no structural changes, config files only)
+1. `.npmrc` with `shamefully-hoist=true`, `strict-peer-dependencies=false`, `auto-install-peers=true`
+2. `.env.example` documenting all 11+ environment variables with safe defaults
+3. `.editorconfig` + `.prettierrc` at root
+4. Root `eslint.config.mjs` (flat config) with `@typescript-eslint` rules
+5. Add `"typecheck"` and `"lint"` scripts to all packages
+6. Update `turbo.json`: add `typecheck` and `lint` tasks, make `build` depend on them
+7. Create `tsconfig.nestjs.json` base for CJS targets
 
-**Prioritize (Phase 2 -- Backfill):**
-6. Source type backfill for existing photo records (SQL UPDATE on `rawEvents`, `memories`, and Qdrant `set_payload`)
-7. Entity re-enrichment backfill using corrected pipeline (BullMQ batch job via existing `backfill` queue, throttled)
-8. Backfill progress UI (reuse existing job WebSocket infrastructure)
+**Effort:** 2-3 hours. **Risk:** Low -- config files only.
 
-**Defer to later milestone:**
-- Cross-memory entity resolution: High complexity, requires new infrastructure, not blocking basic functionality
-- Entity normalization: Requires resolution infrastructure first
-- Entity confidence scoring: Small model produces unreliable confidence; fix extraction quality first
-- Enrichment quality metrics: Valuable but not blocking; add after backfill proves fixes work
+### Phase 2: Dev Workflow (daily experience improvements)
+1. `docker-compose.dev.yml` with Redis, Qdrant, Ollama (CPU), health checks, profiles
+2. `/api/health` endpoint checking Redis + Qdrant + SQLite connectivity
+3. Fix `pnpm dev`: remove manual pre-build, let Turbo handle ordering
+4. Replace hardcoded nodemon paths with glob or migrate to `tsx watch`
+5. Root `"setup"` script
+6. Fix `exports.types` to point at `dist/` not `src/` in library packages
 
-## Complexity Assessment
+**Effort:** 4-6 hours. **Risk:** Medium -- touches daily dev workflow, must test thoroughly.
 
-| Feature | Effort | Risk | Rationale |
-|---------|--------|------|-----------|
-| Source type fix | Hours | None | Literal one-line change in connector + SQL backfill |
-| Entity post-processing | Hours | Low | Pure validation/filtering code, no model changes |
-| Prompt improvement | Hours | Low | Prompt engineering, testable with sample inputs |
-| Entity format audit | Hours | Low | Read code, verify behavior, document |
-| Source type auto-detection | Hours | Low | Metadata inspection in embed processor |
-| Source type backfill | Half day | Low | SQL UPDATE + Qdrant scroll/set_payload batch |
-| Entity re-enrichment backfill | 2-3 days | Med | Must be idempotent, handle link dedup, throttle, track progress |
-| Backfill progress UI | Hours | Low | Reuses existing job infrastructure |
-| Cross-memory entity resolution | 1-2 weeks | High | New table, resolution algorithm, migration, fuzzy matching |
+### Phase 3: Build Optimization (speed and consistency)
+1. pnpm catalogs for shared dependency versions (TypeScript, Vitest, Vite, etc.)
+2. Vitest workspace config (consolidate 10 vitest configs)
+3. Docker multi-stage build for API image
+4. `husky` + `lint-staged` for pre-commit hooks
+5. SWC for library package builds (where applicable)
+
+**Effort:** 3-5 hours. **Risk:** Medium -- pnpm catalogs touch every package.json, Vitest workspace changes test infra.
+
+**Defer to v3.1 (CI/CD milestone):** GitHub Actions workflow, remote caching, automated deployments.
+
+## Current State Gaps (Evidence)
+
+| What's Missing | Evidence |
+|---|---|
+| No ESLint config | Zero eslint configs in project source (only in node_modules). `turbo lint` has no tasks to run |
+| No Prettier config | No `.prettierrc` at project root or in any package |
+| No `.npmrc` | File does not exist at repo root |
+| No `.env.example` | File does not exist (or is gitignored with no public equivalent) |
+| No `.editorconfig` | File does not exist at repo root |
+| No `typecheck` task | Not in any package.json scripts, not in turbo.json tasks |
+| No `lint` task in packages | Only root package.json has `"lint": "turbo lint"`, no package defines its own lint script |
+| No git hooks | No `.husky` directory, no `lint-staged` in dependencies |
+| No health check endpoint | Only `/api/version` exists, no dependency health verification |
+| Docker Compose is prod-oriented | Builds API from Dockerfile, no Ollama, no health checks, no dev profile |
+| nodemon hardcodes every path | `nodemon.json` explicitly lists 7 connector dist directories by name |
+| tsconfig inconsistency | Base: `moduleResolution: bundler`, `module: ESNext`. API overrides both to `node` + `commonjs`. No shared NestJS base |
+| Dev script is fragile | Root `dev` pre-builds connectors with 7 explicit `--filter` flags, then runs only API + shared. Web excluded |
+| Duplicate dependency versions | TypeScript `^5.7.0` appears in root + 10 packages. Vitest `^3.0.0` in root + 10 packages. No central version management |
 
 ## Sources
 
-- Ollama structured outputs documentation: https://docs.ollama.com/capabilities/structured-outputs
-- Reliable Structured Output from Local LLMs: https://markaicode.com/ollama-structured-output-pipeline/
-- Constrained LLM output with Ollama and Qwen3: https://medium.com/@rosgluk/constraining-llms-with-structured-output-ollama-qwen3-python-or-go-2f56ff41d720
-- Entity Resolution at Scale (knowledge graph dedup strategies): https://medium.com/@shereshevsky/entity-resolution-at-scale-deduplication-strategies-for-knowledge-graph-construction-7499a60a97c3
-- Entity-Resolved Knowledge Graphs (Neo4j tutorial): https://neo4j.com/blog/developer/entity-resolved-knowledge-graphs/
-- NER complete guide (post-processing patterns): https://kairntech.com/blog/articles/the-complete-guide-to-named-entity-recognition-ner/
-- LLM-empowered Knowledge Graph Construction survey: https://arxiv.org/html/2510.20345v1
-- Taxonomy-Driven Knowledge Graph Construction: https://aclanthology.org/2025.findings-acl.223.pdf
-- Botmem codebase: `apps/api/src/memory/prompts.ts`, `enrich.service.ts`, `embed.processor.ts`, `ollama.service.ts`, `packages/connector-sdk/src/types.ts`, `packages/connectors/photos-immich/src/index.ts`
+- [pnpm Catalogs documentation](https://pnpm.io/catalogs) -- version catalog protocol (HIGH confidence, official docs)
+- [pnpm Workspaces documentation](https://pnpm.io/workspaces) -- workspace configuration (HIGH confidence)
+- [Turborepo best practices](https://github.com/vercel/turborepo/blob/main/skills/turborepo/references/best-practices/structure.md) -- official structure guide (HIGH confidence)
+- [Turborepo CI construction guide](https://turborepo.dev/docs/crafting-your-repository/constructing-ci) -- pipeline patterns (HIGH confidence)
+- [Complete Monorepo Guide: pnpm + Workspace (2025)](https://jsdev.space/complete-monorepo-guide/) -- community practices (MEDIUM confidence)
+- [NestJS + pnpm monorepo patterns](https://gist.github.com/leandroluk/ead95513d3666326d364248ae98eb2e3) -- NestJS-specific setup (MEDIUM confidence)
+- [Sharing Types Between React ESM and NestJS CJS in pnpm Monorepo](https://dev.to/lico/step-by-step-guide-sharing-types-and-values-between-react-esm-and-nestjs-cjs-in-a-pnpm-monorepo-2o2j) -- CJS/ESM interop (MEDIUM confidence)
+- [Docker Compose profiles](https://docs.docker.com/compose/profiles/) -- service profiles (HIGH confidence, official docs)
+- [n8n self-hosted AI starter kit](https://github.com/n8n-io/self-hosted-ai-starter-kit/blob/main/docker-compose.yml) -- Ollama + Qdrant compose example (MEDIUM confidence)
+- [Mastering pnpm Workspaces (2025)](https://blog.glen-thomas.com/software%20engineering/2025/10/02/mastering-pnpm-workspaces-complete-guide-to-monorepo-management.html) -- .npmrc and hoisting patterns (MEDIUM confidence)
+- Botmem codebase analysis: `package.json`, `turbo.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `tsconfig.base.json`, `apps/api/nodemon.json`, `apps/api/package.json`, all package configs

@@ -1,386 +1,626 @@
-# Architecture Patterns: Data Quality & Pipeline Integrity
+# Architecture Patterns
 
-**Domain:** Data quality fixes for personal memory RAG pipeline
+**Domain:** Monorepo restructuring and developer experience for a NestJS + React pnpm monorepo
 **Researched:** 2026-03-08
-**Confidence:** HIGH (based on direct codebase analysis of all pipeline components)
+**Confidence:** HIGH (based on direct codebase analysis + current Turborepo/pnpm documentation)
 
 ---
 
-## Current Architecture (As-Is)
+## Current State Analysis
 
-The pipeline flows linearly through BullMQ queues:
+### What Exists
 
 ```
-Connector.sync()
-  --> rawEvents table (immutable, stores original payload + sourceType)
-  --> SyncProcessor
-  --> [embed queue] EmbedProcessor
-      - Reads ConnectorDataEvent from rawEvent.payload
-      - Calls connector.embed() for structured entity extraction (EmbedResult)
-      - Creates Memory record with sourceType from event.sourceType
-      - Generates embedding via Ollama, upserts to Qdrant with source_type payload
-      - Resolves contacts from EmbedResult.entities ({type, id, role} format)
-      - Enqueues enrich job
-  --> [enrich queue] EnrichProcessor
-      - Calls EnrichService.enrich()
-      - Entity extraction via Ollama structured output ({type, value} format)
-      - OVERWRITES entities column from embed step
-      - Factuality classification
-      - Weight computation
-      - Graph link creation via Qdrant similarity
-      - Marks memory as 'done'
+botmem/
+  apps/
+    api/         NestJS 11 (CommonJS, nest build, nodemon, SWC)
+    web/         React 19 + Vite 6 (ESM, embedded in API via Vite middleware mode)
+  packages/
+    shared/          Types + utilities (ESM, tsc build)
+    connector-sdk/   BaseConnector abstract (ESM, tsc build)
+    cli/             CLI tool (ESM, tsc build)
+    connectors/
+      gmail/         (ESM, depends on connector-sdk)
+      slack/         (ESM, depends on connector-sdk)
+      whatsapp/      (ESM, depends on connector-sdk)
+      imessage/      (ESM, depends on connector-sdk)
+      photos-immich/ (ESM, depends on connector-sdk)
+      locations/     (ESM, depends on connector-sdk)
 ```
+
+### Identified Problems
+
+1. **CJS/ESM split**: API is CommonJS (`module: "commonjs"`, `moduleResolution: "node"`), every other package is ESM (`"type": "module"`, `module: "ESNext"`, `moduleResolution: "bundler"` via base). This works but creates friction with ESM-only dependencies.
+2. **Mixed type resolution**: Library packages point `"types"` at `./src/index.ts` (live source) but `"main"` at `./dist/index.js` (built). Types come from source, runtime from dist -- version skew if you forget to rebuild.
+3. **Nodemon watches dist of every package**: The API's `nodemon.json` manually lists every connector's `dist/` directory. Adding a connector requires editing this file.
+4. **Root dev script is a hack**: `pnpm dev` first runs `turbo build` on all connectors/SDK/CLI, then runs `turbo dev` only for shared + API. First `pnpm dev` is slow, and connector changes require manual rebuild.
+5. **No health checks in Docker Compose**: Services start without readiness checks, causing race conditions on cold start.
+6. **Web embedded in API**: Vite runs in middleware mode inside the API process in dev. Clever for single-port but makes the web app not independently runnable.
+7. **No Turborepo `watch` usage**: Project uses `nodemon` + `tsc --watch` instead of `turbo watch`, missing dependency-aware rebuilds.
+8. **tsconfig.base.json inconsistency**: Base uses `moduleResolution: "bundler"` but API overrides to `moduleResolution: "node"` and `module: "commonjs"`. This is technically correct (NestJS needs CJS) but undocumented.
+9. **Web tsconfig uses path aliases for workspace packages**: `@botmem/shared` is aliased to `../../packages/shared/src`, bypassing pnpm resolution entirely.
+10. **No Docker profile separation**: Single docker-compose.yml with a half-configured API service (comment says "Dockerfile is added in a later phase").
+11. **Qdrant uses `:latest` tag**: Breaking changes can silently land.
+12. **API has Vite/Tailwind dev deps**: `@tailwindcss/vite` and `@vitejs/plugin-react` are devDependencies of the API because Vite middleware mode runs inside the API process. These belong in the web package.
 
 ---
 
-## Problem 1: Two Incompatible Entity Formats
+## Recommended Architecture
 
-The pipeline produces entities in two incompatible shapes that never merge:
+### Package Dependency Graph
 
-| Step | Format | Purpose | Persisted? |
-|------|--------|---------|------------|
-| EmbedProcessor via `connector.embed()` | `{type, id, role}` | Contact resolution, thread linking | NO -- consumed then discarded |
-| EnrichProcessor via Ollama | `{type, value}` | Searchable entity metadata | YES -- overwrites `memories.entities` |
-
-The embed step's entities contain structured identifiers (emails, phone numbers, Slack IDs encoded in the `id` field) that are used for contact resolution, then thrown away. The enrich step's Ollama entities are the only ones that survive to `memories.entities`.
-
-**Impact:** Entity-based search and graph visualization only see Ollama-extracted entities, missing the structured data from connectors.
-
-## Problem 2: Source Type Misclassification
-
-The `ConnectorDataEvent.sourceType` type includes `'photo'` as a valid value, but the photos-immich connector emits `'file'` instead (line 214 of `packages/connectors/photos-immich/src/index.ts`). Slack file attachments also emit `'file'`.
-
-This means photos and Slack files share the same sourceType. The NLQ parser correctly maps user queries like "my photos" to `photo`, but `memory.service.ts` has a hack at line 208:
-
-```typescript
-const SOURCE_TYPE_ALIASES: Record<string, string> = { photo: 'file' };
+```
+                    @botmem/shared
+                   /       |        \
+                  /        |         \
+    @botmem/connector-sdk  |    @botmem/web
+           |               |         |
+     @botmem/connector-*   |    (depends on shared only)
+           |               |
+            \             /
+             @botmem/api
+                 |
+            @botmem/cli (standalone, HTTP client only -- no internal deps)
 ```
 
-This causes "my photos" searches to return Slack file attachments alongside actual photos.
+**Dependency rules (enforce these):**
 
-The sourceType flows to three storage locations:
-1. `memories.sourceType` column (SQLite)
-2. `rawEvents.sourceType` column (SQLite)
-3. Qdrant vector payload `source_type` field
+| Package | May Depend On | Must NOT Depend On |
+|---------|--------------|-------------------|
+| `@botmem/shared` | Nothing internal | Anything internal |
+| `@botmem/connector-sdk` | `shared` | api, web, cli, connectors |
+| `@botmem/connector-*` | `connector-sdk`, `shared` | api, web, cli, other connectors |
+| `@botmem/web` | `shared` | api, connectors, cli |
+| `@botmem/api` | `shared`, `connector-sdk`, all connectors, `web` | cli |
+| `@botmem/cli` | Nothing internal | Everything (HTTP client only) |
 
-## Problem 3: Entity Extraction Quality
+**Internal package resolution**: Keep `workspace:*` protocol (already in place). Do NOT use `workspace:^` -- these are private packages that will never be published, so exact workspace resolution is correct.
 
-The Ollama structured output schema (`ENTITY_FORMAT_SCHEMA` in `prompts.ts`) correctly constrains entity types to 10 canonical values via enum. However, the extraction prompt is minimal and produces:
+**Confidence: HIGH** -- this matches the existing dependency graph, just made explicit and enforceable.
 
-1. **Garbage values** -- empty strings, single characters, pronouns ("I", "you"), generic terms ("the app", "the team")
-2. **Misclassification** -- person names classified as locations or organizations
-3. **No deduplication** -- "John" and "john" and "John Smith" as separate entities on the same memory
-4. **No cross-memory dedup** -- same entity with different types across memories
+### Build Order (Turborepo DAG)
 
-The existing `backfill-entity-types.ts` migration already handles type normalization (removing `time`/`amount`/`metric` types, mapping unknown types to `other`), but does not address value-level quality.
+The `^build` dependency in turbo.json handles this correctly. Actual build order:
+
+```
+Layer 0: @botmem/shared, @botmem/cli (no internal deps)
+Layer 1: @botmem/connector-sdk (depends on shared)
+         @botmem/web (depends on shared)
+Layer 2: @botmem/connector-* (depends on connector-sdk)
+Layer 3: @botmem/api (depends on everything)
+```
+
+This is correct and requires no changes to the DAG. The issue is the dev workflow that bypasses it.
 
 ---
 
-## Recommended Architecture (To-Be)
+## Component Boundaries
 
-### Principle: Fix at the Source, Backfill the Rest
-
-Fix each problem at its origin point in the pipeline, then run targeted backfills for historical data. No new queue stages -- integrate fixes inline.
-
-### Component Changes Overview
-
-```
-MODIFIED Components:
-  1. photos-immich connector     -- emit 'photo' instead of 'file'
-  2. EnrichService               -- integrate EntityNormalizer after Ollama extraction
-  3. prompts.ts                  -- improved entity extraction prompt
-  4. memory.service.ts           -- remove SOURCE_TYPE_ALIASES hack
-  5. EmbedProcessor              -- persist embed entities in metadata for merge
-
-NEW Components:
-  6. EntityNormalizer             -- pure function: dedup + clean + validate entities
-  7. SourceTypeBackfill           -- migration script: fix sourceType in SQLite + Qdrant
-  8. EntityBackfill               -- queue-based: re-extract entities for existing memories
-  9. QdrantService.updatePayload  -- method for payload-only updates (no re-embedding)
-```
-
-### Component Boundaries
-
-| Component | Responsibility | Communicates With |
-|-----------|---------------|-------------------|
-| `EntityNormalizer` (new, pure function in `memory/entity-normalizer.ts`) | Dedup entities by normalized value, strip garbage, validate types, merge embed+enrich entities | EnrichService, BackfillProcessor |
-| `SourceTypeBackfill` (new, script in `migrations/`) | Fix `file` to `photo` for Immich memories in SQLite + Qdrant | DbService (direct SQL), QdrantService |
-| `EnrichService` (modified) | Call EntityNormalizer after Ollama extraction | OllamaService, EntityNormalizer |
-| `EmbedProcessor` (modified) | Store embed-step entities in `metadata.embedEntities` | DbService |
-| `QdrantService` (modified) | Add `updatePayload()` method for backfill | Qdrant REST API |
-| `BackfillProcessor` (extended) | Re-run entity extraction on existing memories | EnrichService, BullMQ |
+| Component | Responsibility | Communicates With | Module System |
+|-----------|---------------|-------------------|---------------|
+| `@botmem/shared` | Types, constants, utilities (cn, format helpers) | Imported by all internal packages | ESM |
+| `@botmem/connector-sdk` | BaseConnector, ConnectorRegistry, event types | Imported by connectors + API | ESM |
+| `@botmem/connector-*` | Data source adapters (auth + sync) | Imported by API only | ESM |
+| `@botmem/api` | REST API, WebSocket, BullMQ processors, DB, serves web | Consumes all packages, serves frontend | CJS (NestJS requirement) |
+| `@botmem/web` | React SPA, Vite-built | Talks to API via HTTP/WS at runtime | ESM |
+| `@botmem/cli` | CLI binary for humans and AI agents | Talks to API via HTTP | ESM |
 
 ---
 
-## Data Flow: Fixed Pipeline
+## Detailed Architecture Recommendations
 
-```
-Connector.sync()
-  --> rawEvents (sourceType now correct: 'photo' for photos)
-  --> EmbedProcessor
-      - connector.embed() produces {type, id, role} entities
-      - Contact resolution (unchanged)
-      - STORE embed entities in metadata.embedEntities  [NEW]
-      - Create memory with correct sourceType
-  --> EnrichProcessor
-      - Ollama extracts {type, value} entities (improved prompt)
-      - EntityNormalizer.normalize(ollamaEntities, embedEntities)  [NEW]
-        * Convert embed entities to {type, value} where applicable
-        * Dedup: case-insensitive, strip whitespace
-        * Validate: remove garbage values, enforce canonical types
-        * Clean: remove pronouns, single chars, generic terms
-      - Store normalized entities in memories.entities
-      - Rest of enrichment unchanged
-```
+### 1. TypeScript: Conditional Exports with Live Types (No Project References)
 
-## Data Flow: Source Type Backfill
+**Decision: Use conditional `exports` field with types pointing to source. Do NOT adopt TypeScript project references.**
 
-```
-Run: npx tsx apps/api/src/migrations/fix-source-types.ts
+**Why NOT project references:**
+- NestJS uses `nest build` with its own SWC compiler pipeline. Project references require `tsc -b` composite mode, which conflicts with NestJS's build system.
+- Vite (web) does not emit JS from tsc -- it only type-checks. Path aliases resolved by Vite's `resolve.alias` are the standard pattern.
+- Library packages are simple enough that `tsc` builds them fine. Project references add complexity for minimal gain in a <15 package monorepo.
+- The TypeScript team recommends project references for large monorepos (50+ packages). This project has ~12 packages.
 
-  Step 1: SQL UPDATE on memories table
-    UPDATE memories SET source_type = 'photo'
-    WHERE connector_type = 'photos' AND source_type = 'file'
+**What to do: Formalize the "live types" pattern.**
 
-  Step 2: SQL UPDATE on rawEvents table
-    UPDATE raw_events SET source_type = 'photo'
-    WHERE connector_type = 'photos' AND source_type = 'file'
+All library packages (`shared`, `connector-sdk`, `connectors/*`, `cli`) should use this package.json structure:
 
-  Step 3: Qdrant payload update
-    Scroll all points where connector_type = 'photos' AND source_type = 'file'
-    Batch set_payload: source_type = 'photo'
-
-  Step 4: Remove SOURCE_TYPE_ALIASES hack from memory.service.ts
+```jsonc
+{
+  "name": "@botmem/shared",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput"
+  }
+}
 ```
 
-This is deterministic (no Ollama needed), idempotent, and fast. Follows the pattern established by `backfill-entity-types.ts`.
+**Remove** the legacy `"main"` and `"types"` top-level fields. The `exports` field supersedes them.
 
-## Data Flow: Entity Backfill
+The `"types"` condition points to source (live types -- changes propagate instantly to IDE without rebuilding). The `"import"` and `"require"` conditions point to dist (built output used at runtime).
+
+**For the web app**: Keep the `@/` Vite alias for intra-app imports. **Remove** the `@botmem/shared` path alias from `tsconfig.json` -- pnpm workspace resolution + the `exports` field handles it. Also remove `../../packages/shared/src` from the `include` array.
+
+**Confidence: HIGH** -- this is the approach recommended by Turborepo's official docs and Colin McDonnell's "live types" essay. Already partially in place.
+
+**Impact on existing code: LOW** -- package.json exports field changes, remove one tsconfig path alias. No runtime behavior changes.
+
+### 2. Turbo Watch for Dev Mode (Replace Nodemon)
+
+**Current problem:** Root `pnpm dev` does a full `turbo build` of all connectors first, then starts the API with nodemon watching dist directories. Slow and fragile.
+
+**New turbo.json:**
+
+```jsonc
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["src/**", "tsconfig.json", "package.json"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev:api": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true,
+      "interruptible": true
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "__tests__/**", "vitest.config.*"]
+    },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "__tests__/**", "vitest.config.*"],
+      "outputs": ["coverage/**"]
+    },
+    "lint": {}
+  }
+}
+```
+
+**Key: The API uses `interruptible: true`.** This means `turbo watch` will kill and restart the API process when any dependency rebuilds. No more nodemon.
+
+**Package dev scripts:**
+
+| Package | `dev` Script | Strategy |
+|---------|-------------|----------|
+| `@botmem/shared` | `tsc --watch --preserveWatchOutput` | Persistent, rebuilds dist on change |
+| `@botmem/connector-sdk` | `tsc --watch --preserveWatchOutput` | Persistent, rebuilds dist on change |
+| `@botmem/connector-*` | `tsc --watch --preserveWatchOutput` | Persistent, rebuilds dist on change |
+| `@botmem/api` | `nest build && node dist/main.js` | Interruptible, restarted by turbo watch |
+| `@botmem/web` | `echo "Embedded in API"` | No-op (Vite middleware mode) |
+| `@botmem/cli` | `tsc --watch --preserveWatchOutput` | Persistent |
+
+**Root dev command:**
+
+```jsonc
+{
+  "scripts": {
+    "dev": "turbo watch dev dev:api --concurrency 20"
+  }
+}
+```
+
+This runs all `dev` tasks (tsc --watch for libraries) and the `dev:api` task (nest build + run, restartable). When a library's tsc --watch emits new dist files, turbo watch detects the change, sees that `@botmem/api` depends on that library, and restarts the API.
+
+**Delete:** `apps/api/nodemon.json` (no longer needed).
+
+**Impact on existing code: MEDIUM** -- replace nodemon with turbo watch, update dev scripts in all packages, delete nodemon.json. The `nest start --watch` alternative is simpler but does NOT detect changes in workspace dependency dist directories -- only turbo watch handles cross-package change propagation.
+
+### 3. Docker Compose: Profiles with Health Checks
+
+**Replace** docker-compose.yml entirely:
+
+```yaml
+services:
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.6
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: local Ollama for developers without a GPU server
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Production: containerized API
+  api:
+    build: .
+    profiles: ["prod"]
+    ports:
+      - "${PORT:-12412}:12412"
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/data/botmem.db
+      - REDIS_URL=redis://redis:6379
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - botmem-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12412/api/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  redis-data:
+  qdrant-data:
+  ollama-data:
+  botmem-data:
+```
+
+**Usage patterns:**
+
+```bash
+# Dev (infrastructure only, API runs natively via pnpm dev)
+docker compose up -d
+
+# Dev with local Ollama (no remote GPU server)
+docker compose --profile ollama up -d
+
+# Production (full stack in Docker)
+docker compose --profile prod up -d
+```
+
+**Key decisions:**
+- **Ollama is a profile, not default.** The project uses a remote Ollama at 192.168.10.250. Local Ollama is opt-in for developers who need it.
+- **API is prod-only in Docker.** In dev, the API runs natively for fast iteration.
+- **Pin Qdrant version.** `:latest` risks silent breaking changes.
+- **Health checks on everything.** Dependent services wait via `condition: service_healthy`.
+- **Configurable ports.** Environment variables prevent conflicts.
+
+**Impact on existing code: LOW** -- replaces docker-compose.yml, no code changes needed.
+
+### 4. Shared Package Build Strategy: Plain tsc, No Bundler
+
+**Decision: Keep `tsc` for all library packages. Do NOT introduce tsup/unbuild.**
+
+**Rationale:**
+- All library packages are private and consumed only within the monorepo
+- No need for dual CJS/ESM output bundles (API uses dynamic import or Node 22's require-esm support)
+- tsup/unbuild add dependency and config surface for zero benefit
+- `tsc --watch` is fast enough for these small packages
+
+**Exception:** If `@botmem/cli` is later published for global install (`npm install -g @botmem/cli`), use tsup for that single package to produce a clean distributable. Not needed now.
+
+**Confidence: HIGH** -- bundlers for internal-only packages is over-engineering.
+
+### 5. CJS/ESM Bridge: Keep API as CommonJS
+
+**Decision: Do NOT migrate the API to ESM.** NestJS does not officially support ESM (as of NestJS 11, issue #13319 is still open). The effort is disproportionate to the benefit.
+
+**How it works today:** Library packages are `"type": "module"` and output ESM `.js` files. The NestJS API is CJS (no `"type": "module"`). `nest build` compiles API source to CJS. At runtime, Node resolves workspace deps via pnpm symlinks to their dist output.
+
+**This already works** because:
+1. NestJS's `nest build` (via SWC) transpiles import statements to require() calls
+2. Node can require() files from ESM packages when the specific file doesn't use top-level await or other ESM-only features
+3. The library packages output simple declaration + export patterns that are CJS-compatible
+
+**If this breaks in the future:** Node 22+ has `--experimental-require-module` that enables full require() of ESM modules. Add to the API's start script if needed.
+
+**Confidence: MEDIUM** -- this is the area with the most risk. Test thoroughly after any tsconfig or exports field changes.
+
+### 6. Vite Middleware Mode: Keep, Add Standalone Escape Hatch
+
+**Current:** API imports Vite in middleware mode, serves frontend from port 12412 in dev. Good because:
+- Single port (no CORS)
+- HMR through the same connection
+- Simpler than two processes
+
+**Add standalone option for frontend-only work:**
+
+```jsonc
+// apps/web/package.json
+{
+  "scripts": {
+    "dev": "echo 'Web runs embedded in API via Vite middleware. Use pnpm dev from root.'",
+    "dev:standalone": "vite --port 5173",
+    "build": "tsc -b && vite build"
+  }
+}
+```
+
+**Move Vite-related dev deps from API to web:** The `@tailwindcss/vite` and `@vitejs/plugin-react` packages are currently devDependencies of the API. They should be in the web package where they logically belong. The API can resolve them at runtime because pnpm hoists them.
+
+Actually, since the API dynamically imports Vite and uses the web package's `vite.config.ts`, the Vite plugins need to be resolvable from the web package root, which they already are (they are devDeps of web too). The duplicates in the API can be removed.
+
+**Impact on existing code: LOW** -- add a script, remove duplicate dev deps from API.
+
+### 7. Build Gates (Test Before Build in CI)
+
+**Decision: Do NOT make `build` depend on `test` globally.** This would slow down dev iteration. Instead, create a CI-specific pipeline task.
+
+```jsonc
+// turbo.json
+{
+  "tasks": {
+    "ci": {
+      "dependsOn": ["lint", "test", "build"]
+    }
+  }
+}
+```
+
+```bash
+# CI pipeline
+pnpm turbo ci
+
+# Dev (no test gate)
+pnpm turbo build
+```
+
+**Impact: NONE** on dev workflow. CI gets the gate.
+
+---
+
+## Data Flow
+
+### Dev Mode Data Flow (After Restructuring)
 
 ```
-API: POST /api/backfill/entities { batchSize?, connectorType? }
+pnpm dev
+  |
+  turbo watch dev dev:api (concurrency 20)
+  |
+  +-- @botmem/shared:        tsc --watch (persistent, Layer 0)
+  +-- @botmem/cli:           tsc --watch (persistent, Layer 0)
+  +-- @botmem/connector-sdk: tsc --watch (persistent, Layer 1, waits for shared)
+  +-- @botmem/connector-*:   tsc --watch (persistent, Layer 2, waits for sdk)
+  +-- @botmem/api:           nest build && node dist/main.js (interruptible, Layer 3)
+        |
+        +-- Vite middleware mode (serves web from apps/web/src)
+        +-- Connects to: Redis (docker), Qdrant (docker), Ollama (remote)
+        +-- Serves: http://localhost:12412 (API + Web + HMR)
+```
 
-  --> Query memories with embeddingStatus='done', ordered by createdAt
-  --> Enqueue to 'backfill' queue in batches
-  --> BackfillProcessor per memory:
-      1. Read memory text
-      2. Call EnrichService.extractEntities() (improved prompt)
-      3. Read metadata.embedEntities if present
-      4. Run EntityNormalizer.normalize(ollamaEntities, embedEntities)
-      5. UPDATE memories.entities
-  --> Progress tracked via jobs table + WebSocket events
+**When a connector file changes:**
+1. `tsc --watch` in that connector rebuilds its `dist/`
+2. Turbo watch detects the dependency output changed
+3. API task (interruptible) is killed and restarted: `nest build && node dist/main.js`
+4. API comes back up on the same port
+
+**When a shared type changes:**
+1. `tsc --watch` in shared rebuilds its `dist/`
+2. Turbo watch sees shared changed
+3. SDK and connectors rebuild (their tsc --watch picks up the new shared dist)
+4. API restarts after its deps finish rebuilding
+5. Vite HMR picks up type changes for the web app instantly (live types from source)
+
+### Production Build Flow
+
+```
+pnpm build
+  |
+  turbo build
+  |
+  Layer 0: shared (tsc), cli (tsc)        -> dist/
+  Layer 1: connector-sdk (tsc), web (vite) -> dist/
+  Layer 2: connector-* (tsc)               -> dist/
+  Layer 3: api (nest build)                -> dist/
+  |
+  Result: apps/api/dist/ = full API
+          apps/web/dist/ = static web assets (served by API in prod via @nestjs/serve-static)
 ```
 
 ---
 
 ## Patterns to Follow
 
-### Pattern 1: Pure Function Normalizer (No DI)
+### Pattern 1: Conditional Exports for Internal Packages
 
-Create `EntityNormalizer` as a stateless module with exported functions, not an injectable service. This allows use in both the pipeline and migration scripts without NestJS bootstrapping.
+**What:** Use the `exports` field with `types` condition pointing to source.
 
-```typescript
-// memory/entity-normalizer.ts
-export type EntityType = 'person' | 'organization' | 'location' | 'event' |
-  'product' | 'topic' | 'pet' | 'group' | 'device' | 'other';
+**When:** Every internal library package.
 
-export interface NormalizedEntity {
-  type: EntityType;
-  value: string;
-}
-
-const CANONICAL_TYPES = new Set<EntityType>([...]);
-
-const GARBAGE_PATTERNS = [
-  /^(i|you|we|they|he|she|it|me|my|your|our|them)$/i,
-  /^.$/,           // single character
-  /^(the|a|an)\s/i, // articles + something generic
-  /^https?:\/\//,  // URLs are not entities
-];
-
-export function normalizeEntities(
-  ollamaEntities: Array<{ type: string; value: string }>,
-  embedEntities?: Array<{ type: string; id: string; role: string }>,
-): NormalizedEntity[] {
-  // 1. Convert embed entities where type is person/organization/location
-  // 2. Merge both lists
-  // 3. Filter garbage values
-  // 4. Dedup by normalized key (type + lowercase trimmed value)
-  // 5. Validate types against CANONICAL_TYPES
-  // 6. Return clean list
+**Example:**
+```jsonc
+{
+  "name": "@botmem/connector-gmail",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  }
 }
 ```
 
-**Why pure function:** Testable without mocking, usable in migration scripts that run outside NestJS, zero overhead.
+Remove legacy `"main"` and `"types"` top-level fields. The `exports` field supersedes them and is the modern standard.
 
-### Pattern 2: Migration-as-Script for Deterministic Fixes
+### Pattern 2: Turbo Task Inputs for Cache Efficiency
 
-Source type reclassification uses a standalone script (like the existing `backfill-entity-types.ts`), not a queue job. The fix is deterministic: every Immich memory with sourceType `file` should be `photo`. No inference needed.
+**What:** Specify which files affect each task so Turborepo can skip unnecessary work.
 
-```typescript
-// migrations/fix-source-types.ts
-// Run with: npx tsx apps/api/src/migrations/fix-source-types.ts
-// 1. UPDATE memories SET source_type = 'photo' WHERE connector_type = 'photos' AND source_type = 'file'
-// 2. UPDATE raw_events SET source_type = 'photo' WHERE connector_type = 'photos' AND source_type = 'file'
-// 3. Qdrant: scroll + batch set_payload for connector_type = 'photos'
+**When:** All cacheable tasks (build, test, lint).
+
+**Example:**
+```jsonc
+{
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["src/**", "tsconfig.json", "package.json"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "__tests__/**", "vitest.config.*"]
+    }
+  }
+}
 ```
 
-**Why script not queue:** Fast (<30s), no Ollama dependency, idempotent, matches existing migration pattern.
+This prevents cache invalidation from irrelevant file changes (README edits, etc.).
 
-### Pattern 3: Queue-Based Backfill for Ollama-Dependent Work
+### Pattern 3: Consistent Package Layout
 
-Entity re-extraction goes through the existing `backfill` BullMQ queue because it requires Ollama inference (~500ms-2s per memory). The queue provides:
-- Concurrency control (don't overwhelm Ollama)
-- Progress tracking via jobs table
-- Failure retry (3 attempts with exponential backoff)
-- Real-time progress via WebSocket
+**What:** Every package follows the same directory convention.
+
+```
+packages/<name>/
+  src/
+    index.ts          # Public API barrel
+    __tests__/        # Tests adjacent to source
+  dist/               # Build output (gitignored)
+  package.json
+  tsconfig.json       # Extends ../../tsconfig.base.json (or ../../../tsconfig.base.json for connectors)
+```
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Adding a Post-Processing Queue Stage
+### Anti-Pattern 1: Watching dist/ Directories with Nodemon
 
-**What:** Creating a new `normalize` queue stage after `enrich`.
-**Why bad:** Adds latency to every new memory, increases pipeline complexity. The normalizer runs in <1ms.
-**Instead:** Call `normalizeEntities()` synchronously within `EnrichService.enrich()` after Ollama returns.
+**What:** API's nodemon.json manually lists every connector's dist/ path.
+**Why bad:** Fragile, does not scale, misses transitive changes, requires manual maintenance when adding packages.
+**Instead:** Use `turbo watch` with `interruptible: true` for the API. Turborepo understands the dependency graph.
 
-### Anti-Pattern 2: Creating an Entities Table
+### Anti-Pattern 2: Pre-build Step in Dev Command
 
-**What:** Normalizing entities into a separate `entities` SQL table with foreign keys.
-**Why bad:** Over-engineering. The JSON column works fine for the current scale. The problem is data quality, not schema design.
-**Instead:** Keep entities as JSON in `memories.entities`, but clean the data going in.
+**What:** Root `pnpm dev` runs `turbo build --filter=...` before starting dev servers.
+**Why bad:** Slow cold start (~15s before any server starts), defeats watch mode, confusing for new developers.
+**Instead:** `turbo watch` starts all watch processes in parallel. Libraries build themselves via `tsc --watch`.
 
-### Anti-Pattern 3: Re-embedding During Entity Backfill
+### Anti-Pattern 3: tsconfig Path Aliases for Workspace Packages
 
-**What:** Re-generating Qdrant vectors when re-extracting entities.
-**Why bad:** Embedding is expensive (~200ms per memory) and the text hasn't changed. Entities don't affect the vector -- they're stored in SQLite, not Qdrant payload.
-**Instead:** Only update the `entities` column in SQLite. Only source type backfill needs Qdrant payload updates (and those are payload-only, no re-embedding).
+**What:** Web tsconfig aliases `@botmem/shared` to `../../packages/shared/src`.
+**Why bad:** Bypasses pnpm module resolution, creates dev/prod resolution mismatch, requires manual path maintenance.
+**Instead:** Let pnpm workspace + `exports` field handle it. Types resolve from source via `"types"` condition in exports.
 
-### Anti-Pattern 4: Modifying rawEvents.payload
+### Anti-Pattern 4: `:latest` Tags for Infrastructure Images
 
-**What:** Changing the `payload` JSON in rawEvents to fix sourceType.
-**Why bad:** rawEvents is the immutable audit log. The payload preserves what the connector originally emitted.
-**Instead:** Only update `rawEvents.sourceType` column (top-level metadata set by SyncProcessor at write time, not part of the connector's original payload).
+**What:** `qdrant/qdrant:latest` in docker-compose.yml.
+**Why bad:** Silent breaking changes. Qdrant storage format changes could corrupt data.
+**Instead:** Pin versions: `qdrant/qdrant:v1.12.6`, `redis:7.4-alpine`.
 
----
+### Anti-Pattern 5: Duplicate Dev Dependencies Across Apps
 
-## Integration Points (Detailed)
-
-### 1. ConnectorDataEvent Type (packages/connector-sdk/src/types.ts)
-
-Current enum: `'email' | 'message' | 'photo' | 'location' | 'file'`
-
-`'photo'` already exists in the type. The photos-immich connector just doesn't use it. No type change needed.
-
-### 2. photos-immich Connector (packages/connectors/photos-immich/src/index.ts)
-
-**Change:** Line 214: `sourceType: 'file'` --> `sourceType: 'photo'`
-**Test update:** Line 238 in test: `expect(event.sourceType).toBe('file')` --> `'photo'`
-**Risk:** LOW. Only affects new syncs. Backfill handles existing data.
-
-### 3. EnrichService.extractEntities() (apps/api/src/memory/enrich.service.ts)
-
-**Change:** After Ollama returns entities, pipe through `normalizeEntities()`. Read `metadata.embedEntities` from the memory record and pass as second argument.
-**Risk:** MEDIUM. Must not break existing entity format consumers (graph viz, search, NLQ).
-
-### 4. Entity Extraction Prompt (apps/api/src/memory/prompts.ts)
-
-**Change:** Add few-shot examples showing correct classification, explicit negative rules (no pronouns, no single chars, no URLs, no generic terms), emphasis on person vs location disambiguation.
-**Risk:** LOW. Prompt changes improve quality without changing schema.
-
-### 5. EmbedProcessor Entity Persistence (apps/api/src/memory/embed.processor.ts)
-
-**Change:** After `connector.embed()`, store `embedResult.entities` in the metadata object before inserting the memory record. Key: `embedEntities`.
-**Risk:** LOW. Additive field in existing metadata JSON. No schema change.
-
-### 6. Memory Service Alias Removal (apps/api/src/memory/memory.service.ts)
-
-**Change:** Remove `SOURCE_TYPE_ALIASES` object and the mapping logic at line 208-210.
-**Risk:** LOW. Must happen AFTER source type backfill, not before.
-
-### 7. QdrantService Payload Update (apps/api/src/memory/qdrant.service.ts)
-
-**Change:** Add `updatePayload(id: string, payload: Record<string, any>)` method using Qdrant's `set_payload` API.
-**Risk:** LOW. New method, no changes to existing methods. Qdrant natively supports payload-only updates.
+**What:** `@tailwindcss/vite`, `@vitejs/plugin-react` in both API and web devDeps.
+**Why bad:** Version drift, confusing ownership, wasted install time.
+**Instead:** Vite plugins belong in web only. API dynamically imports Vite using web's config.
 
 ---
 
-## Suggested Build Order
+## Migration Order (Incremental, Each Step Produces a Working System)
 
-Dependencies constrain ordering:
+### Step 1: Fix Package Exports (LOW risk, HIGH value)
+Update all library package.json files to use proper `exports` field. Remove legacy `main`/`types` top-level fields.
 
-```
-Source Type Chain:
-  Phase 1a: Fix photos-immich connector
-  Phase 1b: Source type backfill migration (SQLite + Qdrant)
-  Phase 1c: Remove SOURCE_TYPE_ALIASES hack
-  (1a before 1b -- new syncs correct; 1b before 1c -- search works during transition)
+**Packages affected:** shared, connector-sdk, all 6 connectors, cli (9 packages)
+**Verify:** `pnpm build && pnpm test` passes. IDE still resolves types.
 
-Entity Quality Chain:
-  Phase 2a: EntityNormalizer module + tests
-  Phase 2b: Improved entity extraction prompt
-  Phase 2c: Integrate normalizer into EnrichService
-  Phase 2d: Persist embed entities in EmbedProcessor metadata
-  (2a before 2c -- normalizer must exist; 2d independent of 2a-2c)
+### Step 2: Update turbo.json (LOW risk, MEDIUM value)
+Add `inputs` to build/test tasks. Add `dev:api` task with `interruptible: true`. Add `ci` task.
 
-Entity Backfill:
-  Phase 3: Backfill entity re-extraction
-  (Depends on ALL of Phase 2 -- uses improved prompt + normalizer)
-```
+**Files affected:** turbo.json only
+**Verify:** `pnpm build` works, cache hits improve.
 
-### Recommended Phases
+### Step 3: Replace Nodemon with Turbo Watch (MEDIUM risk, HIGH value)
+Delete nodemon.json. Update API dev script to `nest build && node dist/main.js`. Update all library dev scripts to `tsc --watch --preserveWatchOutput`. Update root dev script.
 
-**Phase 1: Source Type Reclassification** (~2-4 hours)
-- Fix photos-immich connector to emit `'photo'`
-- Write + run source type backfill migration
-- Add `QdrantService.updatePayload()` method
-- Remove `SOURCE_TYPE_ALIASES` hack
-- Update tests
+**Files affected:** apps/api/nodemon.json (delete), apps/api/package.json, all library package.json, root package.json
+**Verify:** `pnpm dev` starts all services. Change a connector file -- API restarts automatically.
 
-**Phase 2: Entity Quality Infrastructure** (~4-6 hours)
-- Create `EntityNormalizer` pure function module with tests
-- Improve entity extraction prompt with few-shot examples and negative rules
-- Integrate EntityNormalizer into EnrichService
-- Store embed-step entities in metadata
+### Step 4: Remove Web tsconfig Path Alias (LOW risk, LOW value)
+Remove `@botmem/shared` path alias and shared/src include from web tsconfig. Verify pnpm workspace resolution handles it.
 
-**Phase 3: Entity Backfill** (~2-4 hours)
-- Extend BackfillProcessor for entity re-extraction
-- Add API endpoint to trigger entity backfill with progress
-- Run backfill, verify results
+**Files affected:** apps/web/tsconfig.json
+**Verify:** `pnpm dev` -- web types still resolve, HMR works, no red squiggles in IDE.
 
-**Phase 4: Validation** (~1-2 hours)
-- Verify photo filtering works in search
-- Verify entity quality in graph visualization
-- Verify entity-based search returns relevant results
-- Verify NLQ "my photos" returns only photos
+### Step 5: Docker Compose Overhaul (LOW risk, HIGH value)
+Replace docker-compose.yml with profile-based version. Add health checks, pin versions, add Ollama profile.
+
+**Files affected:** docker-compose.yml
+**Verify:** `docker compose up -d` starts Redis + Qdrant. `docker compose ps` shows healthy status. `docker compose --profile ollama up -d` adds Ollama.
+
+### Step 6: Clean Up Duplicate Dependencies (LOW risk, LOW value)
+Remove Vite-related devDeps from API package.json.
+
+**Files affected:** apps/api/package.json
+**Verify:** `pnpm dev` -- Vite middleware mode still works (resolves plugins from web).
+
+### Step 7: Standardize tsconfig (MEDIUM risk, MEDIUM value)
+Ensure all library tsconfigs consistently extend base. Document the intentional CJS override in API's tsconfig. Add comments explaining the ESM/CJS boundary.
+
+**Files affected:** All tsconfig.json files (minor changes)
+**Verify:** `pnpm build` passes with no type errors.
+
+**Total estimated effort:** 4-8 hours for all 7 steps. Steps 1-2 can be done in a single session. Steps 3-5 are the core improvements.
 
 ---
 
 ## Scalability Considerations
 
-| Concern | Current (~50K memories) | At 500K memories | At 5M memories |
-|---------|------------------------|------------------|----------------|
-| Source type backfill (SQL) | <1 sec | <5 sec | Batch in 10K chunks |
-| Source type backfill (Qdrant) | Scroll + batch, <30 sec | ~5 min in 1K batches | ~1 hr in 1K batches |
-| Entity re-extraction | ~7 hrs at 8 concurrency | ~70 hrs -- skip clean memories | Not feasible full-table |
-| EntityNormalizer per-call | <1ms | <1ms | <1ms |
-
-For large datasets, the entity backfill should filter to only memories that need it (e.g., those with garbage entities, missing entities, or specific connector types).
+| Concern | Current (12 packages) | At 25 packages | At 50+ packages |
+|---------|----------------------|-----------------|-----------------|
+| Build time | ~15s cold, <1s cached | ~30s cold, turbo cache keeps warm | Consider remote cache |
+| Watch mode | All tsc --watch feasible | Still fine | Need selective watching (`--filter`) |
+| Docker Compose | 3-4 services | Fine | Split into override files |
+| TypeScript checking | tsc fast | Consider `--incremental` | Consider project references |
+| CI | turbo build/test | Add remote cache (Vercel) | Required: remote cache + affected testing |
 
 ---
 
 ## Sources
 
-- Direct code analysis (HIGH confidence):
-  - `packages/connector-sdk/src/types.ts` -- ConnectorDataEvent sourceType enum
-  - `packages/connectors/photos-immich/src/index.ts:214` -- sourceType: 'file'
-  - `packages/connectors/slack/src/sync.ts:386` -- sourceType: 'file' for Slack files
-  - `apps/api/src/memory/enrich.service.ts` -- entity extraction pipeline
-  - `apps/api/src/memory/embed.processor.ts` -- embed pipeline, entity handling
-  - `apps/api/src/memory/prompts.ts` -- ENTITY_FORMAT_SCHEMA and extraction prompt
-  - `apps/api/src/memory/memory.service.ts:208` -- SOURCE_TYPE_ALIASES hack
-  - `apps/api/src/memory/backfill.processor.ts` -- existing backfill infrastructure
-  - `apps/api/src/migrations/backfill-entity-types.ts` -- existing migration pattern
-  - `apps/api/src/memory/nlq-parser.ts` -- source type detection in search
-  - `apps/api/src/db/schema.ts` -- memories table, entities column definition
+- [Turborepo: Structuring a Repository](https://turborepo.dev/docs/crafting-your-repository/structuring-a-repository) -- Official structure guidance, HIGH confidence
+- [Turborepo: Watch Reference](https://turborepo.dev/docs/reference/watch) -- turbo watch docs incl. interruptible/persistent, HIGH confidence
+- [Turborepo: Developing Applications](https://turborepo.dev/docs/crafting-your-repository/developing-applications) -- Dev server patterns, HIGH confidence
+- [Live Types in a TypeScript Monorepo (Colin McDonnell)](https://colinhacks.com/essays/live-types-typescript-monorepo) -- Live types pattern rationale, HIGH confidence
+- [NestJS ESM Support Issue #13319](https://github.com/nestjs/nest/issues/13319) -- NestJS remains CJS, HIGH confidence
+- [Nx Blog: TypeScript Project References](https://nx.dev/blog/typescript-project-references) -- When project refs help vs hurt, MEDIUM confidence
+- [Nhost: How We Configured pnpm and Turborepo](https://nhost.io/blog/how-we-configured-pnpm-and-turborepo-for-our-monorepo) -- Real-world patterns, MEDIUM confidence
+- [Docker Compose Profiles (freeCodeCamp)](https://www.freecodecamp.org/news/how-to-use-docker-compose-for-production-workloads/) -- Profile patterns, MEDIUM confidence
+- [Ollama Health Check Issue #1378](https://github.com/ollama/ollama/issues/1378) -- `/api/tags` health endpoint, HIGH confidence
+- [pnpm Working with TypeScript](https://pnpm.io/typescript) -- pnpm's official TypeScript guidance, HIGH confidence

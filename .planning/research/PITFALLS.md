@@ -1,303 +1,360 @@
-# Domain Pitfalls: Data Quality & Pipeline Integrity
+# Domain Pitfalls
 
-**Domain:** Entity deduplication, source type reclassification, and data backfill for existing personal memory RAG system
+**Domain:** Monorepo restructuring and developer experience for existing pnpm + Turborepo + NestJS + React project
 **Researched:** 2026-03-08
-**Context:** Adding data quality fixes to a live Botmem system with 7,000+ existing memories, 2,099 photo records stored as `file`, 100+ hallucinated entity types, and a remote Ollama GPU at 192.168.10.250 (RTX 3070)
-**Confidence:** HIGH (all findings from direct codebase analysis of schema.ts, enrich.service.ts, embed.processor.ts, qdrant.service.ts, memory.service.ts, nlq-parser.ts, backfill.processor.ts, contacts.service.ts, me.service.ts)
+**Overall confidence:** HIGH (based on direct codebase analysis of turbo.json, nodemon.json, tsconfig files, package.json files, docker-compose.yml, and established ecosystem patterns)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause data corruption, lost memories, or require full re-processing.
+Mistakes that cause multi-day debugging sessions, broken dev workflows, or require reverting the restructuring.
 
-### Pitfall 1: Qdrant Payload Desync on Source Type Reclassification
+### Pitfall 1: ESM/CJS Module System Split Causes Silent Runtime Failures
 
-**What goes wrong:** Changing `source_type` from `file` to `photo` in the SQLite `memories` table but forgetting to update the corresponding Qdrant vector payload. The embed processor writes `source_type` into Qdrant payload at upsert time (embed.processor.ts lines 197-202). Search filtering builds Qdrant filters from `source_type` via `buildQdrantFilter()` in memory.service.ts. If SQLite says `photo` but Qdrant still says `file`, filtered searches return inconsistent results -- some photo memories found via SQL, invisible via vector search.
+**What goes wrong:** The API (`apps/api`) compiles to CommonJS (`"module": "commonjs"` in `apps/api/tsconfig.json`) while every other package in the monorepo is ESM (`"type": "module"` in their package.json, base tsconfig uses `"module": "ESNext"`). This currently works because all packages export `"types": "./src/index.ts"` (pointing at source, not compiled output), so TypeScript resolves types directly from source during development. Any restructuring that makes the build "proper" -- like switching `types` to `"./dist/index.d.ts"` or changing how modules are resolved -- will surface the CJS-importing-ESM incompatibility as runtime `ERR_REQUIRE_ESM` errors.
 
-**Why it happens:** The system has two sources of truth for `source_type`: SQLite (`memories` table) and Qdrant (vector payload). The QdrantService currently has `upsert()` but NO `setPayload()` or `updatePayload()` method -- there is literally no API wrapper to update a payload field without re-embedding the vector. Developers will update SQLite and assume they are done.
+**Why it happens:** NestJS historically required CommonJS. The project started CJS for the API, added ESM packages over time, and papered over the mismatch with the `types: "./src/index.ts"` workaround.
 
-**Consequences:**
-- The NLQ parser detects "photos" queries and maps to `sourceType: 'file'` via `SOURCE_TYPE_ALIASES` in memory.service.ts (line 207). After reclassification, this alias must change too. If removed before Qdrant is updated, photo search breaks entirely. If kept, newly synced photos (with correct `photo` type) won't match the `file` alias.
-- Graph visualization color-codes by sourceType. Mixed `file`/`photo` values create confusing dual-legend entries.
-- The `/me` endpoint counts memories by sourceType -- stats will show split counts.
-- The `rawEvents` table also stores `source_type` independently -- three stores to update, not two.
+**Consequences:** After restructuring, `nest build && node dist/main.js` throws `ERR_REQUIRE_ESM` or `Cannot find module` errors. TypeScript compiles successfully (it resolves source types), but Node.js crashes at runtime (it resolves compiled output). This failure mode is maddening because "the build succeeds but the app does not start."
+
+**Severity:** BLOCKING -- the single most dangerous pitfall in this restructuring. Every other change touches this boundary.
+
+**Detection:**
+- `apps/api/tsconfig.json` has `"module": "commonjs"` while packages have `"type": "module"` -- the mismatch is already present
+- Run `node dist/main.js` from `apps/api` after a clean build (not via nodemon) -- if it requires any workspace ESM package, it will crash
+- Search for `require()` calls in API source that import workspace packages
 
 **Prevention:**
-1. Add a `setPayload(ids, payload)` method to QdrantService wrapping `client.setPayload()` with filter support.
-2. Use Qdrant's batch `setPayload` with a filter (single operation, not 2,099 calls): `client.setPayload(collection, { payload: { source_type: 'photo' }, filter: { must: [{ key: 'source_type', match: { value: 'file' } }, { key: 'connector_type', match: { value: 'photos' } }] } })`.
-3. Migration script must update ALL THREE stores atomically: SQLite `memories`, SQLite `rawEvents`, and Qdrant payloads.
-4. Update the `SOURCE_TYPE_ALIASES` map in memory.service.ts simultaneously (remove `photo: 'file'` mapping).
-5. Post-migration verification: count by `source_type` in both SQLite and Qdrant; assert they match.
+- Decide ESM-everywhere or CJS-everywhere BEFORE touching anything else. Recommendation: migrate API to ESM. NestJS 11 supports it. SWC compiler handles it. This aligns with all other packages.
+- Alternative: keep API as CJS and configure packages to dual-emit (CJS + ESM) using `tsup`. More complex but avoids touching NestJS internals.
+- Test with a clean `rm -rf dist && nest build && node dist/main.js` after every tsconfig change.
+- NEVER change the `types` field in package.json exports from `./src/index.ts` to `./dist/index.d.ts` without first resolving the module format mismatch.
 
-**Detection:** Add a health check that samples N random memories and compares SQLite `sourceType` with Qdrant payload `source_type`. Any mismatch = alert.
-
-**Phase:** Must be the FIRST data migration to run. This is a prerequisite for all other work because search filters break on inconsistent types.
+**Phase this should be resolved in:** Phase 1 (foundation), before any other build configuration changes.
 
 ---
 
-### Pitfall 2: Re-enrichment Overwhelming Remote Ollama (7,000+ Memories Through Single GPU)
+### Pitfall 2: Nodemon Watching 8+ dist/ Directories Creates Restart Storms and Port Conflicts
 
-**What goes wrong:** Backfill pipeline enqueues 7,000+ enrich jobs, each making 2 Ollama calls (entity extraction via `qwen3:0.6b` + factuality classification). At default concurrency 8 (`enrich_concurrency` setting), that is 16 concurrent HTTP requests to a single RTX 3070 at `192.168.10.250:11434`. Ollama serializes inference per model, so effective throughput is approximately 1-2 requests/second for `qwen3:0.6b`. Full backfill takes 1-2 hours minimum. During this time:
+**What goes wrong:** The current `apps/api/nodemon.json` watches the `src` directory plus 7 package `dist/` directories (shared, connector-sdk, gmail, slack, whatsapp, imessage, photos-immich, locations). When `turbo dev` runs `tsc --watch` in each package, any source change propagates through the dependency chain: shared rebuilds -> connector-sdk rebuilds -> each connector rebuilds. Each `dist/` write triggers nodemon, which runs `nest build && node dist/main.js`. A single change to `@botmem/shared` can cause 3-8 API restarts in rapid succession. The 1-second delay in nodemon config is insufficient because `tsc --watch` emits files asynchronously across packages.
 
-- New syncs compete for the same Ollama instance, causing timeouts (60s for embed, 180s for generate in ollama.service.ts).
-- BullMQ lock duration is 300s (5 minutes) per worker in both embed and enrich processors. If Ollama queues back up, jobs exceed lock duration and BullMQ retries them, creating duplicate enrichments.
-- Redis memory grows unboundedly if all 7,000 jobs are enqueued at once.
+**Why it happens:** Nodemon has no concept of "wait for the full dependency chain to settle." It fires on each individual file change event. Each restart kills the previous `node` process and starts a new one. If the kill signal does not arrive before the new process tries to bind port 12412, both processes fight for the port.
 
-**Why it happens:** The pipeline was designed for incremental sync (tens to hundreds of items at a time), not bulk re-processing. There is no rate limiting on Ollama calls, no backpressure mechanism, and no priority separation between live sync and backfill work.
+**Consequences:** Multiple `node dist/main.js` processes compete for port 12412. The `detect-port` package (already in API dependencies) silently picks a different port, causing confusion. Developer sees "address already in use" errors, random crashes, or the API silently serving on the wrong port. This is exactly the port conflict issue described in the milestone context.
 
-**Consequences:**
-- Live syncs fail with timeouts while backfill is running -- user triggers a Gmail sync and it fails because Ollama is saturated.
-- Duplicate entity extraction when jobs exceed lock duration and retry. Entities get appended or overwritten non-deterministically.
-- Race condition on `memories.entities` column if a re-enrich job and a new embed job target the same memory concurrently (not likely but possible during re-sync).
-- Redis OOM if entire backlog is enqueued at once without batching.
+**Severity:** BLOCKING -- this is the primary bug the milestone was created to fix.
+
+**Detection:**
+- `ps aux | grep "node dist/main"` after saving a file in a shared package -- multiple processes means the storm is happening
+- "EADDRINUSE" or "address already in use" errors in terminal
+- API stops responding after editing code in a workspace package
 
 **Prevention:**
-1. Use the existing `backfill` queue (already registered in BullMQ, see memory.module.ts) with dedicated low concurrency (2-3), separate from the `enrich` queue.
-2. Enqueue backfill jobs in batches of 50-100 with BullMQ `delay` option between batches. Use an orchestrator job that enqueues the next batch when the current batch completes.
-3. Extend BullMQ lock duration for backfill jobs to 600s to match Ollama's worst-case 180s timeout per call (2 calls per job + overhead).
-4. Add a "pause on active sync" check: before processing the next backfill job, check if the sync or embed queues have active jobs; if so, delay the backfill job by 30s.
-5. Track per-memory completion with an `enrichVersion` column (see Pitfall 4) so backfill can resume after interruption.
+- Replace nodemon + `nest build` with a single-process watch solution. Options:
+  1. `nest start --watch` with SWC compiler (fast incremental rebuilds, single process, NestJS manages restarts)
+  2. `tsc --build --watch` with TypeScript project references (single watcher that understands dependency order)
+  3. Use `tsx --watch` or `ts-node --esm --watch` for direct source execution during dev (no compilation step)
+- The key insight: during development, the API should read workspace package SOURCE directly (via the existing `types: "./src/index.ts"` pattern and TypeScript path aliases), not their compiled `dist/` output. This eliminates the need to watch dist directories entirely.
+- If nodemon must be kept, increase delay to 3000ms and watch only `src`, not package dist directories.
 
-**Detection:** Monitor Ollama response times during backfill. If p95 exceeds 30s, auto-reduce backfill concurrency. Track backfill progress via WebSocket `job:progress` events.
-
-**Phase:** Must be built BEFORE any backfill runs. The backfill orchestrator is the first thing to implement.
+**Phase this should be resolved in:** Phase 1 -- this is the primary DX pain point.
 
 ---
 
-### Pitfall 3: Entity Deduplication False Positives Merging Different Entities
+### Pitfall 3: Turborepo Cache Poisoning from Undeclared Inputs
 
-**What goes wrong:** Fuzzy matching on entity values like "Jordan" (person vs. country), "Apple" (company vs. fruit in a photo description), "Amazon" (company vs. river). Entities are stored as `{type, value}` JSON arrays in the `memories.entities` column. A naive deduplication that normalizes "jordan" across all memories would merge a person named Jordan with every mention of the country Jordan, corrupting entity counts and graph links.
+**What goes wrong:** The current `turbo.json` defines `build` with `outputs: ["dist/**"]` and `dependsOn: ["^build"]`. Turbo's cache is content-addressed by file hashes. Any file that affects build output but is not tracked as an input silently poisons the cache:
 
-**Why it happens:** Entities extracted by `qwen3:0.6b` via the enrich pipeline have inconsistent type classification. The PROJECT.md explicitly states this is a known issue: "names classified as locations/organizations" and "100+ hallucinated types instead of 10 canonical." The same real-world entity appears as different types across memories because the small model hallucinates type assignments.
+1. `nest-cli.json` in `apps/api` controls the NestJS build (e.g., `deleteOutDir`, compiler options). Changes to it do not invalidate the Turbo cache because it is not in the default input set.
+2. Environment variables not declared in `env` or `globalEnv` -- if any build step reads env vars, the cache ignores them.
+3. `.env` files are not in Turbo's input hash by default. If build-time env substitution is added later, cache serves stale builds.
 
-**Consequences:**
-- Entity counts on the `/me` page (me.service.ts line 378-402) become meaningless -- inflated counts for falsely merged entities.
-- Memory graph links become nonsensical -- connecting a person-memory to a geography-memory.
-- Contact reclassification (`reclassifyEntityTypes` in contacts.service.ts lines 831-923) uses entity type voting from linked memories. If entity types are wrong going in, the voting produces wrong contact types coming out. This is a cascading failure.
-- Once entities are merged in the database, separating them is extremely difficult -- it requires tracking the original pre-merge state.
+**Why it happens:** Turbo caches aggressively by default. Developers rarely notice because cache misses (from source changes) feel normal. The problem appears as a cache HIT that serves old output after a config-only change.
+
+**Consequences:** `turbo build` succeeds but uses stale dist output. Tests pass locally but fail in CI (different cache state). Production builds contain old code from cached packages. Debugging takes hours because the build "succeeded."
+
+**Severity:** BLOCKING when it happens, but intermittent -- the worst kind of bug.
+
+**Detection:**
+- Build behaves differently with `--force` vs without
+- `turbo build --dry-run` shows cache HIT after changing a config file
+- Fresh clone produces different output than incremental build
 
 **Prevention:**
-1. NEVER deduplicate entities across different types. `{type: "person", value: "Jordan"}` and `{type: "location", value: "Jordan"}` are different entities and must remain so.
-2. Deduplicate only WITHIN the same type: case-insensitive, whitespace-normalized, accent-stripped matching (the `stripAccents` function already exists in memory.service.ts).
-3. For person-name substring matches ("Amr" vs "Amr Essam"), only merge if one is a clear substring AND they co-occur in the same memory or share a contact link. The existing `nameWordsMatch` function (memory.service.ts line 75) provides a pattern for this.
-4. Add a confidence threshold: auto-merge only on exact normalized match. Fuzzy matches (Levenshtein, Jaro-Winkler) should be human-reviewable, similar to the existing MergeTinder UI for contacts.
-5. Run deduplication as a read-only analysis FIRST, output a merge plan, then apply after review.
-6. Keep an undo log: store the pre-merge state of every modified entity array so merges can be reversed.
+- Declare all inputs explicitly for the API build task: `"build": { "inputs": ["src/**", "tsconfig.json", "nest-cli.json", "package.json"] }`
+- Add environment variables to `globalEnv` in turbo.json if any are read at build time
+- Add `.env` files to `globalDependencies` if any build step reads them
+- Always run `turbo build --force` in CI (cache is for local dev speed, not CI correctness)
+- Add a verification step: change `nest-cli.json`, run `turbo build`, confirm it rebuilds (not cache hit)
 
-**Detection:** Before applying any dedup, generate a report showing what would be merged. Flag any cross-type merges as errors. Flag any merge affecting >50 memories as suspicious.
-
-**Phase:** Entity deduplication must come AFTER entity type taxonomy is enforced AND backfill is complete. Running dedup on dirty data is wasted effort.
+**Phase this should be resolved in:** Phase 2 (Turborepo configuration).
 
 ---
 
-### Pitfall 4: Modifying the Pipeline While It Is Actively Processing
+### Pitfall 4: Breaking Existing Workflows During Migration (The "Big Bang" Trap)
 
-**What goes wrong:** Deploying a new version of `enrich.service.ts` (with corrected entity extraction prompts or the `ENTITY_FORMAT_SCHEMA` structured output) while the enrich queue still has pending jobs from a live sync. Some memories get enriched with the old prompt (producing 100+ unconstrained types), some with the new prompt (producing 10 canonical types via structured output). The result is inconsistent entity formats within the same sync batch.
+**What goes wrong:** Developer restructures tsconfig, turbo.json, package.json scripts, Docker Compose, and module system all at once. The PR touches 30+ files. When it breaks, there is no way to bisect which change caused the failure. Meanwhile, the working branch is broken, blocking all other feature work.
 
-**Why it happens:** NestJS hot-reload replaces the service instance, but BullMQ workers pick up the new code on their next job. There is no versioning on the enrichment pipeline -- you cannot tell if a memory was enriched with v1 (unconstrained) or v2 (schema-constrained) of the prompt. The `memories` table has no column to track this.
+**Why it happens:** Monorepo restructuring feels like it should be done atomically because "everything depends on everything." But this is false. Each layer (tsconfig, turbo, docker, scripts) can be changed independently if done in the right order.
 
-**Consequences:**
-- Entities from the old prompt may use any of 100+ types while the new prompt enforces the 10-type taxonomy via `ENTITY_FORMAT_SCHEMA`. Mixed formats in the same batch.
-- Entity deduplication later has to handle both formats, multiplying complexity.
-- No way to identify which memories need re-enrichment because there is no enrichment version marker.
-- The `me.service.ts` entity aggregation (line 387) tries to read both `entity.name` and `entity.value` fields, indicating this dual-format problem already exists.
+**Consequences:** Multi-day debugging sessions. Rolling back loses all progress. Solo dev (or team) is blocked on all feature work until the restructuring is fixed.
+
+**Severity:** BLOCKING -- project-level risk, not just a technical bug.
+
+**Detection:**
+- PR diff exceeds 500 lines across 10+ files
+- `pnpm dev` does not work at every intermediate commit
+- No rollback plan exists
 
 **Prevention:**
-1. Add an `enrichVersion` integer column to the `memories` table (default 0 for all existing memories, increment for each pipeline schema change).
-2. Before deploying pipeline changes, drain the enrich queue (`queue.drain()` or wait for completion).
-3. Backfill targets memories WHERE `enrichVersion < CURRENT_VERSION`, making re-enrichment idempotent and resumable.
-4. After successful re-enrichment of a memory, UPDATE its `enrichVersion` to the current version.
-5. Never change prompts and deploy mid-sync. Sequence: finish pending syncs, deploy new code, then trigger backfill.
+- Migrate in small, independently-verifiable steps. Each step MUST leave `pnpm dev` and `pnpm build` working.
+- Suggested order: (1) fix dev script and port conflicts, (2) standardize tsconfigs and module system, (3) configure Turbo properly, (4) add Docker services, (5) add build gates. Each is a separate commit that can be reverted independently.
+- Create a `pnpm verify` script that checks build succeeds, dev starts, tests pass. Run it after every change.
+- Tag the current working state (`git tag pre-restructure`) before starting.
 
-**Detection:** Query `SELECT COUNT(*), entities FROM memories GROUP BY enrichVersion` (once column exists). Before that, check for format inconsistencies: entities with `name` field vs `value` field, non-canonical types, etc.
+**Phase this should be resolved in:** Applies to ALL phases -- this is a meta-pitfall about execution strategy.
 
-**Phase:** The `enrichVersion` column should be added in the FIRST schema migration, before any pipeline changes. This is a zero-risk, zero-downtime addition.
+---
+
+### Pitfall 5: Root dev Script Two-Phase Build Masks Dependency Issues
+
+**What goes wrong:** The current root `dev` script is:
+```
+turbo build --filter='./packages/connectors/*' --filter=@botmem/connector-sdk --filter=@botmem/cli && turbo dev --filter=@botmem/shared --filter=@botmem/api --concurrency 10
+```
+This pre-builds connectors before starting dev mode. It works, but the dependency relationship is encoded in a shell script, not in `turbo.json`. If someone runs `turbo dev` directly (without the pre-build), connectors have no `dist/` output and the API crashes with missing module errors at runtime. The workaround works but hides the real problem: the dev pipeline does not properly declare its dependencies.
+
+**Severity:** BLOCKING for new developers or CI environments that run commands differently.
+
+**Detection:**
+- Run `turbo dev` without the pre-build step -- if the API crashes, the dependency is not properly declared
+- Check if `turbo.json` `dev` task has a `dependsOn` that includes package builds
+
+**Prevention:**
+- Encode the dependency in turbo.json, not in shell scripts. The `dev` task for `@botmem/api` should declare `dependsOn: ["^build"]` so Turbo builds all upstream packages before starting the API's dev server.
+- Turbo 2.4 supports this: a `persistent: true` task can have non-persistent dependencies. Turbo will complete the dependency builds, then start the persistent dev server.
+- Simplify the root script to just `turbo dev` and let turbo.json handle ordering.
+
+**Phase this should be resolved in:** Phase 1 (dev script redesign) or Phase 2 (Turbo configuration).
 
 ---
 
 ## Moderate Pitfalls
 
-### Pitfall 5: SQLite Write Contention During Bulk Updates
+### Pitfall 6: TypeScript Project References Circular Dependency Trap
 
-**What goes wrong:** SQLite in WAL mode handles concurrent reads well, but a bulk UPDATE of 7,000 rows on the `memories` table (for entity normalization or source type fix) can hold the write lock for several seconds. If a live sync's embed processor tries to INSERT a new memory during this window, it blocks and may timeout. The `better-sqlite3` driver is synchronous, so a long transaction blocks the Node.js event loop entirely.
+**What goes wrong:** When adding TypeScript project references (`composite: true`, `references: [...]`), the dependency graph must be a strict DAG. In this project, the expected hierarchy is: `shared` <- `connector-sdk` <- `connectors` <- `api`, and `shared` <- `web`. If any package imports a type from a package higher in the chain (e.g., a connector importing from `@botmem/api`), adding project references fails with `TS6202: Project references may not form a circular dependency`.
+
+**Why it happens:** Without project references, TypeScript does not enforce acyclic dependencies -- it resolves everything via `node_modules`. Project references make the graph explicit, surfacing cycles that were always hidden.
+
+**Consequences:** Cannot enable `tsc --build` mode (which provides fast incremental rebuilds across packages). Falls back to per-package `tsc` which does not understand cross-package ordering. The "fix" often involves splitting packages or moving types -- a larger refactor than expected.
+
+**Severity:** Moderate-to-blocking, depending on whether cycles exist.
+
+**Detection:**
+- Before adding references, audit imports: does any connector import from `@botmem/api`? Does `@botmem/shared` import from any consumer?
+- Use `npx madge --circular --extensions ts apps/api/src` to detect circular imports within the API
+- Check if shared/connector-sdk have any dependency on api in their package.json
 
 **Prevention:**
-- Batch updates: UPDATE 100 rows at a time with `await new Promise(r => setTimeout(r, 10))` between batches to yield the event loop and release the write lock.
-- Use `better-sqlite3` transactions for batched updates (as the existing `backfill-entity-types.ts` migration does), but keep transaction scope small (100 rows, not 7,000).
-- Schedule bulk migrations during low-activity periods or pause sync workers before running.
-- The existing migration script (`backfill-entity-types.ts`) wraps ALL rows in a single transaction -- this is fast but blocks all writes for the entire duration. For small datasets this is acceptable; for 7,000+ rows, batch it.
+- Audit the dependency graph before enabling project references. The DAG should flow one direction only.
+- If cycles exist, extract shared types into `@botmem/shared` (which is already the intended pattern).
+- Add project references incrementally: start with `shared` -> `connector-sdk` -> one connector -> verify. Do not add all packages at once.
+- Project references are OPTIONAL. If the graph is clean but adoption is complex, skip them and rely on Turbo's `dependsOn: ["^build"]` for ordering. The main benefit (fast `tsc --build --watch`) is valuable but not mandatory.
 
-**Phase:** Every migration script must use batched transactions with configurable batch size.
+**Phase this should be resolved in:** Phase 2 (TypeScript configuration). Only after module system is resolved.
 
 ---
 
-### Pitfall 6: Dual Entity Format (Embed Step vs Enrich Step)
+### Pitfall 7: Docker Volume Mount Performance on macOS Destroys Dev Speed
 
-**What goes wrong:** The embed step (embed.processor.ts) gets entities from `connector.embed()` with format `{type, id, role}` (used for contact resolution, e.g., `{type: "person", id: "email:john@example.com|name:John", role: "sender"}`). The enrich step (enrich.service.ts line 69-73) extracts entities with format `{type, value}` and OVERWRITES the entire `entities` column with `JSON.stringify(entities)`. This means:
+**What goes wrong:** Docker Desktop on macOS uses a Linux VM. File system mounts from macOS into the VM are 5-20x slower than native for `node_modules`-heavy workloads. `pnpm install` that takes 10s natively takes 60-120s with mounted volumes. `tsc --watch` inside Docker detects file changes with multi-second latency. Hot reload becomes useless.
 
-- Entities from the embed step (with `id` and `role` fields useful for contact linking) are permanently lost after enrich runs.
-- The `me.service.ts` reads entities expecting BOTH `name` and `value` fields (line 389: `entity.name || entity.value`), confirming both formats exist in production data.
-- Any migration normalizing entities must handle at least three shapes: `{type, value}`, `{type, id, role}`, and `{type, name}`.
+**Severity:** Annoying but impactful -- does not break correctness but makes Docker-based development practically unusable for the application code.
 
 **Prevention:**
-1. Unify to a single canonical format: `{type: string, value: string}` everywhere. This is what the `ENTITY_FORMAT_SCHEMA` already enforces for the enrich step.
-2. The enrich step should MERGE new entities with existing ones, not blindly replace. Read current entities, add new enrich-extracted ones, deduplicate by (type, normalized value), then write.
-3. Before backfill, run a normalization migration that converts ALL existing entity JSON arrays to `{type, value}` format (mapping `id` -> `value`, `name` -> `value`).
+- Do NOT run application dev servers (NestJS, Vite) inside Docker on macOS. Keep them native.
+- Docker Compose dev file should containerize infrastructure only: Redis, Qdrant, and optionally Ollama. Application code runs natively with `pnpm dev`.
+- Use `docker compose up redis qdrant` for infrastructure, `pnpm dev` for application code.
+- If full containerization is needed later (CI, staging), use VirtioFS file sharing (default in recent Docker Desktop) and avoid mounting `node_modules` (use named volumes or install inside container).
 
-**Phase:** Entity format unification must happen BEFORE backfill runs. It is a prerequisite -- otherwise the backfill produces entities in the new format mixed with old-format entities from the embed step.
+**Phase this should be resolved in:** Phase 3 (Docker Compose). Design the dev compose file correctly from the start.
 
 ---
 
-### Pitfall 7: NLQ Source Type Alias Becomes Stale or Inconsistent
+### Pitfall 8: Ollama Container GPU Passthrough Does Not Work on macOS
 
-**What goes wrong:** The `SOURCE_TYPE_ALIASES` map in memory.service.ts (line 207) currently maps `photo` -> `file` because photos are stored with `source_type: 'file'`. After reclassification to `photo`, this alias must be removed. But if the migration is partial (some photos still `file`, some now `photo`), removing the alias breaks search for un-migrated photos, and keeping it breaks search for migrated ones. Users searching for "my photos from January" get zero or partial results.
+**What goes wrong:** Adding Ollama to Docker Compose with `deploy.resources.reservations.devices` for GPU access only works on Linux with NVIDIA drivers. On macOS (which this project develops on), Docker runs in a VM with no GPU passthrough. The Ollama container falls back to CPU inference, which is 10-50x slower for the models used (`qwen3:0.6b`, `nomic-embed-text`).
+
+**Severity:** Moderate -- affects the "plug-and-play" goal. A developer who runs `docker compose up` expecting everything to work will get painfully slow AI inference.
 
 **Prevention:**
-- Reclassification must be atomic: ALL photo records get updated in one migration (SQLite + rawEvents + Qdrant), then the alias is removed in the same deployment.
-- If partial migration is unavoidable, temporarily change the NLQ parser to search for BOTH `file` AND `photo` when user queries for "photos" (use a Qdrant `should` filter with both values, not a single `match`).
-- Post-migration verification: `SELECT COUNT(*) FROM memories WHERE connector_type = 'photos' AND source_type = 'file'` must return 0 before the alias is removed.
+- Use Docker Compose profiles: Ollama in a `gpu` profile, only started with `docker compose --profile gpu up`. Default profile includes Redis + Qdrant only.
+- Document three Ollama options: (1) Use existing remote Ollama at `OLLAMA_BASE_URL`, (2) install Ollama natively on macOS (`brew install ollama`), (3) use Docker container on Linux with GPU.
+- The env var `OLLAMA_BASE_URL` with default `http://host.docker.internal:11434` already handles the "native Ollama + Docker infra" pattern. Just make the Docker Ollama service optional.
 
-**Phase:** Source type reclassification phase. Must be treated as an atomic operation. Deploy code change (alias removal) only after migration is verified complete.
+**Phase this should be resolved in:** Phase 3 (Docker Compose).
 
 ---
 
-### Pitfall 8: Memory Links Pollution During Re-enrichment
+### Pitfall 9: pnpm workspace:* Protocol Breaks Docker Image Builds
 
-**What goes wrong:** The `createLinks()` method in enrich.service.ts (lines 153-200) finds similar memories via Qdrant `recommend()` and creates `memoryLinks` entries. It checks `result.id !== memoryId` but does NOT check for existing links between the same pair of memories. Re-enriching 7,000 memories creates up to 35,000 NEW link entries (up to 5 per memory), duplicating links that already exist from the original enrichment. The `memory_links` table has no unique constraint on `(src_memory_id, dst_memory_id)`.
+**What goes wrong:** `workspace:*` dependencies in package.json work locally because pnpm resolves them to local packages. During Docker image builds, if the Dockerfile copies only `apps/api` (to keep image size small), pnpm cannot resolve `workspace:*` and the install fails with "ERR_PNPM_NO_MATCHING_VERSION."
+
+**Severity:** Moderate -- blocks production Docker image builds. Does not affect dev Docker Compose (which only runs infrastructure services).
+
+**Detection:**
+- Try `docker build .` -- if it copies partial monorepo, install will fail on workspace deps
+- Check if `Dockerfile` exists and how it handles the monorepo structure
 
 **Prevention:**
-1. Add a deduplication check in `createLinks()`: before INSERT, query for existing link WHERE `src_memory_id = ? AND dst_memory_id = ?` (or the reverse direction). Skip if exists.
-2. Better: skip link creation entirely during backfill re-enrichment by adding a `skipLinks` parameter to `enrich()`. Links were already created during initial enrichment and are still valid (vectors haven't changed).
-3. If links must be refreshed (e.g., because link types should be updated based on new factuality labels), DELETE existing links for the memory first, then recreate.
-4. Consider adding a unique index on `(src_memory_id, dst_memory_id)` to the `memory_links` table and using INSERT OR IGNORE.
+- Use Turborepo's `turbo prune --scope=@botmem/api --docker` to generate a pruned monorepo. This creates a `json/` directory (lockfile + package.jsons for layer caching) and `full/` directory (source). The Dockerfile copies `json` first, installs, then copies `full`.
+- Alternatively, use `pnpm deploy --filter @botmem/api` which rewrites `workspace:*` to actual versions in the deployed output.
+- Always copy the full `pnpm-workspace.yaml` and `pnpm-lock.yaml` into the Docker build context.
+- Test Docker build from clean state (`docker build --no-cache .`) -- cached layers mask workspace resolution failures.
 
-**Detection:** Check `SELECT COUNT(*) FROM memory_links` before and after backfill. If it more than doubles, links are being duplicated.
-
-**Phase:** Backfill orchestrator must have a `skipLinks: true` flag for re-enrichment runs.
+**Phase this should be resolved in:** Phase 3 (Docker) or Phase 4 (production build pipeline). Not needed for dev compose.
 
 ---
 
-### Pitfall 9: Backfill Cannot Resume After Interruption
+### Pitfall 10: Turborepo Watch Mode Does Not Restart Dependent Persistent Tasks
 
-**What goes wrong:** If the backfill crashes at memory #3,500 of 7,000 (Ollama goes down, Redis restarts, Node process killed), there is no way to know which memories were already re-enriched. Re-running the backfill processes all 7,000 again, wasting 1+ hours of Ollama compute, creating duplicate links (Pitfall 8), and potentially overwriting good re-enriched data with redundant re-enriched data.
+**What goes wrong:** `turbo dev` with `persistent: true` runs long-lived dev servers. But Turbo does NOT restart a persistent task when its upstream dependency rebuilds. If `@botmem/shared` changes and rebuilds, Turbo does not restart the API's dev server. The developer must rely on the API's own file-watching mechanism (currently nodemon) to detect the change. This creates a confusing two-layer watch system where neither layer handles all cases.
+
+**Severity:** Moderate -- causes confusion about whether changes are picked up.
 
 **Prevention:**
-1. The `enrichVersion` column from Pitfall 4 solves this: backfill targets `WHERE enrich_version < TARGET_VERSION`. After successful re-enrichment, update the memory's `enrichVersion`. Restarting the backfill automatically skips already-processed memories.
-2. Backfill progress should be tracked in the `jobs` table with a parent job entry showing `progress/total`, enabling the frontend to display progress via existing WebSocket infrastructure.
-3. BullMQ's built-in retry mechanism (already configured with `attempts: 3, backoff: exponential` in embed.processor.ts) should be leveraged for individual job failures, but the orchestrator must handle batch-level resume.
+- Accept that Turbo's job is task ordering and caching, not cascading restarts. The API's own watch mechanism must handle dependency changes.
+- Best pattern: during dev, the API resolves workspace package source directly (via the existing `types: "./src/index.ts"` pattern), not compiled `dist/`. This means changes in shared source are visible immediately without waiting for shared to rebuild its dist.
+- For this to work with the CJS API: use `ts-node` with `paths` aliases, or `tsx`, or SWC in watch mode. All of these can resolve TypeScript source directly.
+- For production builds, `turbo build` with `dependsOn: ["^build"]` handles ordering correctly. The watch mode gap only affects dev.
 
-**Phase:** Must be built into the backfill orchestrator from day one. Non-negotiable for a multi-hour operation.
+**Phase this should be resolved in:** Phase 1 (dev script redesign). Design the dev experience around this limitation.
 
 ---
 
-### Pitfall 10: rawEvents Table Also Stores source_type
+### Pitfall 11: shamefully-hoist Leaking Into the Repository
 
-**What goes wrong:** The `rawEvents` table has its own `source_type` column (schema.ts line 55) that is set at sync time and never updated. After reclassifying `memories.source_type` from `file` to `photo`, the `rawEvents` table still says `file`. If any code reads `rawEvents.sourceType` (e.g., the embed processor at line 108 uses `event.sourceType` from the parsed payload, and the backfill processor parses the raw event payload), it will get the old `file` value and potentially re-create memories with the wrong type.
+**What goes wrong:** The production deployment notes in MEMORY.md mention `shamefully-hoist=true` was needed for Docker builds. If this gets added to `.npmrc` in the repository root, it changes how ALL packages resolve dependencies. Phantom dependencies (packages not declared in your package.json but accessible because they are hoisted from other packages) start working locally. Then they fail in CI, in fresh clones, or when packages are used independently.
+
+**Severity:** Moderate -- creates "works on my machine" bugs that surface unpredictably.
+
+**Detection:**
+- Check `.npmrc` for `shamefully-hoist=true` or `hoist=true`
+- Import a package not in your own package.json but present elsewhere in the monorepo -- if it works, hoisting is too aggressive
 
 **Prevention:**
-1. Update `rawEvents.source_type` in the same migration that updates `memories.source_type`.
-2. Audit all code paths that read sourceType from rawEvents or from the parsed payload (the raw event JSON also contains `sourceType`). The embed processor creates new memory records using `event.sourceType` (line 108), meaning the embedded payload JSON is ALSO a source of truth that cannot be easily updated.
-3. For the payload JSON: either update it in the migration (parse, modify, re-serialize for 2,099 rows) or add a runtime override in the embed processor that maps `file` -> `photo` when `connectorType === 'photos'`.
-4. Best approach: fix the source at the connector level (photos connector should emit `sourceType: 'photo'` instead of `file`), update the rawEvents column, update the memories column, update Qdrant payloads. Four stores, not two.
+- Use `shamefully-hoist=true` ONLY inside the Dockerfile's build step (create `.npmrc` in Docker context), not in the repo root `.npmrc`.
+- Better: identify WHY shamefully-hoist was needed. Usually it is a package with undeclared peer dependencies. Add the missing dep explicitly to the consuming package's `package.json`.
+- If selective hoisting is needed, use `public-hoist-pattern[]` in `.npmrc` to hoist only specific packages rather than everything.
 
-**Phase:** Must be part of the source type reclassification phase. All four stores must be addressed.
+**Phase this should be resolved in:** Phase 3 (Docker) when writing the production Dockerfile.
 
 ---
 
 ## Minor Pitfalls
 
-### Pitfall 11: Empty and Garbage Entity Values
+### Pitfall 12: Lockfile Corruption During Workspace Restructuring
 
-**What goes wrong:** Entity extraction via `qwen3:0.6b` sometimes returns entities with empty values (`{type: "person", value: ""}`), single characters, ISO date strings disguised as entities (`{type: "event", value: "2024-01-15"}`), or metadata fragments. These pollute entity counts on the `/me` page and create noise in deduplication.
+**What goes wrong:** Moving packages between directories, renaming workspace packages, or changing `pnpm-workspace.yaml` paths causes `pnpm-lock.yaml` to reference stale package locations. `pnpm install` silently regenerates parts of the lockfile, creating a massive diff (1000+ lines) that is unreviable and may change resolved dependency versions.
 
 **Prevention:**
-- Add validation in `extractEntities()` (enrich.service.ts): reject entities where `value.trim().length < 2`, value matches ISO date pattern, value is purely numeric, or value is a common stopword.
-- Apply the same validation filter during the backfill normalization step.
-- The existing migration script (`backfill-entity-types.ts`) already filters `REMOVE_TYPES` (time, amount, metric) but does NOT filter empty/garbage values. Extend it.
+- After any workspace structural change, run `pnpm install --lockfile-only` and commit the lockfile as a SEPARATE commit with a clear message like "chore: regenerate lockfile after workspace restructure."
+- Never restructure packages AND update dependencies in the same commit.
+- If the lockfile diff is unreasonably large, regenerate cleanly: `rm pnpm-lock.yaml && pnpm install`.
 
-**Phase:** Add to entity extraction prompt improvements and as a code-level post-extraction filter.
+**Phase this should be resolved in:** Any phase that moves or renames packages.
 
 ---
 
-### Pitfall 12: Contact Reclassification Based on Dirty Entity Data
+### Pitfall 13: types: "./src/index.ts" Works Until Productionization
 
-**What goes wrong:** The `reclassifyEntityTypes()` method (contacts.service.ts line 831-923) uses entity type voting from linked memories to determine if a contact is really a person, organization, location, etc. The voting logic counts how many times a contact's name appears as each entity type across linked memories. If entity types are wrong (pre-backfill data with 100+ hallucinated types), the voting produces wrong results. For example, "Apple" might be classified as a fruit topic because the old model tagged it that way 3 times vs. 2 times as "organization."
+**What goes wrong:** All workspace packages currently export `"types": "./src/index.ts"` -- pointing at source, not compiled declarations. This is actually a great DX pattern for internal monorepo development (instant type updates without rebuilding). But it breaks in two scenarios: (1) publishing packages to npm (external consumers cannot access `src/`), and (2) tools that resolve `types` literally (some bundlers, API documentation generators, Deno).
 
 **Prevention:**
-- Contact reclassification must run AFTER: (1) entity type taxonomy enforcement, (2) backfill re-enrichment with corrected prompts, and (3) entity deduplication.
-- Add a "dry run" mode that shows proposed reclassifications without applying them.
-- The existing safeguards (requiring 3x ratio of non-person to person counts, minimum 2 occurrences) are good but insufficient when the underlying entity types are garbage.
+- For now, KEEP `types: "./src/index.ts"` for internal packages -- it is the reason development works despite the ESM/CJS mismatch.
+- When preparing for publishing or commercialization, switch to `"types": "./dist/index.d.ts"` and ensure `declaration: true` in all tsconfigs.
+- Use conditional exports in `package.json` if both dev and production modes are needed: `"exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }` and use TypeScript's `customConditions` for development mode.
 
-**Phase:** Contact reclassification is the LAST step in the data quality pipeline, after all entity data is clean.
+**Phase this should be resolved in:** Phase 4 or later (productionization). Not urgent for internal packages.
 
 ---
 
-### Pitfall 13: Qdrant Indexing Pressure During Bulk Payload Updates
+### Pitfall 14: Test Gates in Build Pipeline Cause Developer Frustration
 
-**What goes wrong:** Updating 2,099 Qdrant point payloads (for photo source_type fix) triggers re-indexing on the `source_type` payload field. If done as 2,099 individual `setPayload` calls, each triggers incremental index updates, causing CPU spikes and potential timeouts on the Qdrant container.
+**What goes wrong:** Making tests a prerequisite for builds (`"build": { "dependsOn": ["test"] }` in turbo.json) means every `turbo build` runs the entire test suite first. During active development with rapid iteration, this adds 10-30 seconds to every build cycle. Developers learn to bypass it with `--force` or `--filter`, defeating the purpose.
 
 **Prevention:**
-- Use Qdrant's filter-based batch `set_payload` as described in Pitfall 1 (single operation, not per-point).
-- Verify with `getCollectionInfo()` that collection status returns to `green` (indexing complete) before running searches that depend on the updated payload values.
-- The existing `ensureIndexed()` method (qdrant.service.ts) sets `indexing_threshold: 1000`. With 7,000+ points, HNSW indexing is already active, so payload updates will trigger incremental re-indexing but not a full rebuild.
+- Do NOT make `test` a dependency of `build`. Keep them as separate, independent tasks in turbo.json (which is the current correct configuration).
+- Create a separate `check` task that runs everything: `"check": { "dependsOn": ["build", "test", "lint"] }`. Use `pnpm check` before committing or pushing.
+- Use pre-commit hooks (husky + lint-staged) to run lint and type-check on changed files only. Full test suite runs in CI.
+- CI runs `turbo build && turbo test && turbo lint` as independent steps. Local dev runs only `turbo build` (or just `turbo dev`).
 
-**Phase:** Source type reclassification phase. Use the filter-based batch approach.
+**Phase this should be resolved in:** Phase 4 (build pipeline gates).
+
+---
+
+### Pitfall 15: NestJS CLI Version Conflicts in Monorepo
+
+**What goes wrong:** `@nestjs/cli` is installed as a devDependency of `apps/api`. If the root `package.json` or another workspace also installs a different version (e.g., via a global install or through a dependency that pulls it in), `nest build` may use the wrong version, producing different output or version-specific compilation errors.
+
+**Prevention:**
+- Install `@nestjs/cli` ONLY in `apps/api/package.json`, never at the monorepo root.
+- Pin to a specific minor version (e.g., `11.0.5` not `^11.0.0`) to avoid surprise updates.
+- Verify the correct version is used: `npx --prefix apps/api nest info`
+- Consider replacing `nest build` with direct `tsc` or `swc` compilation to remove the CLI dependency entirely. The NestJS CLI adds SWC compilation, but `@swc/cli` (already installed) can do the same without the NestJS wrapper.
+
+**Phase this should be resolved in:** Phase 2 (build configuration).
 
 ---
 
 ## Phase-Specific Warnings
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| Schema prerequisites | Missing enrichVersion column (Pitfall 4) | Add column FIRST, before any pipeline changes |
-| Schema prerequisites | Missing QdrantService.setPayload (Pitfall 1) | Add method FIRST, before any data migration |
-| Source type reclassification | Qdrant/SQLite/rawEvents desync (Pitfalls 1, 10) | Update all four stores atomically (memories, rawEvents, rawEvent payload, Qdrant) |
-| Source type reclassification | NLQ alias staleness (Pitfall 7) | Remove alias only after ALL records migrated and verified |
-| Source type reclassification | Qdrant indexing pressure (Pitfall 13) | Use filter-based batch update, verify indexing completes |
-| Entity format unification | Dual format loss (Pitfall 6) | Normalize ALL entities to {type, value} before anything else |
-| Entity type taxonomy enforcement | Garbage values slip through (Pitfall 11) | Add post-extraction validation filters |
-| Backfill pipeline | Ollama overload (Pitfall 2) | Separate queue, concurrency 2-3, batch enqueuing, pause during live syncs |
-| Backfill pipeline | Cannot resume (Pitfall 9) | Use enrichVersion column to track per-memory completion |
-| Backfill pipeline | Link duplication (Pitfall 8) | Add skipLinks flag to enrich(), add unique constraint on links |
-| Backfill pipeline | Pipeline version mismatch (Pitfall 4) | Drain queues before deploying new prompts |
-| Backfill pipeline | SQLite contention (Pitfall 5) | Batch 100 rows per transaction, yield between batches |
-| Entity deduplication | False positive merges (Pitfall 3) | Never merge across types, exact-match for auto, human review for fuzzy |
-| Contact reclassification | Bad input data (Pitfall 12) | Run LAST after all entity data is clean; dry run first |
+| Phase Topic | Likely Pitfall | Mitigation | Severity |
+|-------------|---------------|------------|----------|
+| Dev script redesign | Port conflict restart storms (#2) | Replace nodemon dist-watching with single-process watch or source-based resolution | Blocking |
+| Dev script redesign | Turbo watch does not cascade restarts (#10) | API watches source directly via path aliases, not dist | Moderate |
+| Dev script redesign | Root script masks dependency issues (#5) | Encode deps in turbo.json, simplify root script to `turbo dev` | Blocking |
+| TypeScript configuration | ESM/CJS mismatch surfaces (#1) | Decide and resolve module system FIRST | Blocking |
+| TypeScript configuration | Circular deps block project refs (#6) | Audit dependency graph before enabling composite | Moderate |
+| Turborepo configuration | Cache poisoning from undeclared inputs (#3) | Declare all inputs, env vars, config files explicitly | Blocking |
+| Docker Compose | macOS volume performance (#7) | Run app natively, containerize infrastructure only | Annoying |
+| Docker Compose | Ollama GPU passthrough (#8) | Make Ollama optional via Docker Compose profiles | Moderate |
+| Docker Compose | workspace:* breaks Docker builds (#9) | Use turbo prune or pnpm deploy for production images | Moderate |
+| Docker Compose | shamefully-hoist leaking (#11) | Keep hoist config Docker-only, fix root causes | Moderate |
+| Build pipeline gates | Tests blocking builds (#14) | Separate test and build tasks, use a `check` meta-task | Annoying |
+| Any structural change | Lockfile corruption (#12) | Separate lockfile commits, clean regen when needed | Minor |
+| Migration execution | Big bang trap (#4) | Small incremental steps, verify `pnpm dev` works at each | Blocking |
+| Productionization | types pointing at src (#13) | Switch to dist types only when publishing | Minor |
 
-## Recommended Phase Ordering (Derived from Pitfall Dependencies)
+## Critical Execution Order (Derived from Pitfall Dependencies)
 
-The pitfall analysis strongly constrains the execution order. Each step depends on the previous step's data quality:
+The pitfall analysis constrains what must happen first:
 
-1. **Schema & tooling prerequisites** -- Add `enrichVersion` column to memories. Add `setPayload()` to QdrantService. Fix photos connector to emit `sourceType: 'photo'`. (Zero-risk additions, unblock everything else.)
+1. **Module system decision** (Pitfall 1) -- ESM or CJS for the API. Everything else depends on this.
+2. **Dev script fix** (Pitfalls 2, 5, 10) -- Eliminate restart storms and port conflicts. This is the primary user-facing pain.
+3. **TypeScript standardization** (Pitfalls 1, 6) -- Consistent tsconfigs, optional project references.
+4. **Turbo configuration** (Pitfall 3) -- Proper inputs, env declarations, dependency graph.
+5. **Docker Compose** (Pitfalls 7, 8, 9, 11) -- Infrastructure services, profiles for Ollama.
+6. **Build gates** (Pitfall 14) -- Check task, CI pipeline, pre-commit hooks.
 
-2. **Source type reclassification** -- Fix `file` -> `photo` in all four stores (memories, rawEvents, rawEvent payloads, Qdrant). Remove NLQ alias. Verify counts match. (Independent of entity work, high-value, relatively simple.)
-
-3. **Entity format unification** -- Normalize all entity JSON to canonical `{type, value}` format. Remove garbage values. (Must precede taxonomy enforcement to have clean input data.)
-
-4. **Pipeline improvements** -- Update prompts with structured output schema, add validation filters, build backfill orchestrator with batching + resume support + skipLinks flag. Deploy new pipeline code. (Must precede backfill execution.)
-
-5. **Backfill execution** -- Re-enrich all memories with `enrichVersion < TARGET`. Rate-limited, resumable, separate queue. (Must complete before dedup can work on consistent data.)
-
-6. **Entity deduplication** -- Deduplicate within same type only. Exact-match auto-merge, fuzzy human review. (Only meaningful after backfill produces clean, consistently-typed entities.)
-
-7. **Contact reclassification** -- Re-run entity type voting on clean data. Dry run first. (Only accurate after entity dedup provides correct voting data.)
-
-**Violating this order multiplies work:** running dedup before backfill means deduplicating dirty data, then re-deduplicating after backfill. Running contact reclassification before entity cleanup means wrong classifications that must be re-done.
+Each step must leave `pnpm dev` and `pnpm build` working (Pitfall 4).
 
 ## Sources
 
-- Direct codebase analysis (all findings HIGH confidence):
-  - `apps/api/src/db/schema.ts` -- table definitions, column types, no unique constraint on memory_links
-  - `apps/api/src/memory/enrich.service.ts` -- entity extraction, factuality, link creation, entity overwrite behavior
-  - `apps/api/src/memory/embed.processor.ts` -- Qdrant payload structure, entity format from connector.embed()
-  - `apps/api/src/memory/qdrant.service.ts` -- no setPayload method, upsert-only API
-  - `apps/api/src/memory/ollama.service.ts` -- timeout configuration (60s embed, 180s generate), retry logic
-  - `apps/api/src/memory/memory.service.ts` -- SOURCE_TYPE_ALIASES, search filtering, entity resolution
-  - `apps/api/src/memory/prompts.ts` -- ENTITY_FORMAT_SCHEMA with 10 canonical types
-  - `apps/api/src/memory/nlq-parser.ts` -- source type detection mapping
-  - `apps/api/src/memory/backfill.processor.ts` -- existing backfill infrastructure
-  - `apps/api/src/contacts/contacts.service.ts` -- reclassifyEntityTypes voting logic
-  - `apps/api/src/me/me.service.ts` -- dual entity format evidence (name || value)
-  - `apps/api/src/migrations/backfill-entity-types.ts` -- existing migration pattern
-- `.planning/PROJECT.md` -- v2.1 milestone definition, known issues
+All findings are HIGH confidence, derived from direct analysis of project files:
+
+- `turbo.json` -- current task configuration, no `inputs` or `env` declarations
+- `apps/api/nodemon.json` -- watches 8 dist directories with 1s delay, runs `nest build && node dist/main.js`
+- `apps/api/tsconfig.json` -- `module: "commonjs"` overriding base `module: "ESNext"`
+- `apps/api/nest-cli.json` -- `deleteOutDir: true`, not tracked by Turbo
+- `tsconfig.base.json` -- base config with `module: "ESNext"`, `moduleResolution: "bundler"`
+- `package.json` (root) -- two-phase dev script with explicit `--filter` ordering
+- `packages/shared/package.json` -- `type: "module"`, `types: "./src/index.ts"`
+- `packages/connector-sdk/package.json` -- same ESM + source types pattern
+- `packages/connectors/gmail/package.json` -- same pattern across all connectors
+- `docker-compose.yml` -- production-oriented, no Ollama, no dev-specific compose file
+- `pnpm-workspace.yaml` -- workspace paths for apps, packages, and nested connectors
+- `.planning/PROJECT.md` -- v3.0 milestone goals, known port conflict issues
+- MEMORY.md -- `shamefully-hoist=true` note, NestJS watch mode limitation, port 12412 configuration
