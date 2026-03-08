@@ -14,6 +14,11 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const REFRESH_COOKIE = 'refresh_token';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -45,28 +50,30 @@ export class UserAuthController {
   ) {}
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('register')
   async register(
-    @Body() body: { email: string; password: string; name: string },
+    @Body() dto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.register(
-      body.email,
-      body.password,
-      body.name,
+      dto.email,
+      dto.password,
+      dto.name,
     );
     setRefreshCookie(res, result.refreshToken);
     return { accessToken: result.accessToken, user: result.user };
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   @HttpCode(200)
   async login(
-    @Body() body: { email: string; password: string },
+    @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.login(body.email, body.password);
+    const result = await this.authService.login(dto.email, dto.password);
     setRefreshCookie(res, result.refreshToken);
     return { accessToken: result.accessToken, user: result.user };
   }
@@ -103,18 +110,19 @@ export class UserAuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('forgot-password')
   @HttpCode(200)
-  async forgotPassword(@Body() body: { email: string }) {
-    await this.authService.forgotPassword(body.email);
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto.email);
     return { ok: true };
   }
 
   @Public()
   @Post('reset-password')
   @HttpCode(200)
-  async resetPassword(@Body() body: { token: string; newPassword: string }) {
-    await this.authService.resetPassword(body.token, body.newPassword);
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.token, dto.newPassword);
     return { ok: true };
   }
 

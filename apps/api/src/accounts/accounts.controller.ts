@@ -2,7 +2,9 @@ import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/commo
 import { AccountsService } from './accounts.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
-import type { ConnectorAccount, SyncSchedule } from '@botmem/shared';
+import { CreateAccountDto } from './dto/create-account.dto';
+import { UpdateAccountDto } from './dto/update-account.dto';
+import type { ConnectorAccount } from '@botmem/shared';
 
 function toApiAccount(row: any): ConnectorAccount {
   return {
@@ -36,19 +38,19 @@ export class AccountsController {
   @Post()
   async create(
     @CurrentUser() user: { id: string },
-    @Body() body: { connectorType: string; identifier: string },
+    @Body() dto: CreateAccountDto,
   ) {
-    // Dedup: return existing account if one already exists for this connector+identifier
-    const existing = await this.accountsService.findByTypeAndIdentifier(body.connectorType, body.identifier);
+    // Dedup: return existing account if one already exists for this connector+identifier FOR THIS USER
+    const existing = await this.accountsService.findByTypeAndIdentifier(dto.connectorType, dto.identifier, user.id);
     if (existing) return toApiAccount(existing);
-    const row = await this.accountsService.create({ ...body, userId: user.id });
+    const row = await this.accountsService.create({ ...dto, userId: user.id });
     return toApiAccount(row);
   }
 
   @RequiresJwt()
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() body: { schedule?: SyncSchedule }) {
-    const row = await this.accountsService.update(id, body);
+  async update(@Param('id') id: string, @Body() dto: UpdateAccountDto) {
+    const row = await this.accountsService.update(id, dto);
     return toApiAccount(row);
   }
 

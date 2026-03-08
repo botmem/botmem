@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
@@ -45,6 +45,7 @@ export type PipelineStage = 'clean' | 'embed' | 'enrich';
 
 @Processor('memory')
 export class MemoryProcessor extends WorkerHost implements OnModuleInit {
+  private readonly logger = new Logger(MemoryProcessor.name);
   /** Track how many jobs are in each logical stage right now */
   private stageCounts: Record<PipelineStage, number> = { clean: 0, embed: 0, enrich: 0 };
   /** Completed count per stage (reset when all jobs drain) */
@@ -86,7 +87,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   }
 
   onModuleInit() {
-    this.worker.on('error', (err) => console.warn('[memory worker]', err.message));
+    this.worker.on('error', (err) => this.logger.warn(`[memory worker] ${err.message}`));
     const concurrency = parseInt(this.settingsService.get('memory_concurrency'), 10) || 16;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
@@ -301,7 +302,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         }
       }
     } catch (err) {
-      console.error('Contact resolution failed:', err);
+      this.logger.error('Contact resolution failed', err instanceof Error ? err.stack : String(err));
     }
     const contactMs = Date.now() - t0;
 

@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -21,6 +21,7 @@ function sanitizeText(text: string): string {
 
 @Processor('clean')
 export class CleanProcessor extends WorkerHost implements OnModuleInit {
+  private readonly logger = new Logger(CleanProcessor.name);
   constructor(
     private dbService: DbService,
     private connectors: ConnectorsService,
@@ -37,7 +38,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
   }
 
   async onModuleInit() {
-    this.worker.on('error', (err) => console.warn('[clean worker]', err.message));
+    this.worker.on('error', (err) => this.logger.warn(`[clean worker] ${err.message}`));
     const concurrency = parseInt(this.settingsService.get('clean_concurrency'), 10) || 32;
     this.worker.concurrency = concurrency;
     this.settingsService.onChange((key, value) => {
@@ -60,7 +61,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         await oldQueue.close();
         return;
       }
-      console.log(`[clean] Migrating ${all.length} jobs from old 'memory' queue to 'clean'`);
+      this.logger.log(`[clean] Migrating ${all.length} jobs from old 'memory' queue to 'clean'`);
       for (const job of all) {
         await this.cleanQueue.add('clean', job.data, {
           attempts: 3,
@@ -74,9 +75,9 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         await job.remove();
       }
       await oldQueue.close();
-      console.log(`[clean] Migration complete`);
+      this.logger.log(`[clean] Migration complete`);
     } catch (err: any) {
-      console.warn('[clean] Old queue migration skipped:', err.message);
+      this.logger.warn(`[clean] Old queue migration skipped: ${err.message}`);
     }
   }
 

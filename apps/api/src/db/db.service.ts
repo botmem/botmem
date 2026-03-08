@@ -1,13 +1,15 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import Database from 'better-sqlite3';
 import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { createCipheriv, randomBytes, scryptSync } from 'crypto';
 import { ConfigService } from '../config/config.service';
 import * as schema from './schema';
 
 @Injectable()
 export class DbService implements OnModuleInit {
+  private readonly logger = new Logger(DbService.name);
   public db!: BetterSQLite3Database<typeof schema>;
   public sqlite!: Database.Database;
 
@@ -355,6 +357,12 @@ export class DbService implements OnModuleInit {
         // Best-effort — app-level dedup will still work
       }
     }
+
+    // Phase 20: Encrypt existing plaintext authContext and connectorCredentials
+    this.migrateEncryption();
+
+    // Transparent encryption at rest: encrypt existing plaintext memory fields
+    this.migrateMemoryEncryption();
   }
 
   /**
@@ -383,7 +391,7 @@ export class DbService implements OnModuleInit {
       this.sqlite.prepare(
         'INSERT INTO memory_banks (id, user_id, name, is_default, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
       ).run(defaultMemoryBankId, userId, 'Default', now, now);
-      console.log(`[migration] Created default memory bank ${defaultMemoryBankId} for user ${userId}`);
+      this.logger.log(`[migration] Created default memory bank ${defaultMemoryBankId} for user ${userId}`);
     } else {
       defaultMemoryBankId = existingBank.id;
     }
@@ -391,7 +399,146 @@ export class DbService implements OnModuleInit {
     // Assign memories without a memory bank to the default
     const result = this.sqlite.prepare('UPDATE memories SET memory_bank_id = ? WHERE memory_bank_id IS NULL').run(defaultMemoryBankId);
     if ((result as any).changes > 0) {
-      console.log(`[migration] Assigned ${(result as any).changes} memories to default memory bank`);
+      this.logger.log(`[migration] Assigned ${(result as any).changes} memories to default memory bank`);
+    }
+  }
+
+  /**
+   * Phase 20 migration: encrypt existing plaintext authContext on accounts
+   * and credentials on connector_credentials using AES-256-GCM.
+   * Idempotent — skips rows that are already encrypted (iv:data:tag format).
+   */
+  private migrateEncryption() {
+    const ALGORITHM = 'aes-256-gcm';
+    const IV_LENGTH = 12;
+    const TAG_LENGTH = 16;
+    const SALT = 'botmem-enc-v1';
+    const secret = this.config.appSecret;
+    const key = scryptSync(secret, SALT, 32);
+
+    const encrypt = (plaintext: string): string => {
+      const iv = randomBytes(IV_LENGTH);
+      const cipher = createCipheriv(ALGORITHM, key, iv);
+      const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+      const tag = cipher.getAuthTag();
+      return `${iv.toString('base64')}:${encrypted.toString('base64')}:${tag.toString('base64')}`;
+    };
+
+    const isEncrypted = (value: string): boolean => {
+      const parts = value.split(':');
+      if (parts.length !== 3) return false;
+      try {
+        const iv = Buffer.from(parts[0], 'base64');
+        const tag = Buffer.from(parts[2], 'base64');
+        return iv.length === IV_LENGTH && tag.length === TAG_LENGTH;
+      } catch {
+        return false;
+      }
+    };
+
+    // Encrypt authContext on accounts
+    const accountRows = this.sqlite.prepare(
+      "SELECT id, auth_context FROM accounts WHERE auth_context IS NOT NULL AND auth_context != ''",
+    ).all() as Array<{ id: string; auth_context: string }>;
+
+    let encAccounts = 0;
+    const updateAccount = this.sqlite.prepare('UPDATE accounts SET auth_context = ? WHERE id = ?');
+    for (const row of accountRows) {
+      if (isEncrypted(row.auth_context)) continue;
+      updateAccount.run(encrypt(row.auth_context), row.id);
+      encAccounts++;
+    }
+    if (encAccounts > 0) {
+      this.logger.log(`[migration] Encrypted authContext on ${encAccounts} accounts`);
+    }
+
+    // Encrypt credentials on connector_credentials
+    const credRows = this.sqlite.prepare(
+      "SELECT connector_type, credentials FROM connector_credentials WHERE credentials IS NOT NULL AND credentials != ''",
+    ).all() as Array<{ connector_type: string; credentials: string }>;
+
+    let encCreds = 0;
+    const updateCred = this.sqlite.prepare('UPDATE connector_credentials SET credentials = ? WHERE connector_type = ?');
+    for (const row of credRows) {
+      if (isEncrypted(row.credentials)) continue;
+      updateCred.run(encrypt(row.credentials), row.connector_type);
+      encCreds++;
+    }
+    if (encCreds > 0) {
+      this.logger.log(`[migration] Encrypted credentials on ${encCreds} connector_credentials rows`);
+    }
+  }
+
+  /**
+   * Encrypt existing plaintext memory fields (text, entities, claims, metadata)
+   * with AES-256-GCM using APP_SECRET. Idempotent — skips already-encrypted rows.
+   */
+  private migrateMemoryEncryption() {
+    const ALGORITHM = 'aes-256-gcm';
+    const IV_LENGTH = 12;
+    const TAG_LENGTH = 16;
+    const SALT = 'botmem-enc-v1';
+    const secret = this.config.appSecret;
+    const key = scryptSync(secret, SALT, 32);
+
+    const encrypt = (plaintext: string): string => {
+      const iv = randomBytes(IV_LENGTH);
+      const cipher = createCipheriv(ALGORITHM, key, iv);
+      const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+      const tag = cipher.getAuthTag();
+      return `${iv.toString('base64')}:${encrypted.toString('base64')}:${tag.toString('base64')}`;
+    };
+
+    const isEncrypted = (value: string): boolean => {
+      if (!value) return false;
+      // Old e2ee: prefix format — treat as needing re-encryption
+      if (value.startsWith('e2ee:')) return false;
+      const parts = value.split(':');
+      if (parts.length !== 3) return false;
+      try {
+        const iv = Buffer.from(parts[0], 'base64');
+        const tag = Buffer.from(parts[2], 'base64');
+        return iv.length === IV_LENGTH && tag.length === TAG_LENGTH;
+      } catch {
+        return false;
+      }
+    };
+
+    const BATCH = 500;
+    let total = 0;
+    const update = this.sqlite.prepare(
+      'UPDATE memories SET text = ?, entities = ?, claims = ?, metadata = ? WHERE id = ?',
+    );
+
+    while (true) {
+      // Find memories where text is not yet encrypted
+      const batch = this.sqlite.prepare(
+        "SELECT id, text, entities, claims, metadata FROM memories WHERE embedding_status = 'done' LIMIT ?",
+      ).all(BATCH) as Array<{ id: string; text: string; entities: string; claims: string; metadata: string }>;
+
+      if (!batch.length) break;
+
+      // Filter to only unencrypted rows
+      const unencrypted = batch.filter((row) => !isEncrypted(row.text));
+      if (!unencrypted.length) break;
+
+      for (const row of unencrypted) {
+        update.run(
+          encrypt(row.text),
+          encrypt(row.entities),
+          encrypt(row.claims),
+          encrypt(row.metadata),
+          row.id,
+        );
+      }
+      total += unencrypted.length;
+
+      // If all rows in this batch were already encrypted, we're done
+      if (unencrypted.length < batch.length) break;
+    }
+
+    if (total > 0) {
+      this.logger.log(`[migration] Encrypted ${total} memory fields at rest`);
     }
   }
 }

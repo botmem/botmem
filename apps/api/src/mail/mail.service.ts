@@ -27,7 +27,7 @@ export class MailService {
 
   async sendResetEmail(to: string, resetUrl: string): Promise<void> {
     if (!this.config.smtpConfigured) {
-      console.log(`[MAIL] Password reset link for ${to}: ${resetUrl}`);
+      this.logger.log(`[MAIL] Password reset link for ${to}: ${resetUrl}`);
       return;
     }
 

@@ -1,6 +1,12 @@
 import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
 import { ContactsService } from './contacts.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
+import { UpdateContactDto } from './dto/update-contact.dto';
+import { SplitContactDto } from './dto/split-contact.dto';
+import { MergeContactDto } from './dto/merge-contact.dto';
+import { SearchContactsDto } from './dto/search-contacts.dto';
+import { DismissSuggestionDto } from './dto/dismiss-suggestion.dto';
 
 @Controller('people')
 export class ContactsController {
@@ -8,6 +14,7 @@ export class ContactsController {
 
   @Get()
   async list(
+    @CurrentUser() user: { id: string },
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('entityType') entityType?: string,
@@ -16,6 +23,7 @@ export class ContactsController {
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
       entityType,
+      userId: user.id,
     });
   }
 
@@ -48,12 +56,8 @@ export class ContactsController {
 
   @RequiresJwt()
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() body: {
-    displayName?: string;
-    avatars?: Array<{ url: string; source: string }>;
-    metadata?: Record<string, unknown>;
-  }) {
-    return this.contactsService.updateContact(id, body);
+  async update(@Param('id') id: string, @Body() dto: UpdateContactDto) {
+    return this.contactsService.updateContact(id, dto);
   }
 
   @RequiresJwt()
@@ -71,19 +75,19 @@ export class ContactsController {
 
   @RequiresJwt()
   @Post(':id/split')
-  async split(@Param('id') id: string, @Body() body: { identifierIds: string[] }) {
-    return this.contactsService.splitContact(id, body.identifierIds);
+  async split(@Param('id') id: string, @Body() dto: SplitContactDto) {
+    return this.contactsService.splitContact(id, dto.identifierIds);
   }
 
   @Post('search')
-  async search(@Body() body: { query: string }) {
-    return this.contactsService.search(body.query);
+  async search(@Body() dto: SearchContactsDto) {
+    return this.contactsService.search(dto.query);
   }
 
   @RequiresJwt()
   @Post(':id/merge')
-  async merge(@Param('id') id: string, @Body() body: { sourceId: string }) {
-    return this.contactsService.mergeContacts(id, body.sourceId);
+  async merge(@Param('id') id: string, @Body() dto: MergeContactDto) {
+    return this.contactsService.mergeContacts(id, dto.sourceId);
   }
 
   @RequiresJwt()
@@ -94,15 +98,15 @@ export class ContactsController {
 
   @RequiresJwt()
   @Post('suggestions/dismiss')
-  async dismissSuggestion(@Body() body: { contactId1: string; contactId2: string }) {
-    await this.contactsService.dismissSuggestion(body.contactId1, body.contactId2);
+  async dismissSuggestion(@Body() dto: DismissSuggestionDto) {
+    await this.contactsService.dismissSuggestion(dto.contactId1, dto.contactId2);
     return { dismissed: true };
   }
 
   @RequiresJwt()
   @Post('suggestions/undismiss')
-  async undismissSuggestion(@Body() body: { contactId1: string; contactId2: string }) {
-    await this.contactsService.undismissSuggestion(body.contactId1, body.contactId2);
+  async undismissSuggestion(@Body() dto: DismissSuggestionDto) {
+    await this.contactsService.undismissSuggestion(dto.contactId1, dto.contactId2);
     return { undismissed: true };
   }
 

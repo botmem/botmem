@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -10,6 +10,7 @@ const BATCH_SIZE = 500;
 
 @Processor('maintenance')
 export class DecayProcessor extends WorkerHost implements OnModuleInit {
+  private readonly logger = new Logger(DecayProcessor.name);
   constructor(
     private dbService: DbService,
     private connectors: ConnectorsService,
@@ -18,7 +19,7 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
   }
 
   onModuleInit() {
-    this.worker.on('error', (err) => console.warn('[maintenance worker]', err.message));
+    this.worker.on('error', (err) => this.logger.warn(`[maintenance worker] ${err.message}`));
   }
 
   async process(job: Job) {

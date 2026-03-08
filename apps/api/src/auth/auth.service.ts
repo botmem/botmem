@@ -1,16 +1,18 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { JobsService } from '../jobs/jobs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { connectorCredentials } from '../db/schema';
 
 @Injectable()
 export class AuthService {
-  private pendingConfigs = new Map<string, { config: Record<string, unknown>; returnTo?: string }>();
+  private readonly logger = new Logger(AuthService.name);
+  private pendingConfigs = new Map<string, { config: Record<string, unknown>; returnTo?: string; userId?: string }>();
   private creatingAccounts = new Set<string>();
 
   constructor(
@@ -19,6 +21,7 @@ export class AuthService {
     private jobsService: JobsService,
     private events: EventsService,
     private dbService: DbService,
+    private crypto: CryptoService,
     private analytics: AnalyticsService,
   ) {}
 
@@ -30,7 +33,8 @@ export class AuthService {
         .where(eq(connectorCredentials.connectorType, connectorType))
         .get();
       if (!row) return null;
-      const parsed = JSON.parse(row.credentials);
+      const decrypted = this.crypto.decrypt(row.credentials) || row.credentials;
+      const parsed = JSON.parse(decrypted);
       return typeof parsed === 'object' && parsed !== null ? parsed : null;
     } catch {
       return null;
@@ -48,35 +52,36 @@ export class AuthService {
     if (Object.keys(toSave).length === 0) return;
 
     const now = new Date().toISOString();
+    const encrypted = this.crypto.encrypt(JSON.stringify(toSave))!;
     this.dbService.db
       .insert(connectorCredentials)
-      .values({ connectorType, credentials: JSON.stringify(toSave), updatedAt: now })
+      .values({ connectorType, credentials: encrypted, updatedAt: now })
       .onConflictDoUpdate({
         target: connectorCredentials.connectorType,
-        set: { credentials: JSON.stringify(toSave), updatedAt: now },
+        set: { credentials: encrypted, updatedAt: now },
       })
       .run();
   }
 
   /** Create account, validate auth, trigger first sync. Returns existing account if already connected. */
-  private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>) {
-    console.log(`[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}`);
+  private async createAndSync(connectorType: string, identifier: string, auth: Record<string, unknown>, userId?: string) {
+    this.logger.log(`[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}, userId=${userId}`);
     // Acquire lock BEFORE any async work — JS is single-threaded so this
     // synchronous check+set is atomic (no await between has() and add())
     const lockKey = `${connectorType}:${identifier}`;
     if (this.creatingAccounts.has(lockKey)) {
-      console.warn(`[Auth] createAndSync: lock already held for ${lockKey}, waiting...`);
+      this.logger.warn(`[Auth] createAndSync: lock already held for ${lockKey}, waiting...`);
       // Instead of throwing, wait briefly and return existing account
       await new Promise((r) => setTimeout(r, 2000));
-      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
+      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier, userId);
       if (existing) return existing;
       throw new BadRequestException(`Account ${identifier} is already being created`);
     }
     this.creatingAccounts.add(lockKey);
 
     try {
-      // Prevent duplicate accounts for the same connector + identifier
-      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier);
+      // Prevent duplicate accounts for the same connector + identifier FOR THIS USER
+      const existing = await this.accountsService.findByTypeAndIdentifier(connectorType, identifier, userId);
       if (existing) {
         // Update auth context and re-sync instead of throwing
         await this.accountsService.update(existing.id, {
@@ -97,6 +102,7 @@ export class AuthService {
         connectorType,
         identifier,
         authContext: JSON.stringify(auth),
+        userId,
       });
 
       this.analytics.capture('connector_setup', {
@@ -117,7 +123,7 @@ export class AuthService {
     }
   }
 
-  async initiate(connectorType: string, config: Record<string, unknown>) {
+  async initiate(connectorType: string, config: Record<string, unknown>, userId?: string) {
     const connector = this.connectors.get(connectorType);
     const { returnTo, ...connectorConfig } = config;
 
@@ -133,13 +139,13 @@ export class AuthService {
 
     if (result.type === 'complete') {
       const identifier = result.auth.identifier || (result.auth as any).raw?.email || (config.identifier as string) || connectorType;
-      const account = await this.createAndSync(connectorType, identifier, result.auth as Record<string, unknown>);
+      const account = await this.createAndSync(connectorType, identifier, result.auth as Record<string, unknown>, userId);
       return { type: 'complete' as const, account };
     }
 
     if (result.type === 'qr-code') {
       // Listen for the connector's 'connected' event (fires when user scans QR)
-      this.listenForQrCompletion(connector, connectorType, result.wsChannel);
+      this.listenForQrCompletion(connector, connectorType, result.wsChannel, userId);
 
       return {
         type: 'qr-code' as const,
@@ -151,6 +157,7 @@ export class AuthService {
     this.pendingConfigs.set(connectorType, {
       config: mergedConfig,
       returnTo: returnTo as string | undefined,
+      userId,
     });
 
     this.saveCredentials(connectorType, mergedConfig);
@@ -162,7 +169,7 @@ export class AuthService {
   private activeQrListeners = new Map<string, boolean>();
 
   /** After returning QR to frontend, listen for the connector's 'connected' event */
-  private listenForQrCompletion(connector: any, connectorType: string, wsChannel: string) {
+  private listenForQrCompletion(connector: any, connectorType: string, wsChannel: string, userId?: string) {
     // Remove any previous listeners for this connector type
     if (this.activeQrListeners.get(connectorType)) {
       connector.removeAllListeners('connected');
@@ -171,10 +178,10 @@ export class AuthService {
 
     let handled = false;
     const handler = async (payload: { wsChannel: string; sessionDir: string; auth: any }) => {
-      console.log(`[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`);
+      this.logger.log(`[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`);
       // Guard against duplicate connected events
       if (handled) {
-        console.warn(`[Auth] Ignoring duplicate 'connected' event for ${connectorType}`);
+        this.logger.warn(`[Auth] Ignoring duplicate 'connected' event for ${connectorType}`);
         return;
       }
       handled = true;
@@ -191,7 +198,7 @@ export class AuthService {
         const auth = payload.auth;
         const jid = auth?.raw?.jid || '';
         const identifier = jid.split('@')[0]?.split(':')[0] || connectorType;
-        console.log(`[Auth] Creating account for ${connectorType} identifier=${identifier}`);
+        this.logger.log(`[Auth] Creating account for ${connectorType} identifier=${identifier}`);
 
         // Step 2: Creating account
         this.events.emitToChannel(wsChannel, 'auth:status', {
@@ -199,8 +206,8 @@ export class AuthService {
           step: `Connected as ${identifier}, setting up...`,
         });
 
-        const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>);
-        console.log(`[Auth] Account created: id=${account.id}, identifier=${identifier}`);
+        const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
+        this.logger.log(`[Auth] Account created: id=${account.id}, identifier=${identifier}`);
 
         // Step 3: Done — broadcast completion
         this.events.emitToChannel(wsChannel, 'auth:status', {
@@ -210,7 +217,7 @@ export class AuthService {
           identifier,
         });
       } catch (err: any) {
-        console.error(`[Auth] QR completion error for ${connectorType}:`, err.message);
+        this.logger.error(`[Auth] QR completion error for ${connectorType}: ${err.message}`, err instanceof Error ? err.stack : String(err));
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'failed',
           step: err.message || 'Failed to complete authentication',
@@ -244,12 +251,12 @@ export class AuthService {
     this.pendingConfigs.delete(connectorType);
 
     const identifier = auth.identifier || (auth as any).raw?.email || (params.identifier as string) || connectorType;
-    const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>);
+    const account = await this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, pending?.userId);
 
     return { account, returnTo: pending?.returnTo };
   }
 
-  async complete(connectorType: string, body: { accountId?: string; params: Record<string, unknown> }) {
+  async complete(connectorType: string, body: { accountId?: string; params: Record<string, unknown> }, userId?: string) {
     const connector = this.connectors.get(connectorType);
     const auth = await connector.completeAuth(body.params);
 
@@ -261,6 +268,6 @@ export class AuthService {
     }
 
     const identifier = (body.params.identifier as string) || auth.identifier || (auth as any).raw?.email || connectorType;
-    return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>);
+    return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
   }
 }

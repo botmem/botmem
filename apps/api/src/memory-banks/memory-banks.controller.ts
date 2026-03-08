@@ -2,6 +2,8 @@ import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/commo
 import { MemoryBanksService } from './memory-banks.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CreateMemoryBankDto } from './dto/create-memory-bank.dto';
+import { RenameMemoryBankDto } from './dto/rename-memory-bank.dto';
 
 @Controller('memory-banks')
 export class MemoryBanksController {
@@ -23,9 +25,9 @@ export class MemoryBanksController {
   @Post()
   async create(
     @CurrentUser() user: { id: string },
-    @Body() body: { name: string },
+    @Body() dto: CreateMemoryBankDto,
   ) {
-    return this.memoryBanksService.create(user.id, body.name);
+    return this.memoryBanksService.create(user.id, dto.name);
   }
 
   @RequiresJwt()
@@ -33,9 +35,9 @@ export class MemoryBanksController {
   async rename(
     @CurrentUser() user: { id: string },
     @Param('id') id: string,
-    @Body() body: { name: string },
+    @Body() dto: RenameMemoryBankDto,
   ) {
-    return this.memoryBanksService.rename(user.id, id, body.name);
+    return this.memoryBanksService.rename(user.id, id, dto.name);
   }
 
   @RequiresJwt()
