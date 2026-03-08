@@ -159,7 +159,11 @@ Plans:
   1. Running enrichment on a new memory produces entities with types from the canonical set only (person, organization, location, event, product, topic, pet) -- no freeform or inconsistent types
   2. Querying existing memories shows zero entities with non-canonical types (backfill has normalized all legacy data)
   3. Searching `/entities/search?q=Nugget&type=pet` returns only entities matching that type, and omitting the type parameter returns all matching entities regardless of type
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 08-01-PLAN.md -- Structured output entity extraction with canonical types (ENT-01)
+- [ ] 08-02-PLAN.md -- Backfill migration + type-filtered entity search (ENT-02, ENT-03)
 
 ### Phase 8.1: Contact Auto-Merge (INSERTED)
 **Goal**: Obvious contact duplicates are auto-merged without manual review, reducing the merge queue by ~90% while preserving safety for ambiguous person-name matches
@@ -282,7 +286,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 5. SDK Feature Enablement | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 6. Verification and Dashboards | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 7. Test Infrastructure Fixes | v1.3 | 2/2 | Complete | 2026-03-08 |
-| 8. Entity Type Taxonomy | v1.4 | 0/? | Not started | - |
+| 8. Entity Type Taxonomy | v1.4 | 0/2 | Not started | - |
 | 8.1 Contact Auto-Merge | v1.4 | 0/? | Not started | - |
 | 9. NLQ Parsing | v1.4 | 0/? | Not started | - |
 | 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
