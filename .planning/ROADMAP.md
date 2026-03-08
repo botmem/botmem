@@ -448,7 +448,10 @@ Plans:
   1. Running `docker compose up` starts Redis and Qdrant with health checks that report healthy within 30 seconds; running `docker compose --profile ollama up` additionally starts Ollama
   2. Running `make dev` starts Docker infrastructure (Redis + Qdrant) and then the application dev servers -- a single command from clone to running app
   3. Docker Compose services use pinned image versions (not `latest`) and all services have health check definitions
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 31-01-PLAN.md -- Docker Compose with health checks + Makefile command layer (DOCK-01, DOCK-02)
 
 ### Phase 32: Build Optimization
 **Goal**: Dependency versions are centralized so upgrades touch one file instead of ten, and code quality is enforced automatically on every commit and push
