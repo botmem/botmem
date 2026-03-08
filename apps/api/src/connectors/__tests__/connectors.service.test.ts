@@ -1,20 +1,39 @@
 import { describe, it, expect } from 'vitest';
 import { ConnectorsService } from '../connectors.service';
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '@botmem/connector-sdk';
+import type {
+  ConnectorManifest,
+  AuthContext,
+  AuthInitResult,
+  SyncResult,
+} from '@botmem/connector-sdk';
 
 class FakeConnector extends BaseConnector {
   readonly manifest: ConnectorManifest = {
-    id: 'fake', name: 'Fake', description: 'Fake connector',
-    color: '#000', icon: 'test', authType: 'api-key',
+    id: 'fake',
+    name: 'Fake',
+    description: 'Fake connector',
+    color: '#000',
+    icon: 'test',
+    authType: 'api-key',
     configSchema: { type: 'object', properties: { key: { type: 'string' } } },
-    entities: ['person'], pipeline: { clean: true, embed: true, enrich: true }, trustScore: 0.7,
+    entities: ['person'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.7,
   };
-  async initiateAuth(): Promise<AuthInitResult> { return { type: 'complete', auth: {} }; }
-  async completeAuth(): Promise<AuthContext> { return {}; }
-  async validateAuth(): Promise<boolean> { return true; }
+  async initiateAuth(): Promise<AuthInitResult> {
+    return { type: 'complete', auth: {} };
+  }
+  async completeAuth(): Promise<AuthContext> {
+    return {};
+  }
+  async validateAuth(): Promise<boolean> {
+    return true;
+  }
   async revokeAuth(): Promise<void> {}
-  async sync(): Promise<SyncResult> { return { cursor: null, hasMore: false, processed: 0 }; }
+  async sync(): Promise<SyncResult> {
+    return { cursor: null, hasMore: false, processed: 0 };
+  }
 }
 
 describe('ConnectorsService', () => {

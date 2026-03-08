@@ -7,7 +7,7 @@ import { OllamaService } from '../memory/ollama.service';
 import { QdrantService } from '../memory/qdrant.service';
 import { ContactsService, ContactWithIdentifiers } from '../contacts/contacts.service';
 import { ConfigService } from '../config/config.service';
-import { memories, contacts, contactIdentifiers, memoryContacts } from '../db/schema';
+import { memories, contacts, memoryContacts } from '../db/schema';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -70,14 +70,19 @@ export class AgentService {
 
   async ask(
     query: string,
-    options?: { filters?: { sourceType?: string; connectorType?: string; contactId?: string }; limit?: number },
+    options?: {
+      filters?: { sourceType?: string; connectorType?: string; contactId?: string };
+      limit?: number;
+    },
   ): Promise<{ results: EnrichedMemory[]; query: string }> {
     const limit = options?.limit ?? 20;
-    const { items: searchResults } = await this.memoryService.search(query, options?.filters, limit);
-
-    const enriched = await Promise.all(
-      searchResults.map((r) => this.enrichMemory(r.id, r.score)),
+    const { items: searchResults } = await this.memoryService.search(
+      query,
+      options?.filters,
+      limit,
     );
+
+    const enriched = await Promise.all(searchResults.map((r) => this.enrichMemory(r.id, r.score)));
 
     // Group by thread (same sourceId prefix for emails, or same sourceId for conversations)
     const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
@@ -87,13 +92,15 @@ export class AgentService {
 
   // ── timeline ───────────────────────────────────────────────────────
 
-  async timeline(options: {
-    contactId?: string;
-    connectorType?: string;
-    sourceType?: string;
-    days?: number;
-    limit?: number;
-  } = {}): Promise<{ results: Record<string, EnrichedMemory[]>; totalCount: number }> {
+  async timeline(
+    options: {
+      contactId?: string;
+      connectorType?: string;
+      sourceType?: string;
+      days?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ results: Record<string, EnrichedMemory[]>; totalCount: number }> {
     const db = this.dbService.db;
     const days = options.days ?? 7;
     const limit = options.limit ?? 100;
@@ -147,10 +154,7 @@ export class AgentService {
 
   // ── remember ───────────────────────────────────────────────────────
 
-  async remember(
-    text: string,
-    metadata?: Record<string, unknown>,
-  ): Promise<EnrichedMemory> {
+  async remember(text: string, metadata?: Record<string, unknown>): Promise<EnrichedMemory> {
     const id = randomUUID();
     const now = new Date().toISOString();
 
@@ -197,9 +201,7 @@ export class AgentService {
 
     await this.memoryService.delete(memoryId);
     // Also clean up memory_contacts links
-    await this.dbService.db
-      .delete(memoryContacts)
-      .where(eq(memoryContacts.memoryId, memoryId));
+    await this.dbService.db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memoryId));
 
     return { deleted: true };
   }
@@ -241,7 +243,12 @@ export class AgentService {
       ? await db
           .select()
           .from(memories)
-          .where(sql`${memories.id} IN (${sql.join(memoryIdSet.map((id) => sql`${id}`), sql`, `)})`)
+          .where(
+            sql`${memories.id} IN (${sql.join(
+              memoryIdSet.map((id) => sql`${id}`),
+              sql`, `,
+            )})`,
+          )
           .orderBy(desc(memories.eventTime))
           .limit(50)
       : [];
@@ -266,7 +273,12 @@ export class AgentService {
           count: sql<number>`COUNT(*)`,
         })
         .from(memories)
-        .where(sql`${memories.id} IN (${sql.join(memoryIdSet.map((id) => sql`${id}`), sql`, `)})`)
+        .where(
+          sql`${memories.id} IN (${sql.join(
+            memoryIdSet.map((id) => sql`${id}`),
+            sql`, `,
+          )})`,
+        )
         .groupBy(memories.connectorType);
       for (const row of connectorCounts) {
         byConnector[row.connectorType] = row.count;
@@ -287,7 +299,12 @@ export class AgentService {
         const earliestRow = await db
           .select({ eventTime: memories.eventTime })
           .from(memories)
-          .where(sql`${memories.id} IN (${sql.join(memoryIdSet.map((id) => sql`${id}`), sql`, `)})`)
+          .where(
+            sql`${memories.id} IN (${sql.join(
+              memoryIdSet.map((id) => sql`${id}`),
+              sql`, `,
+            )})`,
+          )
           .orderBy(memories.eventTime)
           .limit(1);
         if (earliestRow.length) dateRange.earliest = earliestRow[0].eventTime;
@@ -349,7 +366,11 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
   // ── status ─────────────────────────────────────────────────────────
 
   async status(): Promise<{
-    memories: { total: number; byConnector: Record<string, number>; bySource: Record<string, number> };
+    memories: {
+      total: number;
+      byConnector: Record<string, number>;
+      bySource: Record<string, number>;
+    };
     contacts: { total: number };
     embedding: { model: string; baseUrl: string };
   }> {
@@ -402,7 +423,11 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
       connectorType: mem.connectorType,
       eventTime: mem.eventTime,
       eventTimeRelative: relativeTime(mem.eventTime),
-      factuality: safeParse(mem.factuality, { label: 'UNVERIFIED', confidence: 0.5, rationale: '' }),
+      factuality: safeParse(mem.factuality, {
+        label: 'UNVERIFIED',
+        confidence: 0.5,
+        rationale: '',
+      }),
       entities: safeParse(mem.entities, []),
       weights: safeParse(mem.weights, {}),
       metadata: safeParse(mem.metadata, {}),

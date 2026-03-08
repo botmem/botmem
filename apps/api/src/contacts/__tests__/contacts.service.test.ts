@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ContactsService, normalizePhone, normalizeIdentifier } from '../contacts.service';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
-import { accounts, contacts, contactIdentifiers, memoryContacts, memories, mergeDismissals } from '../../db/schema';
+import { accounts, contacts, contactIdentifiers, memoryContacts, memories } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 function makeDbService(db: any) {
@@ -227,9 +227,15 @@ describe('ContactsService', () => {
 
   describe('list', () => {
     it('returns paginated contacts', async () => {
-      await service.resolveContact([{ type: 'email', value: 'a@test.com', connectorType: 'gmail' }]);
-      await service.resolveContact([{ type: 'email', value: 'b@test.com', connectorType: 'gmail' }]);
-      await service.resolveContact([{ type: 'email', value: 'c@test.com', connectorType: 'gmail' }]);
+      await service.resolveContact([
+        { type: 'email', value: 'a@test.com', connectorType: 'gmail' },
+      ]);
+      await service.resolveContact([
+        { type: 'email', value: 'b@test.com', connectorType: 'gmail' },
+      ]);
+      await service.resolveContact([
+        { type: 'email', value: 'c@test.com', connectorType: 'gmail' },
+      ]);
 
       const page1 = await service.list({ limit: 2, offset: 0 });
       expect(page1.items).toHaveLength(2);

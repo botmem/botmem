@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OllamaService } from '../ollama.service';
 import { ConfigService } from '../../config/config.service';
 

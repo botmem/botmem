@@ -4,7 +4,6 @@ import { PluginRegistry } from '../plugin-registry';
 import { ConnectorsService } from '../../connectors/connectors.service';
 import { ConfigService } from '../../config/config.service';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 
 vi.mock('fs/promises');
 
@@ -27,7 +26,11 @@ function createMocks() {
 }
 
 /** Create a PluginsService with loadBuiltin mocked to prevent hanging on WhatsApp warm session */
-function createService(connectors: ConnectorsService, config: ConfigService, registry: PluginRegistry) {
+function createService(
+  connectors: ConnectorsService,
+  config: ConfigService,
+  registry: PluginRegistry,
+) {
   const service = new PluginsService(connectors, config, registry);
   (service as any).loadBuiltin = vi.fn().mockResolvedValue(undefined);
   return service;
@@ -168,9 +171,7 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry);
-      (service as any)._importPlugin = vi
-        .fn()
-        .mockRejectedValue(new Error('Cannot find module'));
+      (service as any)._importPlugin = vi.fn().mockRejectedValue(new Error('Cannot find module'));
 
       await expect(service.loadAll()).resolves.toBeUndefined();
     });

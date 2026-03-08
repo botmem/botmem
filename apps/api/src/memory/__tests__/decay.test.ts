@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Tests for DecayProcessor logic.
@@ -8,19 +8,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 
 // Replicate the decay recency/importance computation for unit testing
-function computeDecayWeights(mem: {
-  eventTime: string;
-  pinned: number;
-  recallCount: number;
-  connectorType: string;
-  entities: string;
-  weights: string;
-}, getTrustScore: (ct: string) => number = () => 0.7): {
+function computeDecayWeights(
+  mem: {
+    eventTime: string;
+    pinned: number;
+    recallCount: number;
+    connectorType: string;
+    entities: string;
+    weights: string;
+  },
+  getTrustScore: (ct: string) => number = () => 0.7,
+): {
   recency: number;
   importance: number;
   trust: number;
   final: number;
-  weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
+  weights: {
+    semantic: number;
+    rerank: number;
+    recency: number;
+    importance: number;
+    trust: number;
+    final: number;
+  };
 } {
   const isPinned = mem.pinned === 1;
   const recallCount = mem.recallCount || 0;
@@ -31,24 +41,29 @@ function computeDecayWeights(mem: {
   let entityCount = 0;
   try {
     entityCount = JSON.parse(mem.entities).length;
-  } catch {}
+  } catch {
+    /* empty */
+  }
   const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
   const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
   const trust = getTrustScore(mem.connectorType);
 
   // Parse existing weights to preserve semantic/rerank
-  let existingWeights = { semantic: 0, rerank: 0 };
+  const existingWeights = { semantic: 0, rerank: 0 };
   try {
     const parsed = JSON.parse(mem.weights);
     existingWeights.semantic = parsed.semantic ?? 0;
     existingWeights.rerank = parsed.rerank ?? 0;
-  } catch {}
+  } catch {
+    /* empty */
+  }
 
   const { semantic, rerank } = existingWeights;
 
-  let final = rerank > 0
-    ? 0.40 * semantic + 0.30 * rerank + 0.15 * recency + 0.10 * importance + 0.05 * trust
-    : 0.70 * semantic + 0.15 * recency + 0.10 * importance + 0.05 * trust;
+  let final =
+    rerank > 0
+      ? 0.4 * semantic + 0.3 * rerank + 0.15 * recency + 0.1 * importance + 0.05 * trust
+      : 0.7 * semantic + 0.15 * recency + 0.1 * importance + 0.05 * trust;
 
   if (isPinned) final = Math.max(final, 0.75);
 
@@ -69,7 +84,14 @@ describe('DecayProcessor logic', () => {
       recallCount: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({ semantic: 0.8, rerank: 0, recency: 1.0, importance: 0.5, trust: 0.7, final: 0.6 }),
+      weights: JSON.stringify({
+        semantic: 0.8,
+        rerank: 0,
+        recency: 1.0,
+        importance: 0.5,
+        trust: 0.7,
+        final: 0.6,
+      }),
     };
 
     const result = computeDecayWeights(mem);
@@ -86,7 +108,14 @@ describe('DecayProcessor logic', () => {
       recallCount: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({ semantic: 0.5, rerank: 0, recency: 0.1, importance: 0.5, trust: 0.7, final: 0.3 }),
+      weights: JSON.stringify({
+        semantic: 0.5,
+        rerank: 0,
+        recency: 0.1,
+        importance: 0.5,
+        trust: 0.7,
+        final: 0.3,
+      }),
     };
 
     const result = computeDecayWeights(mem);
@@ -120,7 +149,14 @@ describe('DecayProcessor logic', () => {
       recallCount: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({ semantic: 0.92, rerank: 0.85, recency: 1.0, importance: 0.5, trust: 0.7, final: 0.8 }),
+      weights: JSON.stringify({
+        semantic: 0.92,
+        rerank: 0.85,
+        recency: 1.0,
+        importance: 0.5,
+        trust: 0.7,
+        final: 0.8,
+      }),
     };
 
     const result = computeDecayWeights(mem);
@@ -138,7 +174,14 @@ describe('DecayProcessor logic', () => {
       pinned: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({ semantic: 0.5, rerank: 0, recency: 0.9, importance: 0.5, trust: 0.7, final: 0.5 }),
+      weights: JSON.stringify({
+        semantic: 0.5,
+        rerank: 0,
+        recency: 0.9,
+        importance: 0.5,
+        trust: 0.7,
+        final: 0.5,
+      }),
     };
 
     const result10 = computeDecayWeights({ ...baseMem, recallCount: 10 });

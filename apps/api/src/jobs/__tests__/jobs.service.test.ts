@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { JobsService } from '../jobs.service';
 import { DbService } from '../../db/db.service';
 import { createTestDb } from '../../__tests__/helpers/db.helper';
@@ -20,9 +20,14 @@ function createService() {
 async function seedAccount(db: any) {
   const now = new Date().toISOString();
   await db.insert(accounts).values({
-    id: 'acc-1', connectorType: 'gmail', identifier: 'test@gmail.com',
-    status: 'connected', schedule: 'manual', itemsSynced: 0,
-    createdAt: now, updatedAt: now,
+    id: 'acc-1',
+    connectorType: 'gmail',
+    identifier: 'test@gmail.com',
+    status: 'connected',
+    schedule: 'manual',
+    itemsSynced: 0,
+    createdAt: now,
+    updatedAt: now,
   });
 }
 

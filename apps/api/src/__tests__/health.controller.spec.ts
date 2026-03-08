@@ -13,10 +13,10 @@ vi.mock('ioredis', () => {
   return { default: MockRedis, __mockPing: mockPing, __mockDisconnect: mockDisconnect };
 });
 
-import Redis from 'ioredis';
+import 'ioredis';
 
 // Access mock internals
-const ioredisMock = await import('ioredis') as any;
+const ioredisMock = (await import('ioredis')) as any;
 const mockPing: ReturnType<typeof vi.fn> = ioredisMock.__mockPing;
 
 describe('HealthController', () => {

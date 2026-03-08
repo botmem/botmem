@@ -5,7 +5,7 @@
 
 const isColor = process.stdout.isTTY !== false && !process.env['NO_COLOR'];
 
-const esc = (code: string) => (s: string) => isColor ? `\x1b[${code}m${s}\x1b[0m` : s;
+const esc = (code: string) => (s: string) => (isColor ? `\x1b[${code}m${s}\x1b[0m` : s);
 
 export const dim = esc('2');
 export const bold = esc('1');
@@ -40,12 +40,17 @@ function statusDot(status: string): string {
   switch (status) {
     case 'done':
     case 'completed':
-    case 'active': return green('\u25cf');
-    case 'running': return yellow('\u25cf');
-    case 'failed': return red('\u25cf');
+    case 'active':
+      return green('\u25cf');
+    case 'running':
+      return yellow('\u25cf');
+    case 'failed':
+      return red('\u25cf');
     case 'queued':
-    case 'waiting': return dim('\u25cb');
-    default: return dim('\u25cb');
+    case 'waiting':
+      return dim('\u25cb');
+    default:
+      return dim('\u25cb');
   }
 }
 
@@ -54,7 +59,13 @@ function progressBar(progress: number | null, total: number | null, width = 20):
   const pct = Math.min(progress / total, 1);
   const filled = Math.round(pct * width);
   const empty = width - filled;
-  return dim('[') + green('\u2588'.repeat(filled)) + dim('\u2591'.repeat(empty)) + dim(']') + ` ${Math.round(pct * 100)}%`;
+  return (
+    dim('[') +
+    green('\u2588'.repeat(filled)) +
+    dim('\u2591'.repeat(empty)) +
+    dim(']') +
+    ` ${Math.round(pct * 100)}%`
+  );
 }
 
 function commaNum(n: number): string {
@@ -63,23 +74,27 @@ function commaNum(n: number): string {
 
 // --- Public formatters ---
 
-export function formatSearchResults(results: Array<{
-  id: string;
-  text: string;
-  sourceType: string;
-  connectorType: string;
-  eventTime: string;
-  score?: number;
-  weights?: { final: number };
-}>): string {
+export function formatSearchResults(
+  results: Array<{
+    id: string;
+    text: string;
+    sourceType: string;
+    connectorType: string;
+    eventTime: string;
+    score?: number;
+    weights?: { final: number };
+  }>,
+): string {
   if (!results.length) return dim('No results found.');
-  return results.map((r, i) => {
-    const score = r.weights?.final ?? r.score ?? 0;
-    const header = `${bold(`#${i + 1}`)} ${dim(`(${score.toFixed(4)})`)} ${dim(`[${r.sourceType}/${r.connectorType}]`)} ${dim(timeAgo(r.eventTime))}`;
-    const body = `  ${truncate(r.text, 120)}`;
-    const id = `  ${dim(r.id)}`;
-    return `${header}\n${body}\n${id}`;
-  }).join('\n\n');
+  return results
+    .map((r, i) => {
+      const score = r.weights?.final ?? r.score ?? 0;
+      const header = `${bold(`#${i + 1}`)} ${dim(`(${score.toFixed(4)})`)} ${dim(`[${r.sourceType}/${r.connectorType}]`)} ${dim(timeAgo(r.eventTime))}`;
+      const body = `  ${truncate(r.text, 120)}`;
+      const id = `  ${dim(r.id)}`;
+      return `${header}\n${body}\n${id}`;
+    })
+    .join('\n\n');
 }
 
 export function formatMemory(m: {
@@ -104,22 +119,29 @@ export function formatMemory(m: {
     try {
       const ents = JSON.parse(m.entities);
       if (Array.isArray(ents) && ents.length) {
-        lines.push(`${dim('Entities:')} ${ents.map((e: any) => e.value || e.name || e.id || String(e)).join(', ')}`);
+        lines.push(
+          `${dim('Entities:')} ${ents.map((e: any) => e.value || e.name || e.id || String(e)).join(', ')}`,
+        );
       }
-    } catch {}
+    } catch {
+      /* non-JSON entities, skip */
+    }
   }
   lines.push('');
   lines.push(m.text);
   return lines.join('\n');
 }
 
-export function formatMemoryList(items: Array<{
-  id: string;
-  text: string;
-  sourceType: string;
-  connectorType: string;
-  eventTime: string;
-}>, total: number): string {
+export function formatMemoryList(
+  items: Array<{
+    id: string;
+    text: string;
+    sourceType: string;
+    connectorType: string;
+    eventTime: string;
+  }>,
+  total: number,
+): string {
   if (!items.length) return dim('No memories found.');
   const lines = items.map((m) => {
     return `${dim(timeAgo(m.eventTime).padEnd(8))} ${dim(`[${m.sourceType}/${m.connectorType}]`.padEnd(20))} ${truncate(m.text, 80)}  ${dim(m.id)}`;
@@ -144,14 +166,20 @@ export function formatContact(c: {
   return lines.join('\n');
 }
 
-export function formatContactList(items: Array<{
-  id: string;
-  displayName: string;
-  identifiers: Array<{ identifierType: string; identifierValue: string }>;
-}>, total: number): string {
+export function formatContactList(
+  items: Array<{
+    id: string;
+    displayName: string;
+    identifiers: Array<{ identifierType: string; identifierValue: string }>;
+  }>,
+  total: number,
+): string {
   if (!items.length) return dim('No contacts found.');
   const lines = items.map((c) => {
-    const idents = c.identifiers.slice(0, 3).map(i => i.identifierValue).join(', ');
+    const idents = c.identifiers
+      .slice(0, 3)
+      .map((i) => i.identifierValue)
+      .join(', ');
     return `${bold(c.displayName.padEnd(25))} ${dim(idents)}  ${dim(c.id)}`;
   });
   lines.push('');
@@ -189,17 +217,19 @@ export function formatJob(j: {
   return parts.join(' ');
 }
 
-export function formatJobList(jobs: Array<{
-  id: string;
-  connector: string;
-  accountIdentifier: string | null;
-  status: string;
-  progress: number | null;
-  total: number | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  error: string | null;
-}>): string {
+export function formatJobList(
+  jobs: Array<{
+    id: string;
+    connector: string;
+    accountIdentifier: string | null;
+    status: string;
+    progress: number | null;
+    total: number | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    error: string | null;
+  }>,
+): string {
   if (!jobs.length) return dim('No jobs found.');
   return jobs.map(formatJob).join('\n');
 }
@@ -230,46 +260,65 @@ export function formatStats(stats: {
   return lines.join('\n');
 }
 
-export function formatAccounts(accounts: Array<{
-  id: string;
-  type: string;
-  identifier: string;
-  status: string;
-  lastSync: string | null;
-  memoriesIngested: number | null;
-}>): string {
+export function formatAccounts(
+  accounts: Array<{
+    id: string;
+    type: string;
+    identifier: string;
+    status: string;
+    lastSync: string | null;
+    memoriesIngested: number | null;
+  }>,
+): string {
   if (!accounts.length) return dim('No connected accounts.');
-  return accounts.map(a => {
-    return `${statusDot(a.status)} ${a.type.padEnd(12)} ${a.identifier.padEnd(30)} ${dim('synced ' + timeAgo(a.lastSync))}  ${commaNum(a.memoriesIngested ?? 0)} memories  ${dim(a.id)}`;
-  }).join('\n');
+  return accounts
+    .map((a) => {
+      return `${statusDot(a.status)} ${a.type.padEnd(12)} ${a.identifier.padEnd(30)} ${dim('synced ' + timeAgo(a.lastSync))}  ${commaNum(a.memoriesIngested ?? 0)} memories  ${dim(a.id)}`;
+    })
+    .join('\n');
 }
 
 export function formatStatus(
   stats: { total: number; bySource: Record<string, number> },
   queues: Record<string, { waiting: number; active: number; failed: number }>,
-  accounts: Array<{ id: string; type: string; identifier: string; status: string; lastSync: string | null; memoriesIngested: number | null }>,
+  accounts: Array<{
+    id: string;
+    type: string;
+    identifier: string;
+    status: string;
+    lastSync: string | null;
+    memoriesIngested: number | null;
+  }>,
 ): string {
   const lines: string[] = [];
   lines.push(bold('BOTMEM STATUS'));
   lines.push(dim('\u2500'.repeat(40)));
 
-  const srcBreakdown = Object.entries(stats.bySource).map(([k, v]) => `${k}: ${commaNum(v)}`).join(', ');
+  const srcBreakdown = Object.entries(stats.bySource)
+    .map(([k, v]) => `${k}: ${commaNum(v)}`)
+    .join(', ');
   lines.push(`${dim('Memories:')}  ${commaNum(stats.total)}  ${dim(`(${srcBreakdown})`)}`);
 
-  let totalActive = 0, totalWaiting = 0, totalFailed = 0;
+  let totalActive = 0,
+    totalWaiting = 0,
+    totalFailed = 0;
   for (const q of Object.values(queues)) {
     totalActive += q.active;
     totalWaiting += q.waiting;
     totalFailed += q.failed;
   }
-  lines.push(`${dim('Pending:')}   ${totalActive + totalWaiting}  ${dim(`(${totalActive} active, ${totalWaiting} waiting)`)}`);
+  lines.push(
+    `${dim('Pending:')}   ${totalActive + totalWaiting}  ${dim(`(${totalActive} active, ${totalWaiting} waiting)`)}`,
+  );
   lines.push(`${dim('Failed:')}    ${totalFailed}`);
 
   if (accounts.length) {
     lines.push('');
     lines.push(dim('Connectors:'));
     for (const a of accounts) {
-      lines.push(`  ${statusDot(a.status)} ${a.type.padEnd(12)} ${a.identifier.padEnd(25)} ${dim('synced ' + timeAgo(a.lastSync))}  ${commaNum(a.memoriesIngested ?? 0)} memories`);
+      lines.push(
+        `  ${statusDot(a.status)} ${a.type.padEnd(12)} ${a.identifier.padEnd(25)} ${dim('synced ' + timeAgo(a.lastSync))}  ${commaNum(a.memoriesIngested ?? 0)} memories`,
+      );
     }
   }
 

@@ -1,4 +1,9 @@
-import { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
+import {
+  makeWASocket,
+  useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
+  fetchLatestBaileysVersion,
+} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -75,7 +80,12 @@ function detectMessageType(msg: any): { type: string; mimeType?: string; fileNam
   if (m.videoMessage) return { type: 'video', mimeType: m.videoMessage.mimetype };
   if (m.audioMessage) return { type: 'audio', mimeType: m.audioMessage.mimetype };
   if (m.stickerMessage) return { type: 'sticker', mimeType: m.stickerMessage.mimetype };
-  if (m.documentMessage) return { type: 'document', mimeType: m.documentMessage.mimetype, fileName: m.documentMessage.fileName };
+  if (m.documentMessage)
+    return {
+      type: 'document',
+      mimeType: m.documentMessage.mimetype,
+      fileName: m.documentMessage.fileName,
+    };
   if (m.documentWithCaptionMessage?.message?.documentMessage) {
     const doc = m.documentWithCaptionMessage.message.documentMessage;
     return { type: 'document', mimeType: doc.mimetype, fileName: doc.fileName };
@@ -94,10 +104,12 @@ function extractContactCards(msg: any): Array<{ displayName: string; vcard: stri
   if (!m) return [];
 
   if (m.contactMessage) {
-    return [{
-      displayName: m.contactMessage.displayName || '',
-      vcard: m.contactMessage.vcard || '',
-    }];
+    return [
+      {
+        displayName: m.contactMessage.displayName || '',
+        vcard: m.contactMessage.vcard || '',
+      },
+    ];
   }
   if (m.contactsArrayMessage?.contacts) {
     return m.contactsArrayMessage.contacts.map((c: any) => ({
@@ -109,7 +121,9 @@ function extractContactCards(msg: any): Array<{ displayName: string; vcard: stri
 }
 
 /** Extract location data from a message */
-function extractLocation(msg: any): { lat: number; lng: number; name?: string; address?: string } | null {
+function extractLocation(
+  msg: any,
+): { lat: number; lng: number; name?: string; address?: string } | null {
   const loc = msg.message?.locationMessage || msg.message?.liveLocationMessage;
   if (!loc) return null;
   return {
@@ -157,11 +171,14 @@ function nameFromVcard(vcard: string): string {
 }
 
 /** Persist identity maps to the session directory so re-syncs can reuse them */
-function saveIdentityMaps(sessionDir: string, maps: {
-  lidToPhone: Map<string, string>;
-  phoneToName: Map<string, string>;
-  lidToName: Map<string, string>;
-}) {
+function saveIdentityMaps(
+  sessionDir: string,
+  maps: {
+    lidToPhone: Map<string, string>;
+    phoneToName: Map<string, string>;
+    lidToName: Map<string, string>;
+  },
+) {
   try {
     const data = {
       lidToPhone: Object.fromEntries(maps.lidToPhone),
@@ -169,7 +186,9 @@ function saveIdentityMaps(sessionDir: string, maps: {
       lidToName: Object.fromEntries(maps.lidToName),
     };
     writeFileSync(join(sessionDir, 'identity-maps.json'), JSON.stringify(data));
-  } catch { /* non-critical */ }
+  } catch {
+    /* non-critical */
+  }
 }
 
 /** Load previously saved identity maps */
@@ -187,11 +206,13 @@ function loadIdentityMaps(sessionDir: string): {
       phoneToName: new Map(Object.entries(data.phoneToName || {})),
       lidToName: new Map(Object.entries(data.lidToName || {})),
     };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // Emit data as it arrives — don't block waiting for more history
-const MAX_SYNC_MS = 10 * 60_000;  // 10 minutes hard deadline
+const MAX_SYNC_MS = 10 * 60_000; // 10 minutes hard deadline
 const IDLE_TIMEOUT_FIRST_MS = 30_000; // 30 seconds — process what we have, don't wait forever
 const IDLE_TIMEOUT_RESYNC_MS = 15_000; // 15 seconds for re-syncs
 
@@ -251,8 +272,8 @@ function resolveIdentity(
  * Extract mentioned JIDs from the message's context info.
  */
 function extractMentions(msg: any): string[] {
-  const ctx = msg.message?.extendedTextMessage?.contextInfo ||
-    msg.message?.conversation?.contextInfo;
+  const ctx =
+    msg.message?.extendedTextMessage?.contextInfo || msg.message?.conversation?.contextInfo;
   return ctx?.mentionedJid || [];
 }
 
@@ -275,8 +296,14 @@ export async function syncWhatsApp(
       const timeout = setTimeout(() => reject(new Error('WhatsApp connection timeout')), 30_000);
       sock.ev.on('connection.update', (update: any) => {
         ctx.logger.info(`connection.update: ${JSON.stringify(update)}`);
-        if (update.connection === 'open') { clearTimeout(timeout); resolve(); }
-        if (update.connection === 'close') { clearTimeout(timeout); reject(new Error('WhatsApp connection closed during sync')); }
+        if (update.connection === 'open') {
+          clearTimeout(timeout);
+          resolve();
+        }
+        if (update.connection === 'close') {
+          clearTimeout(timeout);
+          reject(new Error('WhatsApp connection closed during sync'));
+        }
       });
     });
   }
@@ -285,7 +312,9 @@ export async function syncWhatsApp(
   const selfPhone = phoneFromJid(selfJid);
   const isFirstSync = !!existingSock;
   const IDLE_TIMEOUT_MS = isFirstSync ? IDLE_TIMEOUT_FIRST_MS : IDLE_TIMEOUT_RESYNC_MS;
-  ctx.logger.info(`WhatsApp connected as ${selfPhone}, ${isFirstSync ? 'first sync — waiting for history' : 're-sync — short idle timeout'}...`);
+  ctx.logger.info(
+    `WhatsApp connected as ${selfPhone}, ${isFirstSync ? 'first sync — waiting for history' : 're-sync — short idle timeout'}...`,
+  );
 
   let processed = 0;
   let historyBatches = 0;
@@ -299,7 +328,9 @@ export async function syncWhatsApp(
   const groupParticipants = new Map<string, Set<string>>();
 
   if (saved) {
-    ctx.logger.info(`Loaded saved identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`);
+    ctx.logger.info(
+      `Loaded saved identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
+    );
   }
 
   // Buffer history messages — process them at the end after all identity maps are populated
@@ -364,7 +395,7 @@ export async function syncWhatsApp(
       groupParticipants.set(groupJid, new Set());
     }
     const members = groupParticipants.get(groupJid)!;
-    for (const p of (data.participants || [])) {
+    for (const p of data.participants || []) {
       if (data.action === 'remove') members.delete(p);
       else members.add(p);
     }
@@ -473,7 +504,10 @@ export async function syncWhatsApp(
       contextualText = `${senderLabel} sent a sticker`;
       if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
     } else if (msgType.type === 'contact_card') {
-      const names = contactCards.map((c) => c.displayName).filter(Boolean).join(', ');
+      const names = contactCards
+        .map((c) => c.displayName)
+        .filter(Boolean)
+        .join(', ');
       contextualText = `${senderLabel} shared contact${contactCards.length > 1 ? 's' : ''}: ${names}`;
       if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
     } else if (location) {
@@ -488,10 +522,7 @@ export async function syncWhatsApp(
     for (const m of mentions) {
       const mLabel = m.name ? `${m.name} (+${m.phone})` : `+${m.phone}`;
       if (m.phone) {
-        contextualText = contextualText.replace(
-          new RegExp(`@${m.phone}\\b`, 'g'),
-          `@${mLabel}`,
-        );
+        contextualText = contextualText.replace(new RegExp(`@${m.phone}\\b`, 'g'), `@${mLabel}`);
       }
     }
 
@@ -537,7 +568,12 @@ export async function syncWhatsApp(
 
     // Build attachment metadata
     const attachments: Array<{ mimeType: string; type: string; fileName?: string }> = [];
-    if (msgType.type !== 'text' && msgType.type !== 'contact_card' && msgType.type !== 'location' && msgType.mimeType) {
+    if (
+      msgType.type !== 'text' &&
+      msgType.type !== 'contact_card' &&
+      msgType.type !== 'location' &&
+      msgType.mimeType
+    ) {
       attachments.push({
         type: msgType.type,
         mimeType: msgType.mimeType,
@@ -603,10 +639,16 @@ export async function syncWhatsApp(
           fetchHistoryAttempts = 0; // Reset if we got new data
         }
 
-        if (oldestMsgKey && fetchHistoryAttempts < MAX_FETCH_ATTEMPTS && typeof (sock as any).fetchMessageHistory === 'function') {
+        if (
+          oldestMsgKey &&
+          fetchHistoryAttempts < MAX_FETCH_ATTEMPTS &&
+          typeof (sock as any).fetchMessageHistory === 'function'
+        ) {
           fetchHistoryAttempts++;
           lastBufferedCount = bufferedMessages.length;
-          ctx.logger.info(`Idle timeout — requesting more history before oldest msg (${new Date(oldestTimestamp * 1000).toISOString()}) attempt ${fetchHistoryAttempts}/${MAX_FETCH_ATTEMPTS}`);
+          ctx.logger.info(
+            `Idle timeout — requesting more history before oldest msg (${new Date(oldestTimestamp * 1000).toISOString()}) attempt ${fetchHistoryAttempts}/${MAX_FETCH_ATTEMPTS}`,
+          );
           try {
             await (sock as any).fetchMessageHistory(50, oldestMsgKey, oldestTimestamp);
             resetIdle();
@@ -615,7 +657,9 @@ export async function syncWhatsApp(
             ctx.logger.info(`fetchMessageHistory failed: ${err.message} — finishing`);
           }
         }
-        ctx.logger.info(`No new data for ${IDLE_TIMEOUT_MS / 1000}s, finishing (${bufferedMessages.length} buffered msgs)`);
+        ctx.logger.info(
+          `No new data for ${IDLE_TIMEOUT_MS / 1000}s, finishing (${bufferedMessages.length} buffered msgs)`,
+        );
         finish();
       }, IDLE_TIMEOUT_MS);
     };
@@ -625,7 +669,10 @@ export async function syncWhatsApp(
       finish();
     }, MAX_SYNC_MS);
 
-    if (ctx.signal.aborted) { finish(); return; }
+    if (ctx.signal.aborted) {
+      finish();
+      return;
+    }
     ctx.signal.addEventListener('abort', finish, { once: true });
 
     // History sync — buffer messages, index contacts immediately
@@ -669,8 +716,12 @@ export async function syncWhatsApp(
         }
       }
 
-      ctx.logger.info(`History batch #${historyBatches}: ${messages.length} msgs, ${chats.length} chats, ${contacts.length} contacts (progress: ${progress})`);
-      ctx.logger.info(`Identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name, ${chatNames.size} chats`);
+      ctx.logger.info(
+        `History batch #${historyBatches}: ${messages.length} msgs, ${chats.length} chats, ${contacts.length} contacts (progress: ${progress})`,
+      );
+      ctx.logger.info(
+        `Identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name, ${chatNames.size} chats`,
+      );
 
       // Buffer history messages — process after all batches arrive for best identity resolution
       let sampleGroupMsg = false;
@@ -685,7 +736,9 @@ export async function syncWhatsApp(
         // Debug: log a sample group message to see available fields
         const participantJid = msg.key?.participant || msg.participant || '';
         if (!sampleGroupMsg && participantJid && isLid(participantJid) && historyBatches === 1) {
-          ctx.logger.info(`Sample LID msg: participant=${participantJid} pushName=${msg.pushName || '(none)'} verifiedBizName=${msg.verifiedBizName || '(none)'} keys=${Object.keys(msg).join(',')}`);
+          ctx.logger.info(
+            `Sample LID msg: participant=${participantJid} pushName=${msg.pushName || '(none)'} verifiedBizName=${msg.verifiedBizName || '(none)'} keys=${Object.keys(msg).join(',')}`,
+          );
           sampleGroupMsg = true;
         }
       }
@@ -733,7 +786,9 @@ export async function syncWhatsApp(
         if (isLid(id)) allGroupLids.add(phoneFromJid(id));
       }
     }
-    ctx.logger.info(`Group metadata: ${Object.keys(groups).length} groups, ${totalParticipants} participants, ${allGroupLids.size} unique LIDs`);
+    ctx.logger.info(
+      `Group metadata: ${Object.keys(groups).length} groups, ${totalParticipants} participants, ${allGroupLids.size} unique LIDs`,
+    );
   } catch (err: any) {
     ctx.logger.info(`groupFetchAllParticipating failed: ${err.message}`);
   }
@@ -752,25 +807,46 @@ export async function syncWhatsApp(
         }
       }
     }
-    ctx.logger.info(`Unresolved LIDs: ${unresolvedCount} (from ${groupParticipants.size} groups). LID→phone mapping requires real-time messages.`);
+    ctx.logger.info(
+      `Unresolved LIDs: ${unresolvedCount} (from ${groupParticipants.size} groups). LID→phone mapping requires real-time messages.`,
+    );
   }
 
   // Save identity maps for future re-syncs
   saveIdentityMaps(sessionDir, { lidToPhone, phoneToName, lidToName });
-  ctx.logger.info(`Identity maps before processing: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`);
+  ctx.logger.info(
+    `Identity maps before processing: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
+  );
 
   // Process all buffered history messages now that identity maps are fully populated
-  ctx.logger.info(`Processing ${bufferedMessages.length} buffered history messages with ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name mappings`);
+  ctx.logger.info(
+    `Processing ${bufferedMessages.length} buffered history messages with ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name mappings`,
+  );
   for (const { msg, source } of bufferedMessages) {
     processMessage(msg, source);
   }
 
   // Emit contact events for all resolved identities
-  emitContactEvents(ctx, emit, selfPhone, phoneToName, lidToPhone, lidToName, chatNames, groupParticipants);
+  emitContactEvents(
+    ctx,
+    emit,
+    selfPhone,
+    phoneToName,
+    lidToPhone,
+    lidToName,
+    chatNames,
+    groupParticipants,
+  );
 
-  try { sock.ws?.close(); } catch { /* ignore */ }
+  try {
+    sock.ws?.close();
+  } catch {
+    /* ignore */
+  }
 
-  ctx.logger.info(`Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`);
+  ctx.logger.info(
+    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
+  );
   return { cursor: null, hasMore: false, processed };
 }
 
@@ -873,7 +949,9 @@ function emitContactEvents(
     });
   }
 
-  ctx.logger.info(`Emitted ${emittedPhones.size} contact events and ${chatNames.size} group events`);
+  ctx.logger.info(
+    `Emitted ${emittedPhones.size} contact events and ${chatNames.size} group events`,
+  );
 }
 
 function buildSenderLabel(name: string, phone: string, isGroup?: boolean): string {

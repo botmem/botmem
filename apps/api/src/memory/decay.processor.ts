@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { memories } from '../db/schema';
@@ -49,7 +49,9 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
         let entityCount = 0;
         try {
           entityCount = JSON.parse(mem.entities).length;
-        } catch {}
+        } catch {
+          /* empty */
+        }
         const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
         const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
         const trust = this.getTrustScore(mem.connectorType);
@@ -61,20 +63,20 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
           const parsed = JSON.parse(mem.weights);
           semantic = parsed.semantic ?? 0;
           rerank = parsed.rerank ?? 0;
-        } catch {}
+        } catch {
+          /* empty */
+        }
 
-        let final = rerank > 0
-          ? 0.40 * semantic + 0.30 * rerank + 0.15 * recency + 0.10 * importance + 0.05 * trust
-          : 0.70 * semantic + 0.15 * recency + 0.10 * importance + 0.05 * trust;
+        let final =
+          rerank > 0
+            ? 0.4 * semantic + 0.3 * rerank + 0.15 * recency + 0.1 * importance + 0.05 * trust
+            : 0.7 * semantic + 0.15 * recency + 0.1 * importance + 0.05 * trust;
 
         if (isPinned) final = Math.max(final, 0.75);
 
         const newWeights = JSON.stringify({ semantic, rerank, recency, importance, trust, final });
 
-        await db
-          .update(memories)
-          .set({ weights: newWeights })
-          .where(eq(memories.id, mem.id));
+        await db.update(memories).set({ weights: newWeights }).where(eq(memories.id, mem.id));
 
         updated++;
       }
