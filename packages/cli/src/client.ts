@@ -163,8 +163,8 @@ export class BotmemClient {
     query: string,
     filters?: Record<string, string>,
     limit?: number,
-  ): Promise<SearchResult[]> {
-    return this.request<SearchResult[]>('/memories/search', {
+  ): Promise<{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] } }> {
+    return this.request<{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] } }>('/memories/search', {
       method: 'POST',
       body: JSON.stringify({ query, filters, limit }),
     });
@@ -270,5 +270,45 @@ export class BotmemClient {
 
   async getVersion(): Promise<{ version: string }> {
     return this.request<{ version: string }>('/version');
+  }
+
+  // --- Timeline & Related ---
+
+  async getTimeline(params: {
+    from?: string;
+    to?: string;
+    connectorType?: string;
+    sourceType?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<{ items: Memory[]; total: number }> {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.connectorType) qs.set('connectorType', params.connectorType);
+    if (params.sourceType) qs.set('sourceType', params.sourceType);
+    if (params.query) qs.set('query', params.query);
+    if (params.limit) qs.set('limit', String(params.limit));
+    const query = qs.toString();
+    return this.request<{ items: Memory[]; total: number }>(`/memories/timeline${query ? '?' + query : ''}`);
+  }
+
+  async getRelated(memoryId: string, limit?: number): Promise<{ items: Array<{ id: string; text: string; sourceType: string; connectorType: string; eventTime: string; score: number; relationship: string }>; source: Memory | null }> {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request(`/memories/${encodeURIComponent(memoryId)}/related${qs}`);
+  }
+
+  // --- Entities ---
+
+  async searchEntities(query: string, limit?: number, type?: string): Promise<{ entities: Array<{ value: string; type: string; memoryCount: number; connectors: string[] }>; total: number }> {
+    const qs = new URLSearchParams({ q: query });
+    if (limit) qs.set('limit', String(limit));
+    if (type) qs.set('type', type);
+    return this.request(`/memories/entities/search?${qs}`);
+  }
+
+  async getEntityGraph(value: string, limit?: number): Promise<{ entity: string; memories: any[]; relatedEntities: any[]; contacts: any[]; memoryCount: number }> {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request(`/memories/entities/${encodeURIComponent(value)}/graph${qs}`);
   }
 }

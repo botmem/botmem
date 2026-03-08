@@ -211,13 +211,20 @@ export class MemoryController {
     });
   }
 
+  @Get('entities/types')
+  getEntityTypes() {
+    return { types: this.memoryService.getEntityTypes() };
+  }
+
   @Get('entities/search')
   async searchEntities(
     @Query('q') q: string,
     @Query('limit') limit?: string,
+    @Query('type') type?: string,
   ) {
     if (!q) return { entities: [], total: 0 };
-    return this.memoryService.searchEntities(q, limit ? parseInt(limit, 10) : undefined);
+    const types = type ? type.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+    return this.memoryService.searchEntities(q, limit ? parseInt(limit, 10) : undefined, types);
   }
 
   @Get('entities/:value/graph')
