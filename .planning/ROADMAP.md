@@ -145,6 +145,7 @@ Plans:
 - Source citations and verification last (Phase 10) because citations format depends on the final search response shape from Phase 9, and LLM quality testing validates all v1.4 features end-to-end
 
 - [ ] **Phase 8: Entity Type Taxonomy** - Canonical entity types via structured output, backfill existing data, type-filtered search
+- [ ] **Phase 8.1: Contact Auto-Merge** (INSERTED) - Auto-merge obvious contact duplicates, eliminate manual review for exact-name non-person entities and sparse contacts
 - [ ] **Phase 9: NLQ Parsing** - Temporal references via chrono-node, entity extraction from queries, intent classification, all under 500ms
 - [ ] **Phase 10: Source Citations & Verification** - Citation metadata on search results, LLM quality testing of all v1.4 features
 
@@ -159,6 +160,22 @@ Plans:
   2. Querying existing memories shows zero entities with non-canonical types (backfill has normalized all legacy data)
   3. Searching `/entities/search?q=Nugget&type=pet` returns only entities matching that type, and omitting the type parameter returns all matching entities regardless of type
 **Plans**: TBD
+
+### Phase 8.1: Contact Auto-Merge (INSERTED)
+**Goal**: Obvious contact duplicates are auto-merged without manual review, reducing the merge queue by ~90% while preserving safety for ambiguous person-name matches
+**Depends on**: Phase 8 (entity types must be canonical so entityType-based auto-merge rules are reliable)
+**Requirements**: AUTO-MERGE-01 (new)
+**Success Criteria** (what must be TRUE):
+  1. Exact-name matches where BOTH contacts have entityType in (organization, product, location, event, topic) are auto-merged during suggestion generation — zero such pairs appear in manual review
+  2. Exact-name matches where one contact is sparse (only has a `name` identifier, no email/phone/slack_id) are auto-merged into the richer contact — zero sparse-to-rich exact-name pairs appear in manual review
+  3. Person-to-person exact-name matches with different structured identifiers still appear as suggestions for manual review (safety preserved)
+  4. Auto-merge is idempotent and transaction-safe — running it multiple times produces no errors or duplicate merges
+  5. Merge queue count drops significantly after running auto-merge (measured before/after)
+**Plans**: TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 08.1 to break down)
 
 ### Phase 9: NLQ Parsing
 **Goal**: Users can search with natural language containing temporal references, person/place names, and varying intents, and get intelligently filtered results within 500ms
@@ -200,7 +217,12 @@ Plans:
   2. Running `git log --all -p` on the public repo and grepping for known secret patterns (OAuth client secrets, API keys, tokens) returns zero matches
   3. The Vultr VPS is reachable via SSH, has Docker and Docker Compose installed, 2GB swap configured, and firewall allows only ports 22, 80, 443
   4. Visiting `http://botmem.xyz` in a browser resolves to the Vultr VPS IP address (DNS A record propagated)
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 11-01-PLAN.md -- Clean inline secrets and sanitize git history (REPO-04)
+- [ ] 11-02-PLAN.md -- Create GitHub org, open-core and prod-core repos (REPO-01, REPO-02, REPO-03)
+- [ ] 11-03-PLAN.md -- VPS configuration and DNS setup (DEP-01, DEP-05)
 
 ### Phase 12: PostgreSQL Dual-Database
 **Goal**: The application can run on either SQLite or PostgreSQL with zero code changes outside of the database layer, controlled by a single environment variable
@@ -249,7 +271,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -261,9 +283,10 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. Verification and Dashboards | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 7. Test Infrastructure Fixes | v1.3 | 2/2 | Complete | 2026-03-08 |
 | 8. Entity Type Taxonomy | v1.4 | 0/? | Not started | - |
+| 8.1 Contact Auto-Merge | v1.4 | 0/? | Not started | - |
 | 9. NLQ Parsing | v1.4 | 0/? | Not started | - |
 | 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
-| 11. Repo & Infrastructure | v2.0 | 0/? | Not started | - |
+| 11. Repo & Infrastructure | v2.0 | 0/3 | Planned | - |
 | 12. PostgreSQL Dual-Database | v2.0 | 0/? | Not started | - |
 | 13. Inference & Auth | v2.0 | 0/? | Not started | - |
 | 14. Docker Production Stack | v2.0 | 0/? | Not started | - |
