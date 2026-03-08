@@ -1,71 +1,69 @@
-# Research Summary: Botmem v2.0 Security, Auth & Encryption
+# Research Summary: Botmem v2.1 Data Quality & Pipeline Integrity
 
-**Domain:** User auth, API keys, memory banks, encryption at rest, E2EE, PostgreSQL + RLS for personal memory RAG system
+**Domain:** Data quality fixes for memory RAG pipeline (source types, entity extraction, dedup, backfill)
 **Researched:** 2026-03-08
 **Overall confidence:** HIGH
 
 ## Executive Summary
 
-Botmem currently has **zero authentication** — all API endpoints are open, CORS is unrestricted, the frontend `authStore` does plaintext password comparison in localStorage, and "encrypted" fields in the schema are stored as plaintext. This milestone transforms it into a properly secured system.
+Botmem's pipeline has three data quality problems that undermine search, filtering, and graph visualization. First, the photos-immich connector emits `sourceType: 'file'` instead of `'photo'`, causing photo searches to return Slack file attachments alongside actual photos. The NLQ parser and memory service have a workaround hack (`SOURCE_TYPE_ALIASES`) that papers over this but does not fix the root cause. Second, entity extraction via Ollama produces garbage values (pronouns, single characters, generic terms), misclassifies entities (persons as locations), and has no deduplication. Third, the embed and enrich pipeline steps produce entities in incompatible formats (`{type, id, role}` vs `{type, value}`) that never merge -- the embed-step entities are consumed for contact resolution then discarded.
 
-The stack additions are well-understood NestJS patterns. The auth layer uses `@nestjs/jwt` + `@nestjs/passport` (official NestJS packages), bcrypt for password hashing, and the standard global guard + `@Public()` decorator pattern. The only architecturally novel pieces are: (1) memory banks as a data isolation concept, (2) E2EE with client-side Argon2id key derivation, and (3) PostgreSQL RLS policies working through Drizzle ORM.
+All three problems are fixable with targeted changes to existing components plus a pure-function normalizer. No new queue stages or schema changes are needed. The source type fix is deterministic (SQL migration + Qdrant payload update), while entity quality requires an improved Ollama prompt and a normalizer that runs inline within EnrichService. Historical data needs two separate backfills: a fast script for source types and a queue-based job for entity re-extraction.
 
-The biggest risk is the E2EE password change flow — re-encrypting all memories when a user changes their password requires careful batching, progress tracking, and crash recovery. The second risk is RLS bypass through connection pooling (Drizzle + pg must `SET LOCAL` the user context on every request within a transaction).
+The existing codebase has good infrastructure for this work. The `backfill-entity-types.ts` migration establishes the pattern for data correction scripts. The `backfill` BullMQ queue exists and works. The `ENTITY_FORMAT_SCHEMA` already constrains entity types via JSON schema enum. The changes are surgical -- modify 5 existing files, add 3 new files.
 
 ## Key Findings
 
-**Stack:** `@nestjs/jwt@^11`, `@nestjs/passport@^11`, `bcrypt@^5`, `passport-jwt@^4`, `passport-local@^1`, `firebase-admin@^13` (prod-core), `drizzle-orm/pg-core` + `postgres` (js driver). Node.js `crypto` module for AES-256-GCM (no external library needed). `argon2-browser` or `hash-wasm` for client-side Argon2id in WebAssembly.
+**Stack:** No new dependencies needed. All fixes use existing Ollama, Qdrant, BullMQ, and Drizzle infrastructure.
 
-**Architecture:**
-- Global `APP_GUARD` with `@Public()` decorator for health/version/auth endpoints
-- Existing `auth/` module handles connector OAuth — user auth goes in a new `user-auth/` module to avoid conflicts
-- API keys coexist with JWT: guard checks `Authorization: Bearer` header, determines if token is JWT or API key by format (API keys have a `bmk_` prefix)
-- Memory banks are a `banks` table with `userId` FK; memories get `bankId` FK; Qdrant uses payload filter (not collection-per-bank)
-- Dual DB driver: `schema.ts` (SQLite) and `schema.pg.ts` (Postgres) with a shared `DbInterface` type that abstracts queries
-- RLS requires `SET LOCAL app.current_user_id` at the start of each request transaction
+**Architecture:** Fix at the source (connector + enrichment), backfill historical data. New pure-function EntityNormalizer handles dedup/clean/validate. No new queue stages.
 
-**Critical pitfalls:**
-- JWT refresh token rotation race conditions (concurrent 401 responses) — need frontend mutex + backend grace period
-- AES-GCM IV reuse is catastrophic — always use `crypto.randomBytes(12)` per encryption, never derive IV from data
-- RLS bypass via connection pooling — must use per-request transactions with `SET LOCAL`, not session-level `SET`
-- E2EE password change partial failure — need resumable batch re-encryption with progress checkpoint
-- Firebase token verification requires clock sync — use `clockTolerance` option
+**Critical pitfall:** Entity backfill is Ollama-bound (~500ms-2s per memory). At 50K memories with 8 concurrency, expect ~7 hours. Must be interruptible and resumable.
 
 ## Implications for Roadmap
 
-The 9-phase structure (16-24) is well-supported by research:
+Based on research, suggested phase structure:
 
-1. **Phase 16 (User Auth)** — Standard NestJS pattern, lowest risk. New `user-auth/` module, `users` table, bcrypt + JWT.
-2. **Phase 17 (API Security)** — Global guard + `@Public()`, CORS lockdown. Small phase, high impact.
-3. **Phase 18 (API Keys)** — `apiKeys` table with SHA-256 hashed keys, `bmk_` prefix for identification, read-only enforcement in guard.
-4. **Phase 19 (Memory Banks)** — `banks` table, `bankId` on memories, Qdrant payload filter, default bank migration.
-5. **Phase 20 (Encryption at Rest)** — `crypto.createCipheriv('aes-256-gcm')` for authContext/credentials, key from `APP_SECRET`. Migration script.
-6. **Phase 21 (E2EE)** — Highest risk phase. Client-side Argon2id + AES-256-GCM. Password change re-encryption is the hard part.
-7. **Phase 22 (PostgreSQL)** — `schema.pg.ts` + `postgres` driver + shared interface. FTS5→tsvector migration.
-8. **Phase 23 (RLS)** — RLS policies + per-request `SET LOCAL`. Depends on Phase 22 + Phase 16.
-9. **Phase 24 (Firebase)** — `AUTH_PROVIDER` env var switches guard strategy. Social login (Google, GitHub).
+1. **Source Type Reclassification** - Fix the connector, backfill SQLite + Qdrant, remove hack
+   - Addresses: photo search returning wrong results, source type filtering broken
+   - Avoids: No Ollama dependency, fast and deterministic
+   - Estimated: 2-4 hours
 
-**Research flags:**
-- Phase 16: Standard pattern, no research needed during planning
-- Phase 19: Memory bank migration (moving existing data) needs careful testing
-- Phase 21: E2EE password change flow needs detailed design — flag for research
-- Phase 22: Drizzle dual-driver abstraction needs prototyping — some queries may need dialect-specific handling
-- Phase 23: RLS + Drizzle interaction needs testing — verify ORM doesn't bypass policies
+2. **Entity Quality Infrastructure** - EntityNormalizer + improved prompts + pipeline integration
+   - Addresses: garbage entities, misclassification, no dedup, format mismatch
+   - Avoids: Adding pipeline complexity (normalizer is inline, not a new stage)
+   - Estimated: 4-6 hours
+
+3. **Entity Backfill** - Re-extract entities for existing memories with improved pipeline
+   - Addresses: historical data quality
+   - Avoids: Re-embedding (only updates entities column, vectors unchanged)
+   - Estimated: 2-4 hours development + hours of Ollama processing time
+
+4. **Validation** - Verify search, graph, and NLQ improvements
+   - Addresses: confidence that fixes actually improved data quality
+   - Estimated: 1-2 hours
+
+**Phase ordering rationale:**
+- Phase 1 is independent and immediately improves photo searches. Ship it first for quick value.
+- Phase 2 must complete before Phase 3 (backfill uses improved prompt + normalizer).
+- Phase 4 depends on all prior phases completing.
+
+**Research flags for phases:**
+- Phase 1: No research needed. Fix is fully deterministic.
+- Phase 2: Prompt engineering may need iteration. Test with sample memories before deploying.
+- Phase 3: May need to limit scope (only re-enrich memories from specific connectors, or only those with known-bad entities) if full backfill is too slow.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All packages are mature, well-documented, NestJS-native |
-| Features | HIGH | Standard auth patterns, well-understood implementation |
-| Architecture | HIGH | Clear integration points, existing codebase analyzed |
-| Pitfalls | HIGH | Based on real-world NestJS security incidents + codebase analysis |
-| E2EE | MEDIUM | Client-side Argon2id + re-encryption on password change has edge cases |
-| RLS + Drizzle | MEDIUM | Limited community examples of RLS with Drizzle ORM specifically |
+| Stack | HIGH | No new dependencies, all existing tools |
+| Features | HIGH | Problems clearly identified in code, fixes are straightforward |
+| Architecture | HIGH | Integration points identified from direct code reading |
+| Pitfalls | HIGH | Backfill performance is the main risk, mitigations clear |
 
 ## Gaps to Address
 
-- **E2EE key management UX**: What happens when user forgets password? (Answer: data is lost by design — need clear UX warning)
-- **Drizzle + RLS integration**: Need prototype to verify Drizzle ORM queries work correctly with RLS enabled and `SET LOCAL`
-- **Email delivery**: Password reset requires sending email — need to choose transactional email provider (Resend, SendGrid, etc.)
-- **WebSocket auth**: Current EventsGateway accepts all connections — needs JWT validation in handshake
+- Prompt engineering for entity extraction needs empirical testing -- cannot predict quality improvement from research alone
+- Cross-memory entity dedup (same entity with different types across memories) is out of scope for this milestone but should be noted for future work
+- The Slack `file` sourceType is technically correct for Slack -- only photos-immich needs reclassification. If other connectors emit file types that should be more specific, that is a separate concern.
