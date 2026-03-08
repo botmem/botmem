@@ -90,9 +90,9 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     // Debounced search
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-      if (query.trim()) {
+      if (query.trim().length >= 3) {
         get().searchMemories(query);
-      } else {
+      } else if (!query.trim()) {
         get().loadMemories();
       }
     }, 500);

@@ -7,20 +7,19 @@ vi.mock('../../lib/api', () => ({
   api: {
     listJobs: vi.fn().mockResolvedValue({ jobs: [] }),
     listLogs: vi.fn().mockResolvedValue({ logs: [] }),
+    getQueueStats: vi.fn().mockResolvedValue({}),
     cancelJob: vi.fn(),
   },
-  createWsConnection: vi.fn().mockReturnValue({
-    onopen: null,
-    onmessage: null,
-    send: vi.fn(),
-  }),
-  subscribeToChannel: vi.fn(),
+}));
+
+vi.mock('../../lib/ws', () => ({
+  sharedWs: { subscribe: vi.fn(), unsubscribe: vi.fn(), onMessage: vi.fn(), offMessage: vi.fn(), connect: vi.fn() },
 }));
 
 describe('useJobs', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    useJobStore.setState({ jobs: [], logs: [], ws: null });
+    useJobStore.setState({ jobs: [], logs: [] });
   });
 
   afterEach(() => {

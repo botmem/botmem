@@ -119,6 +119,14 @@ export class UserAuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('complete-onboarding')
+  @HttpCode(200)
+  async completeOnboarding(@CurrentUser() user: { id: string }) {
+    await this.usersService.setOnboarded(user.id);
+    return { ok: true };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   async me(@CurrentUser() user: { id: string; email: string }) {
     const fullUser = await this.usersService.findById(user.id);

@@ -6,16 +6,19 @@ vi.mock('../../lib/api', () => ({
     listJobs: vi.fn(),
     listLogs: vi.fn(),
     cancelJob: vi.fn(),
+    getQueueStats: vi.fn().mockResolvedValue({}),
   },
-  createWsConnection: vi.fn(),
-  subscribeToChannel: vi.fn(),
 }));
 
-import { api, createWsConnection } from '../../lib/api';
+vi.mock('../../lib/ws', () => ({
+  sharedWs: { subscribe: vi.fn(), unsubscribe: vi.fn(), onMessage: vi.fn(), offMessage: vi.fn(), connect: vi.fn() },
+}));
+
+import { api } from '../../lib/api';
 
 describe('jobStore', () => {
   beforeEach(() => {
-    useJobStore.setState({ jobs: [], logs: [], ws: null });
+    useJobStore.setState({ jobs: [], logs: [] });
     vi.clearAllMocks();
   });
 

@@ -119,8 +119,23 @@ export class BotmemApiError extends Error {
 }
 
 export class BotmemClient {
+  private token: string | null = null;
+
   constructor(private baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
+
+  setToken(token: string) {
+    this.token = token;
+  }
+
+  async login(email: string, password: string): Promise<{ accessToken: string; user: { id: string; email: string; name: string } }> {
+    const result = await this.request<{ accessToken: string; user: { id: string; email: string; name: string } }>('/user-auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    this.token = result.accessToken;
+    return result;
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -129,6 +144,9 @@ export class BotmemClient {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {}),
     };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
 
     let response: Response;
     try {

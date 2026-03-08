@@ -111,11 +111,19 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      completeOnboarding: () =>
-        set((state) => {
-          if (!state.user) return state;
-          return { user: { ...state.user, onboarded: true } };
-        }),
+      completeOnboarding: () => {
+        const { user, accessToken } = get();
+        if (!user) return;
+        set({ user: { ...user, onboarded: true } });
+        fetch(`${API_BASE}/complete-onboarding`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          credentials: 'include',
+        }).catch(() => {});
+      },
 
       clearError: () => set({ error: null }),
     }),

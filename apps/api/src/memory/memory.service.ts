@@ -8,6 +8,8 @@ import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { memories, memoryLinks, memoryContacts, contacts, contactIdentifiers, accounts, settings } from '../db/schema';
 import { parseNlq } from './nlq-parser';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { removeStopwords } = require('stopword');
 
 interface SearchFilters {
   sourceType?: string;
@@ -59,6 +61,7 @@ export interface ParsedQuery {
   entities: { id: string; displayName: string }[];
   intent: 'recall' | 'browse' | 'find';
   cleanQuery: string;
+  sourceType?: string;
 }
 
 export interface SearchResponse {
@@ -179,7 +182,9 @@ export class MemoryService {
       if (!matched) i++;
     }
 
-    const topicWords = remaining.filter((_, idx) => !usedIndices.has(idx));
+    const topicWords = removeStopwords(
+      remaining.filter((_, idx) => !usedIndices.has(idx)),
+    );
     const contactIds = resolved.map(c => c.id);
 
     return { contacts: resolved, topicWords, contactIds };
@@ -199,8 +204,10 @@ export class MemoryService {
     }
 
     // Apply source type hint from NLQ (only if caller didn't provide explicit sourceType)
+    // Map user-friendly NLQ terms to actual DB source_type values
+    const SOURCE_TYPE_ALIASES: Record<string, string> = { photo: 'file' };
     if (nlq.sourceTypeHint && !filters?.sourceType) {
-      effectiveFilters.sourceType = nlq.sourceTypeHint;
+      effectiveFilters.sourceType = SOURCE_TYPE_ALIASES[nlq.sourceTypeHint] ?? nlq.sourceTypeHint;
     }
 
     // Apply intent-based limit: find intent caps at 5
@@ -247,6 +254,7 @@ export class MemoryService {
           entities: [],
           intent: nlq.intent,
           cleanQuery: nlq.cleanQuery,
+          sourceType: nlq.sourceTypeHint ?? undefined,
         },
       };
     }
@@ -254,7 +262,10 @@ export class MemoryService {
     // --- Entity-aware hybrid search ---
 
     const queryLower = query.toLowerCase();
-    const queryWords = queryLower.split(/\s+/).filter((w) => w.length >= 2);
+    const queryWords = queryLower
+      .split(/\s+/)
+      .map(w => w.replace(/'s$/i, ''))
+      .filter((w) => w.length >= 2);
 
     // Phase 1: Entity resolution (greedy multi-word span matching)
     const entityResult = await this.resolveEntities(queryWords);
@@ -356,17 +367,21 @@ export class MemoryService {
     }
 
     if (!allCandidateIds.size) {
-      return {
-        items: [],
-        fallback: false,
-        resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
-        parsed: {
-          temporal: nlq.temporal,
-          entities: resolvedContacts.map(c => ({ id: c.id, displayName: c.displayName })),
-          intent: nlq.intent,
-          cleanQuery: nlq.cleanQuery,
-        },
-      };
+      // If temporal filter caused zero results, fall through to temporal fallback below
+      if (!(nlq.temporal && effectiveFilters.from)) {
+        return {
+          items: [],
+          fallback: false,
+          resolvedEntities: hasContacts ? { contacts: resolvedContacts, topicWords, topicMatchCount } : undefined,
+          parsed: {
+            temporal: nlq.temporal,
+            entities: resolvedContacts.map(c => ({ id: c.id, displayName: c.displayName })),
+            intent: nlq.intent,
+            cleanQuery: nlq.cleanQuery,
+            sourceType: nlq.sourceTypeHint ?? undefined,
+          },
+        };
+      }
     }
 
     // Batch fetch all candidate rows in one query
@@ -456,6 +471,7 @@ export class MemoryService {
         entities: resolvedContacts.map(c => ({ id: c.id, displayName: c.displayName })),
         intent: nlq.intent,
         cleanQuery: nlq.cleanQuery,
+        sourceType: nlq.sourceTypeHint ?? undefined,
       },
     };
   }
@@ -873,6 +889,102 @@ export class MemoryService {
     return {
       nodes: [...memoryNodes, ...contactNodes, ...fileNodes],
       links: [...edges, ...contactEdges, ...fileEdges],
+    };
+  }
+
+  /**
+   * Build graph delta for a single memory — lightweight query for WS push.
+   * Returns the memory node, its links, associated contact nodes, and contact edges.
+   */
+  async buildGraphDelta(memoryId: string) {
+    const db = this.dbService.db;
+
+    const [mem] = await db.select().from(memories).where(eq(memories.id, memoryId));
+    if (!mem || mem.embeddingStatus !== 'done') return null;
+
+    let entities: any[] = [];
+    try { entities = JSON.parse(mem.entities); } catch {}
+    let factLabel = 'UNVERIFIED';
+    try { factLabel = JSON.parse(mem.factuality).label; } catch {}
+    let weights: Record<string, number> = {};
+    try { weights = JSON.parse(mem.weights); } catch {}
+    let metadata: Record<string, unknown> = {};
+    try { metadata = JSON.parse(mem.metadata); } catch {}
+
+    const trust = this.getTrustScore(mem.connectorType);
+    const importance = Math.min(0.3 + entities.length * 0.1 + trust * 0.3, 1.0);
+    const entityNames = entities.map((e: any) => e.value || '').filter(Boolean).slice(0, 5);
+
+    const node = {
+      id: mem.id,
+      label: mem.text.slice(0, 60),
+      text: mem.text,
+      type: mem.sourceType,
+      connectorType: mem.connectorType,
+      factuality: factLabel,
+      importance,
+      cluster: 0,
+      nodeType: 'memory' as const,
+      entities: entityNames,
+      weights,
+      eventTime: mem.eventTime,
+      metadata,
+    };
+
+    // Links from/to this memory
+    const links = await db.select().from(memoryLinks)
+      .where(sql`${memoryLinks.srcMemoryId} = ${memoryId} OR ${memoryLinks.dstMemoryId} = ${memoryId}`);
+    const graphLinks = links.map((l) => ({
+      source: l.srcMemoryId,
+      target: l.dstMemoryId,
+      type: l.linkType,
+      strength: l.strength,
+    }));
+
+    // Contact associations
+    const mcRows = await db.select().from(memoryContacts).where(eq(memoryContacts.memoryId, memoryId));
+    const contactIds = mcRows.map((mc) => mc.contactId);
+    const contactNodes: any[] = [];
+    const contactEdges = mcRows.map((mc) => ({
+      source: `contact-${mc.contactId}`,
+      target: memoryId,
+      type: mc.role || 'involves',
+      strength: mc.role === 'group' ? 0.9 : 0.7,
+    }));
+
+    if (contactIds.length) {
+      const contactRows = await db.select().from(contacts).where(inArray(contacts.id, contactIds));
+      const identRows = await db.select().from(contactIdentifiers).where(inArray(contactIdentifiers.contactId, contactIds));
+      const identByContact = new Map<string, string[]>();
+      for (const i of identRows) {
+        const list = identByContact.get(i.contactId) || [];
+        list.push(i.connectorType || 'unknown');
+        identByContact.set(i.contactId, list);
+      }
+      for (const c of contactRows) {
+        const connectors = [...new Set(identByContact.get(c.id) || [])];
+        const entityType = (c as any).entityType || 'person';
+        const nodeType = entityType === 'group' ? 'group' as const : entityType === 'device' ? 'device' as const : 'contact' as const;
+        contactNodes.push({
+          id: `contact-${c.id}`,
+          label: c.displayName || 'Unknown',
+          type: nodeType,
+          connectorType: connectors[0] || 'manual',
+          factuality: 'FACT',
+          importance: entityType === 'group' ? 0.9 : entityType === 'device' ? 0.6 : 0.8,
+          cluster: 0,
+          nodeType,
+          connectors,
+          entityType,
+        });
+      }
+    }
+
+    return {
+      nodes: [node],
+      links: graphLinks,
+      contacts: contactNodes,
+      contactEdges,
     };
   }
 
