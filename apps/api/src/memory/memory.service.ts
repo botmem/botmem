@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, sql, and, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
-import { QdrantService, ScoredPoint } from './qdrant.service';
+import { QdrantService } from './qdrant.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
