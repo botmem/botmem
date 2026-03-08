@@ -14,6 +14,14 @@ interface ResolvedEntities {
   topicMatchCount: number;
 }
 
+interface ParsedQuery {
+  temporal: { from: string; to: string } | null;
+  temporalFallback?: boolean;
+  entities: { id: string; displayName: string }[];
+  intent: 'recall' | 'browse' | 'find';
+  cleanQuery: string;
+}
+
 interface MemoryState {
   memories: Memory[];
   query: string;
@@ -22,6 +30,7 @@ interface MemoryState {
   loading: boolean;
   searchFallback: boolean;
   resolvedEntities: ResolvedEntities | null;
+  parsed: ParsedQuery | null;
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   getFiltered: () => Memory[];
@@ -61,6 +70,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   loading: false,
   searchFallback: false,
   resolvedEntities: null,
+  parsed: null,
 
   setQuery: (query) => {
     set({ query });
@@ -92,20 +102,20 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     try {
       const result = await api.listMemories({ limit: 100 });
       const mems = result.items.map(apiMemoryToShared);
-      set({ memories: mems, loading: false, searchFallback: false, resolvedEntities: null });
+      set({ memories: mems, loading: false, searchFallback: false, resolvedEntities: null, parsed: null });
     } catch (err) {
       console.error('Failed to load memories:', err);
-      set({ loading: false, searchFallback: false, resolvedEntities: null });
+      set({ loading: false, searchFallback: false, resolvedEntities: null, parsed: null });
     }
   },
 
   searchMemories: async (query: string) => {
-    set({ loading: true, searchFallback: false, resolvedEntities: null });
+    set({ loading: true, searchFallback: false, resolvedEntities: null, parsed: null });
     try {
-      const result = await api.searchMemories(query);
+      const result = await api.searchMemories(query) as any;
       const mems = result.items.map(apiMemoryToShared);
       trackEvent('search', { query_length: query.length, result_count: mems.length, fallback: result.fallback });
-      set({ memories: mems, loading: false, searchFallback: result.fallback, resolvedEntities: result.resolvedEntities || null });
+      set({ memories: mems, loading: false, searchFallback: result.fallback, resolvedEntities: result.resolvedEntities || null, parsed: result.parsed || null });
     } catch (err) {
       console.error('Failed to search memories:', err);
       set({ loading: false });

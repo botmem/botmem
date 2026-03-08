@@ -51,13 +51,27 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     process.exit(1);
   }
 
-  const { items: results, fallback, resolvedEntities } = await client.searchMemories(queryStr, Object.keys(filters).length ? filters : undefined, limit);
+  const response = await client.searchMemories(queryStr, Object.keys(filters).length ? filters : undefined, limit);
+  const { items: results, fallback, resolvedEntities, parsed } = response as any;
 
   if (json) {
-    console.log(JSON.stringify({ items: results, fallback, resolvedEntities }, null, 2));
+    console.log(JSON.stringify({ items: results, fallback, resolvedEntities, parsed }, null, 2));
   } else {
+    // Show NLQ parse info when present
+    if (parsed?.temporal && !parsed.temporalFallback) {
+      const fromStr = new Date(parsed.temporal.from).toLocaleDateString();
+      const toStr = new Date(parsed.temporal.to).toLocaleDateString();
+      console.log(`\x1b[36m⏱ Date filter: ${fromStr} to ${toStr}\x1b[0m`);
+    }
+    if (parsed?.temporalFallback) {
+      console.log(`\x1b[33m⚠ No results for that time range — showing all matches\x1b[0m`);
+    }
+    if (parsed?.intent && parsed.intent !== 'recall') {
+      console.log(`\x1b[36m⚡ Intent: ${parsed.intent}\x1b[0m`);
+    }
+
     if (resolvedEntities) {
-      const names = resolvedEntities.contacts.map(c => c.displayName).join(', ');
+      const names = resolvedEntities.contacts.map((c: any) => c.displayName).join(', ');
       const topics = resolvedEntities.topicWords.length ? ` + "${resolvedEntities.topicWords.join(' ')}"` : '';
       if (results.length > 0) {
         console.log(`\x1b[36m→ Showing results for ${bold(names)}${topics}\x1b[0m\n`);
