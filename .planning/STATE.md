@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
-status: completed
-stopped_at: Completed 31-01-PLAN.md
-last_updated: "2026-03-08T18:29:13.206Z"
-last_activity: 2026-03-08 -- Phase 31 Plan 01 complete (docker-compose health checks, Makefile DX)
+status: in-progress
+stopped_at: Completed 34-01-PLAN.md
+last_updated: '2026-03-08T19:31:30Z'
+last_activity: 2026-03-08 -- Phase 34 Plan 01 complete (input validation + rate limiting)
 progress:
-  total_phases: 26
+  total_phases: 27
   completed_phases: 16
-  total_plans: 31
-  completed_plans: 31
+  total_plans: 34
+  completed_plans: 32
 ---
 
 # Project State
@@ -20,36 +20,38 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v3.0 Monorepo & Developer Experience -- Phase 31 complete
+**Current focus:** v3.0 NestJS Best Practices Maturation -- Phase 34 Plan 01 complete
 
 ## Current Position
 
-Phase: 31 (Docker & Infrastructure) -- complete
-Plan: 01 (complete)
-Status: Phase 31 complete, ready for Phase 32 (Build Optimization)
-Last activity: 2026-03-08 -- Phase 31 Plan 01 complete (docker-compose health checks, Makefile DX)
+Phase: 34 (NestJS Best Practices Maturation)
+Plan: 01 (complete) -- Input Validation & Rate Limiting
+Status: Phase 34 Plan 01 complete, ready for Plan 02 (Structured Logging) or Plan 03 (Error Handling)
+Last activity: 2026-03-08 -- Phase 34 Plan 01 complete (input validation + rate limiting)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+
+- Total plans completed: 13
 - Average duration: 4min
-- Total execution time: 42min
+- Total execution time: 48min
 
 | Phase | Plan | Duration | Tasks | Files |
-|-------|------|----------|-------|-------|
-| 16 | 01 | 6min | 2 | 16 |
-| 16 | 02 | 4min | 2 | 7 |
-| 16 | 03 | 5min | 3 | 15 |
-| 17 | 01 | 5min | 2 | 13 |
-| 25 | 01 | 3min | 2 | 4 |
-| 25 | 02 | 1min | 1 | 1 |
-| 29 | 01 | 4min | 2 | 18 |
-| 26 | 01 | 3min | 2 | 3 |
-| 26 | 02 | 2min | 2 | 2 |
-| 30 | 02 | 2min | 1 | 3 |
-| 30 | 01 | 5min | 2 | 27 |
-| 31 | 01 | 2min | 2 | 2 |
+| ----- | ---- | -------- | ----- | ----- |
+| 16    | 01   | 6min     | 2     | 16    |
+| 16    | 02   | 4min     | 2     | 7     |
+| 16    | 03   | 5min     | 3     | 15    |
+| 17    | 01   | 5min     | 2     | 13    |
+| 25    | 01   | 3min     | 2     | 4     |
+| 25    | 02   | 1min     | 1     | 1     |
+| 29    | 01   | 4min     | 2     | 18    |
+| 26    | 01   | 3min     | 2     | 3     |
+| 26    | 02   | 2min     | 2     | 2     |
+| 30    | 02   | 2min     | 1     | 3     |
+| 30    | 01   | 5min     | 2     | 27    |
+| 31    | 01   | 2min     | 2     | 2     |
+| 34    | 01   | 6min     | 2     | 29    |
 
 ## Accumulated Context
 
@@ -120,6 +122,12 @@ Recent decisions affecting current work:
 - [31-01]: Ollama behind profile -- opt-in only, not started by default
 - [31-01]: Qdrant healthcheck uses bash TCP probe (no curl in image)
 
+### Decisions (Phase 34)
+
+- [34-01]: ValidationPipe uses whitelist+transform without forbidNonWhitelisted to avoid breaking existing clients
+- [34-01]: Single default throttle tier (100/min) with per-route overrides for auth and AI endpoints
+- [34-01]: UpdateAccountDto uses SyncSchedule type from @botmem/shared for compile-time type safety
+
 ### Pending Todos
 
 None yet.
@@ -135,6 +143,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T18:26:30Z
-Stopped at: Completed 31-01-PLAN.md
-Resume: /gsd:execute-phase 32-01
+Last session: 2026-03-08T19:31:30Z
+Stopped at: Completed 34-01-PLAN.md
+Resume: /gsd:execute-phase 34-02
