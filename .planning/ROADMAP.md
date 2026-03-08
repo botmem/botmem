@@ -5,7 +5,8 @@
 - v1.0 MVP - Phases 1-3 (shipped 2026-03-07)
 - v1.1 PostHog Analytics Activation - Phase 4 (shipped 2026-03-07)
 - v1.2 PostHog Deep Analytics - Phases 5-6 (shipped 2026-03-08)
-- v1.3 Test Coverage - Phases 7-10 (reserved, parallel with v2.0)
+- v1.3 Test Coverage - Phase 7 (shipped 2026-03-08)
+- v1.4 Search Intelligence - Phases 8-10 (in progress)
 - v2.0 Production Deployment & Open-Core Split - Phases 11-15 (planned)
 
 ## Phases
@@ -120,13 +121,67 @@ Plans:
 
 </details>
 
+<details>
+<summary>v1.3 Test Coverage (Phase 7) - SHIPPED 2026-03-08</summary>
+
+### Phase 7: Test Infrastructure Fixes
+**Goal**: Test infrastructure is reliable with coverage tooling and passing test suites across all packages
+**Depends on**: Phase 6
+**Plans**: 2 plans
+
+Plans:
+- [x] 07-01: Coverage tooling setup
+- [x] 07-02: Fix failing tests
+
+</details>
+
 ## v1.4 Search Intelligence (Phases 8-10)
 
-**Milestone Goal:** Make Botmem's search layer intelligent enough for a personal AI assistant -- parse natural language queries, summarize results via LLM, and fix entity type classification.
+**Milestone Goal:** Make Botmem's search layer intelligent enough for a personal AI assistant -- parse natural language queries into structured filters, fix entity type classification for reliable filtering, and add source citations for assistant drill-down.
 
-*Phases 7-10 reserved. Managed by separate v1.4 agent. See v1.4 planning docs for details.*
+**Phase Ordering Rationale:**
+- Entity cleanup first (Phase 8) because NLQ parsing quality depends on consistent entity types for entity-boosted search and type-filtered queries
+- NLQ parsing second (Phase 9) because temporal and entity extraction from queries builds on the clean entity taxonomy, and PERF-01 constrains the implementation to deterministic parsing (no LLM in search hot path)
+- Source citations and verification last (Phase 10) because citations format depends on the final search response shape from Phase 9, and LLM quality testing validates all v1.4 features end-to-end
 
-## v2.0 Production Deployment & Open-Core Split
+- [ ] **Phase 8: Entity Type Taxonomy** - Canonical entity types via structured output, backfill existing data, type-filtered search
+- [ ] **Phase 9: NLQ Parsing** - Temporal references via chrono-node, entity extraction from queries, intent classification, all under 500ms
+- [ ] **Phase 10: Source Citations & Verification** - Citation metadata on search results, LLM quality testing of all v1.4 features
+
+## Phase Details
+
+### Phase 8: Entity Type Taxonomy
+**Goal**: Every entity in the system has a consistent canonical type, new memories produce clean entities via structured output, and users can filter entity search by type
+**Depends on**: Phase 7 (test infrastructure must be stable)
+**Requirements**: ENT-01, ENT-02, ENT-03
+**Success Criteria** (what must be TRUE):
+  1. Running enrichment on a new memory produces entities with types from the canonical set only (person, organization, location, event, product, topic, pet) -- no freeform or inconsistent types
+  2. Querying existing memories shows zero entities with non-canonical types (backfill has normalized all legacy data)
+  3. Searching `/entities/search?q=Nugget&type=pet` returns only entities matching that type, and omitting the type parameter returns all matching entities regardless of type
+**Plans**: TBD
+
+### Phase 9: NLQ Parsing
+**Goal**: Users can search with natural language containing temporal references, person/place names, and varying intents, and get intelligently filtered results within 500ms
+**Depends on**: Phase 8 (clean entity types needed for entity-boosted search)
+**Requirements**: NLQ-01, NLQ-02, NLQ-03, PERF-01
+**Success Criteria** (what must be TRUE):
+  1. Searching "emails from Sarah last week" returns results filtered to the correct date range and boosted for the contact named Sarah
+  2. Searching "where did I go in January" returns location-type memories filtered to January of the current (or most recent) year
+  3. Query intent classification distinguishes recall ("what did John say about the project"), browse ("show me recent photos"), and find ("Sarah's phone number") -- observable via the parsed query structure in API response
+  4. Search with NLQ enhancements completes in under 500ms measured at the API response level -- no LLM calls occur during search request handling
+**Plans**: TBD
+
+### Phase 10: Source Citations & Verification
+**Goal**: Search results carry source citation metadata suitable for AI assistant drill-down, and all v1.4 features are validated with LLM-assisted quality testing against real data
+**Depends on**: Phase 9 (search response shape must be finalized)
+**Requirements**: CIT-01
+**Success Criteria** (what must be TRUE):
+  1. Each search result includes citation metadata: memory ID, event timestamp, connector type (gmail/slack/whatsapp/etc), and participant names -- structured for assistant consumption
+  2. LLM quality test confirms entity extraction produces correct types for a sample of real memories across multiple connectors
+  3. LLM quality test confirms temporal query parsing returns correct date ranges for a set of natural language time expressions
+**Plans**: TBD
+
+## v2.0 Production Deployment & Open-Core Split (Phases 11-15)
 
 **Milestone Goal:** Deploy Botmem to production on a Vultr VPS with proper infrastructure (Postgres, Firebase auth, Caddy SSL, OpenRouter inference), split the codebase into open-core (public) and prod-core (private) under a GitHub org, and wire CI/CD for automatic deployment.
 
@@ -135,8 +190,6 @@ Plans:
 - [ ] **Phase 13: Inference Abstraction & Authentication** - InferenceService with Ollama/OpenRouter providers, Firebase auth with opt-in guard, React login UI
 - [ ] **Phase 14: Docker Compose Production Stack** - Multi-stage Dockerfile, production compose, Caddy reverse proxy with SSL
 - [ ] **Phase 15: CI/CD & Production Launch** - GitHub Actions workflows, deployment pipeline, landing page, documentation update
-
-## Phase Details
 
 ### Phase 11: Repository & Infrastructure Foundation
 **Goal**: The GitHub org, repo structure, VPS, and DNS are all in place so that code changes in later phases have somewhere to deploy
@@ -196,7 +249,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7-10 (v1.3/v1.4) -> 11 -> 12 -> 13 -> 14 -> 15
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -206,7 +259,10 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7-10 (v1.3/v1.4) 
 | 4. PostHog Activation | v1.1 | 2/2 | Complete | 2026-03-07 |
 | 5. SDK Feature Enablement | v1.2 | 2/2 | Complete | 2026-03-08 |
 | 6. Verification and Dashboards | v1.2 | 2/2 | Complete | 2026-03-08 |
-| 7-10. (reserved) | v1.3/v1.4 | — | In progress | - |
+| 7. Test Infrastructure Fixes | v1.3 | 2/2 | Complete | 2026-03-08 |
+| 8. Entity Type Taxonomy | v1.4 | 0/? | Not started | - |
+| 9. NLQ Parsing | v1.4 | 0/? | Not started | - |
+| 10. Source Citations & Verification | v1.4 | 0/? | Not started | - |
 | 11. Repo & Infrastructure | v2.0 | 0/? | Not started | - |
 | 12. PostgreSQL Dual-Database | v2.0 | 0/? | Not started | - |
 | 13. Inference & Auth | v2.0 | 0/? | Not started | - |
