@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: executing
-stopped_at: Completed 16-03-PLAN.md
-last_updated: "2026-03-08T13:47:57.391Z"
-last_activity: 2026-03-08 -- Phase 16 Plan 01 complete (backend auth infrastructure)
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-03-08T14:30:14Z"
+last_activity: 2026-03-08 -- Phase 17 Plan 01 complete (API security lockdown)
 progress:
   total_phases: 17
-  completed_phases: 9
-  total_plans: 20
-  completed_plans: 20
-  percent: 22
+  completed_phases: 10
+  total_plans: 21
+  completed_plans: 21
+  percent: 24
 ---
 
 # Project State
@@ -21,29 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v2.0 Security, Auth & Encryption -- Phase 16 User Authentication
+**Current focus:** v2.0 Security, Auth & Encryption -- Phase 17 API Security
 
 ## Current Position
 
-Phase: 16-user-authentication (Plan 3 of 3)
-Plan: 16-03 (next)
+Phase: 17-api-security (Plan 1 of 1)
+Plan: 17-01 (complete)
 Status: Executing
-Last activity: 2026-03-08 -- Phase 16 Plan 01 complete (backend auth infrastructure)
+Last activity: 2026-03-08 -- Phase 17 Plan 01 complete (API security lockdown)
 
-Progress: [██░░░░░░░░] 22%
+Progress: [██░░░░░░░░] 24%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
+- Total plans completed: 4
 - Average duration: 5min
-- Total execution time: 10min
+- Total execution time: 20min
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 16 | 01 | 6min | 2 | 16 |
 | 16 | 02 | 4min | 2 | 7 |
-| Phase 16 P03 | 5min | 3 tasks | 15 files |
+| 16 | 03 | 5min | 3 | 15 |
+| 17 | 01 | 5min | 2 | 13 |
 
 ## Accumulated Context
 
@@ -73,6 +74,12 @@ Recent decisions affecting current work:
 - [16-02]: Graceful mail failure -- log errors but never throw from sendResetEmail
 - [16-02]: Console fallback in dev -- log reset URL to stdout when SMTP not configured
 
+### Decisions (Phase 17)
+
+- [17-01]: CORS supports comma-separated FRONTEND_URL for multi-origin deployments
+- [17-01]: WebSocket auth via token query param (not header) for browser WebSocket API compatibility
+- [17-01]: WsClient refuses to connect without token -- prevents pre-auth connection attempts
+
 ### Pending Todos
 
 None yet.
@@ -87,6 +94,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-08T13:47:57.390Z
-Stopped at: Completed 16-03-PLAN.md
+Last session: 2026-03-08T14:30:14Z
+Stopped at: Completed 17-01-PLAN.md
 Resume file: None

@@ -172,7 +172,7 @@ Phase 10: Source Citations (deferred)
 
 **Summary:**
 - [x] **Phase 16: User Authentication** - Register, login, JWT access+refresh tokens, password reset, session persistence (AUTH-01 through AUTH-05) (completed 2026-03-08)
-- [ ] **Phase 17: API Security** - Global auth guard, CORS lockdown, @Public() decorator for health/version/auth endpoints (SEC-01, SEC-02)
+- [x] **Phase 17: API Security** - Global auth guard, CORS lockdown, @Public() decorator for health/version/auth endpoints (SEC-01, SEC-02) (completed 2026-03-08)
 - [ ] **Phase 18: API Keys** - Named read-only API keys, cryptographic generation, bank scoping, Bearer header auth (KEY-01 through KEY-05)
 - [ ] **Phase 19: Memory Banks** - Create/list/rename/delete banks, sync-time selection, search scoping, default bank + data migration (BANK-01 through BANK-04)
 - [ ] **Phase 20: Encryption at Rest** - AES-256-GCM for authContext + connectorCredentials, APP_SECRET key, migration script (ENC-01, ENC-02)
@@ -303,7 +303,7 @@ Phases 12-15 (DB, Inference, Docker, CI/CD) are restructured:
 - Docker/CI-CD deferred to v3.0
 
 ### Phase 11: Repository & Infrastructure Foundation (COMPLETE)
-**Plans:** 3/3 plans complete
+**Plans:** 1/1 plans complete
 - [x] 11-01: Clean inline secrets and sanitize git history (REPO-04)
 - [x] 11-02: Create GitHub org, open-core and prod-core repos (REPO-01, REPO-02, REPO-03)
 - [x] 11-03: VPS configuration and DNS setup (DEP-01, DEP-05)
@@ -330,7 +330,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 10. Source Citations | v1.4 | 0/? | Deferred | - |
 | 11. Repo & Infrastructure | v2.0 | 3/3 | Complete | 2026-03-08 |
 | 16. User Authentication | 3/3 | Complete   | 2026-03-08 | - |
-| 17. API Security | v2.0 | 0/1 | Not started | - |
+| 17. API Security | 1/1 | Complete   | 2026-03-08 | - |
 | 18. API Keys | v2.0 | 0/? | Not started | - |
 | 19. Memory Banks | v2.0 | 0/? | Not started | - |
 | 20. Encryption at Rest | v2.0 | 0/? | Not started | - |

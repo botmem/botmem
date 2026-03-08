@@ -23,8 +23,8 @@
 
 ### API Security
 
-- [ ] **SEC-01**: Auth guard on all endpoints (except `/health`, `/version`, `/auth/*`)
-- [ ] **SEC-02**: CORS locked to `FRONTEND_URL` origin(s), credentials mode enabled
+- [x] **SEC-01**: Auth guard on all endpoints (except `/health`, `/version`, `/auth/*`)
+- [x] **SEC-02**: CORS locked to `FRONTEND_URL` origin(s), credentials mode enabled
 
 ### API Keys
 
@@ -82,8 +82,8 @@
 | AUTH-03 | Phase 16 | Complete |
 | AUTH-04 | Phase 16 | Complete |
 | AUTH-05 | Phase 16 | Complete |
-| SEC-01 | Phase 17 | Pending |
-| SEC-02 | Phase 17 | Pending |
+| SEC-01 | Phase 17 | Complete |
+| SEC-02 | Phase 17 | Complete |
 | KEY-01 | Phase 18 | Pending |
 | KEY-02 | Phase 18 | Pending |
 | KEY-03 | Phase 18 | Pending |
