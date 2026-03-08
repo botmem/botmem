@@ -10,8 +10,8 @@ progress:
   total_phases: 16
   completed_phases: 8
   total_plans: 19
-  completed_plans: 17
-  percent: 84
+  completed_plans: 18
+  percent: 85
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 
 ## Current Position
 
-Phase: 8 of 15 (Full Data Import)
+Phase: 8.1 of 15 (Contact Auto-Merge)
 Plan: 1 of 2 complete
 Status: Executing
-Last activity: 2026-03-08 -- Phase 8 Plan 01 complete (canonical entity types via structured output)
+Last activity: 2026-03-08 -- Phase 8.1 Plan 01 complete (contact entity type reclassification via memory cross-reference)
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████████░░] 84%
 
 *Updated after each plan completion*
 | Phase 08 P02 | 2min | 2 tasks | 6 files |
+| Phase 08.1 P01 | 11min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Recent decisions affecting current work:
 - [v2.0]: Multiple filter-repo passes needed to sanitize secret fragments in grep patterns within planning docs
 - [v2.0]: OwnTracks hostname treated as secret (reveals private infrastructure)
 - [Phase 08]: Migration uses better-sqlite3 directly for one-time scripts, with conditional column existence checks
+- [Phase 08.1]: Strict 3x threshold for entity type reclassification to avoid false positives from noisy entity extraction data
 
 ### Pending Todos
 
@@ -93,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08T03:08:12.007Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-03-08T03:35:34Z
+Stopped at: Completed 08.1-01-PLAN.md
 Resume file: None
