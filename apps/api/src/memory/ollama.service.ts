@@ -76,7 +76,7 @@ export class OllamaService implements OnModuleInit {
     throw new Error('Unreachable');
   }
 
-  async generate(prompt: string, images?: string[], retries = 2): Promise<string> {
+  async generate(prompt: string, images?: string[], retries = 2, format?: Record<string, unknown>): Promise<string> {
     // Use VL model for images, text model for text-only; always disable thinking
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
@@ -94,6 +94,7 @@ export class OllamaService implements OnModuleInit {
           stream: false,
           think: false,
         };
+        if (format) body.format = format;
 
         const res = await fetch(`${this.baseUrl}/api/chat`, {
           method: 'POST',
