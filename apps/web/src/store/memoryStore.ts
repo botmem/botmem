@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { Memory, SourceType, GraphData } from '@botmem/shared';
 import { api } from '../lib/api';
+import { sharedWs } from '../lib/ws';
+import { useAuthStore } from './authStore';
 import { trackEvent } from '../lib/posthog';
 
 interface Filters {
@@ -22,6 +24,12 @@ interface ParsedQuery {
   cleanQuery: string;
 }
 
+interface MemoryStats {
+  total: number;
+  bySource: Record<string, number>;
+  byConnector: Record<string, number>;
+}
+
 interface MemoryState {
   memories: Memory[];
   query: string;
@@ -31,6 +39,7 @@ interface MemoryState {
   searchFallback: boolean;
   resolvedEntities: ResolvedEntities | null;
   parsed: ParsedQuery | null;
+  memoryStats: MemoryStats | null;
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   getFiltered: () => Memory[];
@@ -40,6 +49,8 @@ interface MemoryState {
   pinMemory: (id: string) => Promise<void>;
   unpinMemory: (id: string) => Promise<void>;
   recordRecall: (id: string) => void;
+  connectWs: () => void;
+  mergeGraphDelta: (delta: any) => void;
 }
 
 function apiMemoryToShared(raw: any): Memory {
@@ -61,6 +72,7 @@ function apiMemoryToShared(raw: any): Memory {
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+let memoryWsConnected = false;
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
   memories: [],
@@ -71,6 +83,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   searchFallback: false,
   resolvedEntities: null,
   parsed: null,
+  memoryStats: null,
 
   setQuery: (query) => {
     set({ query });
@@ -82,7 +95,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       } else {
         get().loadMemories();
       }
-    }, 300);
+    }, 500);
   },
 
   setFilters: (f) =>
@@ -155,8 +168,14 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   loadGraph: async (params) => {
+    // Adaptive limits based on search state
+    const query = get().query;
+    const defaults = query.trim()
+      ? { memoryLimit: 200, linkLimit: 1000 }
+      : { memoryLimit: 300, linkLimit: 1500 };
+    const merged = { ...defaults, ...params };
     try {
-      const data = await api.getGraphData(params);
+      const data = await api.getGraphData(merged);
       const graphData: GraphData = {
         nodes: (data.nodes || []).map((n: any) => ({
           id: n.id,
@@ -185,5 +204,118 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     } catch (err) {
       console.error('Failed to load graph data:', err);
     }
+  },
+
+  mergeGraphDelta: (delta) => {
+    set((state) => {
+      const existingNodeIds = new Set(state.graphData.nodes.map((n) => n.id));
+      const existingLinkKeys = new Set(
+        state.graphData.links.map((l) => {
+          const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
+          const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+          return `${src}→${tgt}→${l.linkType}`;
+        })
+      );
+
+      const newNodes = [...state.graphData.nodes];
+      const newLinks = [...state.graphData.links];
+
+      // Add memory nodes
+      for (const node of delta.nodes || []) {
+        if (!existingNodeIds.has(node.id)) {
+          newNodes.push({
+            id: node.id,
+            label: node.label || '',
+            source: node.type || 'message',
+            sourceConnector: node.connectorType || 'gmail',
+            importance: node.importance || 0.5,
+            factuality: node.factuality || 'UNVERIFIED',
+            cluster: node.cluster || 0,
+            nodeType: node.nodeType || 'memory',
+            entities: node.entities || [],
+            connectors: node.connectors || [],
+            text: node.text || '',
+            weights: node.weights || {},
+            eventTime: node.eventTime || '',
+            metadata: node.metadata || {},
+          });
+          existingNodeIds.add(node.id);
+        }
+      }
+
+      // Add contact nodes
+      for (const contact of delta.contacts || []) {
+        if (!existingNodeIds.has(contact.id)) {
+          newNodes.push({
+            id: contact.id,
+            label: contact.label || '',
+            source: contact.type || 'contact',
+            sourceConnector: contact.connectorType || 'manual',
+            importance: contact.importance || 0.8,
+            factuality: contact.factuality || 'FACT',
+            cluster: contact.cluster || 0,
+            nodeType: contact.nodeType || 'contact',
+            entities: [],
+            connectors: contact.connectors || [],
+            text: '',
+            weights: {},
+            eventTime: '',
+            metadata: {},
+          });
+          existingNodeIds.add(contact.id);
+        }
+      }
+
+      // Add memory links
+      for (const link of delta.links || []) {
+        const key = `${link.source}→${link.target}→${link.type || 'related'}`;
+        if (!existingLinkKeys.has(key) && existingNodeIds.has(link.source) && existingNodeIds.has(link.target)) {
+          newLinks.push({
+            source: link.source,
+            target: link.target,
+            linkType: link.type || 'related',
+            strength: link.strength || 0.5,
+          });
+          existingLinkKeys.add(key);
+        }
+      }
+
+      // Add contact edges
+      for (const edge of delta.contactEdges || []) {
+        const key = `${edge.source}→${edge.target}→${edge.type || 'involves'}`;
+        if (!existingLinkKeys.has(key) && existingNodeIds.has(edge.source) && existingNodeIds.has(edge.target)) {
+          newLinks.push({
+            source: edge.source,
+            target: edge.target,
+            linkType: edge.type || 'involves',
+            strength: edge.strength || 0.7,
+          });
+          existingLinkKeys.add(key);
+        }
+      }
+
+      return { graphData: { nodes: newNodes, links: newLinks } };
+    });
+  },
+
+  connectWs: () => {
+    if (memoryWsConnected) return;
+    memoryWsConnected = true;
+
+    const token = useAuthStore.getState().accessToken ?? undefined;
+    sharedWs.subscribe('memories', token);
+    sharedWs.subscribe('dashboard', token);
+
+    sharedWs.onMessage((msg) => {
+      if (msg.event === 'graph:delta') {
+        get().mergeGraphDelta(msg.data);
+      }
+      if (msg.event === 'dashboard:stats') {
+        set({ memoryStats: msg.data as MemoryStats });
+      }
+    });
+
+    // Fetch initial stats
+    api.getMemoryStats().then((stats) => set({ memoryStats: stats })).catch(() => {});
   },
 }));

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { Job, LogEntry } from '@botmem/shared';
-import { api, createWsConnection, subscribeToChannel } from '../lib/api';
+import { api } from '../lib/api';
+import { sharedWs } from '../lib/ws';
+import { useAuthStore } from './authStore';
 
 export interface QueueStats {
   waiting: number;
@@ -10,11 +12,20 @@ export interface QueueStats {
   delayed: number;
 }
 
+export interface Notification {
+  id: string;
+  message: string;
+  level: 'info' | 'warn' | 'error' | 'success';
+  time: string;
+  read: boolean;
+}
+
 interface JobState {
   jobs: Job[];
   logs: LogEntry[];
   queueStats: Record<string, QueueStats> | null;
-  ws: WebSocket | null;
+  notifications: Notification[];
+  retrying: boolean;
   fetchJobs: () => Promise<void>;
   fetchLogs: () => Promise<void>;
   fetchQueueStats: () => Promise<void>;
@@ -24,13 +35,21 @@ interface JobState {
   clearLogs: () => void;
   connectWs: () => void;
   tickJobs: () => void;
+  addNotification: (msg: string, level: 'info' | 'warn' | 'error' | 'success') => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  dismissNotification: (id: string) => void;
+  retryAllFailed: () => Promise<void>;
 }
+
+let wsConnected = false;
 
 export const useJobStore = create<JobState>((set, get) => ({
   jobs: [],
   logs: [],
   queueStats: null,
-  ws: null,
+  notifications: [],
+  retrying: false,
 
   fetchJobs: async () => {
     try {
@@ -101,42 +120,89 @@ export const useJobStore = create<JobState>((set, get) => ({
 
   clearLogs: () => set({ logs: [] }),
 
-  connectWs: () => {
+  addNotification: (msg, level) =>
+    set((state) => ({
+      notifications: [
+        {
+          id: crypto.randomUUID(),
+          message: msg,
+          level,
+          time: new Date().toISOString(),
+          read: false,
+        },
+        ...state.notifications,
+      ].slice(0, 50),
+    })),
+
+  markNotificationRead: (id) =>
+    set((state) => ({
+      notifications: state.notifications.map((n) =>
+        n.id === id ? { ...n, read: true } : n
+      ),
+    })),
+
+  markAllNotificationsRead: () =>
+    set((state) => ({
+      notifications: state.notifications.map((n) => ({ ...n, read: true })),
+    })),
+
+  dismissNotification: (id) =>
+    set((state) => ({
+      notifications: state.notifications.filter((n) => n.id !== id),
+    })),
+
+  retryAllFailed: async () => {
+    set({ retrying: true });
     try {
-      const ws = createWsConnection();
-      ws.onopen = () => {
-        subscribeToChannel(ws, 'logs');
-      };
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.event === 'log') {
-          get().addLog({
-            id: crypto.randomUUID(),
-            timestamp: data.data.timestamp,
-            level: data.data.level,
-            connector: data.data.connectorType,
-            stage: data.data.stage || undefined,
-            message: data.data.message,
-          });
-        }
-        if (data.event === 'job:progress') {
-          set((state) => ({
-            jobs: state.jobs.map((j) =>
-              j.id === data.data.jobId
-                ? { ...j, progress: data.data.processed ?? data.data.progress ?? j.progress, total: data.data.total || j.total }
-                : j
-            ),
-          }));
-        }
-        if (data.event === 'job:complete') {
-          get().fetchJobs();
-          get().fetchQueueStats();
-        }
-      };
-      set({ ws });
+      await api.retryFailedJobs();
+      await get().fetchJobs();
+      await get().fetchQueueStats();
     } catch {
-      // WebSocket not available
+      // ignore
+    } finally {
+      set({ retrying: false });
     }
+  },
+
+  connectWs: () => {
+    if (wsConnected) return;
+    wsConnected = true;
+
+    const token = useAuthStore.getState().accessToken ?? undefined;
+    sharedWs.subscribe('logs', token);
+    sharedWs.subscribe('dashboard', token);
+
+    sharedWs.onMessage((msg) => {
+      if (msg.event === 'log') {
+        get().addLog({
+          id: crypto.randomUUID(),
+          timestamp: msg.data.timestamp,
+          level: msg.data.level,
+          connector: msg.data.connectorType,
+          stage: msg.data.stage || undefined,
+          message: msg.data.message,
+        });
+      }
+      if (msg.event === 'job:progress') {
+        set((state) => ({
+          jobs: state.jobs.map((j) =>
+            j.id === msg.data.jobId
+              ? { ...j, progress: msg.data.processed ?? msg.data.progress ?? j.progress, total: msg.data.total || j.total }
+              : j
+          ),
+        }));
+      }
+      if (msg.event === 'job:complete' || msg.event === 'dashboard:jobs') {
+        get().fetchJobs();
+        get().fetchQueueStats();
+      }
+      if (msg.event === 'job:complete') {
+        get().addNotification('Sync job completed', 'success');
+      }
+      if (msg.event === 'connector:warning') {
+        get().addNotification(msg.data?.message || 'Connector warning', 'warn');
+      }
+    });
   },
 
   tickJobs: () =>
