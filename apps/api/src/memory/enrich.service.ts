@@ -7,7 +7,7 @@ import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { memories, memoryLinks } from '../db/schema';
-import { entityExtractionPrompt, factualityPrompt } from './prompts';
+import { entityExtractionPrompt, factualityPrompt, ENTITY_FORMAT_SCHEMA } from './prompts';
 import { ConnectorsService } from '../connectors/connectors.service';
 
 const SIMILARITY_THRESHOLD = 0.8;
@@ -121,10 +121,11 @@ export class EnrichService {
     this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
   }
 
-  private async extractEntities(text: string): Promise<Array<{ type: string; value: string; confidence: number }>> {
+  private async extractEntities(text: string): Promise<Array<{ type: string; value: string }>> {
     try {
-      const response = await this.ollama.generate(entityExtractionPrompt(text));
-      return this.parseJsonArray(response);
+      const response = await this.ollama.generate(entityExtractionPrompt(text), undefined, 2, ENTITY_FORMAT_SCHEMA);
+      const parsed = JSON.parse(response);
+      return parsed.entities || [];
     } catch {
       return [];
     }
