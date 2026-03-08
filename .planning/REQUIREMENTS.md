@@ -243,7 +243,7 @@
 ### Build Optimization
 
 - [x] **BUILD-01**: TypeScript, Vitest, and Vite versions are defined once in pnpm catalogs, referenced everywhere
-- [ ] **BUILD-02**: Production Docker image uses multi-stage build with turbo prune for minimal image size
+- [x] **BUILD-02**: Production Docker image uses multi-stage build with turbo prune for minimal image size
 
 ### v3.0 Out of Scope
 
@@ -275,7 +275,7 @@
 | DOCK-03     | Phase 29 | Complete |
 | DOCK-04     | Phase 30 | Complete |
 | BUILD-01    | Phase 32 | Complete |
-| BUILD-02    | Phase 33 | Pending  |
+| BUILD-02    | Phase 33 | Complete |
 
 **v3.0 Coverage:**
 
