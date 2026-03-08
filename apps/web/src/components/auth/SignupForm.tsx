@@ -8,18 +8,34 @@ export function SignupForm() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const { signup } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    signup(email, password, name);
-    navigate('/onboarding');
+    setError('');
+    setLoading(true);
+    try {
+      await signup(email, password, name);
+      navigate('/onboarding');
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5 w-full max-w-sm">
       <h2 className="font-display text-3xl font-bold uppercase text-nb-text">Create Account</h2>
+
+      {error && (
+        <div className="border-3 border-nb-red bg-nb-red/10 p-3 font-mono text-sm text-nb-red font-bold">
+          {error}
+        </div>
+      )}
 
       <Input
         label="Name"
@@ -41,12 +57,12 @@ export function SignupForm() {
         type="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        placeholder="••••••••"
+        placeholder="********"
         required
       />
 
-      <Button type="submit" size="lg">
-        CREATE ACCOUNT
+      <Button type="submit" size="lg" disabled={loading}>
+        {loading ? 'CREATING...' : 'CREATE ACCOUNT'}
       </Button>
 
       <p className="font-mono text-sm text-nb-text">

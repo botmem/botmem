@@ -7,18 +7,22 @@ import { useAuth } from '../../hooks/useAuth';
 export function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const ok = login(email, password);
-    if (ok) {
+    setLoading(true);
+    try {
+      await login(email, password);
       navigate('/dashboard');
-    } else {
-      setError('No account found. Sign up first.');
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -45,20 +49,25 @@ export function LoginForm() {
         type="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        placeholder="••••••••"
+        placeholder="********"
         required
       />
 
-      <Button type="submit" size="lg">
-        SIGN IN
+      <Button type="submit" size="lg" disabled={loading}>
+        {loading ? 'SIGNING IN...' : 'SIGN IN'}
       </Button>
 
-      <p className="font-mono text-sm text-nb-text">
-        No account?{' '}
-        <Link to="/signup" className="font-bold underline decoration-3 hover:text-nb-pink">
-          SIGN UP
+      <div className="flex justify-between font-mono text-sm text-nb-text">
+        <p>
+          No account?{' '}
+          <Link to="/signup" className="font-bold underline decoration-3 hover:text-nb-pink">
+            SIGN UP
+          </Link>
+        </p>
+        <Link to="/forgot-password" className="font-bold underline decoration-3 hover:text-nb-pink">
+          Forgot password?
         </Link>
-      </p>
+      </div>
     </form>
   );
 }
