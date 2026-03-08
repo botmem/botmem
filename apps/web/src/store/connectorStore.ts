@@ -14,7 +14,7 @@ interface ConnectorState {
   syncNow: (id: string) => Promise<void>;
 }
 
-export const useConnectorStore = create<ConnectorState>((set, get) => ({
+export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   accounts: [],
   manifests: [],
   loading: false,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { api, createWsConnection, subscribeToChannel, unsubscribeFromChannel } from '../api';
+import { api, subscribeToChannel, unsubscribeFromChannel } from '../api';
 
 const mockFetch = vi.fn();
 

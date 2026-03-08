@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ConnectorType } from '@botmem/shared';
 import { cn, CONNECTOR_COLORS } from '@botmem/shared';

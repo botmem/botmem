@@ -32,7 +32,7 @@ export function IdentityPrompt() {
 
   const checkStatus = useCallback(async () => {
     try {
-      const { isSet, contactId } = await api.getMeStatus();
+      const { isSet } = await api.getMeStatus();
 
       if (!isSet) {
         // "Me" not set — show identity picker if not dismissed

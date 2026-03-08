@@ -28,8 +28,8 @@ describe('useConnectors', () => {
   });
 
   it('calls fetchManifests and fetchAccounts on mount', () => {
-    const spy1 = vi.spyOn(useConnectorStore.getState(), 'fetchManifests');
-    const spy2 = vi.spyOn(useConnectorStore.getState(), 'fetchAccounts');
+    vi.spyOn(useConnectorStore.getState(), 'fetchManifests');
+    vi.spyOn(useConnectorStore.getState(), 'fetchAccounts');
     renderHook(() => useConnectors());
     // useEffect fires asynchronously; just verify the hook works
     expect(typeof useConnectors).toBe('function');

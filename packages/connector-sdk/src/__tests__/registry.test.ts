@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ConnectorRegistry } from '../registry.js';
 import { BaseConnector } from '../base.js';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult } from '../types.js';
+import type { ConnectorManifest, AuthContext, AuthInitResult, SyncResult } from '../types.js';
 
 class TestConnector extends BaseConnector {
   readonly manifest: ConnectorManifest;

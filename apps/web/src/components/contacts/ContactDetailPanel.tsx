@@ -136,7 +136,7 @@ export function ContactDetailPanel({ contact, isSelf, onClose, onUpdate, onDelet
                   checked={splitIds.has(ident.id)}
                   onChange={(e) => {
                     const next = new Set(splitIds);
-                    e.target.checked ? next.add(ident.id) : next.delete(ident.id);
+                      if (e.target.checked) { next.add(ident.id); } else { next.delete(ident.id); }
                     setSplitIds(next);
                   }}
                   className="accent-nb-lime shrink-0"
