@@ -1,10 +1,64 @@
+import { useAuthStore } from '../store/authStore';
+
 const API_BASE = '/api';
 
+let refreshPromise: Promise<boolean> | null = null;
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const state = useAuthStore.getState();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+
+  if (state.accessToken) {
+    headers['Authorization'] = `Bearer ${state.accessToken}`;
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
     ...options,
+    headers,
+    credentials: 'include',
   });
+
+  if (res.status === 401) {
+    // Attempt refresh with mutex to prevent concurrent refreshes
+    if (!refreshPromise) {
+      refreshPromise = useAuthStore.getState().refreshSession().finally(() => {
+        refreshPromise = null;
+      });
+    }
+
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      // Retry original request with new token
+      const newState = useAuthStore.getState();
+      const retryHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(options?.headers as Record<string, string>),
+      };
+      if (newState.accessToken) {
+        retryHeaders['Authorization'] = `Bearer ${newState.accessToken}`;
+      }
+
+      const retryRes = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers: retryHeaders,
+        credentials: 'include',
+      });
+
+      if (!retryRes.ok) {
+        const body = await retryRes.text();
+        throw new Error(`API ${retryRes.status}: ${body}`);
+      }
+      return retryRes.json();
+    }
+
+    // Refresh failed -- redirect to login
+    window.location.href = '/login';
+    throw new Error('Session expired');
+  }
+
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API ${res.status}: ${body}`);

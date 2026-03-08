@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ConnectorsPage } from './pages/ConnectorsPage';
@@ -13,7 +15,18 @@ import { LandingPage } from './pages/LandingPage';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { useAuth } from './hooks/useAuth';
+import { useAuthStore } from './store/authStore';
 import { posthog, identifyUser } from './lib/posthog';
+
+function AuthInitializer() {
+  const initialize = useAuthStore((s) => s.initialize);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  return null;
+}
 
 function PostHogIdentifier() {
   useEffect(() => {
@@ -29,7 +42,7 @@ function PostHogIdentifier() {
         });
       })
       .catch(() => {
-        // Silently fail — analytics should never block the app
+        // Silently fail -- analytics should never block the app
       });
   }, []);
   return null;
@@ -43,8 +56,21 @@ function PostHogPageviewTracker() {
   return null;
 }
 
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-nb-bg">
+      <div className="text-center">
+        <div className="font-display text-4xl font-bold text-white mb-4">BOTMEM</div>
+        <div className="font-mono text-sm text-nb-text">Loading...</div>
+      </div>
+    </div>
+  );
+}
+
 function LandingOrApp() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) return <LoadingScreen />;
   if (!user) return <LandingPage />;
   if (!user.onboarded) return <Navigate to="/onboarding" replace />;
   return (
@@ -58,11 +84,14 @@ function LandingOrApp() {
 export function App() {
   return (
     <BrowserRouter>
+      <AuthInitializer />
       <PostHogPageviewTracker />
       <Routes>
         <Route index element={<LandingOrApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/landing" element={<LandingPage />} />
         <Route
           path="/onboarding"
