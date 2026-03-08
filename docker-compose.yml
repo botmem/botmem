@@ -1,37 +1,46 @@
-# Botmem - Self-hosting Docker Compose
 services:
-  # Note: Dockerfile is added in a later phase. For now, run the API directly with 'pnpm dev'.
-  api:
-    build: .
-    ports:
-      - "12412:12412"
-    environment:
-      - DB_PATH=/data/botmem.db
-      - REDIS_URL=redis://redis:6379
-      - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-    volumes:
-      - botmem-data:/data
-    depends_on:
-      - redis
-      - qdrant
-
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.13.2
     ports:
       - "6333:6333"
       - "6334:6334"
     volumes:
       - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  ollama:
+    image: ollama/ollama:0.6.2
+    profiles:
+      - ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/11434'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
-  botmem-data:
   redis-data:
   qdrant-data:
+  ollama-data:
