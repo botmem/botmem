@@ -1,7 +1,33 @@
+export const ENTITY_FORMAT_SCHEMA = {
+  type: 'object',
+  properties: {
+    entities: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['person', 'organization', 'location', 'event', 'product', 'topic', 'pet', 'group', 'device', 'other'],
+          },
+          value: { type: 'string' },
+        },
+        required: ['type', 'value'],
+      },
+    },
+  },
+  required: ['entities'],
+};
+
 export function entityExtractionPrompt(text: string): string {
-  return `Extract entities from this text. Return ONLY a JSON array of objects with {type, value, confidence}.
-Types: person, location, time, organization, amount, product, event, metric.
-Do not include any explanation, only the JSON array.
+  return `Extract entities from the following text. Return a JSON object with an "entities" array. Each entity has "type" and "value".
+
+Allowed types: person, organization, location, event, product, topic, pet, group, device, other.
+
+Rules:
+- Do NOT extract time references, amounts, or metrics -- those are memory metadata, not entities.
+- Only use "pet" when the text clearly describes an animal.
+- Use "other" only when the entity does not fit any other type.
 
 Text: "${text}"`;
 }
