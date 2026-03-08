@@ -4,52 +4,124 @@ import type { User } from '@botmem/shared';
 
 interface AuthState {
   user: User | null;
-  login: (email: string, password: string) => boolean;
-  signup: (email: string, password: string, name: string) => void;
-  logout: () => void;
+  accessToken: string | null;
+  isLoading: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, name: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshSession: () => Promise<boolean>;
+  initialize: () => Promise<void>;
   completeOnboarding: () => void;
+  clearError: () => void;
+}
+
+const API_BASE = '/api/user-auth';
+
+async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    credentials: 'include',
+    ...options,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: `Error ${res.status}` }));
+    throw new Error(body.message || `Error ${res.status}`);
+  }
+  return res.json();
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
-      login: (email: string, _password: string) => {
-        const stored = localStorage.getItem('botmem-users');
-        const users: User[] = stored ? JSON.parse(stored) : [];
-        const found = users.find((u) => u.email === email);
-        if (found) {
-          set({ user: found });
-          return true;
+      accessToken: null,
+      isLoading: true,
+      error: null,
+
+      login: async (email: string, password: string) => {
+        set({ error: null, isLoading: true });
+        try {
+          const data = await authFetch<{ accessToken: string; user: User }>('/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+          });
+          set({ user: data.user, accessToken: data.accessToken, isLoading: false });
+        } catch (err: any) {
+          set({ error: err.message, isLoading: false });
+          throw err;
         }
-        return false;
       },
-      signup: (email: string, _password: string, name: string) => {
-        const user: User = {
-          id: crypto.randomUUID(),
-          email,
-          name,
-          onboarded: false,
-        };
-        const stored = localStorage.getItem('botmem-users');
-        const users: User[] = stored ? JSON.parse(stored) : [];
-        users.push(user);
-        localStorage.setItem('botmem-users', JSON.stringify(users));
-        set({ user });
+
+      signup: async (email: string, password: string, name: string) => {
+        set({ error: null, isLoading: true });
+        try {
+          const data = await authFetch<{ accessToken: string; user: User }>('/register', {
+            method: 'POST',
+            body: JSON.stringify({ email, password, name }),
+          });
+          set({ user: data.user, accessToken: data.accessToken, isLoading: false });
+        } catch (err: any) {
+          set({ error: err.message, isLoading: false });
+          throw err;
+        }
       },
-      logout: () => set({ user: null }),
+
+      logout: async () => {
+        try {
+          await authFetch('/logout', { method: 'POST' });
+        } catch {
+          // Logout should always clear state even if API call fails
+        }
+        set({ user: null, accessToken: null, error: null });
+      },
+
+      refreshSession: async (): Promise<boolean> => {
+        try {
+          const data = await authFetch<{ accessToken: string }>('/refresh', {
+            method: 'POST',
+          });
+          // Fetch user profile with the new access token
+          const meRes = await fetch(`${API_BASE}/me`, {
+            headers: {
+              Authorization: `Bearer ${data.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+          });
+          if (meRes.ok) {
+            const user = await meRes.json();
+            set({ user, accessToken: data.accessToken });
+          } else {
+            set({ accessToken: data.accessToken });
+          }
+          return true;
+        } catch {
+          set({ user: null, accessToken: null });
+          return false;
+        }
+      },
+
+      initialize: async () => {
+        set({ isLoading: true });
+        try {
+          await get().refreshSession();
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
       completeOnboarding: () =>
         set((state) => {
           if (!state.user) return state;
-          const updated = { ...state.user, onboarded: true };
-          const stored = localStorage.getItem('botmem-users');
-          const users: User[] = stored ? JSON.parse(stored) : [];
-          const idx = users.findIndex((u) => u.id === updated.id);
-          if (idx >= 0) users[idx] = updated;
-          localStorage.setItem('botmem-users', JSON.stringify(users));
-          return { user: updated };
+          return { user: { ...state.user, onboarded: true } };
         }),
+
+      clearError: () => set({ error: null }),
     }),
-    { name: 'botmem-auth' }
-  )
+    {
+      name: 'botmem-auth',
+      partialize: (state) => ({ user: state.user }),
+    },
+  ),
 );
