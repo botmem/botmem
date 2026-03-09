@@ -2,12 +2,12 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, GithubAuthProvider } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyBQQy4khSV7iYDa-QHAgtU9LQi1bq3bOyQ',
-  authDomain: 'botmem-app.firebaseapp.com',
-  projectId: 'botmem-app',
-  storageBucket: 'botmem-app.firebasestorage.app',
-  messagingSenderId: '958102222848',
-  appId: '1:958102222848:web:1ced1d9c98222557ebc0e5',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 // Guard against double-init in HMR / test environments
