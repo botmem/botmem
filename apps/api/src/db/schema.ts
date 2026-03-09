@@ -103,10 +103,12 @@ export const memories = pgTable(
     pinned: boolean('pinned').notNull().default(false),
     recallCount: integer('recall_count').notNull().default(0),
     keyVersion: integer('key_version').notNull().default(0), // 0 = APP_SECRET encrypted, >= 1 = user key
+    pipelineComplete: boolean('pipeline_complete').notNull().default(false),
     enrichedAt: timestamp('enriched_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [
+    index('idx_memories_pipeline_complete').on(table.pipelineComplete),
     index('idx_memories_embedding_status').on(table.embeddingStatus),
     index('idx_memories_event_time').on(table.eventTime),
     index('idx_memories_connector_type').on(table.connectorType),

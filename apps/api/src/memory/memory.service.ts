@@ -632,7 +632,7 @@ export class MemoryService {
         .select({ memory: memories, accountIdentifier: accounts.identifier })
         .from(memories)
         .leftJoin(accounts, eq(memories.accountId, accounts.id))
-        .where(eq(memories.id, id)),
+        .where(and(eq(memories.id, id), eq(memories.pipelineComplete, true))),
     );
     return rows.length ? rows[0] : null;
   }
@@ -655,7 +655,7 @@ export class MemoryService {
           .select({ memory: memories, accountIdentifier: accounts.identifier })
           .from(memories)
           .leftJoin(accounts, eq(memories.accountId, accounts.id))
-          .where(inArray(memories.id, batch)),
+          .where(and(inArray(memories.id, batch), eq(memories.pipelineComplete, true))),
       );
       for (const row of rows) {
         result.set(row.memory.id, row);
@@ -715,7 +715,10 @@ export class MemoryService {
     // User isolation
     const userAccountIds = await this.getUserAccountIds(params.userId);
 
-    const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    const conditions: any[] = [
+      eq(memories.embeddingStatus, 'done'),
+      eq(memories.pipelineComplete, true),
+    ];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return { items: [], total: 0 };
       conditions.push(inArray(memories.accountId, userAccountIds));
@@ -807,7 +810,10 @@ export class MemoryService {
 
   async getStats(userId?: string, memoryBankIds?: string[]) {
     const userAccountIds = await this.getUserAccountIds(userId);
-    const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    const conditions: any[] = [
+      eq(memories.embeddingStatus, 'done'),
+      eq(memories.pipelineComplete, true),
+    ];
     // User isolation
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0)
@@ -1432,7 +1438,10 @@ export class MemoryService {
   }) {
     const limit = params.limit || 50;
     const userAccountIds = await this.getUserAccountIds(params.userId);
-    const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    const conditions: any[] = [
+      eq(memories.embeddingStatus, 'done'),
+      eq(memories.pipelineComplete, true),
+    ];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return [];
       conditions.push(inArray(memories.accountId, userAccountIds));

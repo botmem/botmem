@@ -107,9 +107,12 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       this.logger.warn(`[Enrich] encryptMemoryAtRest failed for ${memoryId}: ${err.message}`);
     });
 
-    // Mark memory as done — use withUserId scope if available
+    // Mark memory as done + pipeline complete — use withUserId scope if available
     const updateDone = (db: typeof this.dbService.db) =>
-      db.update(memories).set({ embeddingStatus: 'done' }).where(eq(memories.id, memoryId));
+      db
+        .update(memories)
+        .set({ embeddingStatus: 'done', pipelineComplete: true })
+        .where(eq(memories.id, memoryId));
     if (ownerUserId) {
       await this.dbService.withUserId(ownerUserId, updateDone);
     } else {
