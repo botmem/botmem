@@ -41,9 +41,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     this.worker.concurrency = concurrency;
     // Settings-based sync_debug_limit takes priority over env var
     const settingsLimit = parseInt(await this.settingsService.get('sync_debug_limit'), 10);
-    BaseConnector.DEBUG_SYNC_LIMIT = !isNaN(settingsLimit) && settingsLimit > 0
-      ? settingsLimit
-      : this.configService.syncDebugLimit;
+    BaseConnector.DEBUG_SYNC_LIMIT =
+      !isNaN(settingsLimit) && settingsLimit > 0
+        ? settingsLimit
+        : this.configService.syncDebugLimit;
     this.settingsService.onChange((key, value) => {
       if (key === 'sync_concurrency') {
         this.worker.concurrency = parseInt(value, 10) || 2;
@@ -54,7 +55,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     });
   }
 
-  async process(job: Job<{ accountId: string; connectorType: string; jobId: string }>) {
+  async process(
+    job: Job<{ accountId: string; connectorType: string; jobId: string; memoryBankId?: string }>,
+  ) {
     const { accountId, connectorType, jobId } = job.data;
     const syncStartTime = Date.now();
     const connector = this.connectors.get(connectorType);
@@ -117,7 +120,11 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       const total = Math.max(knownTotal, cumulative);
       // Only update total — progress is incremented by embed processor as items become memories
       this.jobsService.updateJob(jobId, { total });
-      this.events.emitToChannel(`job:${jobId}`, 'job:progress', { jobId, processed: undefined, total });
+      this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
+        jobId,
+        processed: undefined,
+        total,
+      });
     });
 
     try {
@@ -181,7 +188,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           completedAt: new Date(),
         });
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
-        this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_complete', jobId });
+        this.events.emitToChannel('dashboard', 'dashboard:jobs', {
+          trigger: 'sync_complete',
+          jobId,
+        });
       } else {
         // Set total to actual emitted count so progress never exceeds it
         await this.jobsService.updateJob(jobId, { total: totalProcessed });
@@ -202,7 +212,12 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         });
         await Promise.allSettled(pendingWrites);
         if (totalProcessed === 0) {
-          await this.jobsService.updateJob(jobId, { status: 'done', progress: 0, total: 0, completedAt: new Date() });
+          await this.jobsService.updateJob(jobId, {
+            status: 'done',
+            progress: 0,
+            total: 0,
+            completedAt: new Date(),
+          });
           this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
         }
         // else: job stays "running", embed processor will mark done when all items complete
@@ -229,9 +244,23 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  private addLog(jobId: string, connectorType: string, accountId: string, level: string, message: string) {
+  private addLog(
+    jobId: string,
+    connectorType: string,
+    accountId: string,
+    level: string,
+    message: string,
+  ) {
     const stage = 'sync';
     this.logsService.add({ jobId, connectorType, accountId, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { jobId, connectorType, accountId, stage, level, message, timestamp: new Date() });
+    this.events.emitToChannel('logs', 'log', {
+      jobId,
+      connectorType,
+      accountId,
+      stage,
+      level,
+      message,
+      timestamp: new Date(),
+    });
   }
 }

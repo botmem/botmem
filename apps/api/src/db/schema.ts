@@ -37,6 +37,7 @@ export const jobs = pgTable('jobs', {
     .references(() => accounts.id),
   connectorType: text('connector_type').notNull(),
   accountIdentifier: text('account_identifier'),
+  memoryBankId: text('memory_bank_id'),
   status: text('status').notNull().default('queued'),
   priority: integer('priority').notNull().default(0),
   progress: integer('progress').notNull().default(0),
