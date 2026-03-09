@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength, IsOptional, IsArray } from 'class-validator';
 
 export class CreateApiKeyDto {
   @IsString()
@@ -9,4 +9,9 @@ export class CreateApiKeyDto {
   @IsOptional()
   @IsString()
   expiresAt?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  memoryBankIds?: string[];
 }

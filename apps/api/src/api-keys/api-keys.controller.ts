@@ -10,11 +10,8 @@ export class ApiKeysController {
   constructor(private apiKeysService: ApiKeysService) {}
 
   @Post()
-  async create(
-    @CurrentUser() user: { id: string },
-    @Body() dto: CreateApiKeyDto,
-  ) {
-    return this.apiKeysService.create(user.id, dto.name, dto.expiresAt);
+  async create(@CurrentUser() user: { id: string }, @Body() dto: CreateApiKeyDto) {
+    return this.apiKeysService.create(user.id, dto.name, dto.expiresAt, dto.memoryBankIds);
   }
 
   @Get()
@@ -23,10 +20,7 @@ export class ApiKeysController {
   }
 
   @Delete(':id')
-  async revoke(
-    @CurrentUser() user: { id: string },
-    @Param('id') id: string,
-  ) {
+  async revoke(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     await this.apiKeysService.revoke(user.id, id);
     return { success: true };
   }
