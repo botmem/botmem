@@ -42,6 +42,7 @@ jobs:
             VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
             VITE_FIREBASE_MESSAGING_SENDER_ID=958102222848
             VITE_FIREBASE_APP_ID=1:958102222848:web:1ced1d9c98222557ebc0e5
+            VITE_FIREBASE_MEASUREMENT_ID=G-VY98K4Q9FJ
           tags: |
             ghcr.io/botmem/open-core:latest
             ghcr.io/botmem/open-core:${{ github.sha }}
