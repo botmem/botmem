@@ -70,6 +70,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
           account_id TEXT NOT NULL REFERENCES accounts(id),
           connector_type TEXT NOT NULL,
           account_identifier TEXT,
+          memory_bank_id TEXT,
           status TEXT NOT NULL DEFAULT 'queued',
           priority INTEGER NOT NULL DEFAULT 0,
           progress INTEGER NOT NULL DEFAULT 0,
@@ -219,6 +220,11 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
           revoked_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL
         );
+      `);
+
+      // Schema migrations for existing DBs
+      await client.query(`
+        ALTER TABLE jobs ADD COLUMN IF NOT EXISTS memory_bank_id TEXT;
       `);
 
       // Indexes
