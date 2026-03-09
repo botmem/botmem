@@ -1,10 +1,11 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { Pool } from 'pg';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Optional } from '@nestjs/common';
+import { Pool, PoolClient } from 'pg';
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { resolve } from 'path';
 import { ConfigService } from '../config/config.service';
 import * as schema from './schema';
+import { RlsContext } from './rls.context';
 
 // All tables and their required columns derived from schema.ts.
 // App refuses to start if any are missing after migrations run.
@@ -138,7 +139,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   public db!: NodePgDatabase<typeof schema>;
   private pool!: Pool;
 
-  constructor(private config: ConfigService) {}
+  constructor(
+    private config: ConfigService,
+    @Optional() private readonly rlsContext?: RlsContext,
+  ) {}
 
   async onModuleInit() {
     this.pool = new Pool({
@@ -160,6 +164,54 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.pool.end();
+  }
+
+  /** Expose pool for interceptor usage */
+  get connectionPool(): Pool {
+    return this.pool;
+  }
+
+  /**
+   * Run fn inside a transaction with SET LOCAL app.current_user_id.
+   * Used by BullMQ processors and any caller with an explicit userId.
+   * SET LOCAL means the variable is scoped to the transaction only —
+   * it resets on COMMIT/ROLLBACK, preventing bleed between pooled connections.
+   */
+  async withUserId<T>(
+    userId: string,
+    fn: (db: NodePgDatabase<typeof schema>) => Promise<T>,
+  ): Promise<T> {
+    const client: PoolClient = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL app.current_user_id = $1', [userId]);
+      const txDb = drizzle(client, { schema });
+      const result = await fn(txDb);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Run fn with the userId from the current HTTP request's RLS context.
+   * Reads from AsyncLocalStorage set by RlsInterceptor.
+   * Falls back to running without RLS if not in an HTTP context
+   * (BullMQ processors must use withUserId() explicitly instead).
+   */
+  async withCurrentUser<T>(fn: (db: NodePgDatabase<typeof schema>) => Promise<T>): Promise<T> {
+    const userId = this.rlsContext?.getCurrentUserId();
+    if (!userId) {
+      // Outside request context (e.g. BullMQ without explicit withUserId call) — run without RLS
+      // scope. The DB role must have BYPASSRLS or queries will return empty results.
+      // BullMQ processors must always use withUserId() explicitly instead.
+      return fn(this.db);
+    }
+    return this.withUserId(userId, fn);
   }
 
   async healthCheck(): Promise<boolean> {
