@@ -50,7 +50,7 @@ Every piece of personal communication and digital interaction is searchable, con
 
 - [ ] User authentication (email+password, JWT access+refresh tokens)
 - [ ] API keys (named, read-only, bank-scoped)
-- [ ] Memory banks (data isolation, sync-time selection)
+- ✓ Memory banks (data isolation, sync-time selection) — Phase 19
 - [ ] Encryption at rest (AES-256-GCM for credentials)
 - [ ] E2EE for prod-core (Argon2id key derivation, client-side encryption)
 - [ ] PostgreSQL dual-driver with RLS
@@ -61,6 +61,7 @@ Every piece of personal communication and digital interaction is searchable, con
 **Goal:** Transform the hacked-together monorepo into a production-grade, plug-and-play development environment — proper tooling, Docker Compose with all services, build gates with tests, and no dev experience footguns like port conflicts.
 
 **Target features:**
+
 - Proper pnpm workspace + Turborepo configuration following latest best practices
 - Docker Compose that's truly plug-and-play (includes Ollama, Redis, Qdrant — one command to run)
 - Fix port conflict issues (file changes spawning competing instances)
@@ -73,6 +74,7 @@ Every piece of personal communication and digital interaction is searchable, con
 **Goal:** Add user authentication, API keys, memory banks, encryption at rest, E2EE for prod-core, and PostgreSQL with RLS — transforming Botmem from a completely open system into a properly secured personal memory platform.
 
 **Target features:**
+
 - User auth: email+password (open-core), Firebase (prod-core) — always required, no bypass
 - API keys: named, read-only, scoped to memory bank(s)
 - Memory banks: data isolation units, selected at sync time
@@ -86,6 +88,7 @@ Every piece of personal communication and digital interaction is searchable, con
 **Goal:** Fix source type misclassification (photos stored as `file`), tame entity extraction chaos (100+ hallucinated types instead of 10 canonical), deduplicate entities, unify entity format, and backfill existing data — so search, filtering, and the memory graph actually work correctly.
 
 **Target features:**
+
 - Fix source type classification: photos emit `photo` not `file`, backfill existing records
 - Enforce canonical entity type taxonomy (10 types) with structured output constraints
 - Deduplicate entities within and across memories
@@ -133,23 +136,24 @@ Every piece of personal communication and digital interaction is searchable, con
 
 <!-- Decisions that constrain future work. Add throughout project lifecycle. -->
 
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| SQLite over PostgreSQL | Simpler deployment, single-user system, WAL mode sufficient | ✓ Good |
-| NestJS over FastAPI | TypeScript monorepo consistency, better ecosystem fit | ✓ Good |
-| BullMQ over Celery | Native Node.js, no Python dependency, Redis-backed | ✓ Good |
-| nomic-embed-text over Qwen embedding | Available on Ollama, 768d vectors, good quality | ✓ Good |
-| Contacts as first-class entities | Rich cross-connector identity needed for meaningful search | ✓ Good |
-| Store all memories, label factuality | Never lose data, let user filter by confidence | ✓ Good |
-| PostHog for analytics | Self-hostable, privacy-respecting, generous free tier | ✓ Good |
-| PostHog cloud over self-hosted | 16GB RAM requirement disproportionate for single-user | ✓ Good |
+| Decision                             | Rationale                                                   | Outcome |
+| ------------------------------------ | ----------------------------------------------------------- | ------- |
+| SQLite over PostgreSQL               | Simpler deployment, single-user system, WAL mode sufficient | ✓ Good  |
+| NestJS over FastAPI                  | TypeScript monorepo consistency, better ecosystem fit       | ✓ Good  |
+| BullMQ over Celery                   | Native Node.js, no Python dependency, Redis-backed          | ✓ Good  |
+| nomic-embed-text over Qwen embedding | Available on Ollama, 768d vectors, good quality             | ✓ Good  |
+| Contacts as first-class entities     | Rich cross-connector identity needed for meaningful search  | ✓ Good  |
+| Store all memories, label factuality | Never lose data, let user filter by confidence              | ✓ Good  |
+| PostHog for analytics                | Self-hostable, privacy-respecting, generous free tier       | ✓ Good  |
+| PostHog cloud over self-hosted       | 16GB RAM requirement disproportionate for single-user       | ✓ Good  |
 
 | SQLite → PostgreSQL for production | Production needs concurrent writes, RLS for data isolation | — Pending |
 | Local auth (open-core) + Firebase (prod-core) | Open-core self-contained, prod-core gets social login | — Pending |
 | Auth always on, no bypass | Security-first: every endpoint requires authentication | — Pending |
 | E2EE with Argon2id key derivation | Zero-knowledge: server never sees plaintext, lost password = lost data | — Pending |
-| Memory banks for data isolation | Logical partitioning for sync scoping and API key access | — Pending |
+| Memory banks for data isolation | Logical partitioning for sync scoping and API key access | ✓ Good |
 | AES-256-GCM encryption at rest | Protect auth context and credentials in SQLite/Postgres | — Pending |
 
 ---
-*Last updated: 2026-03-08 after v3.0 Monorepo & Developer Experience milestone started*
+
+_Last updated: 2026-03-09 after Phase 19 (Memory Banks)_
