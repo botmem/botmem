@@ -12,7 +12,8 @@
 - ✅ v3.0 Monorepo & Developer Experience - Phases 29-33 (shipped 2026-03-09) — [archive](milestones/v3.0-ROADMAP.md)
 - ✅ v3.0.1 NestJS Best Practices - Phase 34 (shipped 2026-03-09) — [archive](milestones/v3.0.1-ROADMAP.md)
 - v3.1 Production Deployment & CI/CD - (planned, deferred)
-- v4.0 E2E Testing & Test Infrastructure - Phases 35-39 (planned -- execution requires v2.0 phases 21, 23, 24 to complete first)
+- 🚧 v4.0 Fix Search Once and For All - Phases 35-38 (in progress)
+- v5.0 E2E Testing & Test Infrastructure - (planned, deferred)
 
 ## Phases
 
@@ -112,13 +113,7 @@ Plans:
 **Goal**: All PostHog deep analytics features are actively capturing data from Botmem sessions
 **Depends on**: Phase 4 (PostHog SDK already integrated and sending events)
 **Requirements**: REPLAY-01, REPLAY-03, HEAT-01, HEAT-03, ERR-01, ERR-03, WEB-03, ID-01, ID-02
-**Success Criteria** (what must be TRUE):
-
-1. Browsing Botmem generates session replay recordings with text inputs masked and network requests captured (auth headers redacted)
-2. Clicking and scrolling on pages produces autocapture events including rageclicks, and UTM/referrer data is captured on page views
-3. A deliberately thrown JS error appears as a captured exception in PostHog, and an unhandled backend exception is sent as a server-side error
-4. After page load, PostHog identifies the session with a stable user ID and sets connectors_count and memories_count as person properties
-   **Plans**: 2 plans
+**Plans**: 2 plans
 
 Plans:
 
@@ -130,13 +125,7 @@ Plans:
 **Goal**: PostHog dashboards provide actionable insights on Botmem usage patterns
 **Depends on**: Phase 5 (data must be flowing before dashboards can be built)
 **Requirements**: REPLAY-02, HEAT-02, ERR-02, WEB-01, WEB-02, PROD-01, PROD-02, PROD-03
-**Success Criteria** (what must be TRUE):
-
-1. Session recordings are playable in PostHog Replay tab and heatmap overlay is visible on Botmem pages via PostHog toolbar
-2. Errors with stack traces appear in PostHog Error Tracking view
-3. PostHog web analytics dashboard shows page views, unique visitors, session counts, and navigation paths between pages
-4. A saved PostHog dashboard exists with insights for searches/day, syncs/day, memories created, a connector setup funnel, and a search retention insight
-   **Plans**: 2 plans
+**Plans**: 2 plans
 
 Plans:
 
@@ -184,18 +173,6 @@ Phase 10: Source Citations (deferred)
 
 **Milestone Goal:** Add user authentication, API keys, memory banks, encryption at rest, E2EE for prod-core, and PostgreSQL with RLS -- transforming Botmem from a completely open system into a properly secured personal memory platform.
 
-**Phase Ordering Rationale:**
-
-- User auth first (Phase 16) because everything else depends on having a user identity
-- API security (Phase 17) immediately after to lock down endpoints before adding more features
-- API keys (Phase 18) require auth to exist, and banks need keys for scoping
-- Memory banks (Phase 19) need user identity for ownership and keys for scoping
-- Encryption at rest (Phase 20) can happen independently once auth is in place
-- E2EE (Phase 21) requires auth + banks, and must happen before Postgres migration (encrypted data must be stable)
-- PostgreSQL dual-driver (Phase 22) is infrastructure, independent of auth features but needed for RLS
-- RLS (Phase 23) requires Postgres + auth + banks to all be in place
-- Firebase auth (Phase 24) is last because it's prod-core only and builds on the local auth foundation
-
 **Summary:**
 
 - [x] **Phase 16: User Authentication** - Register, login, JWT access+refresh tokens, password reset, session persistence (AUTH-01 through AUTH-05) (completed 2026-03-08)
@@ -233,216 +210,90 @@ Phase 10: Source Citations (deferred)
 
 </details>
 
-## Phase Details (v2.0)
-
-### Phase 16: User Authentication
-
-**Goal**: Users can register, log in, and maintain sessions with JWT access tokens and httpOnly refresh cookies -- auth is always required, no bypass mode
-**Depends on**: Phase 15 (v1.4 complete, codebase stable)
-**Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05
-**Success Criteria** (what must be TRUE):
-
-1. `POST /api/user-auth/register` creates a new user with bcrypt-hashed password and returns JWT access token + sets httpOnly refresh cookie
-2. `POST /api/user-auth/login` with valid email+password returns JWT access token (15min expiry) + sets httpOnly refresh cookie (7d expiry)
-3. `POST /api/user-auth/refresh` with valid refresh cookie returns new access token and rotates refresh token (old token invalidated)
-4. `POST /api/user-auth/forgot-password` sends reset email with token link; `POST /api/user-auth/reset-password` with valid token (1hr) allows password change
-5. React frontend has login/register pages and persists session via refresh token
-   **Plans**: 3 plans
-
-Plans:
-
-- [x] 16-01-PLAN.md -- Backend auth infrastructure: schema, JWT, register/login/refresh/logout
-- [x] 16-02-PLAN.md -- Password reset infrastructure: passwordResets table, MailService
-- [x] 16-03-PLAN.md -- Frontend auth rewrite + password reset endpoints wiring
-
-### Phase 17: API Security
-
-**Goal**: All API endpoints require authentication except explicitly public ones, and CORS is locked to the frontend origin
-**Depends on**: Phase 16 (auth system must exist to enforce)
-**Requirements**: SEC-01, SEC-02
-**Success Criteria** (what must be TRUE):
-
-1. Unauthenticated requests to any endpoint (except `/health`, `/version`, `/auth/*`) return 401 Unauthorized
-2. WebSocket connections require valid JWT token in handshake
-3. CORS only allows requests from FRONTEND_URL origin(s), with credentials mode enabled
-4. OAuth callback endpoints for connectors still work (they are marked @Public)
-   **Plans**: 1 plan
-
-Plans:
-
-- [x] 17-01-PLAN.md -- Global auth guard, CORS lockdown, WebSocket JWT auth, health endpoint
-
-### Phase 18: API Keys
-
-**Goal**: Users can create named, read-only API keys for programmatic access (CLI, agents), scoped to specific memory banks
-**Depends on**: Phase 17 (auth guard must be in place to enforce key auth)
-**Requirements**: KEY-01, KEY-02, KEY-03, KEY-04, KEY-05
-**Success Criteria** (what must be TRUE):
-
-1. `POST /api-keys` creates a named API key, returns the key once (never stored plaintext), stores SHA-256 hash
-2. API keys only allow read operations (search, list memories/contacts) -- write/sync/delete operations return 403
-3. API keys created with bank scope only see data in those banks -- cross-bank requests return empty results
-4. `GET /api-keys` lists all keys (name, created, last used, banks), `DELETE /api-keys/:id` revokes a key
-5. `Authorization: Bearer <api-key>` header authenticates as the key's owner with read-only + bank-scoped permissions
-   **Plans**: 2 plans
-
-Plans:
-
-- [x] 18-01-PLAN.md -- Backend: schema, service, controller, dual auth guard, @RequiresJwt enforcement
-- [x] 18-02-PLAN.md -- Frontend: Settings page tabs, API Keys management UI
-
-### Phase 19: Memory Banks
-
-**Goal**: Memories are organized into banks for logical data isolation, with bank selection at sync time and search scoping
-**Depends on**: Phase 18 (API keys need banks for scoping)
-**Requirements**: BANK-01, BANK-02, BANK-03, BANK-04
-**Success Criteria** (what must be TRUE):
-
-1. `POST /banks` creates a new bank, `GET /banks` lists user's banks, `PATCH /banks/:id` renames, `DELETE /banks/:id` deletes (with data)
-2. Connector sync accepts `bankId` parameter -- all ingested memories go into the specified bank
-3. Search results are scoped to the user's accessible banks (own banks for JWT auth, scoped banks for API key auth)
-4. On first login, a "Default" bank is created and all existing memories are migrated into it
-   **Plans**: 3 plans
-
-Plans:
-
-- [ ] 19-01-PLAN.md -- Backend: sync pipeline memoryBankId threading + API key bank scoping (BANK-02, BANK-03)
-- [ ] 19-02-PLAN.md -- Data migration script + frontend isDefault boolean fix (BANK-01, BANK-04)
-- [ ] 19-03-PLAN.md -- Frontend: sync bank selector + API key bank multi-select (BANK-02, BANK-03)
-
-### Phase 20: Encryption at Rest
-
-**Goal**: Sensitive connector credentials and auth context are encrypted in the database using AES-256-GCM
-**Depends on**: Phase 16 (need APP_SECRET env var pattern established)
-**Requirements**: ENC-01, ENC-02
-**Success Criteria** (what must be TRUE):
-
-1. `authContext` in accounts table and data in `connectorCredentials` table are AES-256-GCM encrypted (key from APP_SECRET)
-2. Reading encrypted fields through the API returns decrypted values transparently (encryption is at the DB layer)
-3. Migration script encrypts all existing plaintext credentials without downtime
-4. Missing APP_SECRET causes startup error with clear message
-   **Plans**: 2 plans
-
-Plans:
-
-- [x] 20-01-PLAN.md -- Encryption migration script + APP_SECRET startup validation (ENC-01, ENC-02)
-- [x] 20-02-PLAN.md -- Frontend credential management UI (ENC-01, ENC-02)
-
-### Phase 21: End-to-End Encryption (Prod-Core)
-
-**Goal**: Memory text and metadata are encrypted with per-user keys derived from passwords via Argon2id, ensuring database theft cannot expose memory content while preserving vector search
-**Depends on**: Phase 20 (encryption patterns established), Phase 19 (banks exist for scoping)
-**Requirements**: E2EE-01, E2EE-02, E2EE-03, E2EE-04
-**Success Criteria** (what must be TRUE):
-
-1. Server derives AES-256-GCM key from user password using Argon2id on login, caches in server memory only
-2. Memory `text`, `entities`, `claims`, and `metadata` fields are encrypted with per-user key after enrichment -- server stores ciphertext
-3. Embedding vectors remain plaintext in Qdrant -- semantic search returns results, text fields decrypted server-side on read
-4. Password change triggers batched re-encryption of all user memories with key version tracking (resumable on failure)
-   **Plans**: 2 plans
-
-Plans:
-
-- [ ] 21-01-PLAN.md -- Per-user key derivation foundation: Argon2id, UserKeyService, CryptoService extension, schema changes (E2EE-01)
-- [ ] 21-02-PLAN.md -- Pipeline encryption swap + re-encryption processor (E2EE-02, E2EE-03, E2EE-04)
-
-### Phase 22: PostgreSQL Dual-Driver -- COMPLETE
-
-**Goal**: Migrate from SQLite to PostgreSQL with native types (JSONB, boolean, timestamp), tsvector search, and pg Pool
-**Depends on**: Phase 19 (banks table must exist in schema before creating Postgres version)
-**Requirements**: DB-01, DB-02, DB-03, DB-04
-**Success Criteria** (what must be TRUE):
-
-1. Schema uses pgTable with native PostgreSQL types (uuid, timestamp, boolean, jsonb)
-2. All services consume PostgreSQL-native types -- zero SQLite references in apps/api/src/
-3. DATABASE_URL required at startup, Docker Compose includes postgres:17-alpine
-4. FTS uses tsvector + pg_trgm with GIN indexes
-   **Plans**: 2 plans
-
-Plans:
-
-- [x] 22-01-PLAN.md -- Database layer migration (schema, db.service, config, docker)
-- [x] 22-02-PLAN.md -- Service layer migration (JSONB, booleans, timestamps, tests, cleanup)
-
-### Phase 23: Row Level Security
-
-**Goal**: PostgreSQL RLS policies ensure each user can only access their own data at the database level
-**Depends on**: Phase 22 (Postgres driver must be working), Phase 16 (user identity must exist)
-**Requirements**: DB-05
-**Success Criteria** (what must be TRUE):
-
-1. RLS policies on memories, accounts, contacts, banks, and related tables restrict access to `current_user_id` session variable
-2. Each API request sets `SET LOCAL app.current_user_id = '<user_id>'` before executing queries
-3. Attempting to read/write another user's data via direct SQL returns no results (no error, just empty)
-4. Drizzle ORM queries work correctly with RLS enabled -- no bypasses from connection pooling or missing session vars
-   **Plans**: 2 plans
-
-Plans:
-
-- [ ] 23-01-PLAN.md -- RLS DDL: enable RLS + create policies on all user-owned tables (DB-05)
-- [ ] 23-02-PLAN.md -- Session variable injection: RlsInterceptor + AsyncLocalStorage + DbService.withUserId() (DB-05)
-
-### Phase 24: Firebase Auth (Prod-Core)
-
-**Goal**: Prod-core can use Firebase for authentication with social login (Google, GitHub), switchable via env var
-**Depends on**: Phase 16 (local auth must be the baseline), Phase 17 (auth guard infrastructure)
-**Requirements**: FBAUTH-01, FBAUTH-02, FBAUTH-03, FBAUTH-04
-**Success Criteria** (what must be TRUE):
-
-1. NestJS guard verifies Firebase ID tokens via `firebase-admin` SDK when `AUTH_PROVIDER=firebase`
-2. React UI shows Firebase login/register with email+password, Google, and GitHub options
-3. `AUTH_PROVIDER=local` (default) uses JWT email+password auth; `AUTH_PROVIDER=firebase` uses Firebase -- switching requires only env var change
-4. Firebase-authenticated users get local user records created on first login (sync from Firebase UID)
-   **Plans**: 2 plans
-
-Plans:
-
-- [ ] 24-01-PLAN.md -- Firebase Admin SDK integration + NestJS guard for AUTH_PROVIDER=firebase (FBAUTH-01, FBAUTH-02)
-- [ ] 24-02-PLAN.md -- React Firebase login UI + first-login user sync (FBAUTH-03, FBAUTH-04)
-
 <details>
-<summary>Old v2.0 Phases (11-15) -- partially complete, restructured</summary>
+<summary>v3.0.1 NestJS Best Practices (Phase 34) - SHIPPED 2026-03-09</summary>
 
-Phase 11 (Repo & Infrastructure) is complete and stays as-is.
-Phases 12-15 (DB, Inference, Docker, CI/CD) are restructured:
-
-- DB work moved to Phases 22-23 (now includes RLS)
-- Auth work moved to Phases 16-17, 24 (expanded scope)
-- Inference abstraction deferred to v3.0
-- Docker/CI-CD deferred to v3.0
-
-### Phase 11: Repository & Infrastructure Foundation (COMPLETE)
-
-**Plans:** 2/2 plans complete
-
-- [x] 11-01: Clean inline secrets and sanitize git history (REPO-04)
-- [x] 11-02: Create GitHub org, open-core and prod-core repos (REPO-01, REPO-02, REPO-03)
-- [x] 11-03: VPS configuration and DNS setup (DEP-01, DEP-05)
+See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 plans complete.
 
 </details>
 
-<details>
-<summary>Phase Details (v2.1) - ARCHIVED</summary>
+## v4.0 Fix Search Once and For All (Phases 35-38)
 
-See [v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md) for full phase details.
+**Milestone Goal:** Validate the entire pipeline end-to-end -- sync real data from every connector, verify raw event -> embed -> enrich -> Qdrant works correctly, build file/attachment extraction, validate relationship graph, and prove search returns meaningful results with concrete search-then-verify testing.
 
-Phases 25-28 complete. 6 plans total.
+**Phase Ordering Rationale:**
 
-</details>
+- Sync + pipeline verification first (Phase 35) because everything depends on having real data flowing correctly through the pipeline -- you cannot validate relationships or search without memories in the database
+- File/attachment processing (Phase 36) is NEW functionality that must be built before search can cover attachment content -- it depends on having synced data to know what files look like
+- Relationship graph validation (Phase 37) requires both memories and file/attachment links to be in place -- verifying contacts, entities, and memory links needs the complete data picture
+- Search quality validation (Phase 38) comes last because it tests the entire stack -- you need correct memories, correct entities, correct contacts, correct file links, and correct Qdrant vectors before search validation is meaningful
 
-<details>
-<summary>Phase Details (v3.0) - ARCHIVED</summary>
+**Summary:**
 
-See [v3.0-ROADMAP.md](milestones/v3.0-ROADMAP.md) for full phase details.
+- [ ] **Phase 35: Data Sync & Pipeline Verification** - Sync all 6 connectors and verify embed/enrich pipeline produces correct memories with proper source types, embeddings, contacts, entities, factuality, and Qdrant vectors
+- [ ] **Phase 36: File & Attachment Processing** - Build file/photo extraction from emails and messages as standalone memories linked to their parent
+- [ ] **Phase 37: Relationship Graph Validation** - Verify contact associations, entity extraction, and memory links across all connector types
+- [ ] **Phase 38: Search Quality Validation** - Test semantic, cross-connector, contact-scoped, temporal, source-filtered, and attachment search against real data
 
-Phases 29-33 complete. 6 plans total.
+## Phase Details (v4.0)
 
-</details>
+### Phase 35: Data Sync & Pipeline Verification
+
+**Goal**: Real data from all 6 connector types flows through the complete pipeline and produces correct, searchable memories in PostgreSQL and Qdrant
+**Depends on**: Phase 34 (codebase stable, all prior milestones shipped)
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06, PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06
+**Success Criteria** (what must be TRUE):
+
+1. User can trigger sync for each of the 6 connectors (Gmail, Slack, WhatsApp, iMessage, Photos-Immich, Locations) and see raw events created in the rawEvents table with connector-appropriate payload fields
+2. Every synced raw event progresses through embed -> enrich pipeline to produce a Memory with correct source_type (email/message/photo/location), valid 768d embedding, and resolved Contact records
+3. Enrich processor produces entities using the canonical 10-type taxonomy and classifies factuality (FACT/UNVERIFIED/FICTION) for every memory
+4. Every enriched memory is upserted to Qdrant with correct payload fields (memory_id, source_type, connector_type, event_time) and is retrievable via vector search
+5. Searching for content known to exist in synced data returns relevant results (basic sanity check per connector)
+   **Plans**: TBD
+
+### Phase 36: File & Attachment Processing
+
+**Goal**: Email attachments and message files are extracted as standalone memories with their own embeddings and linked to their parent message/email in the relationship graph
+**Depends on**: Phase 35 (synced data must exist to know what attachments look like)
+**Requirements**: PIPE-07, PIPE-08, PIPE-09, REL-04
+**Success Criteria** (what must be TRUE):
+
+1. Email attachments and message file shares produce standalone Memory records with source_type `file` (or `photo` for image files) separate from the parent memory
+2. Photo-type attachments are processed through the vision model and have caption text extracted and stored as the memory text
+3. Non-photo file attachments store metadata (filename, MIME type, size) and have meaningful text for embedding (filename + type description)
+4. File/photo memories are linked to their parent memory via memoryLinks with a relationship type that indicates parent-child association
+   **Plans**: TBD
+
+### Phase 37: Relationship Graph Validation
+
+**Goal**: The memory graph accurately represents who said what, what entities were mentioned, and how memories relate to each other across all connector types
+**Depends on**: Phase 36 (file links must be in place for complete graph validation)
+**Requirements**: REL-01, REL-02, REL-03
+**Success Criteria** (what must be TRUE):
+
+1. Contact associations have correct roles per connector -- Gmail emails have sender/recipient contacts, Slack messages have sender contacts, WhatsApp messages have participant contacts, iMessage messages have sender/recipient contacts
+2. Entity extraction produces meaningful entities per connector type -- emails yield person/organization/date entities, messages yield person/location entities, photos yield location/date entities, locations yield location entities
+3. Memory links exist for contextually related content -- email threads link replies to originals, Slack thread replies link to parent messages, WhatsApp conversation messages within a time window are linked
+   **Plans**: TBD
+
+### Phase 38: Search Quality Validation
+
+**Goal**: Search across the full corpus of real data returns meaningful, well-ranked results for every search mode the system supports
+**Depends on**: Phase 37 (complete relationship graph for contact-scoped and entity-based search)
+**Requirements**: SRCH-01, SRCH-02, SRCH-03, SRCH-04, SRCH-05, SRCH-06, SRCH-07
+**Success Criteria** (what must be TRUE):
+
+1. Natural language queries return semantically relevant results across all source types, and results are properly weighted using the 5-weight formula (semantic + rerank + recency + importance + trust)
+2. A single query that spans multiple connectors returns results from at least 2 different source types (cross-connector search works)
+3. Searching scoped to a specific contact returns only memories associated with that person, and temporal queries ("last week", "in January") return time-bounded results
+4. Source-type filtering works -- searching within "emails only", "messages only", "photos only", or "files only" returns correctly filtered results
+5. Searching for content within attachments returns results -- photo captions and file metadata are searchable alongside regular memory text
+   **Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 9 -> 10 -> 11 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22 -> 23 -> 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31 -> 32 -> 33 -> 34 -> [v2.0 phases 21, 23, 24 complete] -> 35 -> 36 -> 37 -> 38 -> 39
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 9 -> 10 -> 11 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22 -> 23 -> 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31 -> 32 -> 33 -> 34 -> 35 -> 36 -> 37 -> 38
 
 | Phase                            | Milestone | Plans Complete | Status      | Completed  |
 | -------------------------------- | --------- | -------------- | ----------- | ---------- |
@@ -477,108 +328,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 32. Build Optimization           | v3.0      | 1/1            | Complete    | 2026-03-08 |
 | 33. Production Docker            | v3.0      | 1/1            | Complete    | 2026-03-09 |
 | 34. NestJS Best Practices        | v3.0.1    | 3/3            | Complete    | 2026-03-09 |
-| 35. Fixture Capture              | v4.0      | 0/?            | Not started | -          |
-| 36. Pipeline Integration Tests   | v4.0      | 0/?            | Not started | -          |
-| 37. API HTTP Integration Tests   | v4.0      | 0/?            | Not started | -          |
-| 38. Connector Parsing Tests      | v4.0      | 0/?            | Not started | -          |
-| 39. CI Gates & Coverage          | v4.0      | 0/?            | Not started | -          |
-
-<details>
-<summary>Phase 34: NestJS Best Practices Maturation (v3.0.1) - SHIPPED 2026-03-09</summary>
-
-See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 plans complete.
-
-</details>
-
-## v4.0 E2E Testing & Test Infrastructure (Phases 35-39)
-
-**Milestone Goal:** Establish comprehensive integration and API-level testing for Botmem using snapshot-based fixture testing to handle Ollama non-determinism -- so the pipeline is verifiable in CI without GPU access.
-
-**Execution dependency:** Phases 35-39 require v2.0 phases 21 (E2EE), 23 (RLS), and 24 (Firebase) to complete first -- test infrastructure must be built against the final auth/DB architecture.
-
-**Phase Ordering Rationale:**
-
-- Fixture capture first (Phase 35) because all subsequent test phases depend on recorded LLM responses and connector payloads -- tests cannot run without fixtures
-- Pipeline integration tests (Phase 36) before API tests (Phase 37) because processors underpin the API layer -- a broken processor means broken endpoints
-- Connector parsing tests (Phase 38) are independent data-transform tests that do not depend on the live pipeline but do benefit from the fixture infrastructure in Phase 35
-- CI gates (Phase 39) last because they gate on all prior test suites passing -- the workflow cannot be locked until there are passing tests to enforce
-
-**Summary:**
-
-- [ ] **Phase 35: Fixture Capture Infrastructure** - `pnpm fixtures:generate`, JSON LLM I/O recordings, connector payload fixtures, fixture loader utility (FIXTURE-01 through FIXTURE-05)
-- [ ] **Phase 36: Pipeline Integration Tests** - EmbedProcessor, EnrichProcessor, SyncProcessor, backfill tests with real Postgres + fixture LLM (PIPE-01 through PIPE-05)
-- [ ] **Phase 37: API HTTP Integration Tests** - All REST endpoints via Supertest: auth, search, accounts, banks, API keys, contacts, health, auth enforcement (API-01 through API-08)
-- [ ] **Phase 38: Connector Parsing Tests** - Gmail, Slack, iMessage, Immich, Locations parsing with recorded fixture responses (CONN-01 through CONN-05)
-- [ ] **Phase 39: CI Gates & Coverage** - GitHub Actions test workflow, fixture cache, coverage report artifacts, deploy gate, 80% threshold enforcement (CI-01 through CI-05)
-
-## Phase Details (v4.0)
-
-### Phase 35: Fixture Capture Infrastructure
-
-**Goal**: Developer can generate and refresh a complete set of recorded LLM responses and connector payloads that allow all tests to run offline against deterministic inputs
-**Depends on**: Phase 34 (codebase fully stable), v2.0 phases 21, 23, 24 (final auth/DB architecture in place)
-**Requirements**: FIXTURE-01, FIXTURE-02, FIXTURE-03, FIXTURE-04, FIXTURE-05
-**Success Criteria** (what must be TRUE):
-
-1. Developer can run `pnpm fixtures:generate` against live Ollama and see JSON fixture files created in `__fixtures__/ollama/embed/`, `__fixtures__/ollama/enrich/`, and `__fixtures__/ollama/vl/` -- one file per LLM call type
-2. Developer can run `pnpm fixtures:refresh` after changing an Ollama model or prompt and see fixture files updated to reflect the new responses -- stale fixtures do not silently persist
-3. Test files can call `loadFixture('ollama/embed', 'nomic-sample')` (or equivalent) and receive the fixture data without any boilerplate file-reading code -- the loader handles path resolution and parsing
-4. `__fixtures__/connectors/` contains one sample raw payload per connector type (gmail, slack, imessage, immich, locations) that matches the shape emitted by each connector's sync method
-5. Running `pnpm test` with no live Ollama available completes successfully using fixture data -- zero network calls to Ollama during test execution
-   **Plans**: TBD
-
-### Phase 36: Pipeline Integration Tests
-
-**Goal**: Developer can run the full embed/enrich/sync pipeline against a real isolated Postgres database using fixture LLM responses and verify the entire data flow without live Ollama
-**Depends on**: Phase 35 (fixture infrastructure must exist), Phase 22 (Postgres driver)
-**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05
-**Success Criteria** (what must be TRUE):
-
-1. Running `pnpm test` on the API package executes `embed.processor.integration.test.ts` and passes -- the test creates a Memory row in a real Postgres schema and asserts correct `text`, `source_type`, `connector_type`, and contact associations
-2. Running the enrich integration test passes -- the test verifies entities, claims, and factuality label are stored in Postgres, and that E2EE-encrypted fields contain ciphertext (not plaintext) when encryption is enabled
-3. Running the sync integration test passes -- the test verifies that rawEvents rows are created in Postgres and embed jobs are enqueued in BullMQ for each fixture payload emitted by the mock connector
-4. Running tests twice in sequence produces identical results -- the `test-db` helper creates a fresh isolated Postgres schema before each suite and drops it after, with zero cross-suite state leakage
-5. Running the backfill integration test passes -- already-enriched memories are skipped on the second pass, and the final entity output matches the fixture-derived expected values
-   **Plans**: TBD
-
-### Phase 37: API HTTP Integration Tests
-
-**Goal**: Developer can run a complete HTTP test suite covering all REST endpoints and verify correct status codes, response shapes, and authorization enforcement
-**Depends on**: Phase 36 (pipeline integration layer verified), Phase 35 (fixture embeddings for search tests)
-**Requirements**: API-01, API-02, API-03, API-04, API-05, API-06, API-07, API-08
-**Success Criteria** (what must be TRUE):
-
-1. Running the auth integration test suite passes all steps: register returns 201 with JWT, login returns 200 with JWT + refresh cookie, refresh rotates token, logout clears cookie, forgot-password returns 200, reset-password with valid token returns 200
-2. Running `POST /api/memory/search` in the test suite with a fixture embedding returns a 200 response with results array where each item has `id`, `text`, `score`, `source_type`, and `entities` fields
-3. Sending an unauthenticated request to any protected endpoint (e.g., `GET /api/memory/search`) returns 401; sending an API key bearer token to a write endpoint (e.g., `POST /api/accounts`) returns 403
-4. All CRUD paths for memory banks, API keys, and connector accounts return correct status codes and response shapes -- create returns 201, list returns 200 with array, delete returns 204
-5. `GET /api/health` returns 200 with a JSON body showing connectivity status for Postgres, Redis, and Qdrant
-   **Plans**: TBD
-
-### Phase 38: Connector Parsing Tests
-
-**Goal**: Developer can verify that each connector correctly transforms its raw API responses into normalized Memory records -- catching regressions in parsing logic without running live connector syncs
-**Depends on**: Phase 35 (connector fixture payloads must exist)
-**Requirements**: CONN-01, CONN-02, CONN-03, CONN-04, CONN-05
-**Success Criteria** (what must be TRUE):
-
-1. Running the Gmail parsing test passes -- given the fixture MIME email payload, the produced Memory has correct sender as a contact with role `sender`, all recipient addresses as contacts with role `recipient`, the email subject as text prefix, and body text normalized to plain text
-2. Running the Slack parsing test passes -- given the fixture Slack Events API payload, the produced Memory has correct `connector_type: 'slack'`, sender contact, channel reference in metadata, and any reactions captured
-3. Running the iMessage parsing test passes -- given fixture SQLite row data, the produced Memory has correct timestamp, sender/recipient contacts, and text; the test does not require a real iMessage DB file
-4. Running the Immich parsing test passes -- the produced Memory has `source_type: 'photo'` (not `'file'`), correct `connector_type: 'photos-immich'`, and photo metadata (date taken, camera model if present) in the metadata field
-5. Running the Locations parsing test passes -- the produced Memory has `source_type: 'location'`, correct lat/lng in metadata, and the OwnTracks timestamp converted to ISO 8601
-   **Plans**: TBD
-
-### Phase 39: CI Gates & Coverage
-
-**Goal**: Every pull request must pass all tests before merge is allowed, fixture generation is cached to avoid redundant Ollama calls, and coverage stays above 80% for the API package
-**Depends on**: Phase 38 (all test suites must be complete and passing before CI can enforce them)
-**Requirements**: CI-01, CI-02, CI-03, CI-04, CI-05
-**Success Criteria** (what must be TRUE):
-
-1. Opening a pull request on GitHub triggers the test workflow -- the PR status check shows a passing or failing state based on `pnpm test` results, and the PR cannot be merged until tests pass
-2. A second run of the test workflow on the same commit uses the cached `__fixtures__/` directory -- the "Generate fixtures" step is skipped and the workflow completes faster than the first run
-3. After a test run, a coverage report comment appears on the PR showing overall API coverage percentage and a link to the full lcov report artifact
-4. Pushing a commit that breaks a test causes the Docker image build workflow to be skipped -- no new Docker image is published until tests pass
-5. Adding code to the API package that causes overall coverage to drop below 80% causes the test workflow to fail with a clear message -- the vitest config `coverage.thresholds` enforcement is visible in the CI output
-   **Plans**: TBD
+| 35. Data Sync & Pipeline         | v4.0      | 0/?            | Not started | -          |
+| 36. File & Attachment Processing | v4.0      | 0/?            | Not started | -          |
+| 37. Relationship Graph           | v4.0      | 0/?            | Not started | -          |
+| 38. Search Quality Validation    | v4.0      | 0/?            | Not started | -          |

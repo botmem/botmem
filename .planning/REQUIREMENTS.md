@@ -338,40 +338,40 @@ Validate the entire pipeline end-to-end — sync real data from every connector,
 
 ### v4.0 Traceability
 
-| Requirement | Phase | Status  |
-| ----------- | ----- | ------- |
-| SYNC-01     | —     | Pending |
-| SYNC-02     | —     | Pending |
-| SYNC-03     | —     | Pending |
-| SYNC-04     | —     | Pending |
-| SYNC-05     | —     | Pending |
-| SYNC-06     | —     | Pending |
-| PIPE-01     | —     | Pending |
-| PIPE-02     | —     | Pending |
-| PIPE-03     | —     | Pending |
-| PIPE-04     | —     | Pending |
-| PIPE-05     | —     | Pending |
-| PIPE-06     | —     | Pending |
-| PIPE-07     | —     | Pending |
-| PIPE-08     | —     | Pending |
-| PIPE-09     | —     | Pending |
-| REL-01      | —     | Pending |
-| REL-02      | —     | Pending |
-| REL-03      | —     | Pending |
-| REL-04      | —     | Pending |
-| SRCH-01     | —     | Pending |
-| SRCH-02     | —     | Pending |
-| SRCH-03     | —     | Pending |
-| SRCH-04     | —     | Pending |
-| SRCH-05     | —     | Pending |
-| SRCH-06     | —     | Pending |
-| SRCH-07     | —     | Pending |
+| Requirement | Phase    | Status  |
+| ----------- | -------- | ------- |
+| SYNC-01     | Phase 35 | Pending |
+| SYNC-02     | Phase 35 | Pending |
+| SYNC-03     | Phase 35 | Pending |
+| SYNC-04     | Phase 35 | Pending |
+| SYNC-05     | Phase 35 | Pending |
+| SYNC-06     | Phase 35 | Pending |
+| PIPE-01     | Phase 35 | Pending |
+| PIPE-02     | Phase 35 | Pending |
+| PIPE-03     | Phase 35 | Pending |
+| PIPE-04     | Phase 35 | Pending |
+| PIPE-05     | Phase 35 | Pending |
+| PIPE-06     | Phase 35 | Pending |
+| PIPE-07     | Phase 36 | Pending |
+| PIPE-08     | Phase 36 | Pending |
+| PIPE-09     | Phase 36 | Pending |
+| REL-01      | Phase 37 | Pending |
+| REL-02      | Phase 37 | Pending |
+| REL-03      | Phase 37 | Pending |
+| REL-04      | Phase 36 | Pending |
+| SRCH-01     | Phase 38 | Pending |
+| SRCH-02     | Phase 38 | Pending |
+| SRCH-03     | Phase 38 | Pending |
+| SRCH-04     | Phase 38 | Pending |
+| SRCH-05     | Phase 38 | Pending |
+| SRCH-06     | Phase 38 | Pending |
+| SRCH-07     | Phase 38 | Pending |
 
 **v4.0 Coverage:**
 
 - v4.0 requirements: 26 total (SYNC: 6, PIPE: 9, REL: 4, SRCH: 7)
-- Mapped to phases: 0
-- Unmapped: 26 ⚠️
+- Mapped to phases: 26 (Phases 35-38)
+- Unmapped: 0 ✓
 
 ## Future Requirements
 
@@ -420,4 +420,4 @@ Deferred to future releases. Tracked but not in current roadmap.
 ---
 
 _Requirements defined: 2026-03-08_
-_Last updated: 2026-03-09 after v4.0 milestone initialization_
+_Last updated: 2026-03-09 after v4.0 roadmap creation_
