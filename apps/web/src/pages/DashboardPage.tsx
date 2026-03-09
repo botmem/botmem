@@ -11,6 +11,7 @@ import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
 import { useJobStore } from '../store/jobStore';
 import { useMemoryBankStore } from '../store/memoryBankStore';
+import { useAuthStore } from '../store/authStore';
 
 const dashTabs = [
   { id: 'overview', label: 'OVERVIEW' },
@@ -23,6 +24,7 @@ export function DashboardPage() {
   const { graphData, loadGraph, memoryStats } = useMemories();
   const { retrying, retryAllFailed } = useJobStore();
   const activeMemoryBankId = useMemoryBankStore((s) => s.activeMemoryBankId);
+  const logout = useAuthStore((s) => s.logout);
   const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
@@ -63,10 +65,7 @@ export function DashboardPage() {
           <span className="text-xl mr-2">&#x1F512;</span>
           Your encryption key is not loaded. Please{' '}
           <button
-            onClick={() => {
-              localStorage.clear();
-              window.location.href = '/login';
-            }}
+            onClick={() => logout()}
             className="underline font-bold cursor-pointer text-yellow-100 hover:text-white"
           >
             log out and log back in

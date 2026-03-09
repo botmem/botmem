@@ -149,9 +149,21 @@ export class MemoryService {
   }
 
   /** Check if user has encrypted memories but no decryption key in memory (server restarted). */
-  needsRelogin(userId?: string): boolean {
+  async needsRelogin(userId?: string): Promise<boolean> {
     if (!userId) return false;
-    return !this.userKeyService.hasKey(userId);
+    if (this.userKeyService.hasKey(userId)) return false;
+    // Only flag if there are actually user-encrypted memories (keyVersion >= 1)
+    const [row] = await this.dbService.db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(memories)
+      .where(
+        and(
+          eq(memories.accountId, sql`(SELECT id FROM accounts WHERE user_id = ${userId} LIMIT 1)`),
+          sql`${memories.keyVersion} >= 1`,
+        ),
+      )
+      .limit(1);
+    return (row?.count ?? 0) > 0;
   }
 
   /** Invalidate contacts cache (call after contact writes) */
