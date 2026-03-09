@@ -1,8 +1,136 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { resolve } from 'path';
 import { ConfigService } from '../config/config.service';
 import * as schema from './schema';
+
+// All tables and their required columns derived from schema.ts.
+// App refuses to start if any are missing after migrations run.
+const REQUIRED_SCHEMA: Record<string, string[]> = {
+  users: [
+    'id',
+    'email',
+    'password_hash',
+    'name',
+    'onboarded',
+    'encryption_salt',
+    'key_version',
+    'created_at',
+    'updated_at',
+  ],
+  refresh_tokens: [
+    'id',
+    'user_id',
+    'token_hash',
+    'family',
+    'expires_at',
+    'revoked_at',
+    'created_at',
+  ],
+  password_resets: ['id', 'user_id', 'token_hash', 'expires_at', 'used_at', 'created_at'],
+  accounts: [
+    'id',
+    'user_id',
+    'connector_type',
+    'identifier',
+    'status',
+    'schedule',
+    'auth_context',
+    'last_cursor',
+    'last_sync_at',
+    'items_synced',
+    'last_error',
+    'created_at',
+    'updated_at',
+  ],
+  connector_credentials: ['connector_type', 'credentials', 'updated_at'],
+  jobs: [
+    'id',
+    'account_id',
+    'connector_type',
+    'account_identifier',
+    'memory_bank_id',
+    'status',
+    'priority',
+    'progress',
+    'total',
+    'error',
+    'started_at',
+    'completed_at',
+    'created_at',
+  ],
+  raw_events: [
+    'id',
+    'account_id',
+    'connector_type',
+    'source_id',
+    'source_type',
+    'payload',
+    'cleaned_text',
+    'timestamp',
+    'job_id',
+    'created_at',
+  ],
+  memories: [
+    'id',
+    'account_id',
+    'memory_bank_id',
+    'connector_type',
+    'source_type',
+    'source_id',
+    'text',
+    'event_time',
+    'ingest_time',
+    'factuality',
+    'weights',
+    'entities',
+    'claims',
+    'metadata',
+    'embedding_status',
+    'pinned',
+    'recall_count',
+    'key_version',
+    'enriched_at',
+    'created_at',
+  ],
+  memory_links: ['id', 'src_memory_id', 'dst_memory_id', 'link_type', 'strength', 'created_at'],
+  contacts: [
+    'id',
+    'user_id',
+    'display_name',
+    'entity_type',
+    'avatars',
+    'metadata',
+    'created_at',
+    'updated_at',
+  ],
+  contact_identifiers: [
+    'id',
+    'contact_id',
+    'identifier_type',
+    'identifier_value',
+    'connector_type',
+    'confidence',
+    'created_at',
+  ],
+  memory_contacts: ['id', 'memory_id', 'contact_id', 'role'],
+  merge_dismissals: ['id', 'contact_id_1', 'contact_id_2', 'created_at'],
+  memory_banks: ['id', 'user_id', 'name', 'is_default', 'created_at', 'updated_at'],
+  api_keys: [
+    'id',
+    'user_id',
+    'name',
+    'key_hash',
+    'last_four',
+    'memory_bank_ids',
+    'expires_at',
+    'revoked_at',
+    'created_at',
+  ],
+  settings: ['key', 'value'],
+};
 
 @Injectable()
 export class DbService implements OnModuleInit, OnModuleDestroy {
@@ -21,8 +149,12 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.db = drizzle(this.pool, { schema });
-    await this.createTables();
-    await this.dropLegacyTables();
+
+    await migrate(this.db, { migrationsFolder: resolve(__dirname, 'migrations') });
+    this.logger.log('Migrations applied');
+
+    await this.validateSchema();
+    await this.createRlsPolicies();
     this.logger.log('PostgreSQL connected and tables ensured');
   }
 
@@ -30,7 +162,6 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     await this.pool.end();
   }
 
-  /** Health check: acquire client, run SELECT 1, release */
   async healthCheck(): Promise<boolean> {
     const client = await this.pool.connect();
     try {
@@ -43,245 +174,223 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async createTables() {
+  /**
+   * Verifies every expected table and column exists in the DB.
+   * Throws if anything is missing — prevents startup with a broken schema.
+   */
+  private async validateSchema() {
     const client = await this.pool.connect();
     try {
-      await client.query(`
-        CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-        CREATE TABLE IF NOT EXISTS accounts (
-          id TEXT PRIMARY KEY,
-          user_id TEXT,
-          connector_type TEXT NOT NULL,
-          identifier TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'disconnected',
-          schedule TEXT NOT NULL DEFAULT 'manual',
-          auth_context TEXT,
-          last_cursor TEXT,
-          last_sync_at TIMESTAMPTZ,
-          items_synced INTEGER NOT NULL DEFAULT 0,
-          last_error TEXT,
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS jobs (
-          id TEXT PRIMARY KEY,
-          account_id TEXT NOT NULL REFERENCES accounts(id),
-          connector_type TEXT NOT NULL,
-          account_identifier TEXT,
-          memory_bank_id TEXT,
-          status TEXT NOT NULL DEFAULT 'queued',
-          priority INTEGER NOT NULL DEFAULT 0,
-          progress INTEGER NOT NULL DEFAULT 0,
-          total INTEGER NOT NULL DEFAULT 0,
-          error TEXT,
-          started_at TIMESTAMPTZ,
-          completed_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS connector_credentials (
-          connector_type TEXT PRIMARY KEY,
-          credentials TEXT NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS raw_events (
-          id TEXT PRIMARY KEY,
-          account_id TEXT NOT NULL REFERENCES accounts(id),
-          connector_type TEXT NOT NULL,
-          source_id TEXT NOT NULL,
-          source_type TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          cleaned_text TEXT,
-          timestamp TIMESTAMPTZ NOT NULL,
-          job_id TEXT,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS memories (
-          id TEXT PRIMARY KEY,
-          account_id TEXT REFERENCES accounts(id),
-          memory_bank_id TEXT,
-          connector_type TEXT NOT NULL,
-          source_type TEXT NOT NULL,
-          source_id TEXT NOT NULL,
-          text TEXT NOT NULL,
-          event_time TIMESTAMPTZ NOT NULL,
-          ingest_time TIMESTAMPTZ NOT NULL,
-          factuality JSONB NOT NULL DEFAULT '{"label":"UNVERIFIED","confidence":0.5,"rationale":"Pending evaluation"}',
-          weights JSONB NOT NULL DEFAULT '{"semantic":0,"rerank":0,"recency":0,"importance":0.5,"trust":0.5,"final":0}',
-          entities TEXT NOT NULL DEFAULT '[]',
-          claims TEXT NOT NULL DEFAULT '[]',
-          metadata TEXT NOT NULL DEFAULT '{}',
-          embedding_status TEXT NOT NULL DEFAULT 'pending',
-          pinned BOOLEAN NOT NULL DEFAULT false,
-          recall_count INTEGER NOT NULL DEFAULT 0,
-          enriched_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS memory_links (
-          id TEXT PRIMARY KEY,
-          src_memory_id TEXT NOT NULL REFERENCES memories(id),
-          dst_memory_id TEXT NOT NULL REFERENCES memories(id),
-          link_type TEXT NOT NULL DEFAULT 'related',
-          strength DOUBLE PRECISION NOT NULL DEFAULT 0,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS contacts (
-          id TEXT PRIMARY KEY,
-          user_id TEXT,
-          display_name TEXT NOT NULL,
-          entity_type TEXT NOT NULL DEFAULT 'person',
-          avatars JSONB NOT NULL DEFAULT '[]',
-          metadata JSONB NOT NULL DEFAULT '{}',
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS contact_identifiers (
-          id TEXT PRIMARY KEY,
-          contact_id TEXT NOT NULL REFERENCES contacts(id),
-          identifier_type TEXT NOT NULL,
-          identifier_value TEXT NOT NULL,
-          connector_type TEXT,
-          confidence DOUBLE PRECISION NOT NULL DEFAULT 1.0,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS memory_contacts (
-          id TEXT PRIMARY KEY,
-          memory_id TEXT NOT NULL REFERENCES memories(id),
-          contact_id TEXT NOT NULL REFERENCES contacts(id),
-          role TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS merge_dismissals (
-          id TEXT PRIMARY KEY,
-          contact_id_1 TEXT NOT NULL REFERENCES contacts(id),
-          contact_id_2 TEXT NOT NULL REFERENCES contacts(id),
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS settings (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS users (
-          id TEXT PRIMARY KEY,
-          email TEXT NOT NULL UNIQUE,
-          password_hash TEXT NOT NULL,
-          name TEXT NOT NULL,
-          onboarded BOOLEAN NOT NULL DEFAULT false,
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL REFERENCES users(id),
-          token_hash TEXT NOT NULL,
-          family TEXT NOT NULL,
-          expires_at TIMESTAMPTZ NOT NULL,
-          revoked_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS password_resets (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL REFERENCES users(id),
-          token_hash TEXT NOT NULL,
-          expires_at TIMESTAMPTZ NOT NULL,
-          used_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS memory_banks (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          is_default BOOLEAN NOT NULL DEFAULT false,
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS api_keys (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL REFERENCES users(id),
-          name TEXT NOT NULL,
-          key_hash TEXT NOT NULL,
-          last_four TEXT NOT NULL,
-          memory_bank_ids TEXT,
-          expires_at TIMESTAMPTZ,
-          revoked_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL
-        );
+      const { rows } = await client.query<{ table_name: string; column_name: string }>(`
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
       `);
 
-      // Schema migrations for existing DBs
-      await client.query(`
-        ALTER TABLE jobs ADD COLUMN IF NOT EXISTS memory_bank_id TEXT;
-      `);
+      const actual = new Map<string, Set<string>>();
+      for (const row of rows) {
+        if (!actual.has(row.table_name)) actual.set(row.table_name, new Set());
+        actual.get(row.table_name)!.add(row.column_name);
+      }
 
-      // Indexes
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
-        CREATE INDEX IF NOT EXISTS idx_contact_identifiers_contact_id ON contact_identifiers(contact_id);
-        CREATE INDEX IF NOT EXISTS idx_contact_identifiers_value ON contact_identifiers(identifier_type, identifier_value);
-        CREATE INDEX IF NOT EXISTS idx_memory_contacts_contact_id ON memory_contacts(contact_id);
-        CREATE INDEX IF NOT EXISTS idx_memory_contacts_memory_id ON memory_contacts(memory_id);
-        CREATE INDEX IF NOT EXISTS idx_merge_dismissals_pair ON merge_dismissals(contact_id_1, contact_id_2);
-        CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name);
-        CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
-        CREATE INDEX IF NOT EXISTS idx_memories_embedding_status ON memories(embedding_status);
-        CREATE INDEX IF NOT EXISTS idx_memories_event_time ON memories(event_time);
-        CREATE INDEX IF NOT EXISTS idx_memories_connector_type ON memories(connector_type);
-        CREATE INDEX IF NOT EXISTS idx_memories_memory_bank_id ON memories(memory_bank_id);
-        CREATE INDEX IF NOT EXISTS idx_raw_events_source_id ON raw_events(source_id);
-        CREATE INDEX IF NOT EXISTS idx_raw_events_job_id ON raw_events(job_id);
-        CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
-        CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
-        CREATE INDEX IF NOT EXISTS idx_memory_banks_user_id ON memory_banks(user_id);
-      `);
+      const missing: string[] = [];
+      for (const [table, columns] of Object.entries(REQUIRED_SCHEMA)) {
+        if (!actual.has(table)) {
+          missing.push(`table "${table}"`);
+          continue;
+        }
+        for (const col of columns) {
+          if (!actual.get(table)!.has(col)) {
+            missing.push(`"${table}.${col}"`);
+          }
+        }
+      }
 
-      // Unique indexes
-      await client.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_source_dedup ON memories(source_id, connector_type);
-      `);
-
-      // Partial unique index: only one default memory bank per user
-      await client.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_banks_user_default ON memory_banks(user_id) WHERE is_default = true;
-      `);
-
-      // GIN indexes for full-text search (replaces SQLite FTS5)
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_memories_fts ON memories USING gin (to_tsvector('english', text));
-      `);
-
-      // Trigram index for fuzzy matching
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_memories_trgm ON memories USING gin (text gin_trgm_ops);
-      `);
+      if (missing.length > 0) {
+        throw new Error(
+          `Schema validation failed — missing: ${missing.join(', ')}. ` +
+            'Check migration files or run drizzle-kit generate.',
+        );
+      }
     } finally {
       client.release();
     }
   }
 
-  private async dropLegacyTables() {
+  /**
+   * Enables Row-Level Security on all user-owned tables and creates idempotent
+   * per-user policies using the session variable app.current_user_id.
+   *
+   * Tables excluded (no per-user ownership): users, settings, connector_credentials.
+   */
+  private async createRlsPolicies() {
     const client = await this.pool.connect();
     try {
-      await client.query('DROP TABLE IF EXISTS logs CASCADE');
-      this.logger.log('Legacy logs table dropped (now file-based)');
-    } catch (err) {
-      this.logger.warn(
-        'Could not drop legacy logs table:',
-        err instanceof Error ? err.message : String(err),
-      );
+      await client.query(`
+        -- =====================================================================
+        -- TABLES WITH DIRECT user_id COLUMN
+        -- accounts, contacts, memory_banks, api_keys, refresh_tokens, password_resets
+        -- =====================================================================
+
+        ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE accounts FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_accounts_select ON accounts;
+        DROP POLICY IF EXISTS rls_accounts_insert ON accounts;
+        DROP POLICY IF EXISTS rls_accounts_update ON accounts;
+        DROP POLICY IF EXISTS rls_accounts_delete ON accounts;
+        CREATE POLICY rls_accounts_select ON accounts FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_accounts_insert ON accounts FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_accounts_update ON accounts FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_accounts_delete ON accounts FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE contacts FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_contacts_select ON contacts;
+        DROP POLICY IF EXISTS rls_contacts_insert ON contacts;
+        DROP POLICY IF EXISTS rls_contacts_update ON contacts;
+        DROP POLICY IF EXISTS rls_contacts_delete ON contacts;
+        CREATE POLICY rls_contacts_select ON contacts FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_contacts_insert ON contacts FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_contacts_update ON contacts FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_contacts_delete ON contacts FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE memory_banks ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE memory_banks FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_memory_banks_select ON memory_banks;
+        DROP POLICY IF EXISTS rls_memory_banks_insert ON memory_banks;
+        DROP POLICY IF EXISTS rls_memory_banks_update ON memory_banks;
+        DROP POLICY IF EXISTS rls_memory_banks_delete ON memory_banks;
+        CREATE POLICY rls_memory_banks_select ON memory_banks FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_memory_banks_insert ON memory_banks FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_memory_banks_update ON memory_banks FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_memory_banks_delete ON memory_banks FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE api_keys FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_api_keys_select ON api_keys;
+        DROP POLICY IF EXISTS rls_api_keys_insert ON api_keys;
+        DROP POLICY IF EXISTS rls_api_keys_update ON api_keys;
+        DROP POLICY IF EXISTS rls_api_keys_delete ON api_keys;
+        CREATE POLICY rls_api_keys_select ON api_keys FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_api_keys_insert ON api_keys FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_api_keys_update ON api_keys FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_api_keys_delete ON api_keys FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE refresh_tokens FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_refresh_tokens_select ON refresh_tokens;
+        DROP POLICY IF EXISTS rls_refresh_tokens_insert ON refresh_tokens;
+        DROP POLICY IF EXISTS rls_refresh_tokens_update ON refresh_tokens;
+        DROP POLICY IF EXISTS rls_refresh_tokens_delete ON refresh_tokens;
+        CREATE POLICY rls_refresh_tokens_select ON refresh_tokens FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_refresh_tokens_insert ON refresh_tokens FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_refresh_tokens_update ON refresh_tokens FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_refresh_tokens_delete ON refresh_tokens FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE password_resets FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_password_resets_select ON password_resets;
+        DROP POLICY IF EXISTS rls_password_resets_insert ON password_resets;
+        DROP POLICY IF EXISTS rls_password_resets_update ON password_resets;
+        DROP POLICY IF EXISTS rls_password_resets_delete ON password_resets;
+        CREATE POLICY rls_password_resets_select ON password_resets FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_password_resets_insert ON password_resets FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_password_resets_update ON password_resets FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_password_resets_delete ON password_resets FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        -- =====================================================================
+        -- TABLES WITH account_id → accounts.user_id
+        -- jobs, raw_events, memories
+        -- =====================================================================
+
+        ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE jobs FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_jobs_select ON jobs;
+        DROP POLICY IF EXISTS rls_jobs_insert ON jobs;
+        DROP POLICY IF EXISTS rls_jobs_update ON jobs;
+        DROP POLICY IF EXISTS rls_jobs_delete ON jobs;
+        CREATE POLICY rls_jobs_select ON jobs FOR SELECT USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = jobs.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_jobs_insert ON jobs FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM accounts a WHERE a.id = jobs.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_jobs_update ON jobs FOR UPDATE USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = jobs.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_jobs_delete ON jobs FOR DELETE USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = jobs.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+
+        ALTER TABLE raw_events ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE raw_events FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_raw_events_select ON raw_events;
+        DROP POLICY IF EXISTS rls_raw_events_insert ON raw_events;
+        DROP POLICY IF EXISTS rls_raw_events_update ON raw_events;
+        DROP POLICY IF EXISTS rls_raw_events_delete ON raw_events;
+        CREATE POLICY rls_raw_events_select ON raw_events FOR SELECT USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = raw_events.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_raw_events_insert ON raw_events FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM accounts a WHERE a.id = raw_events.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_raw_events_update ON raw_events FOR UPDATE USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = raw_events.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_raw_events_delete ON raw_events FOR DELETE USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = raw_events.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+
+        ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE memories FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_memories_select ON memories;
+        DROP POLICY IF EXISTS rls_memories_insert ON memories;
+        DROP POLICY IF EXISTS rls_memories_update ON memories;
+        DROP POLICY IF EXISTS rls_memories_delete ON memories;
+        CREATE POLICY rls_memories_select ON memories FOR SELECT USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = memories.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_memories_insert ON memories FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM accounts a WHERE a.id = memories.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_memories_update ON memories FOR UPDATE USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = memories.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_memories_delete ON memories FOR DELETE USING (EXISTS (SELECT 1 FROM accounts a WHERE a.id = memories.account_id AND a.user_id = current_setting('app.current_user_id', true)));
+
+        -- =====================================================================
+        -- TABLES VIA memories (two-hop via accounts)
+        -- memory_links, memory_contacts
+        -- =====================================================================
+
+        ALTER TABLE memory_links ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE memory_links FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_memory_links_select ON memory_links;
+        DROP POLICY IF EXISTS rls_memory_links_insert ON memory_links;
+        DROP POLICY IF EXISTS rls_memory_links_update ON memory_links;
+        DROP POLICY IF EXISTS rls_memory_links_delete ON memory_links;
+        CREATE POLICY rls_memory_links_select ON memory_links FOR SELECT USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_links.src_memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_links_insert ON memory_links FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_links.src_memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_links_update ON memory_links FOR UPDATE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_links.src_memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_links_delete ON memory_links FOR DELETE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_links.src_memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+
+        ALTER TABLE memory_contacts ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE memory_contacts FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_memory_contacts_select ON memory_contacts;
+        DROP POLICY IF EXISTS rls_memory_contacts_insert ON memory_contacts;
+        DROP POLICY IF EXISTS rls_memory_contacts_update ON memory_contacts;
+        DROP POLICY IF EXISTS rls_memory_contacts_delete ON memory_contacts;
+        CREATE POLICY rls_memory_contacts_select ON memory_contacts FOR SELECT USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_contacts_insert ON memory_contacts FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_contacts_update ON memory_contacts FOR UPDATE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_contacts_delete ON memory_contacts FOR DELETE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+
+        -- =====================================================================
+        -- TABLES VIA contacts
+        -- contact_identifiers, merge_dismissals
+        -- =====================================================================
+
+        ALTER TABLE contact_identifiers ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE contact_identifiers FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_contact_identifiers_select ON contact_identifiers;
+        DROP POLICY IF EXISTS rls_contact_identifiers_insert ON contact_identifiers;
+        DROP POLICY IF EXISTS rls_contact_identifiers_update ON contact_identifiers;
+        DROP POLICY IF EXISTS rls_contact_identifiers_delete ON contact_identifiers;
+        CREATE POLICY rls_contact_identifiers_select ON contact_identifiers FOR SELECT USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_contact_identifiers_insert ON contact_identifiers FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_contact_identifiers_update ON contact_identifiers FOR UPDATE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_contact_identifiers_delete ON contact_identifiers FOR DELETE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
+
+        ALTER TABLE merge_dismissals ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE merge_dismissals FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_merge_dismissals_select ON merge_dismissals;
+        DROP POLICY IF EXISTS rls_merge_dismissals_insert ON merge_dismissals;
+        DROP POLICY IF EXISTS rls_merge_dismissals_update ON merge_dismissals;
+        DROP POLICY IF EXISTS rls_merge_dismissals_delete ON merge_dismissals;
+        CREATE POLICY rls_merge_dismissals_select ON merge_dismissals FOR SELECT USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_insert ON merge_dismissals FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_update ON merge_dismissals FOR UPDATE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_delete ON merge_dismissals FOR DELETE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
+      `);
+      this.logger.log('RLS policies applied on all user-owned tables');
     } finally {
       client.release();
     }
