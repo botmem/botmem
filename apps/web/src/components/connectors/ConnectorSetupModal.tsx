@@ -13,7 +13,10 @@ interface ConnectorSetupModalProps {
   onConnect: (identifier: string) => void;
 }
 
-const fallbackFields: Record<string, Array<{ name: string; label: string; placeholder: string }>> = {
+const fallbackFields: Record<
+  string,
+  Array<{ name: string; label: string; placeholder: string }>
+> = {
   gmail: [{ name: 'email', label: 'Gmail Address', placeholder: 'you@gmail.com' }],
   slack: [{ name: 'workspace', label: 'Workspace Name', placeholder: 'my-workspace' }],
   imessage: [{ name: 'appleId', label: 'Apple ID', placeholder: 'you@icloud.com' }],
@@ -27,6 +30,7 @@ interface SchemaField {
   type: string;
   readOnly?: boolean;
   required?: boolean;
+  default?: string | number;
 }
 
 interface AuthMethod {
@@ -80,7 +84,19 @@ function reducer(state: ModalState, action: ModalAction): ModalState {
       return { ...state, values: {} };
     case 'SET_FIELDS': {
       const authMethods = action.authMethods || [];
-      return { ...state, fields: action.fields, authMethods, selectedMethod: authMethods[0]?.id || null };
+      const defaultValues: Record<string, string> = {};
+      for (const field of action.fields) {
+        if (field.default !== undefined) {
+          defaultValues[field.name] = String(field.default);
+        }
+      }
+      return {
+        ...state,
+        fields: action.fields,
+        authMethods,
+        selectedMethod: authMethods[0]?.id || null,
+        values: defaultValues,
+      };
     }
     case 'SET_METHOD':
       return { ...state, selectedMethod: action.method, values: {} };
@@ -109,10 +125,11 @@ function schemaToFields(schema: Record<string, any>): SchemaField[] {
   return Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
     name,
     label: prop.title || name,
-    placeholder: prop.description || prop.default || '',
+    placeholder: prop.description || '',
     type: prop.type || 'string',
     readOnly: prop.readOnly,
     required: requiredFields.includes(name),
+    default: prop.default,
   }));
 }
 
@@ -137,7 +154,8 @@ function QrAuthView({
 
   const initiateQr = useCallback(() => {
     dispatch({ type: 'QR_RETRY' });
-    api.initiateAuth(connectorType, {})
+    api
+      .initiateAuth(connectorType, {})
       .then((result) => {
         if (result.type === 'qr-code') {
           dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
@@ -158,16 +176,27 @@ function QrAuthView({
               } else if (msg.event === 'qr:update') {
                 dispatch({ type: 'QR_RECEIVED', qrData: msg.data.qrData });
               }
-            } catch { /* ignore parse errors */ }
+            } catch {
+              /* ignore parse errors */
+            }
           };
           ws.onerror = () => dispatch({ type: 'QR_ERROR', error: 'WebSocket connection failed' });
         }
       })
-      .catch((err) => dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }));
+      .catch((err) =>
+        dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }),
+      );
   }, [connectorType, wsRef, cleanupWs, fetchAccounts, onClose, dispatch]);
 
   return (
-    <Modal open onClose={() => { cleanupWs(); onClose(); }} title={`Connect ${connectorType.toUpperCase()}`}>
+    <Modal
+      open
+      onClose={() => {
+        cleanupWs();
+        onClose();
+      }}
+      title={`Connect ${connectorType.toUpperCase()}`}
+    >
       <div className="flex flex-col items-center gap-4 py-4">
         {state.loading && !state.qrData && !state.qrError && (
           <p className="font-mono text-sm text-nb-muted uppercase animate-pulse">
@@ -246,7 +275,11 @@ function FormView({
       // Parse NestJS error body from "API 400: {json}"
       const jsonMatch = raw.match(/API \d+: (.+)/s);
       if (jsonMatch) {
-        try { msg = JSON.parse(jsonMatch[1]).message || msg; } catch { msg = jsonMatch[1]; }
+        try {
+          msg = JSON.parse(jsonMatch[1]).message || msg;
+        } catch {
+          msg = jsonMatch[1];
+        }
       }
       dispatch({ type: 'SET_ERROR', error: msg });
     } finally {
@@ -299,7 +332,9 @@ function FormView({
               placeholder={field.placeholder}
               type={field.type === 'string' ? 'text' : field.type}
               value={state.values[field.name] || ''}
-              onChange={(e) => dispatch({ type: 'SET_VALUE', name: field.name, value: e.target.value })}
+              onChange={(e) =>
+                dispatch({ type: 'SET_VALUE', name: field.name, value: e.target.value })
+              }
               required={field.required}
             />
           ),
@@ -314,7 +349,12 @@ function FormView({
 
 // --- Main component ---
 
-export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }: ConnectorSetupModalProps) {
+export function ConnectorSetupModal({
+  open,
+  onClose,
+  connectorType,
+  onConnect,
+}: ConnectorSetupModalProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const wsRef = useRef<WebSocket | null>(null);
   const manifests = useConnectorStore((s) => s.manifests);
@@ -337,7 +377,8 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
     if (!open || !isQrAuth) return;
     dispatch({ type: 'QR_RETRY' });
 
-    api.initiateAuth(connectorType, {})
+    api
+      .initiateAuth(connectorType, {})
       .then((result) => {
         if (result.type === 'qr-code') {
           dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
@@ -358,12 +399,16 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
               } else if (msg.event === 'qr:update') {
                 dispatch({ type: 'QR_RECEIVED', qrData: msg.data.qrData });
               }
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           };
           ws.onerror = () => dispatch({ type: 'QR_ERROR', error: 'WebSocket connection failed' });
         }
       })
-      .catch((err) => dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }));
+      .catch((err) =>
+        dispatch({ type: 'QR_ERROR', error: err.message || 'Failed to generate QR code' }),
+      );
 
     return cleanupWs;
   }, [open, isQrAuth, connectorType, cleanupWs, fetchAccountsForQr, onClose]);
@@ -377,11 +422,13 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
 
     const manifest = manifests.find((m) => m.id === connectorType);
     if (manifest?.authType === 'oauth2') {
-      api.hasCredentials(connectorType)
+      api
+        .hasCredentials(connectorType)
         .then(({ hasSavedCredentials }) => {
           if (hasSavedCredentials) {
             dispatch({ type: 'SET_LOADING', loading: true });
-            api.initiateAuth(connectorType, { returnTo: window.location.pathname })
+            api
+              .initiateAuth(connectorType, { returnTo: window.location.pathname })
               .then((result) => {
                 if (result.type === 'redirect') window.location.href = result.url;
               })
@@ -406,15 +453,27 @@ export function ConnectorSetupModal({ open, onClose, connectorType, onConnect }:
     const manifest = manifests.find((m) => m.id === connectorType);
     if (manifest?.configSchema) {
       const schema = manifest.configSchema as Record<string, any>;
-      dispatch({ type: 'SET_FIELDS', fields: schemaToFields(schema), authMethods: schema.authMethods });
+      dispatch({
+        type: 'SET_FIELDS',
+        fields: schemaToFields(schema),
+        authMethods: schema.authMethods,
+      });
     } else {
-      api.getConnectorSchema(connectorType)
+      api
+        .getConnectorSchema(connectorType)
         .then(({ schema }) => {
-          dispatch({ type: 'SET_FIELDS', fields: schemaToFields(schema), authMethods: schema.authMethods });
+          dispatch({
+            type: 'SET_FIELDS',
+            fields: schemaToFields(schema),
+            authMethods: schema.authMethods,
+          });
         })
         .catch(() => {
           const fb = fallbackFields[connectorType] || [];
-          dispatch({ type: 'SET_FIELDS', fields: fb.map((f) => ({ ...f, type: 'string', required: true })) });
+          dispatch({
+            type: 'SET_FIELDS',
+            fields: fb.map((f) => ({ ...f, type: 'string', required: true })),
+          });
         });
     }
   }, [connectorType, manifests, isQrAuth]);
