@@ -184,7 +184,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     const client: PoolClient = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('SET LOCAL app.current_user_id = $1', [userId]);
+      await client.query(`SET LOCAL app.current_user_id = '${userId.replace(/'/g, "''")}'`);
       const txDb = drizzle(client, { schema });
       const result = await fn(txDb);
       await client.query('COMMIT');
