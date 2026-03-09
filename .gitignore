@@ -34,3 +34,4 @@ business/
 .agents/
 .playwright-cli/
 scripts/
+.worktrees/
