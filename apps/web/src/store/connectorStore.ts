@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { ConnectorAccount, ConnectorManifest, ConnectorType, SyncSchedule } from '@botmem/shared';
+import type {
+  ConnectorAccount,
+  ConnectorManifest,
+  ConnectorType,
+  SyncSchedule,
+} from '@botmem/shared';
 import { api } from '../lib/api';
 
 interface ConnectorState {
@@ -11,7 +16,7 @@ interface ConnectorState {
   addAccount: (type: ConnectorType, identifier: string) => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
   updateSchedule: (id: string, schedule: SyncSchedule) => Promise<void>;
-  syncNow: (id: string) => Promise<void>;
+  syncNow: (id: string, memoryBankId?: string) => Promise<void>;
 }
 
 export const useConnectorStore = create<ConnectorState>((set, _get) => ({
@@ -84,18 +89,16 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
     }));
   },
 
-  syncNow: async (id) => {
+  syncNow: async (id, memoryBankId?) => {
     set((state) => ({
-      accounts: state.accounts.map((a) =>
-        a.id === id ? { ...a, status: 'syncing' as const } : a
-      ),
+      accounts: state.accounts.map((a) => (a.id === id ? { ...a, status: 'syncing' as const } : a)),
     }));
     try {
-      await api.triggerSync(id);
+      await api.triggerSync(id, memoryBankId);
     } catch {
       set((state) => ({
         accounts: state.accounts.map((a) =>
-          a.id === id ? { ...a, status: 'connected' as const } : a
+          a.id === id ? { ...a, status: 'connected' as const } : a,
         ),
       }));
     }

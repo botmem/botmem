@@ -31,8 +31,8 @@ export function useApiKeys() {
     fetchKeys();
   }, [fetchKeys]);
 
-  const createKey = async (name: string, expiresAt?: string) => {
-    const result = await api.createApiKey(name, expiresAt);
+  const createKey = async (name: string, expiresAt?: string, memoryBankIds?: string[]) => {
+    const result = await api.createApiKey(name, expiresAt, memoryBankIds);
     await fetchKeys();
     return result.key;
   };
