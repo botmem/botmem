@@ -283,6 +283,103 @@
 - Mapped to phases: 14 (Phases 29-33)
 - Unmapped: 0 ✓
 
+## v4.0 Requirements — E2E Testing & Test Infrastructure
+
+**Defined:** 2026-03-09
+
+**Execution dependency:** Phases 35-39 require v2.0 phases 21 (E2EE), 23 (RLS), and 24 (Firebase) to complete first — test infrastructure must be built against the final auth/DB architecture.
+
+### Fixture Capture (FIXTURE)
+
+- [ ] **FIXTURE-01**: Developer can run `pnpm fixtures:generate` to execute a controlled pipeline against live Ollama and record all embed/enrich/vision LLM I/O as JSON fixtures
+- [ ] **FIXTURE-02**: Fixture files exist for each LLM call type: `__fixtures__/ollama/embed/*.json` (input_text → 768d vector), `__fixtures__/ollama/enrich/*.json` (memory_text → entities/claims/factuality), `__fixtures__/ollama/vl/*.json` (image → caption)
+- [ ] **FIXTURE-03**: Fixture files exist for each connector's raw payloads: `__fixtures__/connectors/` with one sample per connector type (gmail, slack, imessage, immich, locations)
+- [ ] **FIXTURE-04**: Developer can run `pnpm fixtures:refresh` to regenerate fixtures when the Ollama model or prompt changes
+- [ ] **FIXTURE-05**: A fixture loader utility is available for test files to load any fixture by type and key — no duplicate loading logic across test files
+
+### Pipeline Integration Tests (PIPE)
+
+- [ ] **PIPE-01**: `embed.processor.integration.test.ts` runs the real EmbedProcessor against a fresh Postgres DB using fixture embeddings — asserts Memory row is created with correct text, source_type, connector_type, and contact associations
+- [ ] **PIPE-02**: `enrich.processor.integration.test.ts` runs the real EnrichProcessor against a fresh Postgres DB using fixture enrichment — asserts entities, claims, factuality label, and encryption fields are stored correctly
+- [ ] **PIPE-03**: `sync.processor.integration.test.ts` runs the real SyncProcessor with a mock connector emitting fixture payloads — asserts rawEvents are persisted and embed jobs are enqueued
+- [ ] **PIPE-04**: A shared `test-db` helper spins up a fresh isolated Postgres schema, runs all Drizzle migrations, and tears down after each test suite — no test pollution between suites
+- [ ] **PIPE-05**: `backfill.integration.test.ts` runs the backfill pipeline against fixture data — asserts resume behavior (already-enriched memories skipped) and correct entity output
+
+### API HTTP Integration Tests (API)
+
+- [ ] **API-01**: Auth flow is fully tested end-to-end: register → login → refresh → logout → forgot-password → reset-password — all return correct status codes and shapes
+- [ ] **API-02**: `POST /api/memory/search` with fixture embeddings returns correctly ranked results with the expected schema (id, text, score, source_type, entities)
+- [ ] **API-03**: Connector account CRUD endpoints are tested: create account, list accounts, delete account, trigger sync (mocked connector), cancel job, poll status
+- [ ] **API-04**: Memory bank endpoints are tested: create bank, list banks, rename bank, delete bank, default bank assignment
+- [ ] **API-05**: API key endpoints are tested: create key (returned once), list keys, revoke key — key auth grants read-only access, JWT auth grants full access
+- [ ] **API-06**: Contact endpoints are tested: list contacts, get contact details, merge suggestions endpoint
+- [ ] **API-07**: `GET /api/health` returns 200 with connectivity status for all services (Postgres, Redis, Qdrant)
+- [ ] **API-08**: Unauthenticated requests to protected endpoints return 401; API key requests to write endpoints return 403
+
+### Connector Parsing Tests (CONN)
+
+- [ ] **CONN-01**: Gmail connector parsing test: given a fixture MIME email payload, produces a normalized Memory with correct participants (sender/recipient), subject, body text, and attachment metadata
+- [ ] **CONN-02**: Slack connector parsing test: given a fixture Slack Events API payload, produces a normalized Memory with correct sender, channel, thread reference, and reactions
+- [ ] **CONN-03**: iMessage connector parsing test: given a fixture SQLite DB (sample rows), produces message memories with correct sender, recipient, timestamp, and text
+- [ ] **CONN-04**: Photos-Immich connector parsing test: given a fixture Immich API response, produces a photo Memory with `source_type: 'photo'` and correct metadata
+- [ ] **CONN-05**: Locations connector parsing test: given a fixture OwnTracks POST payload, produces a location memory with correct lat/lng, timestamp, and source_type
+
+### CI Gates & Coverage (CI)
+
+- [ ] **CI-01**: `.github/workflows/test.yml` runs `pnpm test` across all packages on every PR — tests must pass before the PR can be merged
+- [ ] **CI-02**: Fixture directory `__fixtures__/` is cached via `actions/cache` keyed on fixtures checksum — fixture generation is skipped on cache hit
+- [ ] **CI-03**: Coverage report (lcov) is uploaded as a GitHub Actions artifact on each test run and posted as a PR comment
+- [ ] **CI-04**: Docker image build (deploy workflow) only runs after tests pass — no production deploys with failing tests
+- [ ] **CI-05**: Test run fails if overall API package coverage drops below 80% — threshold enforced in vitest config
+
+### v4.0 Out of Scope
+
+| Feature                   | Reason                                                                     |
+| ------------------------- | -------------------------------------------------------------------------- |
+| Browser E2E (Playwright)  | Deferred to v5.0 — API-level tests sufficient for this milestone           |
+| WhatsApp automated E2E    | QR auth makes automated testing impractical — unit test parsing logic only |
+| Load/stress testing       | Not a current bottleneck, defer to v5.0                                    |
+| Visual regression testing | Requires stable UI; deferred until frontend is finalized                   |
+
+### v4.0 Traceability
+
+| Requirement | Phase    | Status  |
+| ----------- | -------- | ------- |
+| FIXTURE-01  | Phase 35 | Pending |
+| FIXTURE-02  | Phase 35 | Pending |
+| FIXTURE-03  | Phase 35 | Pending |
+| FIXTURE-04  | Phase 35 | Pending |
+| FIXTURE-05  | Phase 35 | Pending |
+| PIPE-01     | Phase 36 | Pending |
+| PIPE-02     | Phase 36 | Pending |
+| PIPE-03     | Phase 36 | Pending |
+| PIPE-04     | Phase 36 | Pending |
+| PIPE-05     | Phase 36 | Pending |
+| API-01      | Phase 37 | Pending |
+| API-02      | Phase 37 | Pending |
+| API-03      | Phase 37 | Pending |
+| API-04      | Phase 37 | Pending |
+| API-05      | Phase 37 | Pending |
+| API-06      | Phase 37 | Pending |
+| API-07      | Phase 37 | Pending |
+| API-08      | Phase 37 | Pending |
+| CONN-01     | Phase 38 | Pending |
+| CONN-02     | Phase 38 | Pending |
+| CONN-03     | Phase 38 | Pending |
+| CONN-04     | Phase 38 | Pending |
+| CONN-05     | Phase 38 | Pending |
+| CI-01       | Phase 39 | Pending |
+| CI-02       | Phase 39 | Pending |
+| CI-03       | Phase 39 | Pending |
+| CI-04       | Phase 39 | Pending |
+| CI-05       | Phase 39 | Pending |
+
+**v4.0 Coverage:**
+
+- v4.0 requirements: 25 total (FIXTURE: 5, PIPE: 5, API: 8, CONN: 5, CI: 5)
+- Mapped to phases: 25 (Phases 35-39)
+- Unmapped: 0 ✓
+
 ## Future Requirements
 
 Deferred to future releases. Tracked but not in current roadmap.
@@ -320,4 +417,4 @@ Deferred to future releases. Tracked but not in current roadmap.
 ---
 
 _Requirements defined: 2026-03-08_
-_Last updated: 2026-03-08 after v2.1 roadmap created_
+_Last updated: 2026-03-09 after v4.0 milestone initialization_
