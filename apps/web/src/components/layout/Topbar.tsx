@@ -1,6 +1,8 @@
 import { useLocation } from 'react-router-dom';
 import { NotificationDropdown } from '../ui/NotificationDropdown';
 import { useJobStore } from '../../store/jobStore';
+import { ThemeToggle } from '../ui/ThemeToggle';
+import { useAuth } from '../../hooks/useAuth';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'DASHBOARD',
@@ -19,6 +21,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
   const title = pageTitles[location.pathname] || 'BOTMEM';
   const { notifications, markNotificationRead, markAllNotificationsRead, dismissNotification } =
     useJobStore();
+  const { user } = useAuth();
 
   return (
     <header className="border-b-4 border-nb-border bg-nb-surface">
@@ -45,7 +48,17 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
           </button>
           <h2 className="font-display text-2xl font-bold tracking-wider text-nb-text">{title}</h2>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {user && (
+            <div
+              className="w-8 h-8 border-2 border-nb-border bg-nb-surface flex items-center justify-center font-display text-xs font-bold uppercase text-nb-text"
+              title={user.name || user.email}
+              aria-label={`Logged in as ${user.name || user.email}`}
+            >
+              {(user.name || user.email || '?')[0].toUpperCase()}
+            </div>
+          )}
+          <ThemeToggle />
           <NotificationDropdown
             notifications={notifications}
             onMarkRead={markNotificationRead}

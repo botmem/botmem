@@ -81,22 +81,29 @@ export function ContactsPage() {
       </h1>
 
       {/* Search */}
+      <label htmlFor="contacts-search" className="sr-only">
+        Search people
+      </label>
       <input
+        id="contacts-search"
         type="text"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="Search people..."
+        aria-label="Search people"
         className="w-full border-3 border-nb-border bg-nb-surface font-mono text-sm text-nb-text px-4 py-3 mb-4 shadow-nb placeholder:text-nb-muted"
       />
 
       {/* Merge suggestions — Tinder-style card review */}
-      <MergeTinder
-        suggestions={filteredSuggestions}
-        onMerge={mergeContacts}
-        onDismiss={dismissSuggestion}
-        onUndismiss={undismissSuggestion}
-        onReinsertSuggestion={reinsertSuggestion}
-      />
+      {filteredSuggestions.length > 0 && (
+        <MergeTinder
+          suggestions={filteredSuggestions}
+          onMerge={mergeContacts}
+          onDismiss={dismissSuggestion}
+          onUndismiss={undismissSuggestion}
+          onReinsertSuggestion={reinsertSuggestion}
+        />
+      )}
 
       <p className="font-mono text-xs text-nb-muted uppercase mb-3">
         {loading ? 'LOADING...' : `${total} people`}
