@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A local-first personal memory platform that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Built as a pnpm monorepo with NestJS API, React frontend, and pluggable connector architecture. Designed for a single person to query their entire digital life through semantic search and a force-directed graph visualization.
+A local-first personal memory platform that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Built as a pnpm monorepo with NestJS API, React frontend, and pluggable connector architecture. Designed for a single person to query their entire digital life through semantic search and a force-directed graph visualization. Deployed to production at botmem.xyz with Firebase auth, PostgreSQL + RLS, E2EE, and automated CI/CD.
 
 ## Core Value
 
@@ -43,16 +43,31 @@ Every piece of personal communication and digital interaction is searchable, con
 - ✓ Contact auto-merge with safety-tiered rules — v1.4
 - ✓ Natural language query parsing (temporal + intent + entity extraction) — v1.4
 - ✓ GitHub org with open-core/prod-core repo split — v2.0 (Phase 11)
+- ✓ User auth: email+password registration, JWT access+refresh tokens, password reset — v2.0
+- ✓ API security: auth guard on all endpoints, CORS locked to FRONTEND_URL — v2.0
+- ✓ Memory banks: create/list/rename/delete, scoped search, default bank on registration — v2.0
+- ✓ Encryption at rest: AES-256-GCM for auth context and credentials — v2.0
+- ✓ E2EE: Argon2id key derivation, client-side encryption of memory text+metadata — v2.0
+- ✓ PostgreSQL with Drizzle ORM, native types, GIN indexes for full-text search — v2.0
+- ✓ PostgreSQL RLS policies for per-user data isolation — v2.0
+- ✓ Firebase auth: ID token verification, social login (Google/GitHub), AUTH_PROVIDER switch — v2.0
+- ✓ Source type reclassification: photos emit `photo` not `file`, Qdrant payload updated — v2.1
+- ✓ Entity extraction: canonical 10-type taxonomy, garbage stripping, dedup, unified format — v2.1
+- ✓ Backfill pipeline: resumable re-enrichment with WebSocket progress — v2.1
+- ✓ ESLint 9 + Prettier + EditorConfig monorepo-wide, Turbo typecheck task — v3.0
+- ✓ Dev workflow: no port conflicts, dependency-aware restarts, proper package exports — v3.0
+- ✓ Docker Compose with health checks, Ollama profile opt-in — v3.0
+- ✓ pnpm catalogs for centralized dep versions, pre-push hooks — v3.0
+- ✓ Multi-stage Docker build with turbo prune for minimal image — v3.0
+- ✓ NestJS best practices: ValidationPipe, rate limiting, structured logging, transactions — v3.0.1
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-<!-- v2.0 remaining (paused, dependency for v4.0) -->
+<!-- v2.0 remaining (API Keys — paused) -->
 
-- [ ] E2EE for prod-core (Argon2id key derivation, client-side encryption) — Phase 21
-- [ ] PostgreSQL RLS policies for data isolation — Phase 23
-- [ ] Firebase auth for prod-core — Phase 24
+- [ ] API keys: named, read-only, scoped to memory bank(s), hashed storage — Phase 18
 
 <!-- v4.0 E2E Testing (planned, starts after v2.0) -->
 
@@ -61,52 +76,6 @@ Every piece of personal communication and digital interaction is searchable, con
 - [ ] API HTTP integration tests: all endpoints via Supertest
 - [ ] Connector parsing tests: Gmail, Slack, iMessage, Immich, Locations with recorded responses
 - [ ] CI gates: GitHub Actions test workflow, fixture cache, 80% coverage enforcement
-
-## Current Milestone: v4.0 E2E Testing & Test Infrastructure
-
-**Goal:** Establish comprehensive integration and API-level testing for Botmem using snapshot-based fixture testing to handle Ollama non-determinism — so the pipeline is verifiable in CI without GPU access.
-
-**Target features:**
-
-- Fixture capture infrastructure: scripts to record all LLM I/O (embed/enrich/vision) as JSON fixtures
-- Pipeline integration tests: full Sync→Embed→Enrich tested with fixture LLM responses and real Postgres
-- API HTTP integration tests: all REST endpoints via Supertest with real DB + mocked LLM
-- Connector parsing tests: each connector's data transformation verified with recorded API responses
-- CI gates: GitHub Actions runs all tests on PRs, fixture cache persisted, coverage enforced at 80%
-
-**Note:** Execution depends on v2.0 completion (phases 21, 23, 24 remaining). Planning artifacts defined now; implementation after v2.0.
-
-## Paused Milestone: v2.0 Security, Auth & Encryption (phases 21, 23, 24 remaining)
-
-**Goal:** Add user authentication, API keys, memory banks, encryption at rest, E2EE for prod-core, and PostgreSQL with RLS — transforming Botmem from a completely open system into a properly secured personal memory platform.
-
-**Target features:**
-
-- User auth: email+password (open-core), Firebase (prod-core) — always required, no bypass
-- API keys: named, read-only, scoped to memory bank(s)
-- Memory banks: data isolation units, selected at sync time
-- Encryption at rest: AES-256-GCM for auth context + connector credentials
-- E2EE (prod-core): Argon2id key derivation, client-side encryption of memory text+metadata
-- PostgreSQL dual-driver with RLS for prod-core data isolation
-- CORS locked to FRONTEND_URL, auth guard on all endpoints
-
-## Queued Milestone: v2.1 Data Quality & Pipeline Integrity
-
-**Goal:** Fix source type misclassification (photos stored as `file`), tame entity extraction chaos (100+ hallucinated types instead of 10 canonical), deduplicate entities, unify entity format, and backfill existing data — so search, filtering, and the memory graph actually work correctly.
-
-**Target features:**
-
-- Fix source type classification: photos emit `photo` not `file`, backfill existing records
-- Enforce canonical entity type taxonomy (10 types) with structured output constraints
-- Deduplicate entities within and across memories
-- Unify entity format (embed vs enrich step produce different shapes)
-- Clean up empty/garbage entity values
-- Fix entity misclassification (names classified as locations/organizations)
-- Backfill pipeline to re-enrich existing memories with corrected extraction
-
-## Queued Milestone: v3.1 Production Deployment & CI/CD
-
-**Goal:** Deploy Botmem to production with Docker/Caddy/CI-CD, OpenRouter inference abstraction, and automated deployment pipelines. (Deferred from old v2.0, renumbered after v3.0 Monorepo.)
 
 ### Out of Scope
 
@@ -117,50 +86,65 @@ Every piece of personal communication and digital interaction is searchable, con
 - Automatic deletion policy engine — manual/admin-driven in v1
 - Mobile app — web-first
 - Real-time chat ingestion — batch sync only in v1
+- Key escrow / password recovery — zero-knowledge E2EE by design
+- Write-capable API keys — read-only sufficient for agent/CLI use
+
+## Current Milestone: v4.0 E2E Testing & Test Infrastructure
+
+**Goal:** Establish comprehensive integration and API-level testing for Botmem using snapshot-based fixture testing to handle Ollama non-determinism — so the pipeline is verifiable in CI without GPU access.
+
+**Note:** Execution depends on v2.0 Phase 18 (API Keys) completion. Planning artifacts defined; implementation pending.
+
+## Paused: v2.0 Security, Auth & Encryption (Phase 18 remaining)
+
+**Status:** 25/30 requirements complete. Only API Keys (KEY-01 through KEY-05, Phase 18) remain.
 
 ## Context
 
 - **Monorepo**: pnpm 9.15 workspaces + Turbo 2.4, TypeScript (ES2022, strict, ESNext modules)
-- **Backend**: NestJS 11, Drizzle ORM + SQLite (better-sqlite3, WAL mode), BullMQ on Redis
+- **Backend**: NestJS 11, Drizzle ORM + PostgreSQL, BullMQ on Redis
 - **Frontend**: React 19, Vite 6, React Router 7, Zustand 5, Tailwind 4, react-force-graph-2d
 - **AI**: Ollama (remote at 192.168.10.250) — nomic-embed-text (768d embeddings), qwen3:0.6b (text), qwen3-vl:2b (vision)
 - **Vector DB**: Qdrant (cosine similarity, auto-created collection)
 - **Port**: API on 12412, web on 5173
-- **WhatsApp limitation**: LID format only, no phone number resolution possible via Baileys v6
+- **Production**: botmem.xyz on Vultr VPS, Docker + Caddy + Watchtower auto-deploy
+- **Auth**: Firebase (prod-core) with Google/GitHub social login; local email+password (open-core)
 - **Git remote**: github.com/botmem org (open-core public, prod-core private)
-- **Domain**: botmem.xyz (Spaceship, DNS not yet configured)
+- **Codebase**: ~42K LOC TypeScript, 447 commits, 977 files
 - 6 connectors implemented and working
 - Contacts system fully operational with cross-connector dedup
 
 ## Constraints
 
 - **AI Infrastructure**: Ollama runs externally on 192.168.10.250 (RTX 3070) — not containerized, configured by env var
-- **Storage**: SQLite only (no PostgreSQL) — WAL mode for concurrent reads, simple deployment
 - **Embedding**: nomic-embed-text produces 768d vectors — model change requires re-embedding all memories
 - **WhatsApp**: Baileys v6 LID format means phone numbers are not resolvable; history only delivered to first QR-linked socket
+- **VPS**: 2GB RAM + 6.2GB swap — limits concurrent container count
 
 ## Key Decisions
 
 <!-- Decisions that constrain future work. Add throughout project lifecycle. -->
 
-| Decision                             | Rationale                                                   | Outcome |
-| ------------------------------------ | ----------------------------------------------------------- | ------- |
-| SQLite over PostgreSQL               | Simpler deployment, single-user system, WAL mode sufficient | ✓ Good  |
-| NestJS over FastAPI                  | TypeScript monorepo consistency, better ecosystem fit       | ✓ Good  |
-| BullMQ over Celery                   | Native Node.js, no Python dependency, Redis-backed          | ✓ Good  |
-| nomic-embed-text over Qwen embedding | Available on Ollama, 768d vectors, good quality             | ✓ Good  |
-| Contacts as first-class entities     | Rich cross-connector identity needed for meaningful search  | ✓ Good  |
-| Store all memories, label factuality | Never lose data, let user filter by confidence              | ✓ Good  |
-| PostHog for analytics                | Self-hostable, privacy-respecting, generous free tier       | ✓ Good  |
-| PostHog cloud over self-hosted       | 16GB RAM requirement disproportionate for single-user       | ✓ Good  |
-
-| SQLite → PostgreSQL for production | Production needs concurrent writes, RLS for data isolation | — Pending |
-| Local auth (open-core) + Firebase (prod-core) | Open-core self-contained, prod-core gets social login | — Pending |
-| Auth always on, no bypass | Security-first: every endpoint requires authentication | — Pending |
-| E2EE with Argon2id key derivation | Zero-knowledge: server never sees plaintext, lost password = lost data | — Pending |
-| Memory banks for data isolation | Logical partitioning for sync scoping and API key access | ✓ Good |
-| AES-256-GCM encryption at rest | Protect auth context and credentials in SQLite/Postgres | — Pending |
+| Decision                                      | Rationale                                                              | Outcome                                     |
+| --------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
+| SQLite over PostgreSQL                        | Simpler deployment, single-user system, WAL mode sufficient            | ⚠️ Revisit — migrated to PostgreSQL in v2.0 |
+| NestJS over FastAPI                           | TypeScript monorepo consistency, better ecosystem fit                  | ✓ Good                                      |
+| BullMQ over Celery                            | Native Node.js, no Python dependency, Redis-backed                     | ✓ Good                                      |
+| nomic-embed-text over Qwen embedding          | Available on Ollama, 768d vectors, good quality                        | ✓ Good                                      |
+| Contacts as first-class entities              | Rich cross-connector identity needed for meaningful search             | ✓ Good                                      |
+| Store all memories, label factuality          | Never lose data, let user filter by confidence                         | ✓ Good                                      |
+| PostHog for analytics                         | Self-hostable, privacy-respecting, generous free tier                  | ✓ Good                                      |
+| PostHog cloud over self-hosted                | 16GB RAM requirement disproportionate for single-user                  | ✓ Good                                      |
+| SQLite → PostgreSQL for production            | Production needs concurrent writes, RLS for data isolation             | ✓ Good — shipped v2.0                       |
+| Local auth (open-core) + Firebase (prod-core) | Open-core self-contained, prod-core gets social login                  | ✓ Good — shipped v2.0                       |
+| Auth always on, no bypass                     | Security-first: every endpoint requires authentication                 | ✓ Good — shipped v2.0                       |
+| E2EE with Argon2id key derivation             | Zero-knowledge: server never sees plaintext, lost password = lost data | ✓ Good — shipped v2.0                       |
+| Memory banks for data isolation               | Logical partitioning for sync scoping and API key access               | ✓ Good — shipped v2.0                       |
+| AES-256-GCM encryption at rest                | Protect auth context and credentials in Postgres                       | ✓ Good — shipped v2.0                       |
+| Canonical 10-type entity taxonomy             | Tame 100+ hallucinated types from LLM                                  | ✓ Good — shipped v2.1                       |
+| Fixture-based testing over live Ollama        | Handle LLM non-determinism in CI                                       | — Pending (v4.0)                            |
+| Multi-stage Docker with turbo prune           | Minimal image size, fast builds                                        | ✓ Good — shipped v3.0                       |
 
 ---
 
-_Last updated: 2026-03-09 after milestone v4.0 (E2E Testing) initialized_
+_Last updated: 2026-03-09 after archiving milestones v1.0 through v3.0.1_

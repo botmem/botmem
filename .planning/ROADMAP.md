@@ -2,17 +2,17 @@
 
 ## Milestones
 
-- v1.0 MVP - Phases 1-3 (shipped 2026-03-07)
-- v1.1 PostHog Analytics Activation - Phase 4 (shipped 2026-03-07)
-- v1.2 PostHog Deep Analytics - Phases 5-6 (shipped 2026-03-08)
-- v1.3 Test Coverage - Phase 7 (shipped 2026-03-08)
-- v1.4 Search Intelligence - Phases 8-10 (shipped 2026-03-08)
-- v2.0 Security, Auth & Encryption - Phases 16-24 (in progress)
-- v2.1 Data Quality & Pipeline Integrity - Phases 25-28 (shipped 2026-03-09)
-- v3.0 Monorepo & Developer Experience - Phases 29-33 (shipped 2026-03-09)
-- v3.0.1 NestJS Best Practices - Phase 34 (shipped 2026-03-09)
+- ✅ v1.0 MVP - Phases 1-3 (shipped 2026-03-07) — [archive](milestones/v1.0-ROADMAP.md)
+- ✅ v1.1 PostHog Analytics Activation - Phase 4 (shipped 2026-03-07) — [archive](milestones/v1.1-ROADMAP.md)
+- ✅ v1.2 PostHog Deep Analytics - Phases 5-6 (shipped 2026-03-08) — [archive](milestones/v1.2-ROADMAP.md)
+- ✅ v1.3 Test Coverage - Phase 7 (shipped 2026-03-08) — [archive](milestones/v1.3-ROADMAP.md)
+- ✅ v1.4 Search Intelligence - Phases 8-10 (shipped 2026-03-08) — [archive](milestones/v1.4-ROADMAP.md)
+- v2.0 Security, Auth & Encryption - Phases 16-24 (in progress -- 5 API Key requirements pending)
+- ✅ v2.1 Data Quality & Pipeline Integrity - Phases 25-28 (shipped 2026-03-09) — [archive](milestones/v2.1-ROADMAP.md)
+- ✅ v3.0 Monorepo & Developer Experience - Phases 29-33 (shipped 2026-03-09) — [archive](milestones/v3.0-ROADMAP.md)
+- ✅ v3.0.1 NestJS Best Practices - Phase 34 (shipped 2026-03-09) — [archive](milestones/v3.0.1-ROADMAP.md)
 - v3.1 Production Deployment & CI/CD - (planned, deferred)
-- v4.0 E2E Testing & Test Infrastructure - Phases 35-39 (planned — execution requires v2.0 phases 21, 23, 24 to complete first)
+- v4.0 E2E Testing & Test Infrastructure - Phases 35-39 (planned -- execution requires v2.0 phases 21, 23, 24 to complete first)
 
 ## Phases
 
@@ -208,45 +208,30 @@ Phase 10: Source Citations (deferred)
 - [x] **Phase 23: Row Level Security** - Postgres RLS policies for user data isolation (DB-05) (completed 2026-03-09)
 - [x] **Phase 24: Firebase Auth (Prod-Core)** - Firebase guard, React Firebase UI, AUTH_PROVIDER switch, social login (FBAUTH-01 through FBAUTH-04) (completed 2026-03-09)
 
-## v2.1 Data Quality & Pipeline Integrity (Phases 25-28) - SHIPPED 2026-03-09
+<details>
+<summary>v2.1 Data Quality & Pipeline Integrity (Phases 25-28) - SHIPPED 2026-03-09</summary>
 
 **Milestone Goal:** Fix source type misclassification, tame entity extraction chaos, unify entity format, deduplicate entities, and backfill existing data -- so search, filtering, and the memory graph actually work correctly.
-
-**Phase Ordering Rationale:**
-
-- Source type fix first (Phase 25) because it is independent of entity work and delivers immediate search improvement
-- Entity format unification (Phase 26) before entity quality because the normalizer needs a consistent shape to work with
-- Entity quality improvements bundled with format (Phase 26) because both modify the same pipeline files and must precede backfill
-- Backfill (Phase 27) depends on the corrected pipeline from Phase 26 -- running backfill with the old pipeline would just reproduce bad data
-- Verification (Phase 28) depends on all prior phases completing -- it validates the full fix chain end-to-end
-
-**Summary:**
 
 - [x] **Phase 25: Source Type Reclassification** - Fix photos connector, backfill SQLite + Qdrant, remove SOURCE_TYPE_ALIASES hack (SRC-01 through SRC-04) (completed 2026-03-08)
 - [x] **Phase 26: Entity Format & Quality** - Unified entity shape, improved extraction prompt, normalizer with dedup/clean/validate, entity cap (FMT-01 through FMT-03, ENT-01 through ENT-05) (completed 2026-03-08)
 - [x] **Phase 27: Data Backfill** - Re-enrich existing memories with corrected pipeline, resumable, filterable, real-time progress (BKF-01 through BKF-04) (completed 2026-03-09)
 - [x] **Phase 28: Verification** - End-to-end validation that search, graph, and NLQ produce correct results (VER-01 through VER-04) (completed 2026-03-09)
 
-## v3.0 Monorepo & Developer Experience (Phases 29-33)
+</details>
 
-**Milestone Goal:** Transform the hacked-together monorepo into a production-grade, plug-and-play development environment -- proper tooling, Docker Compose with all services, build gates with tests, and no dev experience footguns like port conflicts or restart storms.
+<details>
+<summary>v3.0 Monorepo & Developer Experience (Phases 29-33) - SHIPPED 2026-03-09</summary>
 
-**Phase Ordering Rationale:**
-
-- Foundation config first (Phase 29) because linting and typecheck must exist before they can be build gates or pre-commit hooks
-- Dev workflow fix (Phase 30) is the highest-value phase -- fixes the primary pain point (restart storms, port conflicts) and adds the health endpoint needed by Docker health checks
-- Docker & infrastructure (Phase 31) after dev workflow because health endpoint (Phase 30) is needed by Docker Compose health checks, and Makefile targets reference Docker Compose commands
-- Build optimization (Phase 32) after infrastructure because pnpm catalogs touch every package.json and must be stable before Docker build is finalized
-- Production Docker (Phase 33) last because it depends on stable lockfile and build pipeline from Phase 32
-- Each phase is independently shippable. Phase 30 alone delivers the highest value.
-
-**Summary:**
+**Milestone Goal:** Transform the hacked-together monorepo into a production-grade, plug-and-play development environment.
 
 - [x] **Phase 29: Foundation Config** - ESLint 9, Prettier, typecheck task, .env.example documentation (QUAL-01, QUAL-02, QUAL-03, DOCK-03) (completed 2026-03-08)
 - [x] **Phase 30: Dev Workflow Fix** - Replace nodemon, turbo watch, proper exports, health endpoint (DEV-01, DEV-02, DEV-03, DEV-04, DOCK-04) (completed 2026-03-08)
 - [x] **Phase 31: Docker & Infrastructure** - Compose profiles, Makefile, health checks on all services (DOCK-01, DOCK-02) (completed 2026-03-08)
 - [x] **Phase 32: Build Optimization** - pnpm catalogs, Husky + lint-staged pre-commit/pre-push hooks (BUILD-01, QUAL-04) (completed 2026-03-08)
 - [x] **Phase 33: Production Docker** - Multi-stage build with turbo prune for minimal image size (BUILD-02) (completed 2026-03-09)
+
+</details>
 
 ## Phase Details (v2.0)
 
@@ -436,165 +421,23 @@ Phases 12-15 (DB, Inference, Docker, CI/CD) are restructured:
 
 </details>
 
-## Phase Details (v2.1)
+<details>
+<summary>Phase Details (v2.1) - ARCHIVED</summary>
 
-### Phase 25: Source Type Reclassification
+See [v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md) for full phase details.
 
-**Goal**: Photo searches return actual photos and only photos -- the source type classification is correct at the connector level, backfilled in historical data, and the NLQ workaround hack is removed
-**Depends on**: Phase 24 (v2.0 complete)
-**Requirements**: SRC-01, SRC-02, SRC-03, SRC-04
-**Success Criteria** (what must be TRUE):
+Phases 25-28 complete. 6 plans total.
 
-1. Running a photos-immich sync produces memories with `source_type: 'photo'` (not `'file'`)
-2. Searching for "photos" or filtering by `source_type=photo` returns only photo memories -- no Slack file attachments mixed in
-3. The `SOURCE_TYPE_ALIASES` mapping in NLQ parser and memory service is removed, and photo queries still work correctly using the native `photo` type
-4. Qdrant vector payloads for existing photo memories show `source_type: 'photo'` after backfill
-   **Plans**: 2 plans
+</details>
 
-Plans:
+<details>
+<summary>Phase Details (v3.0) - ARCHIVED</summary>
 
-- [x] 25-01-PLAN.md -- Connector fix, QdrantService.setPayload, backfill migration script (SRC-01, SRC-02, SRC-03)
-- [x] 25-02-PLAN.md -- Remove SOURCE_TYPE_ALIASES hack (SRC-04)
+See [v3.0-ROADMAP.md](milestones/v3.0-ROADMAP.md) for full phase details.
 
-### Phase 26: Entity Format & Quality
+Phases 29-33 complete. 6 plans total.
 
-**Goal**: Entity extraction produces clean, correctly-typed, deduplicated entities in a single consistent format across the entire pipeline
-**Depends on**: Phase 25 (source types must be correct before entity re-extraction makes sense)
-**Requirements**: FMT-01, FMT-02, FMT-03, ENT-01, ENT-02, ENT-03, ENT-04, ENT-05
-**Success Criteria** (what must be TRUE):
-
-1. Entities from both embed and enrich steps use the same `{type, value}` shape -- no format mismatches between pipeline stages
-2. A newly synced email or message produces entities with only canonical types (PERSON, ORGANIZATION, LOCATION, DATE, EVENT, PRODUCT, CONCEPT, QUANTITY, LANGUAGE, OTHER) -- no hallucinated types like "GREETING" or "SCHEDULE"
-3. Entity values do not contain empty strings, single characters, pronouns ("I", "you"), bare URLs, or generic terms ("hello", "thanks") -- the normalizer strips these
-4. A single memory with duplicate mentions of the same entity (e.g., "John" mentioned 5 times) stores only one entity entry after dedup
-5. No duplicate `memoryLinks` are created when re-processing a memory -- the existence check prevents insert errors
-   **Plans**: 2 plans
-
-Plans:
-
-- [x] 26-01-PLAN.md -- Entity normalizer pure function with tests + updated extraction prompt (FMT-01, ENT-01, ENT-02, ENT-03, ENT-04, ENT-05)
-- [x] 26-02-PLAN.md -- Wire normalizer into enrich + embed pipeline, fix createLinks duplicate bug (FMT-02, FMT-03)
-
-### Phase 27: Data Backfill
-
-**Goal**: All existing memories are re-enriched with the corrected entity extraction pipeline, with progress tracking and the ability to pause/resume
-**Depends on**: Phase 26 (corrected pipeline must be in place before re-processing data)
-**Requirements**: BKF-01, BKF-02, BKF-03, BKF-04
-**Success Criteria** (what must be TRUE):
-
-1. Running the backfill job re-enriches existing memories with updated entity extraction (new prompt, normalizer, dedup)
-2. Interrupting and restarting the backfill resumes from where it left off -- already-processed memories are skipped
-3. Backfill progress (processed/total, current connector) is visible in the frontend via WebSocket updates
-4. User can start a backfill filtered to a specific connector type (e.g., only re-enrich Gmail memories)
-   **Plans**: 1 plan
-
-Plans:
-
-- [x] 27-01-PLAN.md -- Backend backfill pipeline (schema, processor, endpoint) + frontend trigger button (BKF-01, BKF-02, BKF-03, BKF-04)
-
-### Phase 28: Verification
-
-**Goal**: End-to-end confirmation that search, graph visualization, and NLQ queries produce correct, clean results after all data quality fixes
-**Depends on**: Phase 27 (all fixes and backfill must be complete)
-**Requirements**: VER-01, VER-02, VER-03, VER-04
-**Success Criteria** (what must be TRUE):
-
-1. A fresh re-sync of a connector (e.g., Gmail) produces correct source types and clean entities without needing a separate backfill step
-2. Searching for "photos" returns only actual photos from photos-immich -- zero Slack file attachments in results
-3. The memory graph shows entities with correct canonical types, no duplicates within a memory, and no garbage nodes
-4. NLQ queries like "show me photos from last week" use `source_type: 'photo'` directly (no alias resolution) and return correct results
-
-**Plans**: 1 plan
-
-Plans:
-
-- [x] 28-01-PLAN.md -- End-to-end verification of search, graph, and NLQ data quality (VER-01, VER-02, VER-03, VER-04)
-
-## Phase Details (v3.0)
-
-### Phase 29: Foundation Config
-
-**Goal**: Developer has consistent code quality tooling across all packages -- linting catches errors, formatting is automatic, type errors are surfaced before runtime, and environment setup is self-documenting
-**Depends on**: Phase 28 (v2.1 complete) -- but can execute independently as it is config-only additions
-**Requirements**: QUAL-01, QUAL-02, QUAL-03, DOCK-03
-**Success Criteria** (what must be TRUE):
-
-1. Running `pnpm lint` from the repo root lints all packages with ESLint 9 flat config and reports TypeScript errors consistently across API, web, CLI, and all library packages
-2. Running `pnpm format` (or saving a file with editor integration) auto-formats code with Prettier -- formatting is consistent across the entire monorepo
-3. Running `pnpm typecheck` executes `tsc --noEmit` across all packages via Turbo and catches type errors without producing build output
-4. A new developer can copy `.env.example` to `.env` and have a working configuration with safe defaults for all 11+ environment variables
-   **Plans**: 1 plan
-
-Plans:
-
-- [x] 29-01-PLAN.md -- ESLint 9, Prettier, typecheck, .env.example (QUAL-01, QUAL-02, QUAL-03, DOCK-03)
-
-### Phase 30: Dev Workflow Fix
-
-**Goal**: Developer can start the full dev environment with a single command and iterate on code changes across any package without port conflicts, restart storms, or manual pre-build steps
-**Depends on**: Phase 29 (linting and typecheck must exist so they can be referenced by turbo task graph)
-**Requirements**: DEV-01, DEV-02, DEV-03, DEV-04, DOCK-04
-**Success Criteria** (what must be TRUE):
-
-1. Running `pnpm dev` starts the API and web dev servers without spawning competing instances or port conflicts -- a single API process owns port 12412
-2. Editing a TypeScript file in a library package (e.g., `@botmem/shared`) triggers the API to pick up the change without manual rebuild or restart
-3. Creating a new connector package with the correct `package.json` and adding it as a dependency requires zero changes to root dev scripts or turbo watch config
-4. All library packages (`shared`, `connector-sdk`, `cli`) have proper conditional `exports` fields that resolve correctly for both CJS (NestJS API) and ESM (React web) consumers
-5. `GET /api/health` returns JSON with connectivity status of Redis, Qdrant, and SQLite -- each showing `connected: true/false`
-   **Plans**: 2 plans
-
-Plans:
-
-- [x] 30-01-PLAN.md -- Dev workflow overhaul: CJS exports, turbo watch, nest build --watch (DEV-01, DEV-02, DEV-03, DEV-04) (completed 2026-03-08)
-- [x] 30-02-PLAN.md -- Health endpoint with Redis/Qdrant/SQLite probes (DOCK-04) (completed 2026-03-08)
-
-### Phase 31: Docker & Infrastructure
-
-**Goal**: Developer can start all required infrastructure with one command, with Ollama available as an opt-in profile, and a Makefile providing a simple command layer for common operations
-**Depends on**: Phase 30 (health endpoint needed for Docker Compose health checks; dev workflow must be stable before layering infrastructure)
-**Requirements**: DOCK-01, DOCK-02
-**Success Criteria** (what must be TRUE):
-
-1. Running `docker compose up` starts Redis and Qdrant with health checks that report healthy within 30 seconds; running `docker compose --profile ollama up` additionally starts Ollama
-2. Running `make dev` starts Docker infrastructure (Redis + Qdrant) and then the application dev servers -- a single command from clone to running app
-3. Docker Compose services use pinned image versions (not `latest`) and all services have health check definitions
-   **Plans**: 1 plan
-
-Plans:
-
-- [x] 31-01-PLAN.md -- Docker Compose with health checks + Makefile command layer (DOCK-01, DOCK-02)
-
-### Phase 32: Build Optimization
-
-**Goal**: Dependency versions are centralized so upgrades touch one file instead of ten, and code quality is enforced automatically on every commit and push
-**Depends on**: Phase 31 (Makefile targets reference Docker Compose commands; infrastructure must be stable)
-**Requirements**: BUILD-01, QUAL-04
-**Success Criteria** (what must be TRUE):
-
-1. TypeScript, Vitest, and Vite versions are specified once in `pnpm-workspace.yaml` catalogs and all package.json files reference them via `catalog:` protocol -- upgrading requires changing one line
-2. Committing code triggers a pre-commit hook that runs ESLint fix + Prettier on staged files -- badly formatted code cannot be committed
-3. Pushing code triggers a pre-push hook that runs typecheck and tests on changed packages -- type errors and test failures are caught before they reach the remote
-   **Plans**: 1 plan
-
-Plans:
-
-- [x] 32-01-PLAN.md -- pnpm catalogs + Husky git hooks (BUILD-01, QUAL-04)
-
-### Phase 33: Production Docker
-
-**Goal**: The API can be built into an optimized production Docker image suitable for deployment
-**Depends on**: Phase 32 (pnpm catalogs must be stable so the lockfile is finalized before Docker build)
-**Requirements**: BUILD-02
-**Success Criteria** (what must be TRUE):
-
-1. `docker build` produces a production image using multi-stage build with `turbo prune` that includes only the API and its workspace dependencies -- not the web app or dev tooling
-2. The production image size is under 500MB (compared to a naive full-monorepo image)
-3. The production container starts and responds to `GET /api/health` with correct connectivity status
-   **Plans**: 1 plan
-
-Plans:
-
-- [x] 33-01-PLAN.md -- Multi-stage Dockerfile with turbo prune, .dockerignore, .npmrc, ServeStaticModule guard (BUILD-02)
+</details>
 
 ## Progress
 
@@ -618,12 +461,12 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 16. User Authentication          | v2.0      | 3/3            | Complete    | 2026-03-08 |
 | 17. API Security                 | v2.0      | 1/1            | Complete    | 2026-03-08 |
 | 18. API Keys                     | v2.0      | 2/2            | Complete    | 2026-03-08 |
-| 19. Memory Banks                 | 3/3       | Complete       | 2026-03-09  | -          |
-| 20. Encryption at Rest           | 1/1       | Complete       | 2026-03-09  | -          |
-| 21. E2EE (Prod-Core)             | 2/2       | Complete       | 2026-03-09  | -          |
+| 19. Memory Banks                 | v2.0      | 3/3            | Complete    | 2026-03-09 |
+| 20. Encryption at Rest           | v2.0      | 1/1            | Complete    | 2026-03-09 |
+| 21. E2EE (Prod-Core)             | v2.0      | 2/2            | Complete    | 2026-03-09 |
 | 22. PostgreSQL Dual-Driver       | v2.0      | 2/2            | Complete    | 2026-03-09 |
-| 23. Row Level Security           | 3/3       | Complete       | 2026-03-09  | -          |
-| 24. Firebase Auth (Prod-Core)    | 2/2       | Complete       | 2026-03-09  | -          |
+| 23. Row Level Security           | v2.0      | 3/3            | Complete    | 2026-03-09 |
+| 24. Firebase Auth (Prod-Core)    | v2.0      | 2/2            | Complete    | 2026-03-09 |
 | 25. Source Type Reclassification | v2.1      | 2/2            | Complete    | 2026-03-08 |
 | 26. Entity Format & Quality      | v2.1      | 2/2            | Complete    | 2026-03-08 |
 | 27. Data Backfill                | v2.1      | 1/1            | Complete    | 2026-03-09 |
@@ -640,18 +483,12 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 38. Connector Parsing Tests      | v4.0      | 0/?            | Not started | -          |
 | 39. CI Gates & Coverage          | v4.0      | 0/?            | Not started | -          |
 
-### Phase 34: NestJS Best Practices Maturation
+<details>
+<summary>Phase 34: NestJS Best Practices Maturation (v3.0.1) - SHIPPED 2026-03-09</summary>
 
-**Goal:** Add input validation, rate limiting, structured logging, and error handling best practices to all API endpoints
-**Requirements**: BP-01, BP-02, BP-03, BP-04, BP-05, BP-06
-**Depends on:** Phase 31
-**Plans:** 3/3 plans complete
+See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 plans complete.
 
-Plans:
-
-- [x] 34-01-PLAN.md -- Input validation (class-validator DTOs) + rate limiting (@nestjs/throttler) (BP-01, BP-02)
-- [x] 34-02-PLAN.md -- Structured logging (BP-03, BP-04)
-- [x] 34-03-PLAN.md -- Error handling improvements (BP-05, BP-06)
+</details>
 
 ## v4.0 E2E Testing & Test Infrastructure (Phases 35-39)
 
