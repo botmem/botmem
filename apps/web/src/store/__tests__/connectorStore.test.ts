@@ -22,7 +22,9 @@ describe('connectorStore', () => {
 
   describe('fetchManifests', () => {
     it('fetches and sets manifests', async () => {
-      (api.listConnectors as any).mockResolvedValue({ connectors: [{ id: 'gmail', name: 'Gmail' }] });
+      (api.listConnectors as any).mockResolvedValue({
+        connectors: [{ id: 'gmail', name: 'Gmail' }],
+      });
       await useConnectorStore.getState().fetchManifests();
       expect(useConnectorStore.getState().manifests).toHaveLength(1);
     });
@@ -70,7 +72,18 @@ describe('connectorStore', () => {
   describe('removeAccount', () => {
     it('removes account from state', async () => {
       useConnectorStore.setState({
-        accounts: [{ id: 'a1', type: 'gmail', identifier: 'test', status: 'connected', schedule: 'manual', lastSync: null, memoriesIngested: 0, lastError: null }],
+        accounts: [
+          {
+            id: 'a1',
+            type: 'gmail',
+            identifier: 'test',
+            status: 'connected',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            lastError: null,
+          },
+        ],
       });
       (api.deleteAccount as any).mockResolvedValue({});
       await useConnectorStore.getState().removeAccount('a1');
@@ -79,7 +92,18 @@ describe('connectorStore', () => {
 
     it('removes from state even on API failure', async () => {
       useConnectorStore.setState({
-        accounts: [{ id: 'a1', type: 'gmail', identifier: 'test', status: 'connected', schedule: 'manual', lastSync: null, memoriesIngested: 0, lastError: null }],
+        accounts: [
+          {
+            id: 'a1',
+            type: 'gmail',
+            identifier: 'test',
+            status: 'connected',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            lastError: null,
+          },
+        ],
       });
       (api.deleteAccount as any).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().removeAccount('a1');
@@ -90,7 +114,18 @@ describe('connectorStore', () => {
   describe('updateSchedule', () => {
     it('updates schedule in state', async () => {
       useConnectorStore.setState({
-        accounts: [{ id: 'a1', type: 'gmail', identifier: 'test', status: 'connected', schedule: 'manual', lastSync: null, memoriesIngested: 0, lastError: null }],
+        accounts: [
+          {
+            id: 'a1',
+            type: 'gmail',
+            identifier: 'test',
+            status: 'connected',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            lastError: null,
+          },
+        ],
       });
       (api.updateAccount as any).mockResolvedValue({});
       await useConnectorStore.getState().updateSchedule('a1', 'hourly');
@@ -101,17 +136,39 @@ describe('connectorStore', () => {
   describe('syncNow', () => {
     it('sets syncing status and calls API', async () => {
       useConnectorStore.setState({
-        accounts: [{ id: 'a1', type: 'gmail', identifier: 'test', status: 'connected', schedule: 'manual', lastSync: null, memoriesIngested: 0, lastError: null }],
+        accounts: [
+          {
+            id: 'a1',
+            type: 'gmail',
+            identifier: 'test',
+            status: 'connected',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            lastError: null,
+          },
+        ],
       });
       (api.triggerSync as any).mockResolvedValue({ job: { id: 'j1' } });
 
       await useConnectorStore.getState().syncNow('a1');
-      expect(api.triggerSync).toHaveBeenCalledWith('a1');
+      expect(api.triggerSync).toHaveBeenCalledWith('a1', undefined);
     });
 
     it('reverts to connected on API failure', async () => {
       useConnectorStore.setState({
-        accounts: [{ id: 'a1', type: 'gmail', identifier: 'test', status: 'connected', schedule: 'manual', lastSync: null, memoriesIngested: 0, lastError: null }],
+        accounts: [
+          {
+            id: 'a1',
+            type: 'gmail',
+            identifier: 'test',
+            status: 'connected',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            lastError: null,
+          },
+        ],
       });
       (api.triggerSync as any).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().syncNow('a1');
