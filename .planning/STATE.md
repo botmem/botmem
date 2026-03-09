@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: completed
-stopped_at: Completed quick-7 UI visual E2E review
+stopped_at: Completed quick-8 UI/UX fixes from visual E2E review
 last_updated: '2026-03-09T13:11:08.105Z'
 last_activity: 2026-03-09 — Roadmap v4.0 finalized (phases 35-39)
 progress:
@@ -263,6 +263,7 @@ None yet.
 | 4   | Fix contact merge suggestions for duplicate identities and filter device identifiers from people contacts | 2026-03-09 | 6b76742 | [4-fix-contact-merge-suggestions-for-duplic](./quick/4-fix-contact-merge-suggestions-for-duplic/) |
 | 5   | Move connector/sync logs from PostgreSQL to NDJSON file on disk                                           | 2026-03-09 | d0615bd | [5-logs-are-being-stored-to-the-db-which-is](./quick/5-logs-are-being-stored-to-the-db-which-is/) |
 | 6   | Create GitHub CI/CD pipeline with GitHub Actions + Watchtower auto-deploy                                 | 2026-03-09 | 6540f0c | [6-create-a-github-cicd-pipeline-and-on-pro](./quick/6-create-a-github-cicd-pipeline-and-on-pro/) |
+| 8   | Fix all UI/UX issues from visual E2E review — emoji icons, off-brand colors, auth page logos, aria attrs  | 2026-03-09 | 5fc1674 | [8-fix-all-ui-ux-issues-from-visual-e2e-rev](./quick/8-fix-all-ui-ux-issues-from-visual-e2e-rev/) |
 
 ## Session Continuity
 
