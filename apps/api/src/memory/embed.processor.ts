@@ -16,7 +16,6 @@ import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
-import { CryptoService } from '../crypto/crypto.service';
 import {
   rawEvents,
   memories,
@@ -50,7 +49,6 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
     private analytics: AnalyticsService,
-    private crypto: CryptoService,
     @InjectQueue('enrich') private enrichQueue: Queue,
   ) {
     super();
@@ -273,13 +271,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       }
     }
 
-    // --- All external work succeeded — now insert the memory encrypted ---
-    const enc = this.crypto.encryptMemoryFields({
-      text: currentText,
-      entities: null,
-      claims: null,
-      metadata: JSON.stringify(mergedMetadata),
-    });
+    // --- All external work succeeded — insert plaintext; enrich processor encrypts at end of pipeline ---
+    const metadataStr = JSON.stringify(mergedMetadata);
 
     t0 = Date.now();
     await this.dbService.db
@@ -291,16 +284,16 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         connectorType: rawEvent.connectorType,
         sourceType: event.sourceType,
         sourceId: event.sourceId,
-        text: enc.text,
+        text: currentText,
         eventTime: new Date(event.timestamp),
         ingestTime: now,
-        metadata: enc.metadata,
+        metadata: metadataStr,
         embeddingStatus: 'pending',
         createdAt: now,
       })
       .onConflictDoUpdate({
         target: memories.id,
-        set: { text: enc.text, metadata: enc.metadata, embeddingStatus: 'pending' },
+        set: { text: currentText, metadata: metadataStr, embeddingStatus: 'pending' },
       });
     const dbInsertMs = Date.now() - t0;
 
