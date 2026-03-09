@@ -14,8 +14,8 @@ export function ApiKeysTab() {
 
   const activeKeys = keys.filter((k) => !k.revokedAt);
 
-  const handleCreate = async (name: string, expiresAt?: string) => {
-    const rawKey = await createKey(name, expiresAt);
+  const handleCreate = async (name: string, expiresAt?: string, memoryBankIds?: string[]) => {
+    const rawKey = await createKey(name, expiresAt, memoryBankIds);
     setShowCreate(false);
     setCreatedKey(rawKey);
     return rawKey;
@@ -73,13 +73,9 @@ export function ApiKeysTab() {
               className="flex items-center justify-between border-3 border-nb-border p-3 bg-nb-surface-muted"
             >
               <div className="flex-1 min-w-0">
-                <p className="font-display text-sm font-bold uppercase text-nb-text">
-                  {key.name}
-                </p>
+                <p className="font-display text-sm font-bold uppercase text-nb-text">{key.name}</p>
                 <div className="flex items-center gap-4 mt-1">
-                  <span className="font-mono text-xs text-nb-muted">
-                    bm_sk_...{key.lastFour}
-                  </span>
+                  <span className="font-mono text-xs text-nb-muted">bm_sk_...{key.lastFour}</span>
                   <span className="font-mono text-xs text-nb-muted">
                     Created {new Date(key.createdAt).toLocaleDateString()}
                   </span>
