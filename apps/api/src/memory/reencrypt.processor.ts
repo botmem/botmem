@@ -79,11 +79,19 @@ export class ReencryptProcessor extends WorkerHost implements OnModuleInit {
           let decryptedMetadata: string | null;
 
           if (mem.keyVersion === 0) {
-            // Legacy APP_SECRET encrypted
-            decryptedText = this.crypto.decrypt(mem.text);
-            decryptedEntities = this.crypto.decrypt(mem.entities);
-            decryptedClaims = this.crypto.decrypt(mem.claims);
-            decryptedMetadata = this.crypto.decrypt(mem.metadata);
+            // Legacy APP_SECRET encrypted — or plaintext if encryption failed originally
+            decryptedText = this.crypto.isEncrypted(mem.text)
+              ? this.crypto.decrypt(mem.text)
+              : mem.text;
+            decryptedEntities = this.crypto.isEncrypted(mem.entities)
+              ? this.crypto.decrypt(mem.entities)
+              : mem.entities;
+            decryptedClaims = this.crypto.isEncrypted(mem.claims)
+              ? this.crypto.decrypt(mem.claims)
+              : mem.claims;
+            decryptedMetadata = this.crypto.isEncrypted(mem.metadata)
+              ? this.crypto.decrypt(mem.metadata)
+              : mem.metadata;
           } else {
             // Encrypted with old user key
             decryptedText = this.crypto.decryptWithKey(mem.text, oldKeyBuffer);

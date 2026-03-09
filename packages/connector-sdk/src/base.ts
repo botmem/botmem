@@ -15,7 +15,7 @@ import type {
 } from './types.js';
 
 export abstract class BaseConnector extends EventEmitter {
-  static DEBUG_SYNC_LIMIT = 0;
+  static DEBUG_SYNC_LIMIT = 50;
 
   abstract readonly manifest: ConnectorManifest;
 
@@ -88,8 +88,8 @@ export abstract class BaseConnector extends EventEmitter {
         .replace(/&#39;/gi, "'");
     }
     // Strip invisible Unicode: zero-width joiners/spaces, soft hyphens, etc.
-    // eslint-disable-next-line no-misleading-character-class -- intentionally matching combining/invisible codepoints
     text = text.replace(
+      // eslint-disable-next-line no-misleading-character-class -- intentionally matching combining/invisible codepoints
       /[\u200B-\u200D\u2060\uFEFF\u00AD\u034F\u061C\u180E\u2000-\u200F\u202A-\u202E\u2066-\u2069]/gu,
       '',
     );

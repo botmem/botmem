@@ -47,7 +47,11 @@ export class UserAuthController {
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.register(dto.email, dto.password, dto.name);
     setRefreshCookie(res, result.refreshToken);
-    return { accessToken: result.accessToken, user: result.user };
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+      recoveryKey: result.recoveryKey,
+    };
   }
 
   @Public()
@@ -57,7 +61,12 @@ export class UserAuthController {
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto.email, dto.password);
     setRefreshCookie(res, result.refreshToken);
-    return { accessToken: result.accessToken, user: result.user };
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+      needsRecoveryKey: result.needsRecoveryKey,
+      recoveryKey: result.recoveryKey,
+    };
   }
 
   @Public()
@@ -104,10 +113,13 @@ export class UserAuthController {
 
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @Post('reauth')
+  @Post('recovery-key')
   @HttpCode(200)
-  async reauth(@CurrentUser() user: { id: string }, @Body() dto: { password: string }) {
-    await this.authService.reauth(user.id, dto.password);
+  async submitRecoveryKey(
+    @CurrentUser() user: { id: string },
+    @Body() dto: { recoveryKey: string },
+  ) {
+    await this.authService.submitRecoveryKey(user.id, dto.recoveryKey);
     return { ok: true };
   }
 

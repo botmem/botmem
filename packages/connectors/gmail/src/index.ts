@@ -1,5 +1,15 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, CleanResult, PipelineContext } from '@botmem/connector-sdk';
+import type {
+  ConnectorManifest,
+  AuthContext,
+  AuthInitResult,
+  SyncContext,
+  SyncResult,
+  ConnectorDataEvent,
+  EmbedResult,
+  CleanResult,
+  PipelineContext,
+} from '@botmem/connector-sdk';
 import { createOAuth2Client, getAuthUrl, exchangeCode } from './oauth.js';
 import { syncGmail } from './sync.js';
 import { syncContacts } from './contacts.js';
@@ -35,21 +45,30 @@ export class GmailConnector extends BaseConnector {
       properties: {
         clientId: { type: 'string', title: 'Google Client ID' },
         clientSecret: { type: 'string', title: 'Google Client Secret' },
-        redirectUri: { type: 'string', title: 'Redirect URI', default: 'http://localhost:12412/api/auth/gmail/callback' },
+        redirectUri: {
+          type: 'string',
+          title: 'Redirect URI',
+          default: 'http://localhost:12412/api/auth/gmail/callback',
+        },
       },
       required: ['clientId', 'clientSecret'],
     },
     entities: ['person', 'message', 'file'],
     pipeline: { clean: true, embed: true, enrich: true },
-    trustScore: 0.95,
+    trustScore: 0.75,
   };
 
   private config: Record<string, string> = {};
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
     this.config = config as Record<string, string>;
-    const redirectUri = (config.redirectUri as string) || 'http://localhost:12412/api/auth/gmail/callback';
-    const client = createOAuth2Client(config.clientId as string, config.clientSecret as string, redirectUri);
+    const redirectUri =
+      (config.redirectUri as string) || 'http://localhost:12412/api/auth/gmail/callback';
+    const client = createOAuth2Client(
+      config.clientId as string,
+      config.clientSecret as string,
+      redirectUri,
+    );
     const url = getAuthUrl(client);
     return { type: 'redirect', url };
   }
@@ -58,7 +77,10 @@ export class GmailConnector extends BaseConnector {
     const code = params.code as string;
     const clientId = (params.clientId as string) || this.config.clientId;
     const clientSecret = (params.clientSecret as string) || this.config.clientSecret;
-    const redirectUri = (params.redirectUri as string) || this.config.redirectUri || 'http://localhost:12412/api/auth/gmail/callback';
+    const redirectUri =
+      (params.redirectUri as string) ||
+      this.config.redirectUri ||
+      'http://localhost:12412/api/auth/gmail/callback';
     const client = createOAuth2Client(clientId, clientSecret, redirectUri);
     const tokens = await exchangeCode(client, code);
 
@@ -92,7 +114,9 @@ export class GmailConnector extends BaseConnector {
   async revokeAuth(auth: AuthContext): Promise<void> {
     if (auth.accessToken) {
       try {
-        await fetch(`https://oauth2.googleapis.com/revoke?token=${auth.accessToken}`, { method: 'POST' });
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${auth.accessToken}`, {
+          method: 'POST',
+        });
       } catch {
         // Best effort
       }
@@ -114,7 +138,10 @@ export class GmailConnector extends BaseConnector {
     text = text.replace(/©\s*\d{4}[^\n]*/g, '');
     text = text.replace(/Unsubscribe\s*\(?\s*https?:\/\/\S*\s*\)?\s*/gi, '');
     // Strip repeated whitespace/newlines
-    text = text.replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim();
+    text = text
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
 
     return { text };
   }
@@ -128,7 +155,8 @@ export class GmailConnector extends BaseConnector {
       const parts: string[] = [];
       if (metadata.name) parts.push(`name:${metadata.name}`);
       for (const email of (metadata.emails as string[]) || []) parts.push(`email:${email}`);
-      for (const phone of (metadata.phones as string[]) || []) parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
+      for (const phone of (metadata.phones as string[]) || [])
+        parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
       if (parts.length) entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
       return { text: cleanedText, entities, metadata: { isContact: true, ...metadata } };
     }
@@ -143,7 +171,10 @@ export class GmailConnector extends BaseConnector {
       if (name) parts.push(`name:${name}`);
       entities.push({ type: 'person', id: parts.join('|'), role: 'sender' });
     }
-    for (const { name, email } of [...parseEmailAddresses(toHeader), ...parseEmailAddresses(ccHeader)]) {
+    for (const { name, email } of [
+      ...parseEmailAddresses(toHeader),
+      ...parseEmailAddresses(ccHeader),
+    ]) {
       const parts = [`email:${email}`];
       if (name) parts.push(`name:${name}`);
       entities.push({ type: 'person', id: parts.join('|'), role: 'recipient' });
@@ -156,7 +187,11 @@ export class GmailConnector extends BaseConnector {
 
     // Attachments
     for (const att of event.content?.attachments || []) {
-      entities.push({ type: 'file', id: `file:${(att as any).filename || att.uri}`, role: 'attachment' });
+      entities.push({
+        type: 'file',
+        id: `file:${(att as any).filename || att.uri}`,
+        role: 'attachment',
+      });
     }
 
     return { text: cleanedText, entities };
@@ -176,10 +211,11 @@ export class GmailConnector extends BaseConnector {
       const contactsResult = await syncContacts(
         ctx,
         (event) => this.emitData(event),
-        (progress) => this.emit('progress', {
-          processed: emailResult.processed + progress.processed,
-          total: (emailResult.processed) + (progress.total || 0),
-        }),
+        (progress) =>
+          this.emit('progress', {
+            processed: emailResult.processed + progress.processed,
+            total: emailResult.processed + (progress.total || 0),
+          }),
       );
       contactsProcessed = contactsResult.processed;
     } catch (err: any) {

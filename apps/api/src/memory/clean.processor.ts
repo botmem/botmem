@@ -14,15 +14,13 @@ import { rawEvents, memories } from '../db/schema';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
 function sanitizeText(text: string): string {
-  return (
-    text
+  return text
+    .replace(
       // eslint-disable-next-line no-control-regex
-      .replace(
-        /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g,
-        '',
-      )
-      .trim()
-  );
+      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g,
+      '',
+    )
+    .trim();
 }
 
 @Processor('clean')
@@ -160,7 +158,11 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         const embedResult = await connector.embed(event, text, ctx);
         const buckets: Array<{ entityType: string; identifiers: IdentifierInput[] }> = [];
         for (const entity of embedResult.entities) {
-          if (entity.type === 'person' || entity.type === 'group') {
+          if (
+            entity.type === 'person' ||
+            entity.type === 'group' ||
+            entity.type === 'organization'
+          ) {
             const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
             let merged = false;
             for (const bucket of buckets) {

@@ -163,7 +163,9 @@ export class IMessageConnector extends BaseConnector {
         if (ctx.signal.aborted) break;
 
         const messages = await client.messagesHistory(chat.id, {
-          start: startCursor,
+          start: startCursor
+            ? new Date(new Date(startCursor).getTime() + 1).toISOString()
+            : undefined,
         });
 
         // Process newest messages first

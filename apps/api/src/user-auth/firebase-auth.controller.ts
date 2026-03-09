@@ -13,8 +13,7 @@ export class FirebaseAuthController {
   /**
    * Exchange a Firebase ID token for a local user record.
    * Called by the frontend after Firebase signInWith* succeeds.
-   * Returns user profile. The frontend uses the Firebase ID token directly
-   * as the Bearer token for all subsequent API calls.
+   * Returns recoveryKey for new users (shown once) and needsRecoveryKey flag.
    */
   @Public()
   @Post('sync')
@@ -22,16 +21,18 @@ export class FirebaseAuthController {
   async syncUser(@Body() body: { idToken: string }) {
     if (!body.idToken) throw new UnauthorizedException('idToken is required');
     const decoded = await this.firebaseAuthService.verifyIdToken(body.idToken);
-    const user = await this.firebaseAuthService.findOrCreateUser(decoded);
-    if (!user) throw new UnauthorizedException('User sync failed');
+    const result = await this.firebaseAuthService.findOrCreateUser(decoded);
+    if (!result.user) throw new UnauthorizedException('User sync failed');
     return {
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        onboarded: !!user.onboarded,
-        createdAt: user.createdAt,
+        id: result.user.id,
+        email: result.user.email,
+        name: result.user.name,
+        onboarded: !!result.user.onboarded,
+        createdAt: result.user.createdAt,
       },
+      recoveryKey: result.recoveryKey,
+      needsRecoveryKey: result.needsRecoveryKey,
     };
   }
 }

@@ -1,9 +1,10 @@
 import { Injectable, Logger, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import * as admin from 'firebase-admin';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { ConfigService } from '../config/config.service';
 import { UsersService } from './users.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
+import { UserKeyService } from '../crypto/user-key.service';
 
 @Injectable()
 export class FirebaseAuthService implements OnModuleInit {
@@ -14,6 +15,7 @@ export class FirebaseAuthService implements OnModuleInit {
     private config: ConfigService,
     private usersService: UsersService,
     private memoryBanksService: MemoryBanksService,
+    private userKeyService: UserKeyService,
   ) {}
 
   onModuleInit() {
@@ -38,28 +40,46 @@ export class FirebaseAuthService implements OnModuleInit {
     }
   }
 
+  private hashRecoveryKey(recoveryKey: string): string {
+    return createHash('sha256').update(recoveryKey).digest('hex');
+  }
+
   /**
    * Find existing user by firebaseUid or create a new local user record.
-   * Firebase users have a sentinel passwordHash ('firebase:<uid>') — they never use password login.
+   * Returns recoveryKey for new users (shown once), needsRecoveryKey for existing users with cold cache.
    */
   async findOrCreateUser(decoded: admin.auth.DecodedIdToken) {
-    // Only match on firebase_uid — never fall back to email for identity resolution
     const user = await this.usersService.findByFirebaseUid(decoded.uid);
-    if (user) return user;
+    if (user) {
+      // Existing user — try 2-tier DEK lookup
+      const dek = await this.userKeyService.getDek(user.id);
+      const needsRecoveryKey = !dek && !!user.recoveryKeyHash;
+      return { user, recoveryKey: undefined, needsRecoveryKey };
+    }
 
-    // No matching user — create a new account for this Firebase identity
+    // New user — create account + generate recovery key
     const email = decoded.email ?? `${decoded.uid}@firebase.user`;
-
-    // Create new local user record for first-time Firebase login
     const name = decoded.name ?? decoded.email?.split('@')[0] ?? 'User';
     const passwordHash = `firebase:${decoded.uid}`; // sentinel — never compared via bcrypt
-    const encryptionSalt = randomBytes(16).toString('base64');
+
+    const salt = randomBytes(16);
+    const encryptionSalt = salt.toString('base64');
+
+    const dek = this.userKeyService.generateDek();
+    const recoveryKey = dek.toString('base64');
+    const recoveryKeyHash = this.hashRecoveryKey(recoveryKey);
 
     const newUser = await this.usersService.createUser(email, passwordHash, name, encryptionSalt);
     await this.usersService.setFirebaseUid(newUser!.id, decoded.uid);
+    await this.usersService.updateRecoveryKeyHash(newUser!.id, recoveryKeyHash);
+    await this.usersService.incrementKeyVersion(newUser!.id); // bump to 2
     await this.memoryBanksService.getOrCreateDefault(newUser!.id);
+    await this.userKeyService.storeDek(newUser!.id, dek);
 
-    this.logger.log(`Created local user ${newUser!.id} for Firebase UID ${decoded.uid}`);
-    return this.usersService.findById(newUser!.id);
+    this.logger.log(
+      `Created local user ${newUser!.id} for Firebase UID ${decoded.uid} (recovery key generated)`,
+    );
+    const fullUser = await this.usersService.findById(newUser!.id);
+    return { user: fullUser, recoveryKey, needsRecoveryKey: false };
   }
 }

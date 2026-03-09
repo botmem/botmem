@@ -33,7 +33,7 @@ export function MemoryExplorerPage() {
     parsed,
     memoryStats,
   } = useMemories();
-  const needsRelogin = !!memoryStats?.needsRelogin;
+  const needsRecoveryKey = !!memoryStats?.needsRecoveryKey;
   const [reauthOpen, setReauthOpen] = useState(false);
 
   // Reset visibleCount when filters/query change (synchronous state adjustment during render)
@@ -72,7 +72,7 @@ export function MemoryExplorerPage() {
   return (
     <PageContainer>
       <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
-      {needsRelogin && (
+      {needsRecoveryKey && (
         <div className="mt-4 flex flex-col items-center justify-center gap-4 py-20 border-2 border-nb-border/40 bg-nb-surface/30">
           <svg
             width="48"
@@ -89,7 +89,7 @@ export function MemoryExplorerPage() {
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
           <p className="font-display text-lg text-nb-muted text-center max-w-md">
-            Your encryption key needs to be restored. Enter your password to unlock your memories.
+            Enter your recovery key to unlock your memories.
           </p>
           <button
             onClick={() => setReauthOpen(true)}
@@ -99,7 +99,7 @@ export function MemoryExplorerPage() {
           </button>
         </div>
       )}
-      {!needsRelogin && (
+      {!needsRecoveryKey && (
         <div className="mt-4 flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
           <div className="flex flex-col min-h-0 h-full">
             <div className="flex items-center gap-3">

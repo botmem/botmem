@@ -556,7 +556,7 @@ export class MeService {
           if (userKey) {
             text = this.crypto.decryptWithKey(row.text, userKey) ?? text;
           } else {
-            text = '[Encrypted — please log out and log in again to view]';
+            text = '[Encrypted — enter your recovery key to view]';
           }
         } else {
           text = this.crypto.decrypt(row.text) ?? text;

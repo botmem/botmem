@@ -179,6 +179,26 @@ export class ContactsService {
             `[resolveContact] deduplicateByExactName failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+
+        // Our contact may have been merged away — verify it still exists
+        const stillExists = await this.dbService.withCurrentUser((db) =>
+          db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, contactId)),
+        );
+        if (!stillExists.length) {
+          // Find the winner by display name
+          const conditions: any[] = [sql`LOWER(${contacts.displayName}) = LOWER(${displayName})`];
+          if (userId) conditions.push(eq(contacts.userId, userId));
+          const winners = await this.dbService.withCurrentUser((db) =>
+            db
+              .select({ id: contacts.id })
+              .from(contacts)
+              .where(and(...conditions))
+              .limit(1),
+          );
+          if (winners.length) {
+            contactId = winners[0].id;
+          }
+        }
       }
     } else if (matchedIds.length === 1) {
       contactId = matchedIds[0];
@@ -242,6 +262,21 @@ export class ContactsService {
             if (rows.length) {
               contactId = rows[0].contactId;
               continue; // Retry with the new contactId
+            }
+          }
+          // Identifier probe found nothing — fall back to display name lookup
+          const nameIdent = identifiers.find((i) => i.type === 'name');
+          if (nameIdent) {
+            const byName = await this.dbService.withCurrentUser((db) =>
+              db
+                .select({ id: contacts.id })
+                .from(contacts)
+                .where(sql`LOWER(${contacts.displayName}) = LOWER(${nameIdent.value})`)
+                .limit(1),
+            );
+            if (byName.length) {
+              contactId = byName[0].id;
+              continue;
             }
           }
         }

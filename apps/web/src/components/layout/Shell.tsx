@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { IdentityPrompt } from '../identity/IdentityPrompt';
+import { RecoveryKeyModal } from '../ui/RecoveryKeyModal';
 
 export function Shell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -38,6 +39,7 @@ export function Shell() {
         </main>
       </div>
       <IdentityPrompt />
+      <RecoveryKeyModal />
     </div>
   );
 }
