@@ -12,10 +12,6 @@ export class JobsService {
     @InjectQueue('sync') private syncQueue: Queue,
   ) {}
 
-  private get db() {
-    return this.dbService.db;
-  }
-
   async triggerSync(
     accountId: string,
     connectorType: string,
@@ -25,18 +21,20 @@ export class JobsService {
     const id = crypto.randomUUID();
     const now = new Date();
 
-    await this.db.insert(jobs).values({
-      id,
-      accountId,
-      connectorType,
-      accountIdentifier: accountIdentifier || null,
-      memoryBankId: memoryBankId || null,
-      status: 'queued',
-      priority: 0,
-      progress: 0,
-      total: 0,
-      createdAt: now,
-    });
+    await this.dbService.withCurrentUser((db) =>
+      db.insert(jobs).values({
+        id,
+        accountId,
+        connectorType,
+        accountIdentifier: accountIdentifier || null,
+        memoryBankId: memoryBankId || null,
+        status: 'queued',
+        priority: 0,
+        progress: 0,
+        total: 0,
+        createdAt: now,
+      }),
+    );
 
     await this.syncQueue.add(
       'sync',
@@ -46,12 +44,16 @@ export class JobsService {
       },
     );
 
-    const [job] = await this.db.select().from(jobs).where(eq(jobs.id, id));
+    const [job] = await this.dbService.withCurrentUser((db) =>
+      db.select().from(jobs).where(eq(jobs.id, id)),
+    );
     return job;
   }
 
   async getAll(filters?: { accountId?: string; connectorType?: string }) {
-    const results = await this.db.select().from(jobs).orderBy(desc(jobs.createdAt));
+    const results = await this.dbService.withCurrentUser((db) =>
+      db.select().from(jobs).orderBy(desc(jobs.createdAt)),
+    );
     if (filters?.accountId) {
       return results.filter((j) => j.accountId === filters.accountId);
     }
@@ -62,12 +64,16 @@ export class JobsService {
   }
 
   async getActive() {
-    const results = await this.db.select().from(jobs).orderBy(desc(jobs.createdAt));
+    const results = await this.dbService.withCurrentUser((db) =>
+      db.select().from(jobs).orderBy(desc(jobs.createdAt)),
+    );
     return results.filter((j) => j.status === 'running' || j.status === 'queued');
   }
 
   async getById(id: string) {
-    const [job] = await this.db.select().from(jobs).where(eq(jobs.id, id));
+    const [job] = await this.dbService.withCurrentUser((db) =>
+      db.select().from(jobs).where(eq(jobs.id, id)),
+    );
     return job || null;
   }
 
@@ -88,18 +94,20 @@ export class JobsService {
     if (data.completedAt)
       toSet.completedAt =
         data.completedAt instanceof Date ? data.completedAt : new Date(data.completedAt);
-    await this.db.update(jobs).set(toSet).where(eq(jobs.id, id));
+    // updateJob is called from BullMQ processors (outside HTTP context) — use unscoped db
+    // since the job row is already validated to belong to the correct user via the processor's
+    // withUserId() scope. Direct db access is intentional here for cross-context compatibility.
+    await this.dbService.db.update(jobs).set(toSet).where(eq(jobs.id, id));
   }
 
   async deleteJob(id: string) {
-    await this.db.delete(jobs).where(eq(jobs.id, id));
+    await this.dbService.withCurrentUser((db) => db.delete(jobs).where(eq(jobs.id, id)));
   }
 
   async cancel(id: string) {
-    await this.db
-      .update(jobs)
-      .set({ status: 'cancelled', completedAt: new Date() })
-      .where(eq(jobs.id, id));
+    await this.dbService.withCurrentUser((db) =>
+      db.update(jobs).set({ status: 'cancelled', completedAt: new Date() }).where(eq(jobs.id, id)),
+    );
     const bullJob = await this.syncQueue.getJob(id);
     if (bullJob) await bullJob.remove();
   }
@@ -107,16 +115,19 @@ export class JobsService {
   /**
    * Increment job progress by 1 and return the updated job.
    * Does NOT auto-mark the job as done -- that's handled by tryCompleteJob().
+   *
+   * Note: called from BullMQ processors (outside HTTP context) — uses unscoped db
+   * intentionally, as processors use withUserId() for their own scope already.
    */
   async incrementProgress(
     jobId: string,
   ): Promise<{ progress: number; total: number; done: boolean }> {
-    await this.db
+    await this.dbService.db
       .update(jobs)
       .set({ progress: sql`${jobs.progress} + 1` })
       .where(eq(jobs.id, jobId));
 
-    const [job] = await this.db
+    const [job] = await this.dbService.db
       .select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
       .from(jobs)
       .where(eq(jobs.id, jobId));
@@ -130,9 +141,12 @@ export class JobsService {
   /**
    * Check if a job can be marked done: progress >= total AND no items remain in pipeline queues.
    * Called by the enrich processor after incrementing progress.
+   *
+   * Note: called from BullMQ processors (outside HTTP context) — uses unscoped db
+   * intentionally, as processors use withUserId() for their own scope already.
    */
   async tryCompleteJob(jobId: string): Promise<boolean> {
-    const [job] = await this.db
+    const [job] = await this.dbService.db
       .select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
       .from(jobs)
       .where(eq(jobs.id, jobId));
@@ -140,7 +154,7 @@ export class JobsService {
     if (!job || job.status !== 'running') return false;
     if (job.total <= 0 || job.progress < job.total) return false;
 
-    await this.db
+    await this.dbService.db
       .update(jobs)
       .set({
         status: 'done',
@@ -157,7 +171,7 @@ export class JobsService {
    * This catches jobs orphaned by server restarts or Redis flushes.
    */
   async markStaleRunning(): Promise<number> {
-    const running = await this.db.select().from(jobs).where(eq(jobs.status, 'running'));
+    const running = await this.dbService.db.select().from(jobs).where(eq(jobs.status, 'running'));
     let marked = 0;
     for (const job of running) {
       const bullJob = await this.syncQueue.getJob(job.id);
@@ -172,7 +186,7 @@ export class JobsService {
       const staleThreshold = 5 * 60 * 1000;
       if (Date.now() - startedAt < staleThreshold) continue;
 
-      await this.db
+      await this.dbService.db
         .update(jobs)
         .set({
           status: 'failed',
@@ -186,13 +200,15 @@ export class JobsService {
   }
 
   async cleanupDone() {
-    const done = await this.db
-      .select({ id: jobs.id })
-      .from(jobs)
-      .where(inArray(jobs.status, ['done', 'cancelled']));
+    const done = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(inArray(jobs.status, ['done', 'cancelled'])),
+    );
     if (done.length === 0) return 0;
     for (const j of done) {
-      await this.db.delete(jobs).where(eq(jobs.id, j.id));
+      await this.dbService.withCurrentUser((db) => db.delete(jobs).where(eq(jobs.id, j.id)));
     }
     return done.length;
   }
