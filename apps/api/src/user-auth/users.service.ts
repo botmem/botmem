@@ -8,7 +8,7 @@ import { users, refreshTokens, passwordResets } from '../db/schema';
 export class UsersService {
   constructor(private db: DbService) {}
 
-  async createUser(email: string, passwordHash: string, name: string) {
+  async createUser(email: string, passwordHash: string, name: string, encryptionSalt?: string) {
     const now = new Date();
     const id = randomUUID();
     await this.db.db.insert(users).values({
@@ -16,11 +16,49 @@ export class UsersService {
       email: email.toLowerCase().trim(),
       passwordHash,
       name,
+      encryptionSalt: encryptionSalt ?? null,
       onboarded: false,
       createdAt: now,
       updatedAt: now,
     });
     return this.findById(id);
+  }
+
+  async getEncryptionSalt(userId: string): Promise<string | null> {
+    const rows = await this.db.db
+      .select({ encryptionSalt: users.encryptionSalt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return rows[0]?.encryptionSalt ?? null;
+  }
+
+  async updateEncryptionSalt(userId: string, newSalt: string) {
+    const now = new Date();
+    await this.db.db
+      .update(users)
+      .set({ encryptionSalt: newSalt, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  async incrementKeyVersion(userId: string): Promise<number> {
+    const row = await this.findById(userId);
+    const newVersion = (row?.keyVersion ?? 0) + 1;
+    const now = new Date();
+    await this.db.db
+      .update(users)
+      .set({ keyVersion: newVersion, updatedAt: now })
+      .where(eq(users.id, userId));
+    return newVersion;
+  }
+
+  async getUserKeyVersion(userId: string): Promise<number> {
+    const rows = await this.db.db
+      .select({ keyVersion: users.keyVersion })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return rows[0]?.keyVersion ?? 1;
   }
 
   async findByEmail(email: string) {

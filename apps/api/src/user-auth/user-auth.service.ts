@@ -2,27 +2,36 @@ import {
   Injectable,
   BadRequestException,
   ConflictException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import * as bcrypt from 'bcrypt';
+import * as argon2 from 'argon2';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { UsersService } from './users.service';
 import { ConfigService } from '../config/config.service';
 import { MailService } from '../mail/mail.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
+import { UserKeyService } from '../crypto/user-key.service';
 
 // Dummy hash used for timing attack prevention when user not found
 const DUMMY_HASH = '$2b$12$LJ3m4ys3Gz8h/.0MStlQiee6RjGHPnRYVwO3BSXK8X8A.VFj0e6Vu';
 
 @Injectable()
 export class UserAuthService {
+  private readonly logger = new Logger(UserAuthService.name);
+
   constructor(
     private jwt: JwtService,
     private usersService: UsersService,
     private config: ConfigService,
     private mailService: MailService,
     private memoryBanksService: MemoryBanksService,
+    private userKeyService: UserKeyService,
+    @InjectQueue('reencrypt') private reencryptQueue: Queue,
   ) {}
 
   async register(email: string, password: string, name: string) {
@@ -32,9 +41,13 @@ export class UserAuthService {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
+    // Generate per-user encryption salt for E2EE key derivation
+    const salt = randomBytes(16);
+    const encryptionSalt = salt.toString('base64');
+
     let user: any;
     try {
-      user = await this.usersService.createUser(email, passwordHash, name);
+      user = await this.usersService.createUser(email, passwordHash, name, encryptionSalt);
     } catch (err: any) {
       // PostgreSQL unique constraint error (code 23505)
       if (
@@ -46,6 +59,9 @@ export class UserAuthService {
       }
       throw err;
     }
+
+    // Derive and cache user encryption key in memory
+    await this.userKeyService.deriveAndStore(user!.id, password, salt);
 
     // Create default memory bank for the new user
     await this.memoryBanksService.getOrCreateDefault(user!.id);
@@ -68,6 +84,21 @@ export class UserAuthService {
     if (!user || !valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // Derive and cache user encryption key
+    let encryptionSalt = user.encryptionSalt;
+    if (!encryptionSalt) {
+      // Legacy user created before E2EE -- generate salt on first login
+      const salt = randomBytes(16);
+      encryptionSalt = salt.toString('base64');
+      await this.usersService.updateEncryptionSalt(user.id, encryptionSalt);
+      this.logger.log(`Generated encryption salt for legacy user ${user.id}`);
+    }
+    await this.userKeyService.deriveAndStore(
+      user.id,
+      password,
+      Buffer.from(encryptionSalt, 'base64'),
+    );
 
     const tokens = await this.generateTokenPair(user.id, user.email);
     return {
@@ -182,6 +213,75 @@ export class UserAuthService {
 
     // Revoke all refresh tokens for the user
     await this.usersService.revokeAllUserTokens(reset.userId);
+  }
+
+  async changePassword(userId: string, oldPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters long');
+    }
+
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    // Verify old password
+    const valid = await bcrypt.compare(oldPassword, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    // Derive old encryption key
+    const oldSalt = user.encryptionSalt
+      ? Buffer.from(user.encryptionSalt, 'base64')
+      : randomBytes(16);
+    const oldKey = (await argon2.hash(oldPassword, {
+      type: argon2.argon2id,
+      raw: true,
+      hashLength: 32,
+      salt: oldSalt,
+      timeCost: 3,
+      memoryCost: 19456,
+      parallelism: 1,
+    })) as Buffer;
+
+    // Generate new salt and derive new key
+    const newSalt = randomBytes(16);
+    const newSaltBase64 = newSalt.toString('base64');
+    const newKey = (await argon2.hash(newPassword, {
+      type: argon2.argon2id,
+      raw: true,
+      hashLength: 32,
+      salt: newSalt,
+      timeCost: 3,
+      memoryCost: 19456,
+      parallelism: 1,
+    })) as Buffer;
+
+    // Hash new password with bcrypt
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+
+    // Update user: password hash, encryption salt
+    await this.usersService.updatePasswordHash(userId, newPasswordHash);
+    await this.usersService.updateEncryptionSalt(userId, newSaltBase64);
+    const newKeyVersion = await this.usersService.incrementKeyVersion(userId);
+
+    // Update in-memory key cache
+    this.userKeyService.removeKey(userId);
+    await this.userKeyService.deriveAndStore(userId, newPassword, newSalt);
+
+    // Enqueue re-encryption job (processed by Plan 02's processor)
+    await this.reencryptQueue.add('reencrypt-memories', {
+      userId,
+      oldKey: oldKey.toString('base64'),
+      newKey: newKey.toString('base64'),
+      newKeyVersion,
+    });
+
+    // Revoke all refresh tokens (force re-login with new password)
+    await this.usersService.revokeAllUserTokens(userId);
+
+    this.logger.log(`Password changed for user ${userId}, re-encryption enqueued`);
   }
 
   private async generateTokenPair(userId: string, email: string, family?: string) {
