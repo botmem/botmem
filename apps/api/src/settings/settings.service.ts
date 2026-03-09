@@ -1,5 +1,4 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { settings } from '../db/schema';
 
@@ -16,36 +15,34 @@ const DEFAULTS: Record<string, string> = {
 @Injectable()
 export class SettingsService implements OnModuleInit {
   private listeners: SettingChangeListener[] = [];
+  private cache: Record<string, string> = { ...DEFAULTS };
 
   constructor(private dbService: DbService) {}
 
   async onModuleInit() {
-    // Seed defaults for any missing settings
-    for (const [key, value] of Object.entries(DEFAULTS)) {
-      const [existing] = await this.dbService.db.select().from(settings).where(eq(settings.key, key));
-      if (!existing) {
-        await this.dbService.db.insert(settings).values({ key, value });
-      }
+    // Seed all missing defaults in one query, then load all into cache
+    const defaultValues = Object.entries(DEFAULTS).map(([key, value]) => ({ key, value }));
+    await this.dbService.db.insert(settings).values(defaultValues).onConflictDoNothing();
+    const rows = await this.dbService.db.select().from(settings);
+    for (const row of rows) {
+      this.cache[row.key] = row.value;
     }
   }
 
   async get(key: string): Promise<string> {
-    const [row] = await this.dbService.db.select().from(settings).where(eq(settings.key, key));
-    return row?.value ?? DEFAULTS[key] ?? '';
+    return this.cache[key] ?? DEFAULTS[key] ?? '';
   }
 
   async getAll(): Promise<Record<string, string>> {
-    const rows = await this.dbService.db.select().from(settings);
-    const result: Record<string, string> = { ...DEFAULTS };
-    for (const row of rows) {
-      result[row.key] = row.value;
-    }
-    return result;
+    return { ...this.cache };
   }
 
   async set(key: string, value: string): Promise<void> {
-    await this.dbService.db.insert(settings).values({ key, value })
+    await this.dbService.db
+      .insert(settings)
+      .values({ key, value })
       .onConflictDoUpdate({ target: settings.key, set: { value } });
+    this.cache[key] = value;
     for (const listener of this.listeners) {
       listener(key, value);
     }

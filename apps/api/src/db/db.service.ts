@@ -17,7 +17,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       connectionString: this.config.databaseUrl,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 30000,
     });
 
     this.db = drizzle(this.pool, { schema });
