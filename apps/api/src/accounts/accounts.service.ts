@@ -3,15 +3,7 @@ import { eq, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { ConnectorsService } from '../connectors/connectors.service';
-import {
-  accounts,
-  jobs,
-  logs,
-  rawEvents,
-  memories,
-  memoryLinks,
-  memoryContacts,
-} from '../db/schema';
+import { accounts, jobs, rawEvents, memories, memoryLinks, memoryContacts } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
 
 @Injectable()
@@ -23,10 +15,6 @@ export class AccountsService {
     private crypto: CryptoService,
     private connectors: ConnectorsService,
   ) {}
-
-  private get db() {
-    return this.dbService.db;
-  }
 
   /** Decrypt authContext on an account row */
   private decryptAccount<T extends { authContext: string | null }>(row: T): T {
@@ -41,30 +29,37 @@ export class AccountsService {
   }) {
     const id = crypto.randomUUID();
     const now = new Date();
-    await this.db.insert(accounts).values({
-      id,
-      userId: data.userId || null,
-      connectorType: data.connectorType,
-      identifier: data.identifier,
-      status: 'connected',
-      schedule: 'manual',
-      authContext: this.crypto.encrypt(data.authContext || null),
-      itemsSynced: 0,
-      createdAt: now,
-      updatedAt: now,
+    await this.dbService.withCurrentUser(async (db) => {
+      await db.insert(accounts).values({
+        id,
+        userId: data.userId || null,
+        connectorType: data.connectorType,
+        identifier: data.identifier,
+        status: 'connected',
+        schedule: 'manual',
+        authContext: this.crypto.encrypt(data.authContext || null),
+        itemsSynced: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
     });
     return this.getById(id);
   }
 
   async getAll(userId?: string) {
-    const rows = userId
-      ? await this.db.select().from(accounts).where(eq(accounts.userId, userId))
-      : await this.db.select().from(accounts);
+    const rows = await this.dbService.withCurrentUser((db) => {
+      if (userId) {
+        return db.select().from(accounts).where(eq(accounts.userId, userId));
+      }
+      return db.select().from(accounts);
+    });
     return rows.map((r) => this.decryptAccount(r));
   }
 
   async getById(id: string) {
-    const [account] = await this.db.select().from(accounts).where(eq(accounts.id, id));
+    const [account] = await this.dbService.withCurrentUser((db) =>
+      db.select().from(accounts).where(eq(accounts.id, id)),
+    );
     if (!account) throw new NotFoundException(`Account ${id} not found`);
     return this.decryptAccount(account);
   }
@@ -74,6 +69,7 @@ export class AccountsService {
     data: Partial<{
       schedule: SyncSchedule;
       status: string;
+      identifier: string;
       authContext: string;
       lastCursor: string;
       lastSyncAt: Date | string;
@@ -91,7 +87,9 @@ export class AccountsService {
     if ('authContext' in toSet && toSet.authContext != null) {
       toSet.authContext = this.crypto.encrypt(toSet.authContext)!;
     }
-    await this.db.update(accounts).set(toSet).where(eq(accounts.id, id));
+    await this.dbService.withCurrentUser((db) =>
+      db.update(accounts).set(toSet).where(eq(accounts.id, id)),
+    );
     return this.getById(id);
   }
 
@@ -101,10 +99,12 @@ export class AccountsService {
       sql`${accounts.identifier} = ${identifier}`,
     ];
     if (userId) conditions.push(sql`${accounts.userId} = ${userId}`);
-    const [account] = await this.db
-      .select()
-      .from(accounts)
-      .where(sql`${sql.join(conditions, sql` AND `)}`);
+    const [account] = await this.dbService.withCurrentUser((db) =>
+      db
+        .select()
+        .from(accounts)
+        .where(sql`${sql.join(conditions, sql` AND `)}`),
+    );
     return account ? this.decryptAccount(account) : null;
   }
 
@@ -123,8 +123,8 @@ export class AccountsService {
     }
 
     // Wrap all deletes in a transaction for atomicity
-    await this.db.transaction(async (tx) => {
-      const accountMemories = await tx
+    await this.dbService.withCurrentUser(async (db) => {
+      const accountMemories = await db
         .select({ id: memories.id })
         .from(memories)
         .where(eq(memories.accountId, id));
@@ -133,17 +133,16 @@ export class AccountsService {
       if (memoryIds.length > 0) {
         for (let i = 0; i < memoryIds.length; i += 500) {
           const batch = memoryIds.slice(i, i + 500);
-          await tx.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
-          await tx.delete(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch));
-          await tx.delete(memoryLinks).where(inArray(memoryLinks.dstMemoryId, batch));
+          await db.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
+          await db.delete(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch));
+          await db.delete(memoryLinks).where(inArray(memoryLinks.dstMemoryId, batch));
         }
       }
 
-      await tx.delete(memories).where(eq(memories.accountId, id));
-      await tx.delete(rawEvents).where(eq(rawEvents.accountId, id));
-      await tx.delete(logs).where(eq(logs.accountId, id));
-      await tx.delete(jobs).where(eq(jobs.accountId, id));
-      await tx.delete(accounts).where(eq(accounts.id, id));
+      await db.delete(memories).where(eq(memories.accountId, id));
+      await db.delete(rawEvents).where(eq(rawEvents.accountId, id));
+      await db.delete(jobs).where(eq(jobs.accountId, id));
+      await db.delete(accounts).where(eq(accounts.id, id));
     });
   }
 }
