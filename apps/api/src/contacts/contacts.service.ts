@@ -78,10 +78,10 @@ export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | n
 export interface ContactWithIdentifiers {
   id: string;
   displayName: string;
-  avatars: string;
-  metadata: string;
-  createdAt: string;
-  updatedAt: string;
+  avatars: unknown;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
   identifiers: Array<{
     id: string;
     identifierType: string;
@@ -153,7 +153,7 @@ export class ContactsService {
     if (matchedIds.length === 0) {
       // Create new contact
       contactId = randomUUID();
-      const now = new Date().toISOString();
+      const now = new Date();
       const nameIdent = identifiers.find((i) => i.type === 'name');
       const displayName = nameIdent?.value || identifiers[0]?.value || 'Unknown';
 
@@ -201,12 +201,12 @@ export class ContactsService {
             identifierType: ident.type,
             identifierValue: ident.value,
             connectorType: ident.connectorType || null,
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(),
           });
         }
       }
     } catch (err: any) {
-      if (err?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+      if (err?.code === '23503') {
         // Contact was merged/deleted concurrently — find where identifiers went
         const probe = identifiers.find((i) => i.type !== 'name') || identifiers[0];
         if (probe) {
@@ -231,7 +231,7 @@ export class ContactsService {
     if (nameIdent) {
       await db
         .update(contacts)
-        .set({ displayName: nameIdent.value, updatedAt: new Date().toISOString() })
+        .set({ displayName: nameIdent.value, updatedAt: new Date() })
         .where(eq(contacts.id, contactId));
     }
 
@@ -244,7 +244,7 @@ export class ContactsService {
       if (current.length && (!current[0].entityType || current[0].entityType === 'person')) {
         await db
           .update(contacts)
-          .set({ entityType, updatedAt: new Date().toISOString() })
+          .set({ entityType, updatedAt: new Date() })
           .where(eq(contacts.id, contactId));
       }
     }
@@ -466,7 +466,7 @@ export class ContactsService {
       });
     } catch (err: any) {
       // Contact may have been merged/deleted concurrently — skip silently
-      if (err?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return;
+      if (err?.code === '23503') return;
       throw err;
     }
   }
@@ -506,9 +506,9 @@ export class ContactsService {
     const existing = await db.select().from(contacts).where(eq(contacts.id, id));
     if (!existing.length) return null;
 
-    const patch: Record<string, any> = { updatedAt: new Date().toISOString() };
+    const patch: Record<string, any> = { updatedAt: new Date() };
     if (updates.displayName !== undefined) patch.displayName = updates.displayName;
-    if (updates.avatars !== undefined) patch.avatars = JSON.stringify(updates.avatars);
+    if (updates.avatars !== undefined) patch.avatars = updates.avatars;
     if (updates.metadata !== undefined) patch.metadata = JSON.stringify(updates.metadata);
 
     await db.update(contacts).set(patch).where(eq(contacts.id, id));
@@ -519,24 +519,22 @@ export class ContactsService {
   async mergeContacts(targetId: string, sourceId: string): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
-    // Run the entire merge atomically in a SQLite transaction to prevent
+    // Run the entire merge atomically in a PostgreSQL transaction to prevent
     // race conditions when concurrent embed workers merge the same contacts.
-    db.transaction((tx) => {
-      const targetRows = tx.select().from(contacts).where(eq(contacts.id, targetId)).all();
-      const sourceRows = tx.select().from(contacts).where(eq(contacts.id, sourceId)).all();
+    await db.transaction(async (tx) => {
+      const targetRows = await tx.select().from(contacts).where(eq(contacts.id, targetId));
+      const sourceRows = await tx.select().from(contacts).where(eq(contacts.id, sourceId));
 
-      if (!targetRows.length || !sourceRows.length) return; // Either side already merged/deleted — nothing to do
+      if (!targetRows.length || !sourceRows.length) return; // Either side already merged/deleted -- nothing to do
 
       const target = targetRows[0];
       const source = sourceRows[0];
 
       // Merge avatars (target first, then source, dedup by url)
-      const targetAvatars: Array<{ url: string; source: string }> = JSON.parse(
-        target.avatars || '[]',
-      );
-      const sourceAvatars: Array<{ url: string; source: string }> = JSON.parse(
-        source.avatars || '[]',
-      );
+      const targetAvatars: Array<{ url: string; source: string }> =
+        (target.avatars as Array<{ url: string; source: string }>) || [];
+      const sourceAvatars: Array<{ url: string; source: string }> =
+        (source.avatars as Array<{ url: string; source: string }>) || [];
       const seenUrls = new Set(targetAvatars.map((a) => a.url));
       for (const avatar of sourceAvatars) {
         if (!seenUrls.has(avatar.url)) {
@@ -552,55 +550,53 @@ export class ContactsService {
           : target.displayName;
 
       // Move all identifiers from source to target
-      tx.update(contactIdentifiers)
+      await tx
+        .update(contactIdentifiers)
         .set({ contactId: targetId })
-        .where(eq(contactIdentifiers.contactId, sourceId))
-        .run();
+        .where(eq(contactIdentifiers.contactId, sourceId));
 
       // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
-      const sourceMemLinks = tx
+      const sourceMemLinks = await tx
         .select()
         .from(memoryContacts)
-        .where(eq(memoryContacts.contactId, sourceId))
-        .all();
-      const targetMemLinks = tx
+        .where(eq(memoryContacts.contactId, sourceId));
+      const targetMemLinks = await tx
         .select()
         .from(memoryContacts)
-        .where(eq(memoryContacts.contactId, targetId))
-        .all();
-      const targetMemKeys = new Set(targetMemLinks.map((m) => `${m.memoryId}::${m.role}`));
+        .where(eq(memoryContacts.contactId, targetId));
+      const targetMemKeys = new Set(targetMemLinks.map((m: any) => `${m.memoryId}::${m.role}`));
 
       for (const link of sourceMemLinks) {
         if (targetMemKeys.has(`${link.memoryId}::${link.role}`)) {
-          tx.delete(memoryContacts).where(eq(memoryContacts.id, link.id)).run();
+          await tx.delete(memoryContacts).where(eq(memoryContacts.id, link.id));
         }
       }
 
       // Move remaining source memoryContacts to target
-      tx.update(memoryContacts)
+      await tx
+        .update(memoryContacts)
         .set({ contactId: targetId })
-        .where(eq(memoryContacts.contactId, sourceId))
-        .run();
+        .where(eq(memoryContacts.contactId, sourceId));
 
       // Update target contact
-      tx.update(contacts)
+      await tx
+        .update(contacts)
         .set({
           displayName,
-          avatars: JSON.stringify(targetAvatars),
-          updatedAt: new Date().toISOString(),
+          avatars: targetAvatars,
+          updatedAt: new Date(),
         })
-        .where(eq(contacts.id, targetId))
-        .run();
+        .where(eq(contacts.id, targetId));
 
       // Clean up dismissals referencing source
-      tx.delete(mergeDismissals)
+      await tx
+        .delete(mergeDismissals)
         .where(
           or(eq(mergeDismissals.contactId1, sourceId), eq(mergeDismissals.contactId2, sourceId))!,
-        )
-        .run();
+        );
 
-      // Delete source contact — safe now since all children have been moved
-      tx.delete(contacts).where(eq(contacts.id, sourceId)).run();
+      // Delete source contact -- safe now since all children have been moved
+      await tx.delete(contacts).where(eq(contacts.id, sourceId));
     });
 
     return this.getById(targetId) as Promise<ContactWithIdentifiers>;
@@ -1012,7 +1008,7 @@ export class ContactsService {
       // Update the contact
       await db
         .update(contacts)
-        .set({ entityType: bestType, updatedAt: new Date().toISOString() })
+        .set({ entityType: bestType, updatedAt: new Date() })
         .where(eq(contacts.id, contact.id));
 
       details.push({
@@ -1057,7 +1053,7 @@ export class ContactsService {
           nextName?.identifierValue || remaining[0]?.identifierValue || 'Unknown';
         await db
           .update(contacts)
-          .set({ displayName: newDisplayName, updatedAt: new Date().toISOString() })
+          .set({ displayName: newDisplayName, updatedAt: new Date() })
           .where(eq(contacts.id, contactId));
       }
     }
@@ -1090,7 +1086,7 @@ export class ContactsService {
 
     // Create new contact
     const newId = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
     const nameIdent = toMove.find((i) => i.identifierType === 'name');
     const displayName = nameIdent?.identifierValue || toMove[0]?.identifierValue || 'Unknown';
 
@@ -1263,7 +1259,7 @@ export class ContactsService {
       id: randomUUID(),
       contactId1: id1,
       contactId2: id2,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(),
     });
   }
 
@@ -1272,7 +1268,6 @@ export class ContactsService {
     const [id1, id2] = [contactId1, contactId2].sort();
     await db
       .delete(mergeDismissals)
-      .where(and(eq(mergeDismissals.contactId1, id1), eq(mergeDismissals.contactId2, id2)))
-      .run();
+      .where(and(eq(mergeDismissals.contactId1, id1), eq(mergeDismissals.contactId2, id2)));
   }
 }

@@ -36,10 +36,10 @@ export class MeService {
     }
 
     const settingKey = userId ? `${SELF_CONTACT_ID_KEY}:${userId}` : SELF_CONTACT_ID_KEY;
-    db.insert(settings)
+    await db
+      .insert(settings)
       .values({ key: settingKey, value: contactId })
-      .onConflictDoUpdate({ target: settings.key, set: { value: contactId } })
-      .run();
+      .onConflictDoUpdate({ target: settings.key, set: { value: contactId } });
 
     return { ok: true };
   }
@@ -139,9 +139,9 @@ export class MeService {
 
     // Check per-user manual override first, then global fallback
     const settingKey = userId ? `${SELF_CONTACT_ID_KEY}:${userId}` : SELF_CONTACT_ID_KEY;
-    let row = db.select().from(settings).where(eq(settings.key, settingKey)).get();
+    let [row] = await db.select().from(settings).where(eq(settings.key, settingKey));
     if (!row && userId) {
-      row = db.select().from(settings).where(eq(settings.key, SELF_CONTACT_ID_KEY)).get();
+      [row] = await db.select().from(settings).where(eq(settings.key, SELF_CONTACT_ID_KEY));
     }
 
     if (row?.value) {
@@ -171,13 +171,11 @@ export class MeService {
    * Find contacts that look like duplicates of "me" — candidates for merge.
    * Uses same heuristics as merge suggestions: name substring match + shared identifiers.
    */
-  async getMergeCandidates(
-    userId?: string,
-  ): Promise<
+  async getMergeCandidates(userId?: string): Promise<
     Array<{
       id: string;
       displayName: string;
-      avatars: string;
+      avatars: unknown;
       reason: string;
       identifiers: Array<{
         identifierType: string;
@@ -232,7 +230,7 @@ export class MeService {
     const candidates: Array<{
       id: string;
       displayName: string;
-      avatars: string;
+      avatars: unknown;
       reason: string;
       identifiers: Array<{
         identifierType: string;
@@ -298,7 +296,7 @@ export class MeService {
       candidates.push({
         id: c.id,
         displayName: c.displayName,
-        avatars: c.avatars || '[]',
+        avatars: c.avatars || [],
         reason,
         identifiers: idents.map((i) => ({
           identifierType: i.identifierType,
@@ -342,7 +340,7 @@ export class MeService {
         const contact = contactRows[0];
         identity.name = contact.displayName;
         try {
-          identity.avatars = JSON.parse(contact.avatars || '[]');
+          identity.avatars = (contact.avatars as any) || [];
         } catch {
           identity.avatars = [];
         }
@@ -483,7 +481,7 @@ export class MeService {
       connectorType: string;
       sourceType: string;
       text: string;
-      eventTime: string;
+      eventTime: Date;
     }> = [];
 
     if (selfContactId) {

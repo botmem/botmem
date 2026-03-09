@@ -105,7 +105,7 @@ export class AgentService {
     const db = this.dbService.db;
     const days = options.days ?? 7;
     const limit = options.limit ?? 100;
-    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    const cutoff = new Date(Date.now() - days * 86400000);
 
     const conditions = [sql`${memories.eventTime} >= ${cutoff}`];
     if (options.connectorType) {

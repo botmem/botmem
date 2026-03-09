@@ -43,14 +43,14 @@ export interface SearchResult {
   text: string;
   sourceType: string;
   connectorType: string;
-  eventTime: string;
-  ingestTime: string;
-  createdAt: string;
-  factuality: string;
+  eventTime: Date;
+  ingestTime: Date;
+  createdAt: Date;
+  factuality: unknown;
   entities: string;
   metadata: string;
   accountIdentifier: string | null;
-  pinned: number;
+  pinned: boolean;
   score: number;
   weights: {
     semantic: number;
@@ -375,18 +375,18 @@ export class MemoryService {
     }
 
     if (!hasContacts || hasTopics) {
-      // Topic text search using FTS5 (falls back to LIKE if FTS unavailable)
+      // Topic text search using PostgreSQL full-text search (tsvector + tsquery)
       const searchWords = hasContacts ? topicWords : queryWords;
       if (searchWords.length > 0) {
         try {
-          // FTS5 query: each word as a prefix match, AND logic
-          const ftsQuery = searchWords.map((w) => `"${w}"*`).join(' AND ');
-          const ftsMatches = this.dbService.sqlite
-            .prepare('SELECT id FROM memories_fts WHERE memories_fts MATCH ? LIMIT ?')
-            .all(ftsQuery, limit * 2) as { id: string }[];
-          for (const r of ftsMatches) textMatchIds.add(r.id);
+          // PostgreSQL tsquery: each word as prefix match with AND logic
+          const tsQuery = searchWords.map((w) => `${w}:*`).join(' & ');
+          const ftsResults = await db.execute(
+            sql`SELECT id FROM memories WHERE to_tsvector('english', text) @@ to_tsquery('english', ${tsQuery}) LIMIT ${limit * 2}`,
+          );
+          for (const r of ftsResults.rows as { id: string }[]) textMatchIds.add(r.id);
         } catch {
-          // Fallback to LIKE if FTS table doesn't exist yet
+          // Fallback to LIKE if full-text search fails
           const textConditions: any[] = [eq(memories.embeddingStatus, 'done')];
           for (const word of searchWords) {
             textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}` as any);
@@ -457,8 +457,8 @@ export class MemoryService {
       if (effectiveFilters.connectorType && mem.connectorType !== effectiveFilters.connectorType)
         continue;
       // Apply temporal filters in SQL-fetched rows
-      if (effectiveFilters.from && mem.eventTime < effectiveFilters.from) continue;
-      if (effectiveFilters.to && mem.eventTime > effectiveFilters.to) continue;
+      if (effectiveFilters.from && mem.eventTime < new Date(effectiveFilters.from)) continue;
+      if (effectiveFilters.to && mem.eventTime > new Date(effectiveFilters.to)) continue;
       candidateRows.push({ id, row });
     }
 
@@ -586,7 +586,7 @@ export class MemoryService {
       { memory: typeof memories.$inferSelect; accountIdentifier: string | null }
     >();
     if (!ids.length) return result;
-    // SQLite has a variable limit (~999), batch in chunks
+    // Batch in chunks to avoid overly large IN clauses
     for (let i = 0; i < ids.length; i += 500) {
       const batch = ids.slice(i, i + 500);
       const rows = await this.dbService.db
@@ -701,7 +701,7 @@ export class MemoryService {
     metadata?: Record<string, unknown>;
   }) {
     const id = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
 
     await this.dbService.db.insert(memories).values({
       id,
@@ -939,12 +939,8 @@ export class MemoryService {
         /* empty */
       }
 
-      let factLabel = 'UNVERIFIED';
-      try {
-        factLabel = JSON.parse(m.factuality).label;
-      } catch {
-        /* empty */
-      }
+      const fact = m.factuality as any;
+      const factLabel = fact?.label || 'UNVERIFIED';
 
       const dominantEntity = entities.find(
         (e: any) => (e.type === 'person' || e.type === 'organization') && e.value,
@@ -963,12 +959,7 @@ export class MemoryService {
         .filter(Boolean)
         .slice(0, 5);
 
-      let weights: Record<string, number> = {};
-      try {
-        weights = JSON.parse(m.weights);
-      } catch {
-        /* empty */
-      }
+      const weights: Record<string, number> = (m.weights as Record<string, number>) || {};
 
       let metadata: Record<string, unknown> = {};
       try {
@@ -1148,18 +1139,9 @@ export class MemoryService {
     } catch {
       /* empty */
     }
-    let factLabel = 'UNVERIFIED';
-    try {
-      factLabel = JSON.parse(mem.factuality).label;
-    } catch {
-      /* empty */
-    }
-    let weights: Record<string, number> = {};
-    try {
-      weights = JSON.parse(mem.weights);
-    } catch {
-      /* empty */
-    }
+    const fact = mem.factuality as any;
+    const factLabel = fact?.label || 'UNVERIFIED';
+    const weights: Record<string, number> = (mem.weights as Record<string, number>) || {};
     let metadata: Record<string, unknown> = {};
     try {
       metadata = JSON.parse(mem.metadata);
@@ -1278,7 +1260,7 @@ export class MemoryService {
       final: number;
     };
   } {
-    const isPinned = mem.pinned === 1;
+    const isPinned = !!mem.pinned;
     const recallCount = mem.recallCount || 0;
 
     const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);

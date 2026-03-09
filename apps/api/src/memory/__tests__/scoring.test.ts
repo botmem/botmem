@@ -13,10 +13,10 @@ function computeWeights(
   semanticScore: number,
   rerankScore: number,
   mem: {
-    eventTime: string;
+    eventTime: string | Date;
     entities: string;
     connectorType: string;
-    pinned?: number;
+    pinned?: boolean;
     recallCount?: number;
   },
   getTrustScore: (ct: string) => number = () => 0.7,
@@ -31,10 +31,11 @@ function computeWeights(
     final: number;
   };
 } {
-  const isPinned = mem.pinned === 1;
+  const isPinned = mem.pinned === true;
   const recallCount = mem.recallCount || 0;
 
-  const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
+  const eventDate = mem.eventTime instanceof Date ? mem.eventTime : new Date(mem.eventTime);
+  const ageDays = (Date.now() - eventDate.getTime()) / (1000 * 60 * 60 * 24);
   const recency = isPinned ? 1.0 : Math.exp(-0.015 * ageDays);
 
   let entityCount = 0;
@@ -62,21 +63,21 @@ function computeWeights(
 
 describe('computeWeights with pinning and recall', () => {
   const baseMem = {
-    eventTime: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days old
+    eventTime: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000), // 90 days old
     entities: '[]',
     connectorType: 'gmail',
-    pinned: 0,
+    pinned: false,
     recallCount: 0,
   };
 
-  it('Test 1: pinned=1 returns score >= 0.75 (score floor)', () => {
-    const result = computeWeights(0.3, 0, { ...baseMem, pinned: 1 });
+  it('Test 1: pinned=true returns score >= 0.75 (score floor)', () => {
+    const result = computeWeights(0.3, 0, { ...baseMem, pinned: true });
     expect(result.score).toBeGreaterThanOrEqual(0.75);
     expect(result.weights.final).toBeGreaterThanOrEqual(0.75);
   });
 
-  it('Test 2: pinned=1 uses recency=1.0 regardless of age', () => {
-    const result = computeWeights(0.5, 0, { ...baseMem, pinned: 1 });
+  it('Test 2: pinned=true uses recency=1.0 regardless of age', () => {
+    const result = computeWeights(0.5, 0, { ...baseMem, pinned: true });
     expect(result.weights.recency).toBe(1.0);
   });
 
@@ -94,7 +95,7 @@ describe('computeWeights with pinning and recall', () => {
     expect(importanceDiff).toBeCloseTo(0.2, 5);
   });
 
-  it('Test 5: pinned=0 and recallCount=0 behaves same as before (no floor, normal recency)', () => {
+  it('Test 5: pinned=false and recallCount=0 behaves same as before (no floor, normal recency)', () => {
     const result = computeWeights(0.5, 0, baseMem);
     // 90-day-old memory should have recency < 1.0
     expect(result.weights.recency).toBeLessThan(1.0);

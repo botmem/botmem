@@ -149,7 +149,7 @@ export class EnrichService {
       stage,
       level,
       message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     });
   }
 
@@ -201,12 +201,8 @@ export class EnrichService {
       } catch {
         /* empty */
       }
-      let srcFactLabel = 'UNVERIFIED';
-      try {
-        srcFactLabel = JSON.parse(srcMem?.factuality || '{}').label;
-      } catch {
-        /* empty */
-      }
+      const srcFact = srcMem?.factuality as any;
+      const srcFactLabel = srcFact?.label || 'UNVERIFIED';
 
       for (const result of results) {
         if (result.score >= SIMILARITY_THRESHOLD && result.id !== memoryId) {
@@ -217,12 +213,8 @@ export class EnrichService {
               .select({ factuality: memories.factuality })
               .from(memories)
               .where(eq(memories.id, result.id));
-            let dstFactLabel = 'UNVERIFIED';
-            try {
-              dstFactLabel = JSON.parse(dstMem?.factuality || '{}').label;
-            } catch {
-              /* empty */
-            }
+            const dstFact = dstMem?.factuality as any;
+            const dstFactLabel = dstFact?.label || 'UNVERIFIED';
 
             if (result.score >= 0.92 && srcFactLabel === 'FACT' && dstFactLabel === 'FACT') {
               linkType = 'supports';
@@ -257,7 +249,7 @@ export class EnrichService {
               dstMemoryId: result.id,
               linkType,
               strength: result.score,
-              createdAt: new Date().toISOString(),
+              createdAt: new Date(),
             });
           }
         }

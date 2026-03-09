@@ -136,9 +136,9 @@ export class MemoryController {
         if (!rawRows.length) continue;
 
         // Delete the failed memory (and its contact links) atomically
-        this.dbService.db.transaction((tx) => {
-          tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id)).run();
-          tx.delete(memories).where(eq(memories.id, mem.id)).run();
+        await this.dbService.db.transaction(async (tx) => {
+          await tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
+          await tx.delete(memories).where(eq(memories.id, mem.id));
         });
 
         // Re-enqueue through pipeline with generous retries
@@ -215,7 +215,7 @@ export class MemoryController {
       return { error: 'No account found -- sync a connector first' };
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
     const jobId = randomUUID();
 
     // Create tracked job row
@@ -259,7 +259,7 @@ export class MemoryController {
     const db = this.dbService.db;
     const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 500, 5000) : 500;
 
-    // Find memories marked done in SQLite that might be missing from Qdrant
+    // Find memories marked done in Postgres that might be missing from Qdrant
     const doneMemories = await db
       .select({
         id: memories.id,
@@ -453,15 +453,15 @@ export class MemoryController {
     const db = this.dbService.db;
 
     // Replace "Unknown:" with "A member:" and "Unknown sent" with "A member sent" in WhatsApp memories
-    const result1 = db.run(sql`
+    const result1 = await db.execute(sql`
       UPDATE ${memories} SET text = REPLACE(text, 'Unknown:', 'A member:')
       WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown:%'
     `);
-    const result2 = db.run(sql`
+    const result2 = await db.execute(sql`
       UPDATE ${memories} SET text = REPLACE(text, 'Unknown sent', 'A member sent')
       WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown sent%'
     `);
-    const result3 = db.run(sql`
+    const result3 = await db.execute(sql`
       UPDATE ${memories} SET text = REPLACE(text, 'Unknown shared', 'A member shared')
       WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown shared%'
     `);
@@ -475,14 +475,14 @@ export class MemoryController {
   @RequiresJwt()
   @Post(':id/pin')
   async pin(@Param('id') id: string) {
-    await this.dbService.db.update(memories).set({ pinned: 1 }).where(eq(memories.id, id));
+    await this.dbService.db.update(memories).set({ pinned: true }).where(eq(memories.id, id));
     return { ok: true };
   }
 
   @RequiresJwt()
   @Delete(':id/pin')
   async unpin(@Param('id') id: string) {
-    await this.dbService.db.update(memories).set({ pinned: 0 }).where(eq(memories.id, id));
+    await this.dbService.db.update(memories).set({ pinned: false }).where(eq(memories.id, id));
     return { ok: true };
   }
 

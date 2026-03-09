@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import {
-  BadRequestException,
-  ConflictException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { UserAuthService } from '../user-auth.service';
 import { UsersService } from '../users.service';
 import { ConfigService } from '../../config/config.service';
@@ -34,7 +30,7 @@ describe('UserAuthService', () => {
     email: 'test@test.com',
     passwordHash: '$2b$12$hashed',
     name: 'Test User',
-    onboarded: 0,
+    onboarded: false,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   };
@@ -57,10 +53,18 @@ describe('UserAuthService', () => {
     };
 
     configService = {
-      get jwtAccessSecret() { return 'test-access-secret'; },
-      get jwtRefreshSecret() { return 'test-refresh-secret'; },
-      get jwtAccessExpiresIn() { return '15m'; },
-      get jwtRefreshExpiresIn() { return '7d'; },
+      get jwtAccessSecret() {
+        return 'test-access-secret';
+      },
+      get jwtRefreshSecret() {
+        return 'test-refresh-secret';
+      },
+      get jwtAccessExpiresIn() {
+        return '15m';
+      },
+      get jwtRefreshExpiresIn() {
+        return '7d';
+      },
     };
 
     const module = await Test.createTestingModule({
@@ -70,7 +74,12 @@ describe('UserAuthService', () => {
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configService },
         { provide: MailService, useValue: { sendPasswordResetEmail: vi.fn() } },
-        { provide: MemoryBanksService, useValue: { getOrCreateDefault: vi.fn().mockResolvedValue({ id: 'bank-1', name: 'Default' }) } },
+        {
+          provide: MemoryBanksService,
+          useValue: {
+            getOrCreateDefault: vi.fn().mockResolvedValue({ id: 'bank-1', name: 'Default' }),
+          },
+        },
       ],
     }).compile();
 
@@ -93,9 +102,9 @@ describe('UserAuthService', () => {
     });
 
     it('rejects passwords shorter than 8 characters', async () => {
-      await expect(
-        service.register('test@test.com', 'short', 'Test User'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.register('test@test.com', 'short', 'Test User')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('rejects duplicate email with ConflictException', async () => {
@@ -103,9 +112,9 @@ describe('UserAuthService', () => {
         new Error('UNIQUE constraint failed: users.email'),
       );
 
-      await expect(
-        service.register('test@test.com', 'password123', 'Test User'),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.register('test@test.com', 'password123', 'Test User')).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 
@@ -124,18 +133,18 @@ describe('UserAuthService', () => {
       usersService.findByEmail!.mockResolvedValue(mockUser);
       (bcrypt.compare as any).mockResolvedValue(false);
 
-      await expect(
-        service.login('test@test.com', 'wrongpassword'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.login('test@test.com', 'wrongpassword')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('throws UnauthorizedException with non-existent email', async () => {
       usersService.findByEmail!.mockResolvedValue(null);
       (bcrypt.compare as any).mockResolvedValue(false);
 
-      await expect(
-        service.login('nobody@test.com', 'password123'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.login('nobody@test.com', 'password123')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('always runs bcrypt.compare even when user not found', async () => {
@@ -185,9 +194,7 @@ describe('UserAuthService', () => {
 
       usersService.findRefreshToken!.mockResolvedValue(revokedToken);
 
-      await expect(service.refresh('old-refresh-token')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.refresh('old-refresh-token')).rejects.toThrow(UnauthorizedException);
       expect(usersService.revokeTokenFamily).toHaveBeenCalledWith('family-1');
     });
   });
