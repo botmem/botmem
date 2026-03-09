@@ -11,9 +11,27 @@ export class LogsService {
     return this.dbService.db;
   }
 
-  async add(data: { jobId?: string; connectorType: string; accountId?: string; stage?: string; level: string; message: string }) {
+  private sanitizeMessage(message: string): string {
+    try {
+      // Remove null bytes and other invalid UTF-8 sequences
+      // eslint-disable-next-line no-control-regex
+      return message.replace(/\x00/g, '').replace(/[^\x20-\x7E\n\r\t]/g, '?');
+    } catch {
+      return message.slice(0, 1000);
+    }
+  }
+
+  async add(data: {
+    jobId?: string;
+    connectorType: string;
+    accountId?: string;
+    stage?: string;
+    level: string;
+    message: string;
+  }) {
     const id = crypto.randomUUID();
     try {
+      const sanitizedMessage = this.sanitizeMessage(data.message);
       await this.db.insert(logs).values({
         id,
         jobId: data.jobId || null,
@@ -21,18 +39,27 @@ export class LogsService {
         accountId: data.accountId || null,
         stage: data.stage || null,
         level: data.level,
-        message: data.message,
+        message: sanitizedMessage,
         timestamp: new Date(),
       });
     } catch (error) {
       // Log to console as fallback if database is unavailable
       const timestamp = new Date().toISOString();
-      console.warn(`[LogsService:${timestamp}] Failed to persist log: ${data.message}`, error instanceof Error ? error.message : String(error));
+      console.warn(
+        `[LogsService:${timestamp}] Failed to persist log: ${data.message}`,
+        error instanceof Error ? error.message : String(error),
+      );
       // Don't rethrow - allow the API to continue functioning
     }
   }
 
-  async query(filters?: { jobId?: string; accountId?: string; level?: string; limit?: number; offset?: number }) {
+  async query(filters?: {
+    jobId?: string;
+    accountId?: string;
+    level?: string;
+    limit?: number;
+    offset?: number;
+  }) {
     const limit = filters?.limit || 50;
     const conditions: SQL[] = [];
     if (filters?.jobId) conditions.push(eq(logs.jobId, filters.jobId));
@@ -40,19 +67,16 @@ export class LogsService {
     if (filters?.level) conditions.push(eq(logs.level, filters.level));
 
     try {
-      const query = this.db
-        .select()
-        .from(logs)
-        .orderBy(desc(logs.timestamp))
-        .limit(limit);
+      const query = this.db.select().from(logs).orderBy(desc(logs.timestamp)).limit(limit);
 
-      const results = conditions.length > 0
-        ? await query.where(and(...conditions))
-        : await query;
+      const results = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
 
       return { logs: results, total: results.length };
     } catch (error) {
-      console.error('[LogsService] Failed to query logs:', error instanceof Error ? error.message : String(error));
+      console.error(
+        '[LogsService] Failed to query logs:',
+        error instanceof Error ? error.message : String(error),
+      );
       // Return empty result instead of crashing
       return { logs: [], total: 0 };
     }
