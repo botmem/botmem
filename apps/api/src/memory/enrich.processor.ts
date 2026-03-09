@@ -6,12 +6,14 @@ import { DbService } from '../db/db.service';
 import { EnrichService } from './enrich.service';
 import { MemoryService } from './memory.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
+import { EncryptionKeyMissingError } from '../crypto/encryption-key-missing.error';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
-import { rawEvents, memories } from '../db/schema';
+import { rawEvents, memories, accounts, users } from '../db/schema';
 
 @Processor('enrich')
 export class EnrichProcessor extends WorkerHost implements OnModuleInit {
@@ -21,6 +23,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     private enrichService: EnrichService,
     private memoryService: MemoryService,
     private crypto: CryptoService,
+    private userKeyService: UserKeyService,
     private events: EventsService,
     private logsService: LogsService,
     private jobsService: JobsService,
@@ -109,32 +112,77 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   }
 
   private async encryptMemoryAtRest(memoryId: string) {
-    try {
-      const rows = await this.dbService.db
-        .select({
-          text: memories.text,
-          entities: memories.entities,
-          claims: memories.claims,
-          metadata: memories.metadata,
-        })
-        .from(memories)
-        .where(eq(memories.id, memoryId));
-      if (!rows.length) return;
-      const mem = rows[0];
+    const db = this.dbService.db;
+    const rows = await db
+      .select({
+        text: memories.text,
+        entities: memories.entities,
+        claims: memories.claims,
+        metadata: memories.metadata,
+        accountId: memories.accountId,
+      })
+      .from(memories)
+      .where(eq(memories.id, memoryId));
+    if (!rows.length) return;
+    const mem = rows[0];
 
+    // Resolve owner userId from account
+    let ownerUserId: string | undefined;
+    if (mem.accountId) {
+      const [acct] = await db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, mem.accountId));
+      ownerUserId = acct?.userId ?? undefined;
+    }
+
+    if (!ownerUserId) {
+      // No owner -- fall back to APP_SECRET encryption
       const enc = this.crypto.encryptMemoryFields({
         text: mem.text,
         entities: mem.entities,
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      await this.dbService.db
+      await db
         .update(memories)
-        .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
+        .set({
+          text: enc.text,
+          entities: enc.entities,
+          claims: enc.claims,
+          metadata: enc.metadata,
+          keyVersion: 0,
+        })
         .where(eq(memories.id, memoryId));
-    } catch (err: any) {
-      this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
+      return;
     }
+
+    const userKey = this.userKeyService.getKey(ownerUserId);
+    if (!userKey) {
+      throw new EncryptionKeyMissingError(ownerUserId);
+    }
+
+    // Get user's current keyVersion
+    const [user] = await db
+      .select({ keyVersion: users.keyVersion })
+      .from(users)
+      .where(eq(users.id, ownerUserId));
+    const keyVersion = user?.keyVersion ?? 1;
+
+    const enc = this.crypto.encryptMemoryFieldsWithKey(
+      { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
+      userKey,
+    );
+    await db
+      .update(memories)
+      .set({
+        text: enc.text,
+        entities: enc.entities,
+        claims: enc.claims,
+        metadata: enc.metadata,
+        keyVersion,
+      })
+      .where(eq(memories.id, memoryId));
   }
 
   private emitGraphDelta(memoryId: string) {

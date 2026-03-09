@@ -15,6 +15,7 @@ import { CleanProcessor } from './clean.processor';
 import { EmbedProcessor } from './embed.processor';
 import { EnrichProcessor } from './enrich.processor';
 import { BackfillProcessor } from './backfill.processor';
+import { ReencryptProcessor } from './reencrypt.processor';
 import { DecayProcessor } from './decay.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
@@ -31,9 +32,16 @@ import { MemoryController } from './memory.controller';
     forwardRef(() => JobsModule),
     BullModule.registerQueue({ name: 'clean' }),
     BullModule.registerQueue({ name: 'embed' }),
-    BullModule.registerQueue({ name: 'enrich' }),
+    BullModule.registerQueue({
+      name: 'enrich',
+      defaultJobOptions: {
+        attempts: 48,
+        backoff: { type: 'exponential', delay: 30000 },
+      },
+    }),
     BullModule.registerQueue({ name: 'backfill' }),
     BullModule.registerQueue({ name: 'maintenance' }),
+    BullModule.registerQueue({ name: 'reencrypt' }),
   ],
   controllers: [MemoryController],
   providers: [
@@ -44,6 +52,7 @@ import { MemoryController } from './memory.controller';
     EmbedProcessor,
     EnrichProcessor,
     BackfillProcessor,
+    ReencryptProcessor,
     DecayProcessor,
     MemoryService,
   ],

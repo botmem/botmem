@@ -7,6 +7,7 @@ import { QdrantService } from './qdrant.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
 import {
   memories,
   memoryLinks,
@@ -112,7 +113,34 @@ export class MemoryService {
     private connectors: ConnectorsService,
     private pluginRegistry: PluginRegistry,
     private crypto: CryptoService,
+    private userKeyService: UserKeyService,
   ) {}
+
+  /**
+   * Decrypt memory fields using the correct key based on keyVersion.
+   * keyVersion=0 -> APP_SECRET, keyVersion>=1 -> per-user key.
+   * Falls back to APP_SECRET if no userId or no user key available.
+   */
+  private decryptMemoryAuto<
+    T extends {
+      text: string;
+      entities: string;
+      claims: string;
+      metadata: string;
+      keyVersion?: number;
+    },
+  >(mem: T, userId?: string | null): T {
+    const kv = (mem as any).keyVersion ?? 0;
+    if (kv >= 1 && userId) {
+      const userKey = this.userKeyService.getKey(userId);
+      if (userKey) {
+        return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
+      }
+      // User key not available -- fall back to APP_SECRET (may produce garbled text
+      // but avoids crashing; the user needs to log in again for proper decryption)
+    }
+    return this.crypto.decryptMemoryFields(mem);
+  }
 
   /** Invalidate contacts cache (call after contact writes) */
   invalidateContactsCache() {
@@ -289,7 +317,7 @@ export class MemoryService {
         const row = await this.fetchMemoryRow(point.id);
         if (!row) continue;
         const { score, weights } = this.computeWeights(point.score, 0, row.memory, nlq.intent);
-        results.push(this.toSearchResult(row, score, weights));
+        results.push(this.toSearchResult(row, score, weights, userId));
         if (results.length >= effectiveLimit) break;
       }
       const sorted = results.sort((a, b) => b.score - a.score);
@@ -495,7 +523,7 @@ export class MemoryService {
       const boostedScore = Math.min(score + textBoost + contactBoost, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
-      results.push(this.toSearchResult(row, boostedScore, boostedWeights));
+      results.push(this.toSearchResult(row, boostedScore, boostedWeights, userId));
     }
 
     const MIN_SCORE = 0.35;
@@ -534,7 +562,7 @@ export class MemoryService {
           frow.memory,
           nlq.intent,
         );
-        fallbackResults.push(this.toSearchResult(frow, score, weights));
+        fallbackResults.push(this.toSearchResult(frow, score, weights, userId));
       }
       returnItems = fallbackResults
         .filter((r) => r.score >= MIN_SCORE)
@@ -605,8 +633,9 @@ export class MemoryService {
     row: { memory: typeof memories.$inferSelect; accountIdentifier: string | null },
     score: number,
     weights: SearchResult['weights'],
+    userId?: string | null,
   ): SearchResult {
-    const mem = this.crypto.decryptMemoryFields(row.memory);
+    const mem = this.decryptMemoryAuto(row.memory, userId);
     return {
       id: mem.id,
       text: mem.text,
@@ -625,9 +654,9 @@ export class MemoryService {
     };
   }
 
-  async getById(id: string) {
+  async getById(id: string, userId?: string | null) {
     const rows = await this.dbService.db.select().from(memories).where(eq(memories.id, id));
-    return rows.length ? this.crypto.decryptMemoryFields(rows[0]) : null;
+    return rows.length ? this.decryptMemoryAuto(rows[0], userId) : null;
   }
 
   async list(
@@ -685,7 +714,7 @@ export class MemoryService {
       .offset(offset);
     const rows = await itemsQuery;
     const items = rows.map((r) => ({
-      ...this.crypto.decryptMemoryFields(r.memory),
+      ...this.decryptMemoryAuto(r.memory, params.userId),
       accountIdentifier: r.accountIdentifier,
     }));
 
@@ -930,7 +959,7 @@ export class MemoryService {
     let nextCluster = 0;
 
     const memoryNodes = allMemories.map((raw) => {
-      const m = this.crypto.decryptMemoryFields(raw);
+      const m = this.decryptMemoryAuto(raw, userId);
       let entities: any[] = [];
       try {
         entities = JSON.parse(m.entities);
@@ -1045,7 +1074,7 @@ export class MemoryService {
       { count: number; mimeType: string; connectorType: string }
     >();
     for (const raw of allMemories) {
-      const m = this.crypto.decryptMemoryFields(raw);
+      const m = this.decryptMemoryAuto(raw, userId);
       let meta: any = {};
       try {
         meta = JSON.parse(m.metadata);
@@ -1130,7 +1159,8 @@ export class MemoryService {
 
     const [rawMem] = await db.select().from(memories).where(eq(memories.id, memoryId));
     if (!rawMem || rawMem.embeddingStatus !== 'done') return null;
-    const mem = this.crypto.decryptMemoryFields(rawMem);
+    // buildGraphDelta is a WS fire-and-forget with no userId context; use auto-detect
+    const mem = this.decryptMemoryAuto(rawMem);
 
     let entities: any[] = [];
     try {

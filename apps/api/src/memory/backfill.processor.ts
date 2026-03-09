@@ -6,10 +6,12 @@ import { DbService } from '../db/db.service';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { EnrichService } from './enrich.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
+import { EncryptionKeyMissingError } from '../crypto/encryption-key-missing.error';
 import { EventsService } from '../events/events.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
-import { memories, rawEvents, memoryContacts, settings } from '../db/schema';
+import { memories, rawEvents, memoryContacts, settings, accounts, users } from '../db/schema';
 
 @Processor('backfill')
 export class BackfillProcessor extends WorkerHost implements OnModuleInit {
@@ -19,6 +21,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     private contactsService: ContactsService,
     private enrichService: EnrichService,
     private crypto: CryptoService,
+    private userKeyService: UserKeyService,
     private events: EventsService,
     private jobsService: JobsService,
     private settingsService: SettingsService,
@@ -69,13 +72,27 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     // Decrypt if needed
     const wasEncrypted = this.crypto.isEncrypted(mem.text);
     if (wasEncrypted) {
-      const decrypted = this.crypto.decryptMemoryFields({
-        text: mem.text,
-        entities: mem.entities,
-        claims: mem.claims,
-        metadata: mem.metadata,
-      });
-      await db.update(memories)
+      // Resolve owner userId for per-user key decryption
+      let ownerUserId: string | undefined;
+      if (mem.accountId) {
+        const [acct] = await db
+          .select({ userId: accounts.userId })
+          .from(accounts)
+          .where(eq(accounts.id, mem.accountId));
+        ownerUserId = acct?.userId ?? undefined;
+      }
+
+      let decrypted: typeof mem;
+      if (mem.keyVersion === 0 || !ownerUserId) {
+        // Legacy APP_SECRET encrypted
+        decrypted = this.crypto.decryptMemoryFields(mem);
+      } else {
+        const userKey = this.userKeyService.getKey(ownerUserId);
+        if (!userKey) throw new EncryptionKeyMissingError(ownerUserId);
+        decrypted = this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
+      }
+      await db
+        .update(memories)
         .set({
           text: decrypted.text,
           entities: decrypted.entities,
@@ -90,9 +107,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
     // Re-encrypt + set enrichedAt
     await this.encryptMemoryAtRest(memoryId);
-    await db.update(memories)
-      .set({ enrichedAt: new Date() })
-      .where(eq(memories.id, memoryId));
+    await db.update(memories).set({ enrichedAt: new Date() }).where(eq(memories.id, memoryId));
 
     await this.advanceAndComplete(jobId);
     return { memoryId, enriched: true };
@@ -131,32 +146,73 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
   // ---- Shared helpers ----
 
   private async encryptMemoryAtRest(memoryId: string) {
-    try {
-      const rows = await this.dbService.db
-        .select({
-          text: memories.text,
-          entities: memories.entities,
-          claims: memories.claims,
-          metadata: memories.metadata,
-        })
-        .from(memories)
-        .where(eq(memories.id, memoryId));
-      if (!rows.length) return;
-      const mem = rows[0];
+    const db = this.dbService.db;
+    const rows = await db
+      .select({
+        text: memories.text,
+        entities: memories.entities,
+        claims: memories.claims,
+        metadata: memories.metadata,
+        accountId: memories.accountId,
+      })
+      .from(memories)
+      .where(eq(memories.id, memoryId));
+    if (!rows.length) return;
+    const mem = rows[0];
 
+    // Resolve owner userId
+    let ownerUserId: string | undefined;
+    if (mem.accountId) {
+      const [acct] = await db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, mem.accountId));
+      ownerUserId = acct?.userId ?? undefined;
+    }
+
+    if (!ownerUserId) {
       const enc = this.crypto.encryptMemoryFields({
         text: mem.text,
         entities: mem.entities,
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      await this.dbService.db
+      await db
         .update(memories)
-        .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
+        .set({
+          text: enc.text,
+          entities: enc.entities,
+          claims: enc.claims,
+          metadata: enc.metadata,
+          keyVersion: 0,
+        })
         .where(eq(memories.id, memoryId));
-    } catch (err: any) {
-      this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
+      return;
     }
+
+    const userKey = this.userKeyService.getKey(ownerUserId);
+    if (!userKey) throw new EncryptionKeyMissingError(ownerUserId);
+
+    const [user] = await db
+      .select({ keyVersion: users.keyVersion })
+      .from(users)
+      .where(eq(users.id, ownerUserId));
+    const keyVersion = user?.keyVersion ?? 1;
+
+    const enc = this.crypto.encryptMemoryFieldsWithKey(
+      { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
+      userKey,
+    );
+    await db
+      .update(memories)
+      .set({
+        text: enc.text,
+        entities: enc.entities,
+        claims: enc.claims,
+        metadata: enc.metadata,
+        keyVersion,
+      })
+      .where(eq(memories.id, memoryId));
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {
