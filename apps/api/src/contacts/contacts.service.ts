@@ -169,6 +169,17 @@ export class ContactsService {
           updatedAt: now,
         }),
       );
+
+      // Auto-merge: deduplicate contacts with the exact same display name
+      if (displayName && displayName !== 'Unknown') {
+        try {
+          await this.deduplicateByExactName(displayName, userId);
+        } catch (err) {
+          this.logger.warn(
+            `[resolveContact] deduplicateByExactName failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
     } else if (matchedIds.length === 1) {
       contactId = matchedIds[0];
     } else {
@@ -516,6 +527,30 @@ export class ContactsService {
     }
 
     return results;
+  }
+
+  /**
+   * Add an avatar URL to the contact's avatars array, skipping duplicates.
+   */
+  async updateAvatar(contactId: string, avatar: { url: string; source: string }): Promise<void> {
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db.select({ avatars: contacts.avatars }).from(contacts).where(eq(contacts.id, contactId)),
+    );
+    if (!rows.length) return;
+
+    const existing: Array<{ url: string; source: string }> =
+      (rows[0].avatars as Array<{ url: string; source: string }>) || [];
+
+    if (existing.some((a) => a.url === avatar.url)) return;
+
+    const updated = [...existing, avatar];
+
+    await this.dbService.withCurrentUser((db) =>
+      db
+        .update(contacts)
+        .set({ avatars: updated, updatedAt: new Date() })
+        .where(eq(contacts.id, contactId)),
+    );
   }
 
   async linkMemory(memoryId: string, contactId: string, role: string): Promise<void> {
@@ -1241,6 +1276,72 @@ export class ContactsService {
     );
 
     return this.getById(newId) as Promise<ContactWithIdentifiers>;
+  }
+
+  /**
+   * Find all contacts with exactly the same displayName (case-insensitive) and
+   * merge them all into the one with the highest memory count (most recent if tied).
+   * Only runs when displayName is a real name (non-empty).
+   */
+  async deduplicateByExactName(displayName: string, userId?: string): Promise<void> {
+    const trimmed = displayName.trim();
+    if (!trimmed) return;
+
+    // Find all contacts with this exact display name (case-insensitive), scoped to user
+    const conditions: any[] = [sql`LOWER(${contacts.displayName}) = LOWER(${trimmed})`];
+    if (userId) conditions.push(eq(contacts.userId, userId));
+
+    const matches = await this.dbService.withCurrentUser((db) =>
+      db
+        .select()
+        .from(contacts)
+        .where(and(...conditions)),
+    );
+
+    if (matches.length < 2) return;
+
+    // Pick winner: contact with most memoryContacts rows; break ties by most recent createdAt
+    const memCounts = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ contactId: memoryContacts.contactId, count: sql<number>`COUNT(*)` })
+        .from(memoryContacts)
+        .where(
+          inArray(
+            memoryContacts.contactId,
+            matches.map((c) => c.id),
+          ),
+        )
+        .groupBy(memoryContacts.contactId),
+    );
+
+    const countMap = new Map<string, number>();
+    for (const row of memCounts) {
+      countMap.set(row.contactId, Number(row.count));
+    }
+
+    matches.sort((a, b) => {
+      const countDiff = (countMap.get(b.id) || 0) - (countMap.get(a.id) || 0);
+      if (countDiff !== 0) return countDiff;
+      // Most recent as tiebreaker
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    const winner = matches[0];
+    const losers = matches.slice(1);
+
+    for (const loser of losers) {
+      try {
+        await this.mergeContacts(winner.id, loser.id);
+        this.logger.log(
+          `[deduplicateByExactName] merged "${loser.displayName}" (${loser.id}) → ${winner.id}`,
+        );
+      } catch (err) {
+        // Concurrent merge may have already handled this — ignore
+        this.logger.warn(
+          `[deduplicateByExactName] merge failed for ${loser.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
 
   /**

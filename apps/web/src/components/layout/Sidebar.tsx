@@ -87,7 +87,7 @@ const navItems: { to: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
-    to: '/contacts',
+    to: '/people',
     label: 'PEOPLE',
     icon: (
       <svg

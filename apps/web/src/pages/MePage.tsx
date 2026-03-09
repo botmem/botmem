@@ -11,10 +11,10 @@ import { api } from '../lib/api';
 /* ---------- connector display config ---------- */
 
 const CONNECTOR_META: Record<string, { icon: string; color: string; label: string }> = {
-  gmail:   { icon: '@', color: '#EF4444', label: 'Gmail' },
-  slack:   { icon: '#', color: '#4ECDC4', label: 'Slack' },
-  whatsapp:{ icon: 'W', color: '#22C55E', label: 'WhatsApp' },
-  imessage:{ icon: 'i', color: '#A855F7', label: 'iMessage' },
+  gmail: { icon: '@', color: '#EF4444', label: 'Gmail' },
+  slack: { icon: '#', color: '#4ECDC4', label: 'Slack' },
+  whatsapp: { icon: 'W', color: '#22C55E', label: 'WhatsApp' },
+  imessage: { icon: 'i', color: '#A855F7', label: 'iMessage' },
   'photos-immich': { icon: 'P', color: '#FF8A50', label: 'Photos' },
   owntracks: { icon: 'L', color: '#FFE66D', label: 'OwnTracks' },
 };
@@ -71,6 +71,7 @@ interface MeData {
     email: string | null;
     phone: string | null;
     avatars: Array<{ url: string; source: string }>;
+    preferredAvatarIndex: number;
     contactId: string | null;
   };
   accounts: Array<{
@@ -115,11 +116,13 @@ export function MePage() {
   const [contactOptions, setContactOptions] = useState<ContactOption[]>([]);
   const [contactSearch, setContactSearch] = useState('');
   const [contactsLoading, setContactsLoading] = useState(false);
+  const [selectedAvatarIndex, setSelectedAvatarIndex] = useState(0);
 
   const fetchMe = useCallback(async () => {
     try {
       const result = await api.getMe();
       setData(result);
+      setSelectedAvatarIndex(result?.identity?.preferredAvatarIndex ?? 0);
     } catch {
       // ignore
     } finally {
@@ -200,7 +203,7 @@ export function MePage() {
 
   const { identity, accounts: connectedAccounts, stats, topEntities, recentMemories } = data!;
 
-  const avatarUrl = identity.avatars?.[0]?.url;
+  const avatarUrl = identity.avatars?.[selectedAvatarIndex]?.url ?? identity.avatars?.[0]?.url;
 
   const statCards = [
     { label: 'TOTAL MEMORIES', value: stats.totalMemories.toLocaleString(), color: '#C4F53A' },
@@ -243,26 +246,35 @@ export function MePage() {
             </h1>
             <div className="mt-2 flex flex-wrap gap-3">
               {identity.email && (
-                <span className="font-mono text-sm text-nb-muted">
-                  {identity.email}
-                </span>
+                <span className="font-mono text-sm text-nb-muted">{identity.email}</span>
               )}
               {identity.phone && (
-                <span className="font-mono text-sm text-nb-muted">
-                  {identity.phone}
-                </span>
+                <span className="font-mono text-sm text-nb-muted">{identity.phone}</span>
               )}
             </div>
             {identity.avatars.length > 1 && (
-              <div className="flex gap-2 mt-3">
-                {identity.avatars.slice(1).map((a, i) => (
-                  <img
+              <div className="flex gap-2 mt-3 flex-wrap">
+                {identity.avatars.map((a, i) => (
+                  <button
                     key={i}
-                    src={a.url}
-                    alt={a.source}
-                    title={a.source}
-                    className="w-8 h-8 border-2 border-nb-border object-cover"
-                  />
+                    title={`Use ${a.source} avatar`}
+                    onClick={async () => {
+                      setSelectedAvatarIndex(i);
+                      try {
+                        await api.setPreferredAvatar(i);
+                      } catch {
+                        // ignore — UI already updated optimistically
+                      }
+                    }}
+                    className={[
+                      'w-12 h-12 border-3 object-cover overflow-hidden p-0 cursor-pointer transition-all',
+                      i === selectedAvatarIndex
+                        ? 'border-nb-lime ring-2 ring-nb-lime'
+                        : 'border-nb-border hover:border-nb-text',
+                    ].join(' ')}
+                  >
+                    <img src={a.url} alt={a.source} className="w-full h-full object-cover" />
+                  </button>
                 ))}
               </div>
             )}
@@ -309,8 +321,12 @@ export function MePage() {
                     {meta.icon}
                   </div>
                   <div>
-                    <p className="font-display text-xs font-bold uppercase text-nb-text">{meta.label}</p>
-                    <p className="font-mono text-lg font-bold text-nb-text">{count.toLocaleString()}</p>
+                    <p className="font-display text-xs font-bold uppercase text-nb-text">
+                      {meta.label}
+                    </p>
+                    <p className="font-mono text-lg font-bold text-nb-text">
+                      {count.toLocaleString()}
+                    </p>
                   </div>
                 </div>
               );
@@ -333,7 +349,10 @@ export function MePage() {
               const meta = connectorMeta(acct.connectorType);
               const isActive = acct.status === 'connected' || acct.status === 'syncing';
               return (
-                <div key={acct.id} className="border-2 border-nb-border p-3 flex items-center gap-3">
+                <div
+                  key={acct.id}
+                  className="border-2 border-nb-border p-3 flex items-center gap-3"
+                >
                   <div
                     className="w-8 h-8 border-2 border-nb-border flex items-center justify-center font-display text-sm font-bold text-black shrink-0"
                     style={{ backgroundColor: meta.color }}
@@ -341,8 +360,12 @@ export function MePage() {
                     {meta.icon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-display text-xs font-bold uppercase text-nb-text">{meta.label}</p>
-                    <p className="font-mono text-[10px] text-nb-muted truncate">{acct.identifier}</p>
+                    <p className="font-display text-xs font-bold uppercase text-nb-text">
+                      {meta.label}
+                    </p>
+                    <p className="font-mono text-[10px] text-nb-muted truncate">
+                      {acct.identifier}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
                     <Badge color={isActive ? '#22C55E' : '#888888'}>{acct.status}</Badge>
@@ -403,7 +426,10 @@ export function MePage() {
           {recentMemories.map((mem) => {
             const meta = connectorMeta(mem.connectorType);
             return (
-              <div key={mem.id} className="px-4 py-3 flex items-start gap-3 hover:bg-nb-surface-hover transition-colors">
+              <div
+                key={mem.id}
+                className="px-4 py-3 flex items-start gap-3 hover:bg-nb-surface-hover transition-colors"
+              >
                 <div
                   className="w-7 h-7 border-2 border-nb-border flex items-center justify-center font-display text-xs font-bold text-black shrink-0 mt-0.5"
                   style={{ backgroundColor: meta.color }}
@@ -506,7 +532,11 @@ function ContactPickerModal({
                 className="flex items-center gap-3 border-2 border-nb-border p-3 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-left w-full"
               >
                 {avatar ? (
-                  <img src={avatar} alt="" className="w-10 h-10 border-2 border-nb-border object-cover shrink-0" />
+                  <img
+                    src={avatar}
+                    alt=""
+                    className="w-10 h-10 border-2 border-nb-border object-cover shrink-0"
+                  />
                 ) : (
                   <div className="w-10 h-10 border-2 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
                     <span className="font-display font-bold text-nb-muted">
@@ -515,7 +545,9 @@ function ContactPickerModal({
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="font-display text-sm font-bold uppercase truncate">{c.displayName}</p>
+                  <p className="font-display text-sm font-bold uppercase truncate">
+                    {c.displayName}
+                  </p>
                   <p className="font-mono text-[10px] text-nb-muted truncate">
                     {email ?? phone ?? '--'}
                   </p>

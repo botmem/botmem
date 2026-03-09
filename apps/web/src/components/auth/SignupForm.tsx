@@ -65,6 +65,7 @@ export function SignupForm() {
         onChange={(e) => setName(e.target.value)}
         placeholder="Your name"
         required
+        minLength={1}
       />
       <Input
         label="Email"

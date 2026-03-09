@@ -70,7 +70,15 @@ export class EnrichService {
 
     // Entity extraction
     let t0 = Date.now();
-    const entities = await this.extractEntities(memory.text);
+    const rawEntities = await this.extractEntities(memory.text);
+    // Deduplicate: collapse entities with the same type + normalized name/value
+    const seenEntityKeys = new Set<string>();
+    const entities = rawEntities.filter((e) => {
+      const key = `${e.type}::${((e as any).name || (e as any).value || '').toLowerCase().trim()}`;
+      if (seenEntityKeys.has(key)) return false;
+      seenEntityKeys.add(key);
+      return true;
+    });
     const entityMs = Date.now() - t0;
     if (entities.length) {
       await this.dbService.db

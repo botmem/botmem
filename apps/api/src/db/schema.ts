@@ -138,6 +138,7 @@ export const contacts = pgTable(
     displayName: text('display_name').notNull(),
     entityType: text('entity_type').notNull().default('person'),
     avatars: jsonb('avatars').notNull().default([]),
+    preferredAvatarIndex: integer('preferred_avatar_index').default(0),
     metadata: jsonb('metadata').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),

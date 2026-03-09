@@ -159,8 +159,13 @@ export const useAuthStore = create<AuthState>()(
                     body: JSON.stringify({ idToken }),
                   });
                   if (res.ok) {
-                    const { user } = await res.json();
-                    set({ user, accessToken: idToken });
+                    const { user: freshUser } = await res.json();
+                    const localUser = get().user;
+                    const merged = {
+                      ...freshUser,
+                      onboarded: freshUser.onboarded || localUser?.onboarded || false,
+                    };
+                    set({ user: merged, accessToken: idToken });
                   } else {
                     set({ user: null, accessToken: null });
                   }
@@ -178,18 +183,25 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      completeOnboarding: () => {
+      completeOnboarding: async () => {
         const { user, accessToken } = get();
         if (!user) return;
         set({ user: { ...user, onboarded: true } });
-        fetch(`${API_BASE}/complete-onboarding`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          },
-          credentials: 'include',
-        }).catch(() => {});
+        try {
+          await fetch(`${API_BASE}/complete-onboarding`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            },
+            credentials: 'include',
+          });
+        } catch (err) {
+          console.error(
+            '[authStore] completeOnboarding: backend call failed, keeping local state',
+            err,
+          );
+        }
       },
 
       clearError: () => set({ error: null }),

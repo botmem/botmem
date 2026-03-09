@@ -3,6 +3,7 @@ import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
+import { ContactsService } from '../contacts/contacts.service';
 import {
   accounts,
   contacts,
@@ -11,6 +12,7 @@ import {
   memoryContacts,
   mergeDismissals,
   settings,
+  users,
 } from '../db/schema';
 import { normalizeEmail, normalizePhone } from '../contacts/contacts.service';
 
@@ -22,6 +24,7 @@ export class MeService {
     private dbService: DbService,
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
+    private contactsService: ContactsService,
   ) {}
 
   /**
@@ -163,6 +166,21 @@ export class MeService {
 
     // Auto-detect
     return this.detectSelfContactId(userId);
+  }
+
+  /**
+   * Set which avatar index is the "preferred" (primary display) avatar.
+   */
+  async setPreferredAvatar(userId: string, avatarIndex: number): Promise<{ ok: boolean }> {
+    const selfContactId = await this.resolveSelfContactId(userId);
+    if (!selfContactId) {
+      throw new Error('Self contact not set');
+    }
+    await this.dbService.db
+      .update(contacts)
+      .set({ preferredAvatarIndex: avatarIndex, updatedAt: new Date() })
+      .where(eq(contacts.id, selfContactId));
+    return { ok: true };
   }
 
   /**
@@ -322,7 +340,25 @@ export class MeService {
     const db = this.dbService.db;
 
     // Resolve self contact
-    const selfContactId = await this.resolveSelfContactId(userId);
+    let selfContactId = await this.resolveSelfContactId(userId);
+
+    // Auto-create self contact from user's account data if not yet resolved
+    if (!selfContactId && userId) {
+      const userRows = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(eq(users.id, userId));
+      if (userRows.length && userRows[0].email) {
+        const { email, name } = userRows[0];
+        const identifiers: Array<{ type: string; value: string }> = [
+          { type: 'email', value: email },
+        ];
+        if (name) identifiers.push({ type: 'name', value: name });
+        const contact = await this.contactsService.resolveContact(identifiers, 'person', userId);
+        await this.setSelfContact(contact.id, userId);
+        selfContactId = contact.id;
+      }
+    }
 
     // Build identity from self contact
     const identity: {
@@ -330,12 +366,14 @@ export class MeService {
       email: string | null;
       phone: string | null;
       avatars: Array<{ url: string; source: string }>;
+      preferredAvatarIndex: number;
       contactId: string | null;
     } = {
       name: null,
       email: null,
       phone: null,
       avatars: [],
+      preferredAvatarIndex: 0,
       contactId: selfContactId,
     };
 
@@ -345,6 +383,7 @@ export class MeService {
       if (contactRows.length) {
         const contact = contactRows[0];
         identity.name = contact.displayName;
+        identity.preferredAvatarIndex = contact.preferredAvatarIndex ?? 0;
         try {
           identity.avatars = (contact.avatars as any) || [];
         } catch {
@@ -459,17 +498,20 @@ export class MeService {
       .from(memories)
       .where(and(...entityConditions));
 
+    // entityCounts keyed by lowercase for dedup; entityDisplayNames tracks original casing (first seen)
     const entityCounts = new Map<string, number>();
+    const entityDisplayNames = new Map<string, string>();
     for (const row of allEntitiesRows) {
       try {
         const entities: Array<{ name?: string; type?: string; value?: string }> = JSON.parse(
           row.entities,
         );
         for (const entity of entities) {
-          const key = entity.name || entity.value || '';
-          if (key) {
-            entityCounts.set(key, (entityCounts.get(key) || 0) + 1);
-          }
+          const raw = entity.name || entity.value || '';
+          if (!raw) continue;
+          const key = raw.toLowerCase().trim();
+          if (!entityDisplayNames.has(key)) entityDisplayNames.set(key, raw);
+          entityCounts.set(key, (entityCounts.get(key) || 0) + 1);
         }
       } catch {
         // Skip unparseable
@@ -479,7 +521,7 @@ export class MeService {
     const topEntities = Array.from(entityCounts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 20)
-      .map(([name, count]) => ({ name, count }));
+      .map(([key, count]) => ({ name: entityDisplayNames.get(key) ?? key, count }));
 
     // Recent memories involving the user
     let recentMemories: Array<{
