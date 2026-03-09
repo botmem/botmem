@@ -1,84 +1,114 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Provide a working localStorage before importing the store
+// Stub localStorage for zustand persist middleware
 const store: Record<string, string> = {};
-const localStorageMock = {
-  getItem: vi.fn((key: string) => store[key] ?? null),
-  setItem: vi.fn((key: string, value: string) => { store[key] = value; }),
-  removeItem: vi.fn((key: string) => { delete store[key]; }),
-  clear: vi.fn(() => { Object.keys(store).forEach((k) => delete store[k]); }),
-  get length() { return Object.keys(store).length; },
-  key: vi.fn((i: number) => Object.keys(store)[i] ?? null),
-};
-vi.stubGlobal('localStorage', localStorageMock);
+vi.stubGlobal('localStorage', {
+  getItem: (key: string) => store[key] ?? null,
+  setItem: (key: string, value: string) => {
+    store[key] = value;
+  },
+  removeItem: (key: string) => {
+    delete store[key];
+  },
+  clear: () => {
+    Object.keys(store).forEach((k) => delete store[k]);
+  },
+  get length() {
+    return Object.keys(store).length;
+  },
+  key: (i: number) => Object.keys(store)[i] ?? null,
+});
 
-// Import store AFTER stubbing localStorage so persist middleware picks it up
+// Mock fetch globally before importing the store
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
+// Import store AFTER stubbing globals
 const { useAuthStore } = await import('../authStore');
+
+const mockUser = { id: 'u1', email: 'test@test.com', name: 'Test User', onboarded: false };
+const mockAccessToken = 'token-abc';
+
+function okResponse(body: unknown) {
+  return Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve(body),
+  } as Response);
+}
+
+function failResponse(status: number, message: string) {
+  return Promise.resolve({
+    ok: false,
+    status,
+    json: () => Promise.resolve({ message }),
+  } as Response);
+}
 
 describe('authStore', () => {
   beforeEach(() => {
-    Object.keys(store).forEach((k) => delete store[k]);
     vi.clearAllMocks();
-    useAuthStore.setState({ user: null });
+    useAuthStore.setState({ user: null, accessToken: null, error: null, isLoading: false });
   });
 
   describe('signup', () => {
-    it('creates user and sets state', () => {
-      useAuthStore.getState().signup('test@test.com', 'pass', 'Test User');
-      const user = useAuthStore.getState().user;
-      expect(user).not.toBeNull();
-      expect(user!.email).toBe('test@test.com');
-      expect(user!.name).toBe('Test User');
-      expect(user!.onboarded).toBe(false);
+    it('sets user and accessToken on success', async () => {
+      mockFetch.mockReturnValueOnce(okResponse({ user: mockUser, accessToken: mockAccessToken }));
+      await useAuthStore.getState().signup('test@test.com', 'pass', 'Test User');
+      expect(useAuthStore.getState().user).toEqual(mockUser);
+      expect(useAuthStore.getState().accessToken).toBe(mockAccessToken);
     });
 
-    it('persists user to localStorage', () => {
-      useAuthStore.getState().signup('test@test.com', 'pass', 'Test');
-      const stored = store['botmem-users'];
-      expect(stored).toBeTruthy();
-      const users = JSON.parse(stored!);
-      expect(users).toHaveLength(1);
-      expect(users[0].email).toBe('test@test.com');
+    it('sets error on failure', async () => {
+      mockFetch.mockReturnValueOnce(failResponse(400, 'Email already taken'));
+      await expect(useAuthStore.getState().signup('test@test.com', 'pass', 'Test')).rejects.toThrow(
+        'Email already taken',
+      );
+      expect(useAuthStore.getState().error).toBe('Email already taken');
+      expect(useAuthStore.getState().user).toBeNull();
     });
   });
 
   describe('login', () => {
-    it('returns true and sets user when found', () => {
-      const users = [{ id: 'u1', email: 'test@test.com', name: 'Test', onboarded: true }];
-      store['botmem-users'] = JSON.stringify(users);
-
-      const result = useAuthStore.getState().login('test@test.com', 'pass');
-      expect(result).toBe(true);
-      expect(useAuthStore.getState().user?.email).toBe('test@test.com');
+    it('sets user and accessToken on success', async () => {
+      mockFetch.mockReturnValueOnce(okResponse({ user: mockUser, accessToken: mockAccessToken }));
+      await useAuthStore.getState().login('test@test.com', 'pass');
+      expect(useAuthStore.getState().user).toEqual(mockUser);
+      expect(useAuthStore.getState().accessToken).toBe(mockAccessToken);
     });
 
-    it('returns false when user not found', () => {
-      store['botmem-users'] = JSON.stringify([]);
-      const result = useAuthStore.getState().login('unknown@test.com', 'pass');
-      expect(result).toBe(false);
-      expect(useAuthStore.getState().user).toBeNull();
-    });
-
-    it('handles empty localStorage', () => {
-      const result = useAuthStore.getState().login('test@test.com', 'pass');
-      expect(result).toBe(false);
+    it('sets error on failure', async () => {
+      mockFetch.mockReturnValueOnce(failResponse(401, 'Invalid credentials'));
+      await expect(useAuthStore.getState().login('x@x.com', 'wrong')).rejects.toThrow(
+        'Invalid credentials',
+      );
+      expect(useAuthStore.getState().error).toBe('Invalid credentials');
     });
   });
 
   describe('logout', () => {
-    it('clears user state', () => {
-      useAuthStore.setState({ user: { id: 'u1', email: 'test@test.com', name: 'Test', onboarded: true } });
-      useAuthStore.getState().logout();
+    it('clears user and accessToken', async () => {
+      useAuthStore.setState({ user: mockUser, accessToken: mockAccessToken });
+      mockFetch.mockReturnValueOnce(okResponse({}));
+      await useAuthStore.getState().logout();
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(useAuthStore.getState().accessToken).toBeNull();
+    });
+
+    it('clears state even if API call fails', async () => {
+      useAuthStore.setState({ user: mockUser, accessToken: mockAccessToken });
+      mockFetch.mockRejectedValueOnce(new Error('network'));
+      await useAuthStore.getState().logout();
       expect(useAuthStore.getState().user).toBeNull();
     });
   });
 
   describe('completeOnboarding', () => {
     it('sets onboarded to true', () => {
-      const user = { id: 'u1', email: 'test@test.com', name: 'Test', onboarded: false };
-      store['botmem-users'] = JSON.stringify([user]);
-      useAuthStore.setState({ user });
-
+      useAuthStore.setState({
+        user: { ...mockUser, onboarded: false },
+        accessToken: mockAccessToken,
+      });
+      mockFetch.mockReturnValueOnce(okResponse({}));
       useAuthStore.getState().completeOnboarding();
       expect(useAuthStore.getState().user!.onboarded).toBe(true);
     });
@@ -87,6 +117,14 @@ describe('authStore', () => {
       useAuthStore.setState({ user: null });
       useAuthStore.getState().completeOnboarding();
       expect(useAuthStore.getState().user).toBeNull();
+    });
+  });
+
+  describe('clearError', () => {
+    it('clears error state', () => {
+      useAuthStore.setState({ error: 'some error' });
+      useAuthStore.getState().clearError();
+      expect(useAuthStore.getState().error).toBeNull();
     });
   });
 });
