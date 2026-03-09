@@ -45,7 +45,8 @@ export class MemoryController {
 
   @Get('stats')
   async getStats(@CurrentUser() user: { id: string; memoryBankIds?: string[] }) {
-    return this.memoryService.getStats(user.id, user.memoryBankIds);
+    const stats = await this.memoryService.getStats(user.id, user.memoryBankIds);
+    return { ...stats, needsRelogin: this.memoryService.needsRelogin(user.id) };
   }
 
   @RequiresJwt()
@@ -78,6 +79,8 @@ export class MemoryController {
     @Query('linkLimit') linkLimit?: string,
     @Query('memoryBankId') memoryBankId?: string,
   ) {
+    if (this.memoryService.needsRelogin(user.id))
+      return { nodes: [], edges: [], needsRelogin: true };
     const ml = memoryLimit ? Math.min(parseInt(memoryLimit, 10) || 5000, 10000) : 5000;
     const ll = linkLimit ? Math.min(parseInt(linkLimit, 10) || 50000, 100000) : 50000;
     return this.memoryService.getGraphData(ml, ll, user.id, memoryBankId, user.memoryBankIds);
@@ -92,6 +95,8 @@ export class MemoryController {
     @Query('sourceType') sourceType?: string,
     @Query('memoryBankId') memoryBankId?: string,
   ) {
+    const needsRelogin = this.memoryService.needsRelogin(user.id);
+    if (needsRelogin) return { items: [], total: 0, needsRelogin: true };
     return this.memoryService.list({
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
@@ -437,6 +442,7 @@ export class MemoryController {
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },
     @Body() dto: SearchMemoriesDto,
   ) {
+    if (this.memoryService.needsRelogin(user.id)) return { results: [], needsRelogin: true };
     return this.memoryService.search(
       dto.query,
       dto.filters,
