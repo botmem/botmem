@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { desc, eq, and, type SQL } from 'drizzle-orm';
-import { DbService } from '../db/db.service';
-import { logs } from '../db/schema';
+import * as fs from 'fs/promises';
+import { dirname } from 'path';
+import { ConfigService } from '../config/config.service';
 
 @Injectable()
 export class LogsService {
-  constructor(private dbService: DbService) {}
+  constructor(private config: ConfigService) {}
 
-  private get db() {
-    return this.dbService.db;
+  private get logsPath(): string {
+    return this.config.logsPath;
   }
 
   private sanitizeMessage(message: string): string {
@@ -21,36 +21,36 @@ export class LogsService {
     }
   }
 
-  async add(data: {
+  add(data: {
     jobId?: string;
     connectorType: string;
     accountId?: string;
     stage?: string;
     level: string;
     message: string;
-  }) {
-    const id = crypto.randomUUID();
-    try {
-      const sanitizedMessage = this.sanitizeMessage(data.message);
-      await this.db.insert(logs).values({
-        id,
-        jobId: data.jobId || null,
-        connectorType: data.connectorType,
-        accountId: data.accountId || null,
-        stage: data.stage || null,
-        level: data.level,
-        message: sanitizedMessage,
-        timestamp: new Date(),
-      });
-    } catch (error) {
-      // Log to console as fallback if database is unavailable
-      const timestamp = new Date().toISOString();
-      console.warn(
-        `[LogsService:${timestamp}] Failed to persist log: ${data.message}`,
-        error instanceof Error ? error.message : String(error),
+  }): void {
+    const entry = {
+      id: crypto.randomUUID(),
+      jobId: data.jobId || null,
+      connectorType: data.connectorType,
+      accountId: data.accountId || null,
+      stage: data.stage || null,
+      level: data.level,
+      message: this.sanitizeMessage(data.message),
+      timestamp: new Date().toISOString(),
+    };
+
+    const line = JSON.stringify(entry) + '\n';
+    const path = this.logsPath;
+
+    fs.mkdir(dirname(path), { recursive: true })
+      .then(() => fs.appendFile(path, line, 'utf-8'))
+      .catch((err) =>
+        console.warn(
+          '[LogsService] Failed to write log entry:',
+          err instanceof Error ? err.message : String(err),
+        ),
       );
-      // Don't rethrow - allow the API to continue functioning
-    }
   }
 
   async query(filters?: {
@@ -61,24 +61,50 @@ export class LogsService {
     offset?: number;
   }) {
     const limit = filters?.limit || 50;
-    const conditions: SQL[] = [];
-    if (filters?.jobId) conditions.push(eq(logs.jobId, filters.jobId));
-    if (filters?.accountId) conditions.push(eq(logs.accountId, filters.accountId));
-    if (filters?.level) conditions.push(eq(logs.level, filters.level));
+    const path = this.logsPath;
 
+    let raw: string;
     try {
-      const query = this.db.select().from(logs).orderBy(desc(logs.timestamp)).limit(limit);
-
-      const results = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
-
-      return { logs: results, total: results.length };
-    } catch (error) {
+      raw = await fs.readFile(path, 'utf-8');
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as NodeJS.ErrnoException).code === 'ENOENT'
+      ) {
+        return { logs: [], total: 0 };
+      }
       console.error(
-        '[LogsService] Failed to query logs:',
-        error instanceof Error ? error.message : String(error),
+        '[LogsService] Failed to read logs file:',
+        err instanceof Error ? err.message : String(err),
       );
-      // Return empty result instead of crashing
       return { logs: [], total: 0 };
     }
+
+    const lines = raw.split('\n').filter((l) => l.trim() !== '');
+    const entries: Record<string, unknown>[] = [];
+    for (const line of lines) {
+      try {
+        entries.push(JSON.parse(line) as Record<string, unknown>);
+      } catch {
+        // skip malformed lines silently
+      }
+    }
+
+    let results = entries;
+    if (filters?.jobId) results = results.filter((e) => e.jobId === filters.jobId);
+    if (filters?.accountId) results = results.filter((e) => e.accountId === filters.accountId);
+    if (filters?.level) results = results.filter((e) => e.level === filters.level);
+
+    results.sort((a, b) => {
+      const ta = typeof a.timestamp === 'string' ? a.timestamp : '';
+      const tb = typeof b.timestamp === 'string' ? b.timestamp : '';
+      return tb.localeCompare(ta);
+    });
+
+    results = results.slice(0, limit);
+
+    return { logs: results, total: results.length };
   }
 }
