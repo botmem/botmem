@@ -33,6 +33,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.0.0",
     "@qdrant/js-client-rest": "^1.17.0",
+    "argon2": "^0.44.0",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.0.0",
     "class-transformer": "^0.5.1",

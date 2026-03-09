@@ -102,6 +102,7 @@ export const memories = pgTable(
     embeddingStatus: text('embedding_status').notNull().default('pending'), // pending | done | failed
     pinned: boolean('pinned').notNull().default(false),
     recallCount: integer('recall_count').notNull().default(0),
+    keyVersion: integer('key_version').notNull().default(0), // 0 = APP_SECRET encrypted, >= 1 = user key
     enrichedAt: timestamp('enriched_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
@@ -207,6 +208,8 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   name: text('name').notNull(),
   onboarded: boolean('onboarded').notNull().default(false),
+  encryptionSalt: text('encryption_salt'), // nullable for existing users pre-E2EE
+  keyVersion: integer('key_version').notNull().default(1),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
 });

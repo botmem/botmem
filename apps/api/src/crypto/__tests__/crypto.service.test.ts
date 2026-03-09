@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { randomBytes } from 'crypto';
 import { CryptoService } from '../crypto.service';
 
 const mockConfig = { appSecret: 'test-secret-for-unit-tests' } as any;
@@ -86,5 +87,65 @@ describe('CryptoService', () => {
     const dec = service.decryptMemoryFields(fields);
     expect(dec.text).toBe('plain text');
     expect(dec.entities).toBe('[]');
+  });
+
+  // --- Per-user key (E2EE) tests ---
+
+  describe('encryptWithKey / decryptWithKey', () => {
+    const userKey = randomBytes(32);
+
+    it('round-trips plaintext correctly', () => {
+      const plaintext = 'Hello, per-user encryption!';
+      const encrypted = service.encryptWithKey(plaintext, userKey);
+      expect(encrypted).not.toBe(plaintext);
+      expect(encrypted).toContain(':');
+      const decrypted = service.decryptWithKey(encrypted, userKey);
+      expect(decrypted).toBe(plaintext);
+    });
+
+    it('returns null for null/undefined input', () => {
+      expect(service.encryptWithKey(null, userKey)).toBeNull();
+      expect(service.encryptWithKey(undefined, userKey)).toBeNull();
+      expect(service.decryptWithKey(null, userKey)).toBeNull();
+      expect(service.decryptWithKey(undefined, userKey)).toBeNull();
+    });
+
+    it('produces different ciphertexts for same plaintext (random IV)', () => {
+      const plaintext = 'same input';
+      const a = service.encryptWithKey(plaintext, userKey);
+      const b = service.encryptWithKey(plaintext, userKey);
+      expect(a).not.toBe(b);
+    });
+
+    it('cannot decrypt with wrong key', () => {
+      const wrongKey = randomBytes(32);
+      const encrypted = service.encryptWithKey('secret', userKey)!;
+      // Wrong key returns ciphertext as-is (catch block)
+      const result = service.decryptWithKey(encrypted, wrongKey);
+      expect(result).not.toBe('secret');
+    });
+  });
+
+  describe('encryptMemoryFieldsWithKey / decryptMemoryFieldsWithKey', () => {
+    const userKey = randomBytes(32);
+
+    it('encrypts and decrypts all four memory fields', () => {
+      const fields = {
+        text: 'Meeting with John',
+        entities: JSON.stringify([{ type: 'person', value: 'John' }]),
+        claims: JSON.stringify([]),
+        metadata: JSON.stringify({ subject: 'project' }),
+      };
+      const enc = service.encryptMemoryFieldsWithKey(fields, userKey);
+      expect(enc.text).not.toBe(fields.text);
+      expect(enc.entities).not.toBe(fields.entities);
+
+      const dec = service.decryptMemoryFieldsWithKey({ id: 'mem-1', ...enc }, userKey);
+      expect(dec.text).toBe(fields.text);
+      expect(dec.entities).toBe(fields.entities);
+      expect(dec.claims).toBe(fields.claims);
+      expect(dec.metadata).toBe(fields.metadata);
+      expect((dec as any).id).toBe('mem-1');
+    });
   });
 });

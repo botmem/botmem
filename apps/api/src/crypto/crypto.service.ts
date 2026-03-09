@@ -80,7 +80,12 @@ export class CryptoService {
    * Encrypt memory fields (text, entities, claims, metadata) for at-rest protection.
    * Called after enrichment is complete, before marking memory as 'done'.
    */
-  encryptMemoryFields(fields: { text: string; entities: string; claims: string; metadata: string }) {
+  encryptMemoryFields(fields: {
+    text: string;
+    entities: string;
+    claims: string;
+    metadata: string;
+  }) {
     return {
       text: this.encrypt(fields.text)!,
       entities: this.encrypt(fields.entities)!,
@@ -92,13 +97,86 @@ export class CryptoService {
   /**
    * Decrypt memory fields for reading. Handles plaintext passthrough gracefully.
    */
-  decryptMemoryFields<T extends { text: string; entities: string; claims: string; metadata: string }>(mem: T): T {
+  decryptMemoryFields<
+    T extends { text: string; entities: string; claims: string; metadata: string },
+  >(mem: T): T {
     return {
       ...mem,
       text: this.decrypt(mem.text) ?? mem.text,
       entities: this.decrypt(mem.entities) ?? mem.entities,
       claims: this.decrypt(mem.claims) ?? mem.claims,
       metadata: this.decrypt(mem.metadata) ?? mem.metadata,
+    };
+  }
+
+  // --- Per-user key methods (E2EE) ---
+
+  /**
+   * Encrypt plaintext with an arbitrary key (e.g., user-derived key).
+   * Same AES-256-GCM logic as encrypt() but using provided key instead of APP_SECRET key.
+   */
+  encryptWithKey(plaintext: string | null | undefined, key: Buffer): string | null {
+    if (plaintext == null) return null;
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, key, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `${iv.toString('base64')}:${encrypted.toString('base64')}:${tag.toString('base64')}`;
+  }
+
+  /**
+   * Decrypt a string produced by encryptWithKey() using the provided key.
+   */
+  decryptWithKey(ciphertext: string | null | undefined, key: Buffer): string | null {
+    if (ciphertext == null) return null;
+
+    const parts = ciphertext.split(':');
+    if (parts.length !== 3) return ciphertext;
+
+    try {
+      const iv = Buffer.from(parts[0], 'base64');
+      const encrypted = Buffer.from(parts[1], 'base64');
+      const tag = Buffer.from(parts[2], 'base64');
+
+      if (iv.length !== IV_LENGTH || tag.length !== TAG_LENGTH) {
+        return ciphertext;
+      }
+
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(tag);
+      return decipher.update(encrypted) + decipher.final('utf8');
+    } catch {
+      return ciphertext;
+    }
+  }
+
+  /**
+   * Encrypt memory fields with a per-user key.
+   */
+  encryptMemoryFieldsWithKey(
+    fields: { text: string; entities: string; claims: string; metadata: string },
+    key: Buffer,
+  ) {
+    return {
+      text: this.encryptWithKey(fields.text, key)!,
+      entities: this.encryptWithKey(fields.entities, key)!,
+      claims: this.encryptWithKey(fields.claims, key)!,
+      metadata: this.encryptWithKey(fields.metadata, key)!,
+    };
+  }
+
+  /**
+   * Decrypt memory fields with a per-user key.
+   */
+  decryptMemoryFieldsWithKey<
+    T extends { text: string; entities: string; claims: string; metadata: string },
+  >(mem: T, key: Buffer): T {
+    return {
+      ...mem,
+      text: this.decryptWithKey(mem.text, key) ?? mem.text,
+      entities: this.decryptWithKey(mem.entities, key) ?? mem.entities,
+      claims: this.decryptWithKey(mem.claims, key) ?? mem.claims,
+      metadata: this.decryptWithKey(mem.metadata, key) ?? mem.metadata,
     };
   }
 }
