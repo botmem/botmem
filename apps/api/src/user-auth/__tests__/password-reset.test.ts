@@ -62,7 +62,7 @@ describe('Password Reset', () => {
       expect(usersService.createPasswordReset).toHaveBeenCalledWith(
         'user-1',
         expect.any(String), // token hash
-        expect.any(String), // expiresAt
+        expect.any(Date), // expiresAt
       );
       expect(mailService.sendResetEmail).toHaveBeenCalledWith(
         'test@test.com',
@@ -113,8 +113,9 @@ describe('Password Reset', () => {
       };
       (usersService.findPasswordReset as any).mockResolvedValue(mockReset);
 
-      await expect(authService.resetPassword(rawToken, 'newpassword123'))
-        .rejects.toThrow(BadRequestException);
+      await expect(authService.resetPassword(rawToken, 'newpassword123')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject already-used token', async () => {
@@ -127,20 +128,23 @@ describe('Password Reset', () => {
       };
       (usersService.findPasswordReset as any).mockResolvedValue(mockReset);
 
-      await expect(authService.resetPassword(rawToken, 'newpassword123'))
-        .rejects.toThrow(BadRequestException);
+      await expect(authService.resetPassword(rawToken, 'newpassword123')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject invalid token', async () => {
       (usersService.findPasswordReset as any).mockResolvedValue(null);
 
-      await expect(authService.resetPassword('invalid-token', 'newpassword123'))
-        .rejects.toThrow(BadRequestException);
+      await expect(authService.resetPassword('invalid-token', 'newpassword123')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject short password', async () => {
-      await expect(authService.resetPassword(rawToken, 'short'))
-        .rejects.toThrow(BadRequestException);
+      await expect(authService.resetPassword(rawToken, 'short')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should mark token as used after successful reset', async () => {

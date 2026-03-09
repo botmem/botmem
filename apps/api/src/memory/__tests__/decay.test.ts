@@ -10,12 +10,12 @@ import { describe, it, expect } from 'vitest';
 // Replicate the decay recency/importance computation for unit testing
 function computeDecayWeights(
   mem: {
-    eventTime: string;
-    pinned: number;
+    eventTime: string | Date;
+    pinned: boolean;
     recallCount: number;
     connectorType: string;
     entities: string;
-    weights: string;
+    weights: Record<string, number>;
   },
   getTrustScore: (ct: string) => number = () => 0.7,
 ): {
@@ -32,10 +32,11 @@ function computeDecayWeights(
     final: number;
   };
 } {
-  const isPinned = mem.pinned === 1;
+  const isPinned = mem.pinned;
   const recallCount = mem.recallCount || 0;
 
-  const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
+  const eventDate = mem.eventTime instanceof Date ? mem.eventTime : new Date(mem.eventTime);
+  const ageDays = (Date.now() - eventDate.getTime()) / (1000 * 60 * 60 * 24);
   const recency = isPinned ? 1.0 : Math.exp(-0.015 * ageDays);
 
   let entityCount = 0;
@@ -48,17 +49,8 @@ function computeDecayWeights(
   const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
   const trust = getTrustScore(mem.connectorType);
 
-  // Parse existing weights to preserve semantic/rerank
-  const existingWeights = { semantic: 0, rerank: 0 };
-  try {
-    const parsed = JSON.parse(mem.weights);
-    existingWeights.semantic = parsed.semantic ?? 0;
-    existingWeights.rerank = parsed.rerank ?? 0;
-  } catch {
-    /* empty */
-  }
-
-  const { semantic, rerank } = existingWeights;
+  // Weights is now a JSONB object -- no JSON.parse needed
+  const { semantic = 0, rerank = 0 } = mem.weights || {};
 
   let final =
     rerank > 0
@@ -79,19 +71,19 @@ function computeDecayWeights(
 describe('DecayProcessor logic', () => {
   it('Test 1: recomputes recency for non-pinned memory aged 30 days', () => {
     const mem = {
-      eventTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-      pinned: 0,
+      eventTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      pinned: false,
       recallCount: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({
+      weights: {
         semantic: 0.8,
         rerank: 0,
         recency: 1.0,
         importance: 0.5,
         trust: 0.7,
         final: 0.6,
-      }),
+      },
     };
 
     const result = computeDecayWeights(mem);
@@ -103,19 +95,19 @@ describe('DecayProcessor logic', () => {
 
   it('Test 2: pinned memory retains recency=1.0 regardless of age', () => {
     const mem = {
-      eventTime: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year old
-      pinned: 1,
+      eventTime: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000), // 1 year old
+      pinned: true,
       recallCount: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({
+      weights: {
         semantic: 0.5,
         rerank: 0,
         recency: 0.1,
         importance: 0.5,
         trust: 0.7,
         final: 0.3,
-      }),
+      },
     };
 
     const result = computeDecayWeights(mem);
@@ -142,21 +134,21 @@ describe('DecayProcessor logic', () => {
     expect(batches[2]).toBe(200);
   });
 
-  it('Test 4: preserves existing semantic and rerank scores from weights JSON', () => {
+  it('Test 4: preserves existing semantic and rerank scores from weights', () => {
     const mem = {
-      eventTime: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-      pinned: 0,
+      eventTime: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      pinned: false,
       recallCount: 0,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({
+      weights: {
         semantic: 0.92,
         rerank: 0.85,
         recency: 1.0,
         importance: 0.5,
         trust: 0.7,
         final: 0.8,
-      }),
+      },
     };
 
     const result = computeDecayWeights(mem);
@@ -170,18 +162,18 @@ describe('DecayProcessor logic', () => {
 
   it('Test 5: recall boost is capped at +0.2 (recallCount=20 same as recallCount=10)', () => {
     const baseMem = {
-      eventTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-      pinned: 0,
+      eventTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      pinned: false,
       connectorType: 'gmail',
       entities: '[]',
-      weights: JSON.stringify({
+      weights: {
         semantic: 0.5,
         rerank: 0,
         recency: 0.9,
         importance: 0.5,
         trust: 0.7,
         final: 0.5,
-      }),
+      },
     };
 
     const result10 = computeDecayWeights({ ...baseMem, recallCount: 10 });

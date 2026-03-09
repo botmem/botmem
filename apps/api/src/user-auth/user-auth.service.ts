@@ -27,9 +27,7 @@ export class UserAuthService {
 
   async register(email: string, password: string, name: string) {
     if (!password || password.length < 8) {
-      throw new BadRequestException(
-        'Password must be at least 8 characters long',
-      );
+      throw new BadRequestException('Password must be at least 8 characters long');
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -38,10 +36,11 @@ export class UserAuthService {
     try {
       user = await this.usersService.createUser(email, passwordHash, name);
     } catch (err: any) {
-      // SQLite unique constraint error
+      // PostgreSQL unique constraint error (code 23505)
       if (
         err?.message?.includes('UNIQUE constraint failed') ||
-        err?.code === 'SQLITE_CONSTRAINT_UNIQUE'
+        err?.code === '23505' ||
+        err?.constraint
       ) {
         throw new ConflictException('Email already registered');
       }
@@ -112,11 +111,7 @@ export class UserAuthService {
     await this.usersService.revokeRefreshToken(stored.id);
 
     // Generate new token pair with the same family
-    const tokens = await this.generateTokenPair(
-      payload.sub,
-      payload.email,
-      stored.family,
-    );
+    const tokens = await this.generateTokenPair(payload.sub, payload.email, stored.family);
 
     return {
       accessToken: tokens.accessToken,
@@ -147,7 +142,7 @@ export class UserAuthService {
     await this.usersService.invalidateUserResets(user.id);
 
     // Store the hash with 1 hour expiry
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await this.usersService.createPasswordReset(user.id, tokenHash, expiresAt);
 
     // Build reset URL and send email
@@ -189,11 +184,7 @@ export class UserAuthService {
     await this.usersService.revokeAllUserTokens(reset.userId);
   }
 
-  private async generateTokenPair(
-    userId: string,
-    email: string,
-    family?: string,
-  ) {
+  private async generateTokenPair(userId: string, email: string, family?: string) {
     const tokenFamily = family ?? randomUUID();
 
     // Sign access token (15min)
@@ -220,15 +211,8 @@ export class UserAuthService {
 
     // Store hash of refresh token in DB
     const tokenHash = this.hashToken(refreshToken);
-    const expiresAt = new Date(
-      Date.now() + 7 * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    await this.usersService.saveRefreshToken(
-      userId,
-      tokenHash,
-      tokenFamily,
-      expiresAt,
-    );
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await this.usersService.saveRefreshToken(userId, tokenHash, tokenFamily, expiresAt);
 
     return { accessToken, refreshToken };
   }

@@ -40,7 +40,7 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
       batches++;
 
       for (const mem of rows) {
-        const isPinned = mem.pinned === 1;
+        const isPinned = !!mem.pinned;
         const recallCount = mem.recallCount || 0;
 
         const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
@@ -57,15 +57,9 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
         const trust = this.getTrustScore(mem.connectorType);
 
         // Preserve existing semantic/rerank scores
-        let semantic = 0;
-        let rerank = 0;
-        try {
-          const parsed = JSON.parse(mem.weights);
-          semantic = parsed.semantic ?? 0;
-          rerank = parsed.rerank ?? 0;
-        } catch {
-          /* empty */
-        }
+        const parsedWeights = (mem.weights as any) || {};
+        const semantic = parsedWeights.semantic ?? 0;
+        const rerank = parsedWeights.rerank ?? 0;
 
         let final =
           rerank > 0

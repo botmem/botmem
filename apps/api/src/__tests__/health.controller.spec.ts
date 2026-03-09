@@ -29,11 +29,7 @@ describe('HealthController', () => {
     vi.clearAllMocks();
 
     mockDbService = {
-      sqlite: {
-        prepare: vi.fn().mockReturnValue({
-          get: vi.fn().mockReturnValue({ '1': 1 }),
-        }),
-      },
+      healthCheck: vi.fn().mockResolvedValue(true),
     };
 
     mockQdrantService = {
@@ -53,7 +49,7 @@ describe('HealthController', () => {
     const result = await controller.getHealth();
 
     expect(result.status).toBe('ok');
-    expect(result.services.sqlite.connected).toBe(true);
+    expect(result.services.postgres.connected).toBe(true);
     expect(result.services.redis.connected).toBe(true);
     expect(result.services.qdrant.connected).toBe(true);
   });
@@ -64,22 +60,20 @@ describe('HealthController', () => {
     const result = await controller.getHealth();
 
     expect(result.status).toBe('ok');
-    expect(result.services.sqlite.connected).toBe(true);
+    expect(result.services.postgres.connected).toBe(true);
     expect(result.services.redis.connected).toBe(false);
     expect(result.services.qdrant.connected).toBe(true);
   });
 
   it('returns 200 with all services down (never throws)', async () => {
-    mockDbService.sqlite.prepare.mockImplementation(() => {
-      throw new Error('DB locked');
-    });
+    mockDbService.healthCheck.mockRejectedValue(new Error('DB connection failed'));
     mockQdrantService.healthCheck.mockResolvedValue(false);
     mockPing.mockRejectedValue(new Error('Connection refused'));
 
     const result = await controller.getHealth();
 
     expect(result.status).toBe('ok');
-    expect(result.services.sqlite.connected).toBe(false);
+    expect(result.services.postgres.connected).toBe(false);
     expect(result.services.redis.connected).toBe(false);
     expect(result.services.qdrant.connected).toBe(false);
   });

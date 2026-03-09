@@ -9,14 +9,14 @@ export class UsersService {
   constructor(private db: DbService) {}
 
   async createUser(email: string, passwordHash: string, name: string) {
-    const now = new Date().toISOString();
+    const now = new Date();
     const id = randomUUID();
     await this.db.db.insert(users).values({
       id,
       email: email.toLowerCase().trim(),
       passwordHash,
       name,
-      onboarded: 0,
+      onboarded: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -33,11 +33,7 @@ export class UsersService {
   }
 
   async findById(id: string) {
-    const rows = await this.db.db
-      .select()
-      .from(users)
-      .where(eq(users.id, id))
-      .limit(1);
+    const rows = await this.db.db.select().from(users).where(eq(users.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
@@ -45,16 +41,17 @@ export class UsersService {
     userId: string,
     tokenHash: string,
     family: string,
-    expiresAt: string,
+    expiresAt: string | Date,
   ) {
     const id = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
+    const expiresAtDate = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
     await this.db.db.insert(refreshTokens).values({
       id,
       userId,
       tokenHash,
       family,
-      expiresAt,
+      expiresAt: expiresAtDate,
       createdAt: now,
     });
     return { id, userId, tokenHash, family, expiresAt, createdAt: now };
@@ -70,15 +67,12 @@ export class UsersService {
   }
 
   async revokeRefreshToken(id: string) {
-    const now = new Date().toISOString();
-    await this.db.db
-      .update(refreshTokens)
-      .set({ revokedAt: now })
-      .where(eq(refreshTokens.id, id));
+    const now = new Date();
+    await this.db.db.update(refreshTokens).set({ revokedAt: now }).where(eq(refreshTokens.id, id));
   }
 
   async revokeTokenFamily(family: string) {
-    const now = new Date().toISOString();
+    const now = new Date();
     await this.db.db
       .update(refreshTokens)
       .set({ revokedAt: now })
@@ -86,7 +80,7 @@ export class UsersService {
   }
 
   async revokeAllUserTokens(userId: string) {
-    const now = new Date().toISOString();
+    const now = new Date();
     await this.db.db
       .update(refreshTokens)
       .set({ revokedAt: now })
@@ -94,28 +88,29 @@ export class UsersService {
   }
 
   async updatePasswordHash(userId: string, newHash: string) {
-    const now = new Date().toISOString();
+    const now = new Date();
     await this.db.db
       .update(users)
       .set({ passwordHash: newHash, updatedAt: now })
       .where(eq(users.id, userId));
   }
 
-  async createPasswordReset(userId: string, tokenHash: string, expiresAt: string) {
+  async createPasswordReset(userId: string, tokenHash: string, expiresAt: string | Date) {
     const id = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
+    const expiresAtDate = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
     await this.db.db.insert(passwordResets).values({
       id,
       userId,
       tokenHash,
-      expiresAt,
+      expiresAt: expiresAtDate,
       createdAt: now,
     });
     return { id, userId, tokenHash, expiresAt, createdAt: now };
   }
 
   async invalidateUserResets(userId: string) {
-    const now = new Date().toISOString();
+    const now = new Date();
     await this.db.db
       .update(passwordResets)
       .set({ usedAt: now })
@@ -132,18 +127,15 @@ export class UsersService {
   }
 
   async setOnboarded(userId: string) {
-    const now = new Date().toISOString();
+    const now = new Date();
     await this.db.db
       .update(users)
-      .set({ onboarded: 1, updatedAt: now })
+      .set({ onboarded: true, updatedAt: now })
       .where(eq(users.id, userId));
   }
 
   async markResetUsed(id: string) {
-    const now = new Date().toISOString();
-    await this.db.db
-      .update(passwordResets)
-      .set({ usedAt: now })
-      .where(eq(passwordResets.id, id));
+    const now = new Date();
+    await this.db.db.update(passwordResets).set({ usedAt: now }).where(eq(passwordResets.id, id));
   }
 }
