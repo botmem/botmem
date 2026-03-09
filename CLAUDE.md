@@ -143,7 +143,7 @@ Every memory carries `{label, confidence, rationale}`:
 
 ## Database Schema
 
-SQLite tables defined in `apps/api/src/db/schema.ts` (Drizzle ORM):
+PostgreSQL tables defined in `apps/api/src/db/schema.ts` (Drizzle ORM):
 
 - `accounts` — connector accounts + encrypted auth context + sync cursor
 - `jobs` — sync job tracking (status, progress, errors)
@@ -165,7 +165,7 @@ All under `apps/api/src/`:
 | Module        | Purpose                                                                      |
 | ------------- | ---------------------------------------------------------------------------- |
 | `config/`     | Environment + ConfigService                                                  |
-| `db/`         | SQLite init, Drizzle schema, DbService                                       |
+| `db/`         | PostgreSQL init, Drizzle schema, DbService                                   |
 | `connectors/` | Connector registry + factory                                                 |
 | `accounts/`   | Account CRUD, credential management                                          |
 | `auth/`       | OAuth flow orchestration, callback handling                                  |
