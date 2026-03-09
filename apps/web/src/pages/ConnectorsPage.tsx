@@ -40,10 +40,10 @@ function ConnectorStatusDot({ type }: { type: string }) {
 
   const color =
     status === 'qr_ready'
-      ? 'bg-green-400'
+      ? 'bg-nb-green'
       : status === 'warming'
-        ? 'bg-yellow-400 animate-pulse'
-        : 'bg-red-400';
+        ? 'bg-nb-yellow animate-pulse'
+        : 'bg-nb-red';
   const label = status === 'qr_ready' ? 'Ready' : status === 'warming' ? 'Starting...' : 'Offline';
 
   return (
@@ -109,7 +109,9 @@ export function ConnectorsPage() {
 
   return (
     <PageContainer>
-      <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-6">All Connectors</h2>
+      <h2 className="font-display text-3xl font-bold uppercase text-nb-text mb-6">
+        All Connectors
+      </h2>
 
       <div className="flex flex-col gap-3">
         {displayConfigs.map((cfg) => {
@@ -119,6 +121,8 @@ export function ConnectorsPage() {
             <Card key={cfg.type} className="p-0 overflow-hidden">
               <button
                 onClick={() => toggle(cfg.type)}
+                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${cfg.label} connector`}
+                aria-expanded={isExpanded}
                 className={cn(
                   'w-full flex items-center justify-between p-4 cursor-pointer hover:bg-nb-surface-hover transition-colors text-nb-text',
                 )}
@@ -157,7 +161,7 @@ export function ConnectorsPage() {
                   ))}
                   {typeAccounts.length === 0 && (
                     <EmptyState
-                      icon="⚡"
+                      icon="+"
                       title="No Accounts Connected"
                       subtitle="Add an account to start syncing"
                     />

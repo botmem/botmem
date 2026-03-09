@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
+import { ReauthModal } from '../components/ui/ReauthModal';
 import { ConnectorLogFeed } from '../components/dashboard/ConnectorLogFeed';
 import { JobTable } from '../components/dashboard/JobTable';
 import { PipelineView } from '../components/dashboard/PipelineView';
@@ -11,7 +12,6 @@ import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
 import { useJobStore } from '../store/jobStore';
 import { useMemoryBankStore } from '../store/memoryBankStore';
-import { useAuthStore } from '../store/authStore';
 
 const dashTabs = [
   { id: 'overview', label: 'OVERVIEW' },
@@ -24,8 +24,8 @@ export function DashboardPage() {
   const { graphData, loadGraph, memoryStats } = useMemories();
   const { retrying, retryAllFailed } = useJobStore();
   const activeMemoryBankId = useMemoryBankStore((s) => s.activeMemoryBankId);
-  const logout = useAuthStore((s) => s.logout);
   const [activeTab, setActiveTab] = useState('overview');
+  const [reauthOpen, setReauthOpen] = useState(false);
 
   useEffect(() => {
     loadGraph();
@@ -58,27 +58,42 @@ export function DashboardPage() {
 
   return (
     <PageContainer>
+      <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
-
-      {memoryStats?.needsRelogin && (
-        <div className="mt-4 px-5 py-4 border-2 border-yellow-400 bg-yellow-400/20 font-display text-base text-yellow-300 text-center">
-          <span className="text-xl mr-2">&#x1F512;</span>
-          Your encryption key is not loaded. Please{' '}
-          <button
-            onClick={() => logout()}
-            className="underline font-bold cursor-pointer text-yellow-100 hover:text-white"
-          >
-            log out and log back in
-          </button>{' '}
-          to decrypt your memories.
-        </div>
-      )}
 
       <div className="mt-4" style={{ minHeight: 560 }}>
         {activeTab === 'overview' && (
           <>
             {/* Graph FIRST */}
-            <div className="mb-6">
+            <div className="mb-6 relative">
+              {memoryStats?.needsRelogin && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nb-bg/80 backdrop-blur-sm">
+                  <svg
+                    width="40"
+                    height="40"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-nb-text"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="0" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  <p className="font-display text-sm text-nb-muted text-center max-w-xs">
+                    Your encryption key needs to be restored
+                  </p>
+                  <button
+                    onClick={() => setReauthOpen(true)}
+                    aria-label="Unlock encryption key"
+                    className="px-4 py-2 border-2 border-nb-lime bg-nb-lime/20 font-display text-xs font-bold uppercase tracking-wider text-nb-lime hover:bg-nb-lime/40 cursor-pointer transition-colors"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              )}
               <MemoryGraph data={graphData} onReload={loadGraph} />
             </div>
 

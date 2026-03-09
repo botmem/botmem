@@ -8,6 +8,7 @@ import { MemoryDetailPanel } from '../components/memory/MemoryDetailPanel';
 import { useMemories } from '../hooks/useMemories';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
+import { ReauthModal } from '../components/ui/ReauthModal';
 import { api } from '../lib/api';
 
 const PAGE_SIZE = 20;
@@ -31,7 +32,10 @@ export function MemoryExplorerPage() {
     searchFallback,
     resolvedEntities,
     parsed,
+    memoryStats,
   } = useMemories();
+  const needsRelogin = !!memoryStats?.needsRelogin;
+  const [reauthOpen, setReauthOpen] = useState(false);
 
   // Backfill state
   const [backfillLoading, setBackfillLoading] = useState(false);
@@ -116,126 +120,158 @@ export function MemoryExplorerPage() {
 
   return (
     <PageContainer>
-      <div className="mt-4 flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
-        <div className="flex flex-col min-h-0 h-full">
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <MemorySearchBar
-                query={query}
-                onQueryChange={setQuery}
-                sourceFilter={filters.source}
-                onSourceChange={(s) => setFilters({ source: s })}
-                resultCount={filtered.length}
-                loading={loading}
-                availableSources={ALL_SOURCES}
-              />
-            </div>
-            <button
-              onClick={handleRetryFailed}
-              disabled={retryLoading}
-              className="shrink-0 rounded-lg border border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {retryLoading ? 'Retrying...' : 'Retry Failed'}
-            </button>
-            <button
-              onClick={handleBackfillEnrich}
-              disabled={backfillLoading}
-              className="shrink-0 rounded-lg border border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {backfillLoading ? 'Starting...' : 'Re-enrich All'}
-            </button>
-          </div>
-
-          {backfillMessage && (
-            <div className="mt-2 rounded-md bg-nb-surface border border-nb-border px-3 py-1.5 text-xs font-mono text-nb-muted">
-              {backfillMessage}
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-col md:flex-row gap-4 min-h-0 flex-1">
-            <div ref={listRef} className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2">
-              {!loading && query.trim() && (
-                <SearchResultsBanner
-                  resolvedEntities={resolvedEntities}
-                  resultCount={filtered.length}
-                  searchFallback={searchFallback}
+      <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
+      {needsRelogin && (
+        <div className="mt-4 flex flex-col items-center justify-center gap-4 py-20 border-2 border-nb-border/40 bg-nb-surface/30">
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-nb-text"
+          >
+            <rect x="3" y="11" width="18" height="11" rx="0" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <p className="font-display text-lg text-nb-muted text-center max-w-md">
+            Your encryption key needs to be restored. Enter your password to unlock your memories.
+          </p>
+          <button
+            onClick={() => setReauthOpen(true)}
+            className="px-5 py-2.5 border-2 border-nb-lime bg-nb-lime/20 font-display text-sm font-bold uppercase tracking-wider text-nb-lime hover:bg-nb-lime/40 cursor-pointer transition-colors"
+          >
+            Unlock
+          </button>
+        </div>
+      )}
+      {!needsRelogin && (
+        <div className="mt-4 flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
+          <div className="flex flex-col min-h-0 h-full">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <MemorySearchBar
                   query={query}
-                  parsed={parsed}
+                  onQueryChange={setQuery}
+                  sourceFilter={filters.source}
+                  onSourceChange={(s) => setFilters({ source: s })}
+                  resultCount={filtered.length}
+                  loading={loading}
+                  availableSources={ALL_SOURCES}
                 />
-              )}
-              {loading && <Skeleton variant="card" count={3} />}
-              {!loading &&
-                visible.map((m, i) => (
-                  <MemoryCard
-                    key={m.id}
-                    memory={m}
-                    onClick={() => setSelectedMemory(m)}
-                    selected={selectedMemory?.id === m.id}
-                    topResult={i === 0 && !!query.trim()}
-                  />
-                ))}
-              {!loading && filtered.length === 0 && (
-                <EmptyState
-                  icon="*"
-                  title="No Memories Found"
-                  subtitle="Try adjusting your filters"
-                />
-              )}
-              {!loading && visibleCount < filtered.length && (
-                <div ref={sentinelRef} className="py-4 text-center">
-                  <span className="font-mono text-xs text-nb-muted uppercase">Loading more...</span>
-                </div>
-              )}
+              </div>
+              <button
+                onClick={handleRetryFailed}
+                disabled={retryLoading}
+                className="shrink-0 border-3 border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                {retryLoading ? 'Retrying...' : 'Retry Failed'}
+              </button>
+              <button
+                onClick={handleBackfillEnrich}
+                disabled={backfillLoading}
+                className="shrink-0 border-3 border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                {backfillLoading ? 'Starting...' : 'Re-enrich All'}
+              </button>
             </div>
 
-            {/* Desktop detail panel */}
-            {selectedMemory && (
-              <div className="hidden md:block md:w-96 md:shrink-0 overflow-y-auto">
-                <MemoryDetailPanel
-                  memory={selectedMemory}
-                  onClose={() => setSelectedMemory(null)}
-                />
+            {backfillMessage && (
+              <div className="mt-2 bg-nb-surface border border-nb-border px-3 py-1.5 text-xs font-mono text-nb-muted">
+                {backfillMessage}
               </div>
             )}
 
-            {/* Mobile full-screen detail overlay */}
-            <div
-              className={`fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden ${selectedMemory ? 'block' : 'hidden'}`}
-            >
-              <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
-                <button
-                  onClick={() => setSelectedMemory(null)}
-                  className="border-2 border-nb-border w-9 h-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M10 3L5 8l5 5" />
-                  </svg>
-                </button>
-                <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
-                  DETAIL
-                </span>
+            <div className="mt-4 flex flex-col md:flex-row gap-4 min-h-0 flex-1">
+              <div ref={listRef} className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2">
+                {!loading && query.trim() && (
+                  <SearchResultsBanner
+                    resolvedEntities={resolvedEntities}
+                    resultCount={filtered.length}
+                    searchFallback={searchFallback}
+                    query={query}
+                    parsed={parsed}
+                  />
+                )}
+                {loading && <Skeleton variant="card" count={3} />}
+                {!loading &&
+                  visible.map((m, i) => (
+                    <MemoryCard
+                      key={m.id}
+                      memory={m}
+                      onClick={() => setSelectedMemory(m)}
+                      selected={selectedMemory?.id === m.id}
+                      topResult={i === 0 && !!query.trim()}
+                    />
+                  ))}
+                {!loading && filtered.length === 0 && (
+                  <EmptyState
+                    icon="0"
+                    title="No Memories Found"
+                    subtitle="Try adjusting your filters"
+                  />
+                )}
+                {!loading && visibleCount < filtered.length && (
+                  <div ref={sentinelRef} className="py-4 text-center">
+                    <span className="font-mono text-xs text-nb-muted uppercase">
+                      Loading more...
+                    </span>
+                  </div>
+                )}
               </div>
+
+              {/* Desktop detail panel */}
               {selectedMemory && (
-                <div className="p-4">
+                <div className="hidden md:block md:w-96 md:shrink-0 overflow-y-auto">
                   <MemoryDetailPanel
                     memory={selectedMemory}
                     onClose={() => setSelectedMemory(null)}
                   />
                 </div>
               )}
+
+              {/* Mobile full-screen detail overlay */}
+              <div
+                className={`fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden ${selectedMemory ? 'block' : 'hidden'}`}
+              >
+                <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
+                  <button
+                    onClick={() => setSelectedMemory(null)}
+                    className="border-2 border-nb-border w-9 h-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M10 3L5 8l5 5" />
+                    </svg>
+                  </button>
+                  <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
+                    DETAIL
+                  </span>
+                </div>
+                {selectedMemory && (
+                  <div className="p-4">
+                    <MemoryDetailPanel
+                      memory={selectedMemory}
+                      onClose={() => setSelectedMemory(null)}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </PageContainer>
   );
 }

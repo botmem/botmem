@@ -3,12 +3,13 @@ import { CONNECTOR_COLORS } from '@botmem/shared';
 export { CONNECTOR_COLORS };
 
 export const CONNECTOR_ICONS: Record<string, string> = {
-  gmail: '\u2709',
-  whatsapp: '\uD83D\uDCAC',
+  gmail: 'G',
+  whatsapp: 'W',
   slack: '#',
-  imessage: '\u25EF',
-  photos: '\uD83D\uDCF7',
-  locations: '\uD83D\uDCCD',
+  imessage: 'i',
+  'photos-immich': 'Ph',
+  photos: 'Ph',
+  locations: 'Lo',
 };
 
 export const CONNECTOR_LABELS: Record<string, string> = {
@@ -21,7 +22,7 @@ export const CONNECTOR_LABELS: Record<string, string> = {
 };
 
 export function getConnectorIcon(type: string): string {
-  return CONNECTOR_ICONS[type] ?? '\u26A1';
+  return CONNECTOR_ICONS[type] ?? '?';
 }
 
 export function getConnectorColor(type: string): string {
