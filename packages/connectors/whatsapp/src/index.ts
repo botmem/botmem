@@ -183,8 +183,25 @@ export class WhatsAppConnector extends BaseConnector {
     return !!auth.raw?.sessionDir;
   }
 
-  async revokeAuth(_auth: AuthContext): Promise<void> {
-    // Could delete session files
+  async revokeAuth(auth: AuthContext): Promise<void> {
+    const sessionDir = auth.raw?.sessionDir as string;
+    if (!sessionDir) return;
+
+    // Close any lingering auth socket for this session
+    const sock = this.authSockets.get(sessionDir);
+    if (sock) {
+      this.authSockets.delete(sessionDir);
+      try { sock.ws?.close(); } catch { /* ignore */ }
+    }
+
+    // Delete session files from disk
+    const { rm } = await import('fs/promises');
+    try {
+      await rm(sessionDir, { recursive: true, force: true });
+      console.log(`[WhatsApp] Deleted session directory: ${sessionDir}`);
+    } catch (err) {
+      console.warn(`[WhatsApp] Failed to delete session ${sessionDir}:`, err);
+    }
   }
 
   embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {

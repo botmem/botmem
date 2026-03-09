@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { eq, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 import {
   accounts,
   jobs,
@@ -15,9 +16,12 @@ import type { SyncSchedule } from '@botmem/shared';
 
 @Injectable()
 export class AccountsService {
+  private readonly logger = new Logger(AccountsService.name);
+
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
+    private connectors: ConnectorsService,
   ) {}
 
   private get db() {
@@ -36,7 +40,7 @@ export class AccountsService {
     userId?: string;
   }) {
     const id = crypto.randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
     await this.db.insert(accounts).values({
       id,
       userId: data.userId || null,
@@ -72,13 +76,17 @@ export class AccountsService {
       status: string;
       authContext: string;
       lastCursor: string;
-      lastSyncAt: string;
+      lastSyncAt: Date | string;
       itemsSynced: number;
       lastError: string | null;
     }>,
   ) {
     await this.getById(id); // throws if not found
-    const toSet = { ...data, updatedAt: new Date().toISOString() };
+    const { lastSyncAt, ...rest } = data;
+    const toSet: any = { ...rest, updatedAt: new Date() };
+    if (lastSyncAt) {
+      toSet.lastSyncAt = new Date(lastSyncAt);
+    }
     // Encrypt authContext if being updated
     if ('authContext' in toSet && toSet.authContext != null) {
       toSet.authContext = this.crypto.encrypt(toSet.authContext)!;
@@ -101,31 +109,41 @@ export class AccountsService {
   }
 
   async remove(id: string) {
-    await this.getById(id); // throws if not found
+    const account = await this.getById(id); // throws if not found
+
+    // Revoke connector auth (close sockets, delete session files, etc.)
+    try {
+      const connector = this.connectors.get(account.connectorType);
+      if (connector) {
+        const authContext = account.authContext ? JSON.parse(account.authContext) : {};
+        await connector.revokeAuth(authContext);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to revoke auth for account ${id} (${account.connectorType}):`, err);
+    }
 
     // Wrap all deletes in a transaction for atomicity
-    this.db.transaction((tx) => {
-      const accountMemories = tx
+    await this.db.transaction(async (tx) => {
+      const accountMemories = await tx
         .select({ id: memories.id })
         .from(memories)
-        .where(eq(memories.accountId, id))
-        .all();
-      const memoryIds = accountMemories.map((m) => m.id);
+        .where(eq(memories.accountId, id));
+      const memoryIds = accountMemories.map((m: { id: string }) => m.id);
 
       if (memoryIds.length > 0) {
         for (let i = 0; i < memoryIds.length; i += 500) {
           const batch = memoryIds.slice(i, i + 500);
-          tx.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch)).run();
-          tx.delete(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch)).run();
-          tx.delete(memoryLinks).where(inArray(memoryLinks.dstMemoryId, batch)).run();
+          await tx.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
+          await tx.delete(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch));
+          await tx.delete(memoryLinks).where(inArray(memoryLinks.dstMemoryId, batch));
         }
       }
 
-      tx.delete(memories).where(eq(memories.accountId, id)).run();
-      tx.delete(rawEvents).where(eq(rawEvents.accountId, id)).run();
-      tx.delete(logs).where(eq(logs.accountId, id)).run();
-      tx.delete(jobs).where(eq(jobs.accountId, id)).run();
-      tx.delete(accounts).where(eq(accounts.id, id)).run();
+      await tx.delete(memories).where(eq(memories.accountId, id));
+      await tx.delete(rawEvents).where(eq(rawEvents.accountId, id));
+      await tx.delete(logs).where(eq(logs.accountId, id));
+      await tx.delete(jobs).where(eq(jobs.accountId, id));
+      await tx.delete(accounts).where(eq(accounts.id, id));
     });
   }
 }

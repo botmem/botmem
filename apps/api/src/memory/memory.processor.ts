@@ -102,9 +102,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[memory worker] ${err.message}`));
-    const concurrency = parseInt(this.settingsService.get('memory_concurrency'), 10) || 16;
+    const concurrency = parseInt(await this.settingsService.get('memory_concurrency'), 10) || 16;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -279,7 +279,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
     // 8. Create memory record
     const memoryId = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
     const mergedMetadata = { ...metadata, ...(embedResult.metadata || {}) };
 
     let t0 = Date.now();
@@ -290,7 +290,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       sourceType: event.sourceType,
       sourceId: event.sourceId,
       text: embedText,
-      eventTime: event.timestamp,
+      eventTime: new Date(event.timestamp),
       ingestTime: now,
       metadata: JSON.stringify(mergedMetadata),
       embeddingStatus: 'pending',
@@ -304,7 +304,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       text: embedText,
       sourceType: event.sourceType,
       connectorType: rawEvent.connectorType,
-      eventTime: event.timestamp,
+      eventTime: new Date(event.timestamp),
     });
 
     // 9. Contact resolution + linking
@@ -390,7 +390,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         text: embedText,
         sourceType: event.sourceType,
         connectorType: rawEvent.connectorType,
-        eventTime: event.timestamp,
+        eventTime: new Date(event.timestamp),
       });
 
       this.addLog(
@@ -449,7 +449,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           text: currentText,
           sourceType: event.sourceType,
           connectorType: rawEvent.connectorType,
-          eventTime: event.timestamp,
+          eventTime: new Date(event.timestamp),
           entities: enrichedMem?.entities,
           factuality: enrichedMem?.factuality,
         });
@@ -656,7 +656,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       .limit(20);
     const siblings = threadSiblings.filter((s) => s.id !== memoryId);
     if (siblings.length) {
-      const now = new Date().toISOString();
+      const now = new Date();
       for (const sib of siblings) {
         const existingLink = await this.dbService.db
           .select({ id: memoryLinks.id })
@@ -754,7 +754,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       stage,
       level,
       message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     });
   }
 }

@@ -35,12 +35,12 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[sync worker] ${err.message}`));
-    const concurrency = parseInt(this.settingsService.get('sync_concurrency'), 10) || 2;
+    const concurrency = parseInt(await this.settingsService.get('sync_concurrency'), 10) || 2;
     this.worker.concurrency = concurrency;
     // Settings-based sync_debug_limit takes priority over env var
-    const settingsLimit = parseInt(this.settingsService.get('sync_debug_limit'), 10);
+    const settingsLimit = parseInt(await this.settingsService.get('sync_debug_limit'), 10);
     BaseConnector.DEBUG_SYNC_LIMIT = !isNaN(settingsLimit) && settingsLimit > 0
       ? settingsLimit
       : this.configService.syncDebugLimit;
@@ -60,7 +60,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     const connector = this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
 
-    await this.jobsService.updateJob(jobId, { status: 'running', startedAt: new Date().toISOString() });
+    await this.jobsService.updateJob(jobId, { status: 'running', startedAt: new Date() });
     await this.accountsService.update(accountId, { status: 'syncing' });
     this.events.emitToChannel(`job:${jobId}`, 'job:progress', { jobId, progress: 0 });
 
@@ -82,7 +82,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
       // Persist raw event and enqueue embedding — track the promise
       const rawEventId = randomUUID();
-      const now = new Date().toISOString();
+      const now = new Date();
       const writePromise = this.dbService.db
         .insert(rawEvents)
         .values({
@@ -92,7 +92,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           sourceId: event.sourceId,
           sourceType: event.sourceType,
           payload: JSON.stringify(event),
-          timestamp: event.timestamp,
+          timestamp: new Date(event.timestamp),
           jobId,
           createdAt: now,
         })
@@ -164,7 +164,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       }
 
       await this.accountsService.update(accountId, {
-        lastSyncAt: new Date().toISOString(),
+        lastSyncAt: new Date(),
         status: 'connected',
         lastError: null,
       });
@@ -178,7 +178,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           status: 'done',
           progress: 0,
           total: 0,
-          completedAt: new Date().toISOString(),
+          completedAt: new Date(),
         });
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
         this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_complete', jobId });
@@ -196,13 +196,13 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       // If the error is from hitting the sync limit, treat as success
       if (connector.isLimitReached) {
         await this.accountsService.update(accountId, {
-          lastSyncAt: new Date().toISOString(),
+          lastSyncAt: new Date(),
           status: 'connected',
           lastError: null,
         });
         await Promise.allSettled(pendingWrites);
         if (totalProcessed === 0) {
-          await this.jobsService.updateJob(jobId, { status: 'done', progress: 0, total: 0, completedAt: new Date().toISOString() });
+          await this.jobsService.updateJob(jobId, { status: 'done', progress: 0, total: 0, completedAt: new Date() });
           this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
         }
         // else: job stays "running", embed processor will mark done when all items complete
@@ -216,7 +216,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       await this.jobsService.updateJob(jobId, {
         status: 'failed',
         error: err.message,
-        completedAt: new Date().toISOString(),
+        completedAt: new Date(),
       });
       await this.accountsService.update(accountId, { status: 'error', lastError: err.message });
       this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'failed' });
@@ -232,6 +232,6 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
   private addLog(jobId: string, connectorType: string, accountId: string, level: string, message: string) {
     const stage = 'sync';
     this.logsService.add({ jobId, connectorType, accountId, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { jobId, connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
+    this.events.emitToChannel('logs', 'log', { jobId, connectorType, accountId, stage, level, message, timestamp: new Date() });
   }
 }

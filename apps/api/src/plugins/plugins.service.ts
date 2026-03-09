@@ -139,7 +139,7 @@ export class PluginsService {
         for (const acc of waAccounts) {
           await this.dbService.db
             .update(accounts)
-            .set({ lastError: message, updatedAt: new Date().toISOString() })
+            .set({ lastError: message, updatedAt: new Date() })
             .where(eq(accounts.id, acc.id));
         }
         // Broadcast to frontend

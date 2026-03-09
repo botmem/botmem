@@ -17,6 +17,7 @@ import { AuthGuard } from './components/auth/AuthGuard';
 import { useAuth } from './hooks/useAuth';
 import { useAuthStore } from './store/authStore';
 import { posthog, identifyUser } from './lib/posthog';
+import { api } from './lib/api';
 
 function AuthInitializer() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -29,9 +30,10 @@ function AuthInitializer() {
 }
 
 function PostHogIdentifier() {
+  const accessToken = useAuthStore((s) => s.accessToken);
   useEffect(() => {
-    fetch('/api/me')
-      .then((r) => r.json())
+    if (!accessToken) return;
+    api.getMe()
       .then((data) => {
         const userId = data.identity?.email || data.identity?.contactId || 'botmem-user';
         identifyUser(userId, {
@@ -44,7 +46,7 @@ function PostHogIdentifier() {
       .catch(() => {
         // Silently fail -- analytics should never block the app
       });
-  }, []);
+  }, [accessToken]);
   return null;
 }
 

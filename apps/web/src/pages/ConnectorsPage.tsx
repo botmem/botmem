@@ -10,7 +10,9 @@ import { ConnectorAccountRow } from '../components/connectors/ConnectorAccountRo
 import { ConnectorSetupModal } from '../components/connectors/ConnectorSetupModal';
 import { connectorConfigs } from '../mock/connectors';
 import { useConnectors } from '../hooks/useConnectors';
-import { api, createWsConnection, subscribeToChannel } from '../lib/api';
+import { api } from '../lib/api';
+import { sharedWs } from '../lib/ws';
+import { useAuthStore } from '../store/authStore';
 import { EmptyState } from '../components/ui/EmptyState';
 
 
@@ -56,20 +58,21 @@ export function ConnectorsPage() {
   }, []);
 
   // Subscribe to connector warning notifications (e.g. WhatsApp decrypt failures)
+  const accessToken = useAuthStore((s) => s.accessToken);
   useEffect(() => {
-    const ws = createWsConnection();
-    ws.onopen = () => subscribeToChannel(ws, 'notifications');
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data);
-        if (msg.event === 'connector:warning') {
-          // Refresh accounts to pick up lastError changes
-          fetchAccounts();
-        }
-      } catch { /* ignore parse errors */ }
+    if (!accessToken) return;
+    const handler = (msg: { event: string }) => {
+      if (msg.event === 'connector:warning') {
+        fetchAccounts();
+      }
     };
-    return () => ws.close();
-  }, [fetchAccounts]);
+    sharedWs.subscribe('notifications', accessToken);
+    sharedWs.onMessage(handler);
+    return () => {
+      sharedWs.unsubscribe('notifications');
+      sharedWs.offMessage(handler);
+    };
+  }, [fetchAccounts, accessToken]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
 

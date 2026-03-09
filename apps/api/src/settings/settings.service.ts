@@ -19,23 +19,23 @@ export class SettingsService implements OnModuleInit {
 
   constructor(private dbService: DbService) {}
 
-  onModuleInit() {
+  async onModuleInit() {
     // Seed defaults for any missing settings
     for (const [key, value] of Object.entries(DEFAULTS)) {
-      const existing = this.dbService.db.select().from(settings).where(eq(settings.key, key)).get();
+      const [existing] = await this.dbService.db.select().from(settings).where(eq(settings.key, key));
       if (!existing) {
-        this.dbService.db.insert(settings).values({ key, value }).run();
+        await this.dbService.db.insert(settings).values({ key, value });
       }
     }
   }
 
-  get(key: string): string {
-    const row = this.dbService.db.select().from(settings).where(eq(settings.key, key)).get();
+  async get(key: string): Promise<string> {
+    const [row] = await this.dbService.db.select().from(settings).where(eq(settings.key, key));
     return row?.value ?? DEFAULTS[key] ?? '';
   }
 
-  getAll(): Record<string, string> {
-    const rows = this.dbService.db.select().from(settings).all();
+  async getAll(): Promise<Record<string, string>> {
+    const rows = await this.dbService.db.select().from(settings);
     const result: Record<string, string> = { ...DEFAULTS };
     for (const row of rows) {
       result[row.key] = row.value;
@@ -43,10 +43,9 @@ export class SettingsService implements OnModuleInit {
     return result;
   }
 
-  set(key: string, value: string): void {
-    this.dbService.db.insert(settings).values({ key, value })
-      .onConflictDoUpdate({ target: settings.key, set: { value } })
-      .run();
+  async set(key: string, value: string): Promise<void> {
+    await this.dbService.db.insert(settings).values({ key, value })
+      .onConflictDoUpdate({ target: settings.key, set: { value } });
     for (const listener of this.listeners) {
       listener(key, value);
     }

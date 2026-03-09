@@ -30,9 +30,9 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[enrich worker] ${err.message}`));
-    const concurrency = parseInt(this.settingsService.get('enrich_concurrency'), 10) || 8;
+    const concurrency = parseInt(await this.settingsService.get('enrich_concurrency'), 10) || 8;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -108,9 +108,9 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     await this.advanceAndComplete(parentJobId);
   }
 
-  private encryptMemoryAtRest(memoryId: string) {
+  private async encryptMemoryAtRest(memoryId: string) {
     try {
-      const [mem] = this.dbService.db
+      const rows = await this.dbService.db
         .select({
           text: memories.text,
           entities: memories.entities,
@@ -118,9 +118,9 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           metadata: memories.metadata,
         })
         .from(memories)
-        .where(eq(memories.id, memoryId))
-        .all();
-      if (!mem) return;
+        .where(eq(memories.id, memoryId));
+      if (!rows.length) return;
+      const mem = rows[0];
 
       const enc = this.crypto.encryptMemoryFields({
         text: mem.text,
@@ -128,11 +128,10 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      this.dbService.db
+      await this.dbService.db
         .update(memories)
         .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
-        .where(eq(memories.id, memoryId))
-        .run();
+        .where(eq(memories.id, memoryId));
     } catch (err: any) {
       this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
     }

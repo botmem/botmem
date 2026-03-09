@@ -48,9 +48,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[embed worker] ${err.message}`));
-    const concurrency = parseInt(this.settingsService.get('embed_concurrency'), 10) || 8;
+    const concurrency = parseInt(await this.settingsService.get('embed_concurrency'), 10) || 8;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -115,7 +115,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     // Create memory record — resolve memoryBankId from account's user
     const memoryId = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
     const mergedMetadata: Record<string, unknown> = {
       ...metadata,
       ...(embedResult.metadata || {}),
@@ -135,7 +135,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         const [defaultBank] = await this.dbService.db
           .select({ id: memoryBanks.id })
           .from(memoryBanks)
-          .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, 1)));
+          .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, true)));
         memoryBankId = defaultBank?.id || null;
       }
     } catch (err) {
@@ -154,7 +154,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       sourceType: event.sourceType,
       sourceId: event.sourceId,
       text: embedText,
-      eventTime: event.timestamp,
+      eventTime: new Date(event.timestamp),
       ingestTime: now,
       metadata: JSON.stringify(mergedMetadata),
       embeddingStatus: 'pending',
@@ -168,7 +168,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       text: embedText,
       sourceType: event.sourceType,
       connectorType: rawEvent.connectorType,
-      eventTime: event.timestamp,
+      eventTime: new Date(event.timestamp),
     });
 
     // Contact resolution + linking
@@ -271,7 +271,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         text: embedText,
         sourceType: event.sourceType,
         connectorType: rawEvent.connectorType,
-        eventTime: event.timestamp,
+        eventTime: new Date(event.timestamp),
       });
 
       this.addLog(
@@ -361,9 +361,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  private encryptMemoryAtRest(memoryId: string) {
+  private async encryptMemoryAtRest(memoryId: string) {
     try {
-      const [mem] = this.dbService.db
+      const rows = await this.dbService.db
         .select({
           text: memories.text,
           entities: memories.entities,
@@ -371,9 +371,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           metadata: memories.metadata,
         })
         .from(memories)
-        .where(eq(memories.id, memoryId))
-        .all();
-      if (!mem) return;
+        .where(eq(memories.id, memoryId));
+      if (!rows.length) return;
+      const mem = rows[0];
 
       const enc = this.crypto.encryptMemoryFields({
         text: mem.text,
@@ -381,11 +381,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      this.dbService.db
+      await this.dbService.db
         .update(memories)
         .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
-        .where(eq(memories.id, memoryId))
-        .run();
+        .where(eq(memories.id, memoryId));
     } catch (err: any) {
       this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
     }
@@ -559,7 +558,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       .limit(20);
     const siblings = threadSiblings.filter((s) => s.id !== memoryId);
     if (siblings.length) {
-      const now = new Date().toISOString();
+      const now = new Date();
       for (const sib of siblings) {
         const existingLink = await this.dbService.db
           .select({ id: memoryLinks.id })
@@ -671,7 +670,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       stage,
       level,
       message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     });
   }
 }

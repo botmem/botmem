@@ -212,8 +212,8 @@ export function ConnectorLogFeed({ logs, onClear }: ConnectorLogFeedProps) {
           }
         }}
       >
-        {filtered.map((log) => (
-          <LogEntryRow key={log.id} entry={log} />
+        {filtered.map((log, idx) => (
+          <LogEntryRow key={`${log.id}-${idx}`} entry={log} />
         ))}
         {filtered.length === 0 && (
           <div className="py-8 text-center">

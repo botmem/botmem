@@ -17,6 +17,9 @@ interface AuthState {
 
 const API_BASE = '/api/user-auth';
 
+// Mutex: only one refresh call at a time to prevent token rotation race
+let activeRefresh: Promise<boolean> | null = null;
+
 async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -76,28 +79,39 @@ export const useAuthStore = create<AuthState>()(
       },
 
       refreshSession: async (): Promise<boolean> => {
-        try {
-          const data = await authFetch<{ accessToken: string }>('/refresh', {
-            method: 'POST',
-          });
-          // Fetch user profile with the new access token
-          const meRes = await fetch(`${API_BASE}/me`, {
-            headers: {
-              Authorization: `Bearer ${data.accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            credentials: 'include',
-          });
-          if (meRes.ok) {
-            const user = await meRes.json();
-            set({ user, accessToken: data.accessToken });
-          } else {
-            set({ accessToken: data.accessToken });
+        // Deduplicate concurrent refresh calls — prevents token rotation race
+        if (activeRefresh) return activeRefresh;
+
+        activeRefresh = (async () => {
+          try {
+            const data = await authFetch<{ accessToken: string }>('/refresh', {
+              method: 'POST',
+            });
+            // Fetch user profile with the new access token
+            const meRes = await fetch(`${API_BASE}/me`, {
+              headers: {
+                Authorization: `Bearer ${data.accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              credentials: 'include',
+            });
+            if (meRes.ok) {
+              const user = await meRes.json();
+              set({ user, accessToken: data.accessToken });
+            } else {
+              set({ accessToken: data.accessToken });
+            }
+            return true;
+          } catch {
+            set({ user: null, accessToken: null });
+            return false;
           }
-          return true;
-        } catch {
-          set({ user: null, accessToken: null });
-          return false;
+        })();
+
+        try {
+          return await activeRefresh;
+        } finally {
+          activeRefresh = null;
         }
       },
 
@@ -128,7 +142,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'botmem-auth',
-      partialize: (state) => ({ user: state.user }),
+      partialize: (state) => ({ user: state.user, accessToken: state.accessToken }),
     },
   ),
 );

@@ -244,7 +244,7 @@ export function useFilteredGraph({
     const timer = setTimeout(async () => {
       dispatchSearch({ type: 'startSearch' });
       try {
-        const res = await api.searchMemories(trimmed, undefined, 200);
+        const res = await api.searchMemories(trimmed, undefined, 100);
         const memoryIds = new Set(res.items.map((item: any) => item.id));
         const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
           (c: { id: string }) => `contact-${c.id}`,
