@@ -1,8 +1,9 @@
 import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import * as schema from '../db/schema';
+import { memoryBanks } from '../db/schema';
 
 const KEY_PREFIX = 'bm_sk_';
 const MAX_KEYS_PER_USER = 10;
@@ -19,7 +20,7 @@ export class ApiKeysService {
     return { raw, hash, lastFour };
   }
 
-  async create(userId: string, name: string, expiresAt?: string) {
+  async create(userId: string, name: string, expiresAt?: string, memoryBankIds?: string[]) {
     const db = this.dbService.db;
 
     // Check key count
@@ -36,10 +37,27 @@ export class ApiKeysService {
     const existing = await db
       .select({ id: schema.apiKeys.id })
       .from(schema.apiKeys)
-      .where(and(eq(schema.apiKeys.userId, userId), eq(schema.apiKeys.name, name), isNull(schema.apiKeys.revokedAt)))
+      .where(
+        and(
+          eq(schema.apiKeys.userId, userId),
+          eq(schema.apiKeys.name, name),
+          isNull(schema.apiKeys.revokedAt),
+        ),
+      )
       .limit(1);
     if (existing.length > 0) {
       throw new ConflictException(`API key with name "${name}" already exists`);
+    }
+
+    // Validate memory bank ownership if provided
+    if (memoryBankIds && memoryBankIds.length > 0) {
+      const validBanks = await db
+        .select({ id: memoryBanks.id })
+        .from(memoryBanks)
+        .where(and(eq(memoryBanks.userId, userId), inArray(memoryBanks.id, memoryBankIds)));
+      if (validBanks.length !== memoryBankIds.length) {
+        throw new BadRequestException('One or more memory bank IDs are invalid');
+      }
     }
 
     const { raw, hash, lastFour } = this.generateKey();
@@ -52,7 +70,7 @@ export class ApiKeysService {
       name,
       keyHash: hash,
       lastFour,
-      memoryBankIds: null,
+      memoryBankIds: memoryBankIds?.length ? JSON.stringify(memoryBankIds) : null,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
       revokedAt: null,
       createdAt: now,
