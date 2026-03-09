@@ -1406,7 +1406,6 @@ export class MemoryService {
     memoryBankId?: string;
     memoryBankIds?: string[];
   }) {
-    const db = this.dbService.db;
     const limit = params.limit || 50;
     const userAccountIds = await this.getUserAccountIds(params.userId);
     const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
@@ -1442,19 +1441,23 @@ export class MemoryService {
       }
     }
 
-    const totalRows = await db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(memories)
-      .where(and(...conditions)!);
+    const totalRows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(memories)
+        .where(and(...conditions)!),
+    );
     const total = totalRows[0]?.count || 0;
 
-    const rows = await db
-      .select({ memory: memories, accountIdentifier: accounts.identifier })
-      .from(memories)
-      .leftJoin(accounts, eq(memories.accountId, accounts.id))
-      .where(and(...conditions)!)
-      .orderBy(sql`${memories.eventTime} ASC`)
-      .limit(limit);
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ memory: memories, accountIdentifier: accounts.identifier })
+        .from(memories)
+        .leftJoin(accounts, eq(memories.accountId, accounts.id))
+        .where(and(...conditions)!)
+        .orderBy(sql`${memories.eventTime} ASC`)
+        .limit(limit),
+    );
 
     const items = rows.map((r) => ({ ...r.memory, accountIdentifier: r.accountIdentifier }));
     return { items, total };
@@ -1462,20 +1465,17 @@ export class MemoryService {
 
   /** Phase 9: Get memories related to a given memory (via links + vector similarity) */
   async getRelated(memoryId: string, limit = 20) {
-    const db = this.dbService.db;
     const memory = await this.getById(memoryId);
     if (!memory) return { items: [], source: null };
 
     // 1. Direct graph links (memoryLinks table)
     const linkedIds = new Set<string>();
-    const outLinks = await db
-      .select()
-      .from(memoryLinks)
-      .where(eq(memoryLinks.srcMemoryId, memoryId));
-    const inLinks = await db
-      .select()
-      .from(memoryLinks)
-      .where(eq(memoryLinks.dstMemoryId, memoryId));
+    const outLinks = await this.dbService.withCurrentUser((db) =>
+      db.select().from(memoryLinks).where(eq(memoryLinks.srcMemoryId, memoryId)),
+    );
+    const inLinks = await this.dbService.withCurrentUser((db) =>
+      db.select().from(memoryLinks).where(eq(memoryLinks.dstMemoryId, memoryId)),
+    );
     for (const l of [...outLinks, ...inLinks]) {
       linkedIds.add(l.srcMemoryId === memoryId ? l.dstMemoryId : l.srcMemoryId);
     }
@@ -1485,18 +1485,22 @@ export class MemoryService {
     for (const r of recommended) linkedIds.add(r.id);
 
     // 3. Same-contact memories (shared participants)
-    const contactLinks = await db
-      .select({ contactId: memoryContacts.contactId })
-      .from(memoryContacts)
-      .where(eq(memoryContacts.memoryId, memoryId));
+    const contactLinks = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ contactId: memoryContacts.contactId })
+        .from(memoryContacts)
+        .where(eq(memoryContacts.memoryId, memoryId)),
+    );
     const contactIdList = contactLinks.map((c) => c.contactId);
 
     if (contactIdList.length > 0) {
-      const coMemories = await db
-        .select({ memoryId: memoryContacts.memoryId })
-        .from(memoryContacts)
-        .where(inArray(memoryContacts.contactId, contactIdList))
-        .limit(limit * 2);
+      const coMemories = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ memoryId: memoryContacts.memoryId })
+          .from(memoryContacts)
+          .where(inArray(memoryContacts.contactId, contactIdList))
+          .limit(limit * 2),
+      );
       for (const cm of coMemories) {
         if (cm.memoryId !== memoryId) linkedIds.add(cm.memoryId);
       }
@@ -1552,26 +1556,27 @@ export class MemoryService {
 
   /** Phase 10: Search entities across all memories */
   async searchEntities(query: string, limit = 50, types?: string[]) {
-    const db = this.dbService.db;
     const queryLower = query.toLowerCase();
 
     // Search in entities JSON column
-    const rows = await db
-      .select({
-        id: memories.id,
-        entities: memories.entities,
-        connectorType: memories.connectorType,
-        sourceType: memories.sourceType,
-        eventTime: memories.eventTime,
-      })
-      .from(memories)
-      .where(
-        and(
-          eq(memories.embeddingStatus, 'done'),
-          sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
-        ),
-      )
-      .limit(limit * 5);
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({
+          id: memories.id,
+          entities: memories.entities,
+          connectorType: memories.connectorType,
+          sourceType: memories.sourceType,
+          eventTime: memories.eventTime,
+        })
+        .from(memories)
+        .where(
+          and(
+            eq(memories.embeddingStatus, 'done'),
+            sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
+          ),
+        )
+        .limit(limit * 5),
+    );
 
     // Extract and aggregate matching entities
     const entityMap = new Map<
@@ -1632,28 +1637,29 @@ export class MemoryService {
 
   /** Phase 10: Get entity details with related memories and co-occurring entities */
   async getEntityGraph(entityValue: string, limit = 30) {
-    const db = this.dbService.db;
     const queryLower = entityValue.toLowerCase();
 
     // Find memories containing this entity
-    const rows = await db
-      .select({
-        id: memories.id,
-        text: memories.text,
-        entities: memories.entities,
-        connectorType: memories.connectorType,
-        sourceType: memories.sourceType,
-        eventTime: memories.eventTime,
-      })
-      .from(memories)
-      .where(
-        and(
-          eq(memories.embeddingStatus, 'done'),
-          sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
-        ),
-      )
-      .orderBy(sql`${memories.eventTime} DESC`)
-      .limit(limit);
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({
+          id: memories.id,
+          text: memories.text,
+          entities: memories.entities,
+          connectorType: memories.connectorType,
+          sourceType: memories.sourceType,
+          eventTime: memories.eventTime,
+        })
+        .from(memories)
+        .where(
+          and(
+            eq(memories.embeddingStatus, 'done'),
+            sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
+          ),
+        )
+        .orderBy(sql`${memories.eventTime} DESC`)
+        .limit(limit),
+    );
 
     // Collect co-occurring entities
     const coEntities = new Map<string, { value: string; type: string; count: number }>();
@@ -1690,11 +1696,13 @@ export class MemoryService {
     const relatedEntities = [...coEntities.values()].sort((a, b) => b.count - a.count).slice(0, 20);
 
     // Also check contacts matching this entity
-    const matchingContacts = await db
-      .select({ id: contacts.id, displayName: contacts.displayName })
-      .from(contacts)
-      .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryLower + '%'}`)
-      .limit(10);
+    const matchingContacts = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ id: contacts.id, displayName: contacts.displayName })
+        .from(contacts)
+        .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryLower + '%'}`)
+        .limit(10),
+    );
 
     return {
       entity: entityValue,
