@@ -58,6 +58,23 @@ export function DashboardPage() {
     <PageContainer>
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
 
+      {memoryStats?.needsRelogin && (
+        <div className="mt-4 px-5 py-4 border-2 border-yellow-400 bg-yellow-400/20 font-display text-base text-yellow-300 text-center">
+          <span className="text-xl mr-2">&#x1F512;</span>
+          Your encryption key is not loaded. Please{' '}
+          <button
+            onClick={() => {
+              localStorage.clear();
+              window.location.href = '/login';
+            }}
+            className="underline font-bold cursor-pointer text-yellow-100 hover:text-white"
+          >
+            log out and log back in
+          </button>{' '}
+          to decrypt your memories.
+        </div>
+      )}
+
       <div className="mt-4" style={{ minHeight: 560 }}>
         {activeTab === 'overview' && (
           <>

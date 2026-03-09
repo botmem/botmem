@@ -148,6 +148,12 @@ export class MemoryService {
     return this.crypto.decryptMemoryFields(mem);
   }
 
+  /** Check if user has encrypted memories but no decryption key in memory (server restarted). */
+  needsRelogin(userId?: string): boolean {
+    if (!userId) return false;
+    return !this.userKeyService.hasKey(userId);
+  }
+
   /** Invalidate contacts cache (call after contact writes) */
   invalidateContactsCache() {
     this.contactsCache = null;
