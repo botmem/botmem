@@ -650,8 +650,7 @@ export class MemoryService {
     // User isolation
     const userAccountIds = await this.getUserAccountIds(params.userId);
 
-    // Show all memories regardless of embedding status
-    const conditions: any[] = [];
+    const conditions: any[] = [eq(memories.embeddingStatus, 'done')];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return { items: [], total: 0 };
       conditions.push(inArray(memories.accountId, userAccountIds));

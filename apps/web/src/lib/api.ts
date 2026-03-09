@@ -287,6 +287,13 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Retry failed/pending memories through full pipeline
+  retryFailedMemories: (limit?: number) =>
+    request<{ enqueued: number; errors: number; total: number }>(
+      `/memories/retry-failed${limit ? `?limit=${limit}` : ''}`,
+      { method: 'POST' },
+    ),
+
   // Backfill
   backfillEnrich: (connectorType?: string) =>
     request<{ jobId: string | null; enqueued: number; total: number; message?: string }>(

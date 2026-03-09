@@ -36,6 +36,7 @@ export function MemoryExplorerPage() {
   // Backfill state
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
+  const [retryLoading, setRetryLoading] = useState(false);
 
   // Reset visibleCount when filters/query change (synchronous state adjustment during render)
   if (prevQueryRef.current !== query || prevSourceRef.current !== filters.source) {
@@ -69,6 +70,24 @@ export function MemoryExplorerPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [visibleCount, filtered.length]);
+
+  const handleRetryFailed = useCallback(async () => {
+    setRetryLoading(true);
+    setBackfillMessage(null);
+    try {
+      const result = await api.retryFailedMemories();
+      setBackfillMessage(
+        result.enqueued > 0
+          ? `Retrying ${result.enqueued} failed memories`
+          : 'No failed memories to retry',
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to retry';
+      setBackfillMessage(`Error: ${msg}`);
+    } finally {
+      setRetryLoading(false);
+    }
+  }, []);
 
   const handleBackfillEnrich = useCallback(async () => {
     setBackfillLoading(true);
@@ -111,6 +130,13 @@ export function MemoryExplorerPage() {
                 availableSources={ALL_SOURCES}
               />
             </div>
+            <button
+              onClick={handleRetryFailed}
+              disabled={retryLoading}
+              className="shrink-0 rounded-lg border border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {retryLoading ? 'Retrying...' : 'Retry Failed'}
+            </button>
             <button
               onClick={handleBackfillEnrich}
               disabled={backfillLoading}
