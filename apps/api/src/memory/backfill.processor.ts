@@ -26,9 +26,9 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[backfill worker] ${err.message}`));
-    const concurrency = parseInt(this.settingsService.get('backfill_concurrency'), 10) || 2;
+    const concurrency = parseInt(await this.settingsService.get('backfill_concurrency'), 10) || 2;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -75,26 +75,24 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      db.update(memories)
+      await db.update(memories)
         .set({
           text: decrypted.text,
           entities: decrypted.entities,
           claims: decrypted.claims,
           metadata: decrypted.metadata,
         })
-        .where(eq(memories.id, memoryId))
-        .run();
+        .where(eq(memories.id, memoryId));
     }
 
     // Run enrichment
     await this.enrichService.enrich(memoryId);
 
     // Re-encrypt + set enrichedAt
-    this.encryptMemoryAtRest(memoryId);
-    db.update(memories)
-      .set({ enrichedAt: new Date().toISOString() })
-      .where(eq(memories.id, memoryId))
-      .run();
+    await this.encryptMemoryAtRest(memoryId);
+    await db.update(memories)
+      .set({ enrichedAt: new Date() })
+      .where(eq(memories.id, memoryId));
 
     await this.advanceAndComplete(jobId);
     return { memoryId, enriched: true };
@@ -132,9 +130,9 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
   // ---- Shared helpers ----
 
-  private encryptMemoryAtRest(memoryId: string) {
+  private async encryptMemoryAtRest(memoryId: string) {
     try {
-      const [mem] = this.dbService.db
+      const rows = await this.dbService.db
         .select({
           text: memories.text,
           entities: memories.entities,
@@ -142,9 +140,9 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
           metadata: memories.metadata,
         })
         .from(memories)
-        .where(eq(memories.id, memoryId))
-        .all();
-      if (!mem) return;
+        .where(eq(memories.id, memoryId));
+      if (!rows.length) return;
+      const mem = rows[0];
 
       const enc = this.crypto.encryptMemoryFields({
         text: mem.text,
@@ -152,11 +150,10 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      this.dbService.db
+      await this.dbService.db
         .update(memories)
         .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
-        .where(eq(memories.id, memoryId))
-        .run();
+        .where(eq(memories.id, memoryId));
     } catch (err: any) {
       this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
     }

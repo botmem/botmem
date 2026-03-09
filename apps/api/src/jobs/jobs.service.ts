@@ -18,7 +18,7 @@ export class JobsService {
 
   async triggerSync(accountId: string, connectorType: string, accountIdentifier?: string) {
     const id = crypto.randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
 
     await this.db.insert(jobs).values({
       id,
@@ -61,8 +61,11 @@ export class JobsService {
     return job || null;
   }
 
-  async updateJob(id: string, data: Partial<{ status: string; progress: number; total: number; error: string; startedAt: string; completedAt: string }>) {
-    await this.db.update(jobs).set(data).where(eq(jobs.id, id));
+  async updateJob(id: string, data: Partial<{ status: string; progress: number; total: number; error: string; startedAt: Date | string; completedAt: Date | string }>) {
+    const toSet: any = { ...data };
+    if (data.startedAt) toSet.startedAt = data.startedAt instanceof Date ? data.startedAt : new Date(data.startedAt);
+    if (data.completedAt) toSet.completedAt = data.completedAt instanceof Date ? data.completedAt : new Date(data.completedAt);
+    await this.db.update(jobs).set(toSet).where(eq(jobs.id, id));
   }
 
   async deleteJob(id: string) {
@@ -70,14 +73,14 @@ export class JobsService {
   }
 
   async cancel(id: string) {
-    await this.db.update(jobs).set({ status: 'cancelled', completedAt: new Date().toISOString() }).where(eq(jobs.id, id));
+    await this.db.update(jobs).set({ status: 'cancelled', completedAt: new Date() }).where(eq(jobs.id, id));
     const bullJob = await this.syncQueue.getJob(id);
     if (bullJob) await bullJob.remove();
   }
 
   /**
    * Increment job progress by 1 and return the updated job.
-   * Does NOT auto-mark the job as done — that's handled by tryCompleteJob().
+   * Does NOT auto-mark the job as done -- that's handled by tryCompleteJob().
    */
   async incrementProgress(jobId: string): Promise<{ progress: number; total: number; done: boolean }> {
     await this.db.update(jobs)
@@ -107,7 +110,7 @@ export class JobsService {
     await this.db.update(jobs).set({
       status: 'done',
       progress: job.total,
-      completedAt: new Date().toISOString(),
+      completedAt: new Date(),
     }).where(eq(jobs.id, jobId));
 
     return true;
@@ -124,22 +127,20 @@ export class JobsService {
     for (const job of running) {
       const bullJob = await this.syncQueue.getJob(job.id);
 
-      // Sync BullMQ job still active or completed successfully → pipeline is working
       if (bullJob) {
         const isActive = await bullJob.isActive();
         const isCompleted = await bullJob.isCompleted();
         if (isActive || isCompleted) continue;
       }
 
-      // Sync job failed or was removed — check if it's been stale for >5 min
       const startedAt = job.startedAt ? new Date(job.startedAt).getTime() : 0;
-      const staleThreshold = 5 * 60 * 1000; // 5 minutes
+      const staleThreshold = 5 * 60 * 1000;
       if (Date.now() - startedAt < staleThreshold) continue;
 
       await this.db.update(jobs).set({
         status: 'failed',
-        error: job.error || 'Pipeline stalled — sync finished but not all items were processed',
-        completedAt: job.completedAt || new Date().toISOString(),
+        error: job.error || 'Pipeline stalled -- sync finished but not all items were processed',
+        completedAt: job.completedAt || new Date(),
       }).where(eq(jobs.id, job.id));
       marked++;
     }

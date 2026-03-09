@@ -162,8 +162,8 @@ export function PipelineLogFeed({ logs }: PipelineLogFeedProps) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((log) => (
-              <PipelineLogRow key={log.id} entry={log} />
+            {filtered.map((log, idx) => (
+              <PipelineLogRow key={`${log.id}-${idx}`} entry={log} />
             ))}
           </tbody>
         </table>

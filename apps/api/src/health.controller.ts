@@ -24,8 +24,8 @@ export class HealthController {
 
   @Get()
   async getHealth() {
-    const [sqliteResult, redisResult, qdrantResult] = await Promise.allSettled([
-      this.probeSqlite(),
+    const [postgresResult, redisResult, qdrantResult] = await Promise.allSettled([
+      this.probePostgres(),
       this.probeRedis(),
       this.probeQdrant(),
     ]);
@@ -33,17 +33,16 @@ export class HealthController {
     return {
       status: 'ok',
       services: {
-        sqlite: { connected: sqliteResult.status === 'fulfilled' && sqliteResult.value },
+        postgres: { connected: postgresResult.status === 'fulfilled' && postgresResult.value },
         redis: { connected: redisResult.status === 'fulfilled' && redisResult.value },
         qdrant: { connected: qdrantResult.status === 'fulfilled' && qdrantResult.value },
       },
     };
   }
 
-  private async probeSqlite(): Promise<boolean> {
+  private async probePostgres(): Promise<boolean> {
     try {
-      this.db.sqlite.prepare('SELECT 1').get();
-      return true;
+      return await this.db.healthCheck();
     } catch {
       return false;
     }

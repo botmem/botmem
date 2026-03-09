@@ -118,8 +118,8 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
       </div>
 
       <div className="max-h-[360px] overflow-y-auto">
-        {filtered.map((job) => (
-          <JobRow key={job.id} job={job} onCancel={onCancel} onMove={onMove} />
+        {filtered.map((job, idx) => (
+          <JobRow key={`${job.id}-${idx}`} job={job} onCancel={onCancel} onMove={onMove} />
         ))}
         {filtered.length === 0 && (
           <div className="py-8 text-center">

@@ -29,10 +29,29 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   afterInit() {
     this.events.on('ws:broadcast', ({ channel, event, data }) => {
-      const message = JSON.stringify({ channel, event, data });
-      for (const [client, channels] of this.subscriptions) {
-        if (channels.has(channel) && client.readyState === WebSocket.OPEN) {
-          client.send(message);
+      try {
+        const message = JSON.stringify({ channel, event, data });
+        for (const [client, channels] of this.subscriptions) {
+          if (channels.has(channel) && client.readyState === WebSocket.OPEN) {
+            client.send(message);
+          }
+        }
+      } catch {
+        // Circular reference or non-serializable object in data
+        // Send a sanitized version with error message
+        const sanitized = {
+          channel,
+          event,
+          data: {
+            _error: 'Data contains non-serializable content',
+            _type: typeof data,
+          },
+        };
+        const message = JSON.stringify(sanitized);
+        for (const [client, channels] of this.subscriptions) {
+          if (channels.has(channel) && client.readyState === WebSocket.OPEN) {
+            client.send(message);
+          }
         }
       }
     });

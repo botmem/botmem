@@ -44,7 +44,7 @@ export class ApiKeysService {
 
     const { raw, hash, lastFour } = this.generateKey();
     const id = randomBytes(16).toString('hex');
-    const now = new Date().toISOString();
+    const now = new Date();
 
     await db.insert(schema.apiKeys).values({
       id,
@@ -53,7 +53,7 @@ export class ApiKeysService {
       keyHash: hash,
       lastFour,
       memoryBankIds: null,
-      expiresAt: expiresAt || null,
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
       revokedAt: null,
       createdAt: now,
     });
@@ -79,10 +79,9 @@ export class ApiKeysService {
 
   async revoke(userId: string, keyId: string) {
     const db = this.dbService.db;
-    const now = new Date().toISOString();
     const result = await db
       .update(schema.apiKeys)
-      .set({ revokedAt: now })
+      .set({ revokedAt: new Date() })
       .where(and(eq(schema.apiKeys.id, keyId), eq(schema.apiKeys.userId, userId)));
     return result;
   }

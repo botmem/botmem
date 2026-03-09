@@ -45,7 +45,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[clean worker] ${err.message}`));
-    const concurrency = parseInt(this.settingsService.get('clean_concurrency'), 10) || 32;
+    const concurrency = parseInt(await this.settingsService.get('clean_concurrency'), 10) || 32;
     this.worker.concurrency = concurrency;
     this.settingsService.onChange((key, value) => {
       if (key === 'clean_concurrency') {
@@ -308,7 +308,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
       stage,
       level,
       message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     });
   }
 }

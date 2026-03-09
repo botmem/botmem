@@ -184,44 +184,49 @@ export class ContactsService {
     // Add any new identifiers that don't already exist.
     // The contact may be deleted by a concurrent merge — if so, find where
     // our identifiers ended up and switch to that contact.
-    try {
-      const existingIdents = await db
-        .select()
-        .from(contactIdentifiers)
-        .where(eq(contactIdentifiers.contactId, contactId));
+    let identInsertAttempts = 0;
+    while (identInsertAttempts < 3) {
+      try {
+        const existingIdents = await db
+          .select()
+          .from(contactIdentifiers)
+          .where(eq(contactIdentifiers.contactId, contactId));
 
-      for (const ident of identifiers) {
-        const exists = existingIdents.some(
-          (e) => e.identifierType === ident.type && e.identifierValue === ident.value,
-        );
-        if (!exists) {
-          await db.insert(contactIdentifiers).values({
-            id: randomUUID(),
-            contactId,
-            identifierType: ident.type,
-            identifierValue: ident.value,
-            connectorType: ident.connectorType || null,
-            createdAt: new Date(),
-          });
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === '23503') {
-        // Contact was merged/deleted concurrently — find where identifiers went
-        const probe = identifiers.find((i) => i.type !== 'name') || identifiers[0];
-        if (probe) {
-          const rows = await db
-            .select({ contactId: contactIdentifiers.contactId })
-            .from(contactIdentifiers)
-            .where(
-              sql`${contactIdentifiers.identifierType} = ${probe.type} AND ${contactIdentifiers.identifierValue} = ${probe.value}`,
-            )
-            .limit(1);
-          if (rows.length) {
-            contactId = rows[0].contactId;
+        for (const ident of identifiers) {
+          const exists = existingIdents.some(
+            (e) => e.identifierType === ident.type && e.identifierValue === ident.value,
+          );
+          if (!exists) {
+            await db.insert(contactIdentifiers).values({
+              id: randomUUID(),
+              contactId,
+              identifierType: ident.type,
+              identifierValue: ident.value,
+              connectorType: ident.connectorType || null,
+              createdAt: new Date(),
+            });
           }
         }
-      } else {
+        break; // Success
+      } catch (err: any) {
+        identInsertAttempts++;
+        if (err?.code === '23503' && identInsertAttempts < 3) {
+          // Contact was merged/deleted concurrently — find where identifiers went
+          const probe = identifiers.find((i) => i.type !== 'name') || identifiers[0];
+          if (probe) {
+            const rows = await db
+              .select({ contactId: contactIdentifiers.contactId })
+              .from(contactIdentifiers)
+              .where(
+                sql`${contactIdentifiers.identifierType} = ${probe.type} AND ${contactIdentifiers.identifierValue} = ${probe.value}`,
+              )
+              .limit(1);
+            if (rows.length) {
+              contactId = rows[0].contactId;
+              continue; // Retry with the new contactId
+            }
+          }
+        }
         throw err;
       }
     }
@@ -519,87 +524,101 @@ export class ContactsService {
   async mergeContacts(targetId: string, sourceId: string): Promise<ContactWithIdentifiers> {
     const db = this.dbService.db;
 
-    // Run the entire merge atomically in a PostgreSQL transaction to prevent
-    // race conditions when concurrent embed workers merge the same contacts.
-    await db.transaction(async (tx) => {
-      const targetRows = await tx.select().from(contacts).where(eq(contacts.id, targetId));
-      const sourceRows = await tx.select().from(contacts).where(eq(contacts.id, sourceId));
+    // Retry on deadlock up to 3 times
+    let lastError: any;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await db.transaction(async (tx) => {
+          const targetRows = await tx.select().from(contacts).where(eq(contacts.id, targetId));
+          const sourceRows = await tx.select().from(contacts).where(eq(contacts.id, sourceId));
 
-      if (!targetRows.length || !sourceRows.length) return; // Either side already merged/deleted -- nothing to do
+          if (!targetRows.length || !sourceRows.length) return; // Either side already merged/deleted -- nothing to do
 
-      const target = targetRows[0];
-      const source = sourceRows[0];
+          const target = targetRows[0];
+          const source = sourceRows[0];
 
-      // Merge avatars (target first, then source, dedup by url)
-      const targetAvatars: Array<{ url: string; source: string }> =
-        (target.avatars as Array<{ url: string; source: string }>) || [];
-      const sourceAvatars: Array<{ url: string; source: string }> =
-        (source.avatars as Array<{ url: string; source: string }>) || [];
-      const seenUrls = new Set(targetAvatars.map((a) => a.url));
-      for (const avatar of sourceAvatars) {
-        if (!seenUrls.has(avatar.url)) {
-          targetAvatars.push(avatar);
-          seenUrls.add(avatar.url);
+          // Merge avatars (target first, then source, dedup by url)
+          const targetAvatars: Array<{ url: string; source: string }> =
+            (target.avatars as Array<{ url: string; source: string }>) || [];
+          const sourceAvatars: Array<{ url: string; source: string }> =
+            (source.avatars as Array<{ url: string; source: string }>) || [];
+          const seenUrls = new Set(targetAvatars.map((a) => a.url));
+          for (const avatar of sourceAvatars) {
+            if (!seenUrls.has(avatar.url)) {
+              targetAvatars.push(avatar);
+              seenUrls.add(avatar.url);
+            }
+          }
+
+          // Keep the longer displayName
+          const displayName =
+            source.displayName.length > target.displayName.length
+              ? source.displayName
+              : target.displayName;
+
+          // Move all identifiers from source to target
+          await tx
+            .update(contactIdentifiers)
+            .set({ contactId: targetId })
+            .where(eq(contactIdentifiers.contactId, sourceId));
+
+          // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
+          const sourceMemLinks = await tx
+            .select()
+            .from(memoryContacts)
+            .where(eq(memoryContacts.contactId, sourceId));
+          const targetMemLinks = await tx
+            .select()
+            .from(memoryContacts)
+            .where(eq(memoryContacts.contactId, targetId));
+          const targetMemKeys = new Set(targetMemLinks.map((m: any) => `${m.memoryId}::${m.role}`));
+
+          for (const link of sourceMemLinks) {
+            if (targetMemKeys.has(`${link.memoryId}::${link.role}`)) {
+              await tx.delete(memoryContacts).where(eq(memoryContacts.id, link.id));
+            }
+          }
+
+          // Move remaining source memoryContacts to target
+          await tx
+            .update(memoryContacts)
+            .set({ contactId: targetId })
+            .where(eq(memoryContacts.contactId, sourceId));
+
+          // Update target contact
+          await tx
+            .update(contacts)
+            .set({
+              displayName,
+              avatars: targetAvatars,
+              updatedAt: new Date(),
+            })
+            .where(eq(contacts.id, targetId));
+
+          // Clean up dismissals referencing source
+          await tx
+            .delete(mergeDismissals)
+            .where(
+              or(eq(mergeDismissals.contactId1, sourceId), eq(mergeDismissals.contactId2, sourceId))!,
+            );
+
+          // Delete source contact -- safe now since all children have been moved
+          await tx.delete(contacts).where(eq(contacts.id, sourceId));
+        });
+        // Success — return
+        return this.getById(targetId) as Promise<ContactWithIdentifiers>;
+      } catch (err: any) {
+        lastError = err;
+        // Deadlock error code in PostgreSQL is 40P01
+        if (err?.code === '40P01' && attempt < 3) {
+          // Wait a small amount before retrying
+          await new Promise((r) => setTimeout(r, Math.random() * 100 + 50 * attempt));
+          continue;
         }
+        throw err;
       }
-
-      // Keep the longer displayName
-      const displayName =
-        source.displayName.length > target.displayName.length
-          ? source.displayName
-          : target.displayName;
-
-      // Move all identifiers from source to target
-      await tx
-        .update(contactIdentifiers)
-        .set({ contactId: targetId })
-        .where(eq(contactIdentifiers.contactId, sourceId));
-
-      // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
-      const sourceMemLinks = await tx
-        .select()
-        .from(memoryContacts)
-        .where(eq(memoryContacts.contactId, sourceId));
-      const targetMemLinks = await tx
-        .select()
-        .from(memoryContacts)
-        .where(eq(memoryContacts.contactId, targetId));
-      const targetMemKeys = new Set(targetMemLinks.map((m: any) => `${m.memoryId}::${m.role}`));
-
-      for (const link of sourceMemLinks) {
-        if (targetMemKeys.has(`${link.memoryId}::${link.role}`)) {
-          await tx.delete(memoryContacts).where(eq(memoryContacts.id, link.id));
-        }
-      }
-
-      // Move remaining source memoryContacts to target
-      await tx
-        .update(memoryContacts)
-        .set({ contactId: targetId })
-        .where(eq(memoryContacts.contactId, sourceId));
-
-      // Update target contact
-      await tx
-        .update(contacts)
-        .set({
-          displayName,
-          avatars: targetAvatars,
-          updatedAt: new Date(),
-        })
-        .where(eq(contacts.id, targetId));
-
-      // Clean up dismissals referencing source
-      await tx
-        .delete(mergeDismissals)
-        .where(
-          or(eq(mergeDismissals.contactId1, sourceId), eq(mergeDismissals.contactId2, sourceId))!,
-        );
-
-      // Delete source contact -- safe now since all children have been moved
-      await tx.delete(contacts).where(eq(contacts.id, sourceId));
-    });
-
-    return this.getById(targetId) as Promise<ContactWithIdentifiers>;
+    }
+    throw lastError;
   }
 
   async deleteContact(id: string): Promise<void> {

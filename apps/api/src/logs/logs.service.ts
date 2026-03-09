@@ -21,7 +21,7 @@ export class LogsService {
       stage: data.stage || null,
       level: data.level,
       message: data.message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     });
   }
 

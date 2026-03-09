@@ -30,11 +30,10 @@ export class AuthService {
 
   async getSavedCredentials(connectorType: string): Promise<Record<string, unknown> | null> {
     try {
-      const row = this.dbService.db
+      const [row] = await this.dbService.db
         .select()
         .from(connectorCredentials)
-        .where(eq(connectorCredentials.connectorType, connectorType))
-        .get();
+        .where(eq(connectorCredentials.connectorType, connectorType));
       if (!row) return null;
       const decrypted = this.crypto.decrypt(row.credentials) || row.credentials;
       const parsed = JSON.parse(decrypted);
@@ -48,7 +47,7 @@ export class AuthService {
     }
   }
 
-  private saveCredentials(connectorType: string, config: Record<string, unknown>) {
+  private async saveCredentials(connectorType: string, config: Record<string, unknown>) {
     const connector = this.connectors.get(connectorType);
     if (connector.manifest.authType !== 'oauth2') return;
 
@@ -58,16 +57,15 @@ export class AuthService {
     }
     if (Object.keys(toSave).length === 0) return;
 
-    const now = new Date().toISOString();
+    const now = new Date();
     const encrypted = this.crypto.encrypt(JSON.stringify(toSave))!;
-    this.dbService.db
+    await this.dbService.db
       .insert(connectorCredentials)
       .values({ connectorType, credentials: encrypted, updatedAt: now })
       .onConflictDoUpdate({
         target: connectorCredentials.connectorType,
         set: { credentials: encrypted, updatedAt: now },
-      })
-      .run();
+      });
   }
 
   /** Create account, validate auth, trigger first sync. Returns existing account if already connected. */
@@ -80,12 +78,9 @@ export class AuthService {
     this.logger.log(
       `[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}, userId=${userId}`,
     );
-    // Acquire lock BEFORE any async work — JS is single-threaded so this
-    // synchronous check+set is atomic (no await between has() and add())
     const lockKey = `${connectorType}:${identifier}`;
     if (this.creatingAccounts.has(lockKey)) {
       this.logger.warn(`[Auth] createAndSync: lock already held for ${lockKey}, waiting...`);
-      // Instead of throwing, wait briefly and return existing account
       await new Promise((r) => setTimeout(r, 2000));
       const existing = await this.accountsService.findByTypeAndIdentifier(
         connectorType,
@@ -98,14 +93,12 @@ export class AuthService {
     this.creatingAccounts.add(lockKey);
 
     try {
-      // Prevent duplicate accounts for the same connector + identifier FOR THIS USER
       const existing = await this.accountsService.findByTypeAndIdentifier(
         connectorType,
         identifier,
         userId,
       );
       if (existing) {
-        // Update auth context and re-sync instead of throwing
         await this.accountsService.update(existing.id, {
           authContext: JSON.stringify(auth),
           status: 'connected',
@@ -117,7 +110,7 @@ export class AuthService {
       const connector = this.connectors.get(connectorType);
       const valid = await connector.validateAuth(auth);
       if (!valid) {
-        throw new BadRequestException('Authentication failed — check your credentials');
+        throw new BadRequestException('Authentication failed -- check your credentials');
       }
 
       const account = await this.accountsService.create({
@@ -132,11 +125,7 @@ export class AuthService {
         auth_type: connector.manifest.authType,
       });
 
-      // Small delay before triggering sync — gives WhatsApp auth socket time to be stored
-      // so the sync processor can pick it up for history capture
       await new Promise((r) => setTimeout(r, 1000));
-
-      // Trigger first sync automatically
       await this.jobsService.triggerSync(account.id, connectorType, identifier);
 
       return account;
@@ -156,7 +145,7 @@ export class AuthService {
     try {
       result = await connector.initiateAuth(mergedConfig);
     } catch (err: any) {
-      throw new BadRequestException(err.message || 'Failed to connect — check your configuration');
+      throw new BadRequestException(err.message || 'Failed to connect -- check your configuration');
     }
 
     if (result.type === 'complete') {
@@ -175,7 +164,6 @@ export class AuthService {
     }
 
     if (result.type === 'qr-code') {
-      // Listen for the connector's 'connected' event (fires when user scans QR)
       this.listenForQrCompletion(connector, connectorType, result.wsChannel, userId);
 
       return {
@@ -191,22 +179,19 @@ export class AuthService {
       userId,
     });
 
-    this.saveCredentials(connectorType, mergedConfig);
+    await this.saveCredentials(connectorType, mergedConfig);
 
     return { type: 'redirect' as const, url: result.url };
   }
 
-  // Track active QR listeners per connector to prevent duplicate account creation
   private activeQrListeners = new Map<string, boolean>();
 
-  /** After returning QR to frontend, listen for the connector's 'connected' event */
   private listenForQrCompletion(
     connector: any,
     connectorType: string,
     wsChannel: string,
     userId?: string,
   ) {
-    // Remove any previous listeners for this connector type
     if (this.activeQrListeners.get(connectorType)) {
       connector.removeAllListeners('connected');
     }
@@ -217,7 +202,6 @@ export class AuthService {
       this.logger.log(
         `[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`,
       );
-      // Guard against duplicate connected events
       if (handled) {
         this.logger.warn(`[Auth] Ignoring duplicate 'connected' event for ${connectorType}`);
         return;
@@ -226,7 +210,6 @@ export class AuthService {
       this.activeQrListeners.delete(connectorType);
       connector.removeListener('connected', handler);
 
-      // Step 1: QR scanned, device linked
       this.events.emitToChannel(wsChannel, 'auth:status', {
         status: 'connecting',
         step: 'Device linked, connecting...',
@@ -238,7 +221,6 @@ export class AuthService {
         const identifier = jid.split('@')[0]?.split(':')[0] || connectorType;
         this.logger.log(`[Auth] Creating account for ${connectorType} identifier=${identifier}`);
 
-        // Step 2: Creating account
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'connecting',
           step: `Connected as ${identifier}, setting up...`,
@@ -252,7 +234,6 @@ export class AuthService {
         );
         this.logger.log(`[Auth] Account created: id=${account.id}, identifier=${identifier}`);
 
-        // Step 3: Done — broadcast completion
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'success',
           step: 'Connected! Starting sync...',
@@ -273,7 +254,6 @@ export class AuthService {
 
     connector.on('connected', handler);
 
-    // Forward QR refreshes to the frontend
     const qrHandler = (payload: { wsChannel: string; qrData: string }) => {
       if (payload.wsChannel === wsChannel) {
         this.events.emitToChannel(wsChannel, 'auth:status', {
@@ -284,7 +264,6 @@ export class AuthService {
     };
     connector.on('qr:update', qrHandler);
 
-    // Clean up listeners after 5 minutes (timeout)
     setTimeout(
       () => {
         connector.removeListener('connected', handler);
