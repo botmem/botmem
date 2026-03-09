@@ -47,21 +47,6 @@ export const jobs = pgTable('jobs', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });
 
-export const logs = pgTable(
-  'logs',
-  {
-    id: text('id').primaryKey(),
-    jobId: text('job_id'),
-    connectorType: text('connector_type').notNull(),
-    accountId: text('account_id'),
-    stage: text('stage'),
-    level: text('level').notNull(),
-    message: text('message').notNull(),
-    timestamp: timestamp('timestamp', { withTimezone: true }).notNull(),
-  },
-  (table) => [index('idx_logs_job_id').on(table.jobId)],
-);
-
 export const connectorCredentials = pgTable('connector_credentials', {
   connectorType: text('connector_type').primaryKey(),
   credentials: text('credentials').notNull(), // encrypted JSON -- stays text
