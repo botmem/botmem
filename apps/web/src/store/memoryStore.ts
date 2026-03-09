@@ -129,7 +129,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     set({ loading: true });
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
-      const result = await api.listMemories({ limit: 100, memoryBankId: bankId || undefined });
+      const result = await api.listMemories({ limit: 500, memoryBankId: bankId || undefined });
       const mems = result.items.map(apiMemoryToShared);
       set({
         memories: mems,
