@@ -21,6 +21,10 @@ RUN echo "shamefully-hoist=true" > .npmrc && \
 FROM deps AS build
 COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=2048"
+ARG VITE_POSTHOG_API_KEY
+ARG VITE_POSTHOG_HOST=https://eu.i.posthog.com
+ENV VITE_POSTHOG_API_KEY=$VITE_POSTHOG_API_KEY
+ENV VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
 RUN pnpm --filter @botmem/shared run build && \
     pnpm --filter @botmem/connector-sdk run build && \
     pnpm --filter @botmem/connector-gmail run build && \
