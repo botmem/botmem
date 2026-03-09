@@ -8,6 +8,13 @@
       "when": 1773046343972,
       "tag": "0000_sticky_starfox",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773061800000,
+      "tag": "0001_add_firebase_uid",
+      "breakpoints": true
     }
   ]
 }
