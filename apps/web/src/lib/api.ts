@@ -84,8 +84,11 @@ export const api = {
   // Jobs
   listJobs: (accountId?: string) =>
     request<{ jobs: any[] }>(`/jobs${accountId ? `?accountId=${accountId}` : ''}`),
-  triggerSync: (accountId: string) =>
-    request<{ job: any }>(`/jobs/sync/${accountId}`, { method: 'POST' }),
+  triggerSync: (accountId: string, memoryBankId?: string) =>
+    request<{ job: any }>(`/jobs/sync/${accountId}`, {
+      method: 'POST',
+      body: JSON.stringify({ memoryBankId: memoryBankId || undefined }),
+    }),
   cancelJob: (id: string) => request<any>(`/jobs/${id}`, { method: 'DELETE' }),
   retryFailedJobs: () =>
     request<{ ok: boolean; retried: number }>('/jobs/retry-failed', { method: 'POST' }),
@@ -248,10 +251,14 @@ export const api = {
         revokedAt: string | null;
       }>
     >('/api-keys'),
-  createApiKey: (name: string, expiresAt?: string) =>
+  createApiKey: (name: string, expiresAt?: string, memoryBankIds?: string[]) =>
     request<{ key: string; id: string; name: string; lastFour: string }>('/api-keys', {
       method: 'POST',
-      body: JSON.stringify({ name, expiresAt: expiresAt || undefined }),
+      body: JSON.stringify({
+        name,
+        expiresAt: expiresAt || undefined,
+        memoryBankIds: memoryBankIds?.length ? memoryBankIds : undefined,
+      }),
     }),
   revokeApiKey: (id: string) =>
     request<{ success: boolean }>(`/api-keys/${id}`, { method: 'DELETE' }),
