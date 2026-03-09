@@ -83,7 +83,7 @@ export function DashboardPage() {
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
                   <p className="font-display text-sm text-nb-muted text-center max-w-xs">
-                    Enter your recovery key to unlock your data
+                    Enter your recovery key to access your data
                   </p>
                   <button
                     onClick={() => setReauthOpen(true)}

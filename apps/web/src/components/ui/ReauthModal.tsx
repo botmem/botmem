@@ -38,8 +38,7 @@ export function ReauthModal({ open, onClose }: ReauthModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Unlock Memories">
       <p className="font-mono text-sm text-nb-muted mb-4">
-        Your encryption key is not cached. Enter the recovery key you saved during signup to unlock
-        your memories.
+        Enter the recovery key you saved when you created your account to access your memories.
       </p>
       <form onSubmit={handleSubmit}>
         <textarea
