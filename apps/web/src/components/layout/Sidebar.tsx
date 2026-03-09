@@ -255,7 +255,7 @@ function BankSelector({ collapsed }: { collapsed: boolean }) {
             >
               <div className="flex items-center gap-2">
                 <span className="truncate">{bank.name}</span>
-                {bank.isDefault === 1 && (
+                {bank.isDefault === true && (
                   <span className="text-[9px] bg-nb-lime text-black px-1 border border-nb-border shrink-0">
                     DEFAULT
                   </span>

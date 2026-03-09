@@ -262,14 +262,14 @@ export const api = {
       memoryBanks: Array<{
         id: string;
         name: string;
-        isDefault: number;
+        isDefault: boolean;
         memoryCount: number;
         createdAt: string;
         updatedAt: string;
       }>;
     }>('/memory-banks'),
   createMemoryBank: (name: string) =>
-    request<{ id: string; name: string; isDefault: number }>('/memory-banks', {
+    request<{ id: string; name: string; isDefault: boolean }>('/memory-banks', {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),

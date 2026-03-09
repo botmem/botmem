@@ -3,8 +3,14 @@ import { useMemoryBankStore, type MemoryBank } from '../../store/memoryBankStore
 import { Button } from '../ui/Button';
 
 export function MemoryBanksTab() {
-  const { memoryBanks, loading, loadMemoryBanks, createMemoryBank, renameMemoryBank, deleteMemoryBank } =
-    useMemoryBankStore();
+  const {
+    memoryBanks,
+    loading,
+    loadMemoryBanks,
+    createMemoryBank,
+    renameMemoryBank,
+    deleteMemoryBank,
+  } = useMemoryBankStore();
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,7 +69,8 @@ export function MemoryBanksTab() {
         MEMORY BANKS
       </h2>
       <p className="font-mono text-xs text-nb-muted mb-6">
-        Organize memories into separate banks. Each bank has its own isolated set of memories and vectors.
+        Organize memories into separate banks. Each bank has its own isolated set of memories and
+        vectors.
       </p>
 
       {error && (
@@ -146,7 +153,7 @@ export function MemoryBanksTab() {
                       <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text truncate">
                         {bank.name}
                       </span>
-                      {bank.isDefault === 1 && (
+                      {bank.isDefault === true && (
                         <span className="font-mono text-[10px] font-bold uppercase tracking-wider bg-nb-lime text-black px-1.5 py-0.5 border-2 border-nb-border">
                           DEFAULT
                         </span>
@@ -172,7 +179,7 @@ export function MemoryBanksTab() {
                   >
                     RENAME
                   </button>
-                  {bank.isDefault !== 1 && (
+                  {!bank.isDefault && (
                     <>
                       {confirmDeleteId === bank.id ? (
                         <div className="flex gap-1">
