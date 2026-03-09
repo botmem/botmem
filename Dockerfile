@@ -35,7 +35,8 @@ RUN pnpm --filter @botmem/shared run build && \
     pnpm --filter @botmem/connector-photos-immich run build && \
     pnpm --filter @botmem/connector-locations run build && \
     pnpm --filter @botmem/web run build && \
-    pnpm --filter @botmem/api run build
+    pnpm --filter @botmem/api run build && \
+    cp -r apps/api/src/db/migrations apps/api/dist/db/migrations
 
 FROM base AS runtime
 WORKDIR /app/apps/api
