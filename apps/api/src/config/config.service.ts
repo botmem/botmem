@@ -146,4 +146,8 @@ export class ConfigService implements OnModuleInit {
   get jwtRefreshExpiresIn(): string {
     return process.env.JWT_REFRESH_EXPIRES_IN || '7d';
   }
+
+  get logsPath(): string {
+    return process.env.LOGS_PATH || './data/logs.ndjson';
+  }
 }
