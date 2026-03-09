@@ -28,6 +28,9 @@ import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from './user-auth/jwt-auth.guard';
+import { FirebaseAuthModule } from './user-auth/firebase-auth.module';
+import { FirebaseAuthGuard } from './user-auth/firebase-auth.guard';
+import { AuthProviderGuard } from './user-auth/auth-provider.guard';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const webDistPath = join(__dirname, '..', '..', 'web', 'dist');
@@ -65,15 +68,19 @@ const serveStatic = !isDev && existsSync(webDistPath);
     ApiKeysModule,
     MemoryBanksModule,
     CryptoModule,
+    FirebaseAuthModule,
   ],
   providers: [
     {
       provide: APP_INTERCEPTOR,
       useClass: RlsInterceptor,
     },
+    JwtAuthGuard,
+    FirebaseAuthGuard,
+    AuthProviderGuard,
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard,
+      useClass: AuthProviderGuard,
     },
     {
       provide: APP_GUARD,
