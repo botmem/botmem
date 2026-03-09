@@ -205,7 +205,7 @@ Phase 10: Source Citations (deferred)
 - [x] **Phase 20: Encryption at Rest** - AES-256-GCM for authContext + connectorCredentials, APP_SECRET key, migration script (ENC-01, ENC-02) (completed 2026-03-09)
 - [x] **Phase 21: End-to-End Encryption** - Argon2id key derivation, client-side memory encryption, vectors plaintext, password change re-encryption (E2EE-01 through E2EE-04) (completed 2026-03-09)
 - [x] **Phase 22: PostgreSQL Dual-Driver** - Postgres schema, pg Pool, DATABASE_URL, Docker Compose postgres service (DB-01 through DB-04) -- Complete
-- [ ] **Phase 23: Row Level Security** - Postgres RLS policies for user data isolation (DB-05)
+- [x] **Phase 23: Row Level Security** - Postgres RLS policies for user data isolation (DB-05) (completed 2026-03-09)
 - [ ] **Phase 24: Firebase Auth (Prod-Core)** - Firebase guard, React Firebase UI, AUTH_PROVIDER switch, social login (FBAUTH-01 through FBAUTH-04)
 
 ## v2.1 Data Quality & Pipeline Integrity (Phases 25-28) - SHIPPED 2026-03-09
@@ -428,7 +428,7 @@ Phases 12-15 (DB, Inference, Docker, CI/CD) are restructured:
 
 ### Phase 11: Repository & Infrastructure Foundation (COMPLETE)
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 - [x] 11-01: Clean inline secrets and sanitize git history (REPO-04)
 - [x] 11-02: Create GitHub org, open-core and prod-core repos (REPO-01, REPO-02, REPO-03)
@@ -622,7 +622,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 20. Encryption at Rest           | 1/1       | Complete       | 2026-03-09  | -          |
 | 21. E2EE (Prod-Core)             | 2/2       | Complete       | 2026-03-09  | -          |
 | 22. PostgreSQL Dual-Driver       | v2.0      | 2/2            | Complete    | 2026-03-09 |
-| 23. Row Level Security           | 2/3       | In Progress    |             | -          |
+| 23. Row Level Security           | 3/3       | Complete       | 2026-03-09  | -          |
 | 24. Firebase Auth (Prod-Core)    | v2.0      | 0/?            | Not started | -          |
 | 25. Source Type Reclassification | v2.1      | 2/2            | Complete    | 2026-03-08 |
 | 26. Entity Format & Quality      | v2.1      | 2/2            | Complete    | 2026-03-08 |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: completed
-stopped_at: Completed 23-02-PLAN.md
-last_updated: '2026-03-09T09:10:18.961Z'
+stopped_at: Completed 23-03-PLAN.md
+last_updated: '2026-03-09T09:34:34.975Z'
 last_activity: 2026-03-09 — Roadmap v4.0 finalized (phases 35-39)
 progress:
   total_phases: 32
-  completed_phases: 25
+  completed_phases: 26
   total_plans: 49
-  completed_plans: 48
+  completed_plans: 49
 ---
 
 # Project State
@@ -78,6 +78,7 @@ Phase 39: CI Gates & Coverage      [ ] Not started
 | Phase 21 P02 | 6min | 2 tasks  | 7 files  |
 | Phase 23 P01 | 2min | 1 tasks  | 1 files  |
 | Phase 23 P02 | 2min | 2 tasks  | 5 files  |
+| Phase 23 P03 | 2min | 2 tasks  | 2 files  |
 
 ## Accumulated Context
 
@@ -123,6 +124,8 @@ Recent decisions affecting current work:
 - [Phase 23]: RlsInterceptor uses AsyncLocalStorage for non-blocking request-scoped userId propagation — interceptor holds no DB connection
 - [Phase 23]: withUserId uses SET LOCAL so session variable is transaction-scoped — pool connections are safe from cross-request bleed
 - [Phase 23]: RlsContext injected as @Optional() in DbService to prevent circular dependency with DbModule Global providers
+- [Phase 23]: [Phase 23-03]: timeline/getRelated/searchEntities/getEntityGraph in memory.service.ts were using unscoped db — migrated to withCurrentUser()
+- [Phase 23]: [Phase 23-03]: sync.processor.ts rawEvents INSERT wrapped in withUserId(ownerUserId) using bootstrap pattern (unscoped userId lookup then scoped data write)
 
 ### Decisions (Phase 16)
 
@@ -254,6 +257,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T09:10:18.958Z
-Stopped at: Completed 23-02-PLAN.md
+Last session: 2026-03-09T09:34:34.972Z
+Stopped at: Completed 23-03-PLAN.md
 Resume file: None
