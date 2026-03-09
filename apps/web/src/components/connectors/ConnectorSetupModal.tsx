@@ -325,7 +325,7 @@ function FormView({
       )}
 
       {state.error && (
-        <div className="border-3 border-red-500 bg-red-500/10 p-3 font-mono text-sm text-red-400">
+        <div className="border-3 border-nb-red bg-nb-red/10 p-3 font-mono text-sm text-nb-red">
           {state.error}
         </div>
       )}
