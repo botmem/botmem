@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { Memory, SourceType } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
 import { MemorySearchBar } from '../components/memory/MemorySearchBar';
@@ -9,7 +9,6 @@ import { useMemories } from '../hooks/useMemories';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ReauthModal } from '../components/ui/ReauthModal';
-import { api } from '../lib/api';
 
 const PAGE_SIZE = 20;
 const ALL_SOURCES: SourceType[] = ['email', 'message', 'photo', 'location', 'file'];
@@ -36,11 +35,6 @@ export function MemoryExplorerPage() {
   } = useMemories();
   const needsRelogin = !!memoryStats?.needsRelogin;
   const [reauthOpen, setReauthOpen] = useState(false);
-
-  // Backfill state
-  const [backfillLoading, setBackfillLoading] = useState(false);
-  const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
-  const [retryLoading, setRetryLoading] = useState(false);
 
   // Reset visibleCount when filters/query change (synchronous state adjustment during render)
   if (prevQueryRef.current !== query || prevSourceRef.current !== filters.source) {
@@ -74,49 +68,6 @@ export function MemoryExplorerPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [visibleCount, filtered.length]);
-
-  const handleRetryFailed = useCallback(async () => {
-    setRetryLoading(true);
-    setBackfillMessage(null);
-    try {
-      const result = await api.retryFailedMemories();
-      setBackfillMessage(
-        result.enqueued > 0
-          ? `Retrying ${result.enqueued} failed memories`
-          : 'No failed memories to retry',
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to retry';
-      setBackfillMessage(`Error: ${msg}`);
-    } finally {
-      setRetryLoading(false);
-    }
-  }, []);
-
-  const handleBackfillEnrich = useCallback(async () => {
-    setBackfillLoading(true);
-    setBackfillMessage(null);
-    try {
-      const result = await api.backfillEnrich();
-      if (result.jobId) {
-        setBackfillMessage(`Backfill started: ${result.enqueued} memories queued`);
-      } else {
-        setBackfillMessage(result.message || 'No memories need re-enrichment');
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to start backfill';
-      setBackfillMessage(`Error: ${msg}`);
-    } finally {
-      setBackfillLoading(false);
-    }
-  }, []);
-
-  // Clear backfill message after 5s
-  useEffect(() => {
-    if (!backfillMessage) return;
-    const t = setTimeout(() => setBackfillMessage(null), 5000);
-    return () => clearTimeout(t);
-  }, [backfillMessage]);
 
   return (
     <PageContainer>
@@ -163,27 +114,7 @@ export function MemoryExplorerPage() {
                   availableSources={ALL_SOURCES}
                 />
               </div>
-              <button
-                onClick={handleRetryFailed}
-                disabled={retryLoading}
-                className="shrink-0 border-3 border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                {retryLoading ? 'Retrying...' : 'Retry Failed'}
-              </button>
-              <button
-                onClick={handleBackfillEnrich}
-                disabled={backfillLoading}
-                className="shrink-0 border-3 border-nb-border bg-nb-surface px-3 py-2 text-xs font-mono uppercase tracking-wider text-nb-text hover:bg-nb-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                {backfillLoading ? 'Starting...' : 'Re-enrich All'}
-              </button>
             </div>
-
-            {backfillMessage && (
-              <div className="mt-2 bg-nb-surface border border-nb-border px-3 py-1.5 text-xs font-mono text-nb-muted">
-                {backfillMessage}
-              </div>
-            )}
 
             <div className="mt-4 flex flex-col md:flex-row gap-4 min-h-0 flex-1">
               <div ref={listRef} className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2">

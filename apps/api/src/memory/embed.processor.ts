@@ -205,6 +205,20 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         }
       }
 
+      // Build avatar lookup maps for this event
+      const gmailPhotoUrl =
+        rawEvent.connectorType === 'gmail' && event.sourceType === 'contact'
+          ? (metadata.photoUrl as string | undefined)
+          : undefined;
+
+      const slackProfiles =
+        rawEvent.connectorType === 'slack'
+          ? ((metadata.participantProfiles || {}) as Record<
+              string,
+              { avatarUrl?: string; [key: string]: unknown }
+            >)
+          : {};
+
       for (const { entityType, role, identifiers } of buckets) {
         const resolveType = entityType === 'person' ? undefined : entityType;
         const contact = await this.contactsService.resolveContact(
@@ -214,6 +228,42 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         );
         if (contact) {
           resolvedContacts.push({ contactId: contact.id, role });
+
+          // Update avatar for Gmail contact events
+          if (gmailPhotoUrl) {
+            try {
+              await this.contactsService.updateAvatar(contact.id, {
+                url: gmailPhotoUrl,
+                source: 'gmail',
+              });
+            } catch (err) {
+              this.logger.warn(
+                `[embed] Gmail avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+
+          // Update avatar for Slack — find the matching profile by slack_id key
+          if (rawEvent.connectorType === 'slack' && Object.keys(slackProfiles).length > 0) {
+            // The entity ID for slack participants starts with slack_id:<username>
+            const slackIdent = identifiers.find((i) => i.type === 'slack_id');
+            if (slackIdent) {
+              const profile = slackProfiles[slackIdent.value];
+              const avatarUrl = profile?.avatarUrl as string | undefined;
+              if (avatarUrl) {
+                try {
+                  await this.contactsService.updateAvatar(contact.id, {
+                    url: avatarUrl,
+                    source: 'slack',
+                  });
+                } catch (err) {
+                  this.logger.warn(
+                    `[embed] Slack avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+                  );
+                }
+              }
+            }
+          }
         }
       }
     } catch (err) {

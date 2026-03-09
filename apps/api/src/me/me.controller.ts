@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, HttpException, HttpStatus } from '@nestjs/common';
 import { MeService } from './me.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 
@@ -26,6 +26,17 @@ export class MeController {
     } catch (err: any) {
       throw new HttpException(err.message || 'Failed to set self contact', HttpStatus.NOT_FOUND);
     }
+  }
+
+  @Patch('avatar')
+  async setPreferredAvatar(
+    @Body() body: { avatarIndex: number },
+    @CurrentUser() user: { id: string },
+  ) {
+    if (body?.avatarIndex === undefined || body.avatarIndex === null) {
+      throw new HttpException('avatarIndex is required', HttpStatus.BAD_REQUEST);
+    }
+    return this.meService.setPreferredAvatar(user.id, body.avatarIndex);
   }
 
   @Get()

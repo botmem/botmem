@@ -235,6 +235,11 @@ export const api = {
     >('/me/merge-candidates'),
   setMe: (contactId: string) =>
     request<any>('/me/set', { method: 'POST', body: JSON.stringify({ contactId }) }),
+  setPreferredAvatar: (avatarIndex: number) =>
+    request<{ ok: boolean }>('/me/avatar', {
+      method: 'PATCH',
+      body: JSON.stringify({ avatarIndex }),
+    }),
 
   // Settings
   getSettings: () => request<Record<string, string>>('/settings'),

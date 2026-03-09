@@ -119,7 +119,8 @@ export function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="connectors" element={<ConnectorsPage />} />
           <Route path="memories" element={<MemoryExplorerPage />} />
-          <Route path="contacts" element={<ContactsPage />} />
+          <Route path="people" element={<ContactsPage />} />
+          <Route path="contacts" element={<Navigate to="/people" replace />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

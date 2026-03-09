@@ -169,7 +169,7 @@ function QrAuthView({
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
-              if (msg.event === 'auth:complete') {
+              if (msg.event === 'auth:status' && msg.data?.status === 'success') {
                 cleanupWs();
                 // Backend already created the account — just refresh the list
                 fetchAccounts();
@@ -409,7 +409,7 @@ export function ConnectorSetupModal({
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
-              if (msg.event === 'auth:complete') {
+              if (msg.event === 'auth:status' && msg.data?.status === 'success') {
                 cleanupWs();
                 // Backend already created the account — just refresh the list
                 fetchAccountsForQr();

@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import type { Memory } from '@botmem/shared';
 import { formatDate, formatTime, CONNECTOR_COLORS } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { AuthedImage } from '../ui/AuthedImage';
+import { ImageLightbox } from '../ui/ImageLightbox';
 import { useMemoryStore } from '../../store/memoryStore';
 
 function hasThumbnail(memory: Memory): boolean {
@@ -19,6 +21,7 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
     ([key, val]) => !(key === 'semantic' && val === 0) && !(key === 'rerank' && val === 0),
   );
   const { pinMemory, unpinMemory } = useMemoryStore();
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const handlePinClick = () => {
     if (memory.pinned) {
@@ -66,7 +69,10 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
         </div>
 
         {hasThumbnail(memory) && (
-          <div className="border-3 border-nb-border overflow-hidden">
+          <div
+            className="border-3 border-nb-border overflow-hidden cursor-zoom-in"
+            onClick={() => setLightboxSrc(`/api/memories/${memory.id}/thumbnail`)}
+          >
             <AuthedImage
               src={`/api/memories/${memory.id}/thumbnail`}
               className="w-full h-auto max-h-64 object-contain bg-black"
@@ -144,6 +150,7 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
           </div>
         )}
       </div>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </Card>
   );
 }
