@@ -71,10 +71,13 @@ jobs:
 
       - name: Validate deployment
         run: |
-          sleep 10
-          STATUS=$(curl -sf https://botmem.xyz/api/version | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok')" 2>/dev/null || echo "fail")
-          if [ "$STATUS" = "ok" ]; then
-            echo "Deployment validated — API is healthy"
-          else
-            echo "API health check failed" && exit 1
-          fi
+          for i in $(seq 1 12); do
+            STATUS=$(curl -sf https://botmem.xyz/api/version | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok')" 2>/dev/null || echo "fail")
+            if [ "$STATUS" = "ok" ]; then
+              echo "Deployment validated — API is healthy (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i: not ready yet, waiting 5s..."
+            sleep 5
+          done
+          echo "API health check failed after 60s" && exit 1
