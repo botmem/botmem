@@ -11,8 +11,9 @@ import { memories, contacts, memoryContacts } from '../db/schema';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function safeParse<T>(json: string | null | undefined, fallback: T): T {
-  if (!json) return fallback;
+function safeParse<T>(json: string | unknown | null | undefined, fallback: T): T {
+  if (json == null) return fallback;
+  if (typeof json !== 'string') return json as T;
   try {
     return JSON.parse(json);
   } catch {
@@ -20,8 +21,8 @@ function safeParse<T>(json: string | null | undefined, fallback: T): T {
   }
 }
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+function relativeTime(d: Date | string): string {
+  const diff = Date.now() - new Date(d).getTime();
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return 'just now';
   const minutes = Math.floor(seconds / 60);
@@ -41,7 +42,7 @@ export interface EnrichedMemory {
   text: string;
   sourceType: string;
   connectorType: string;
-  eventTime: string;
+  eventTime: Date;
   eventTimeRelative: string;
   factuality: { label: string; confidence: number; rationale: string };
   entities: Array<{ type: string; value: string }>;
@@ -144,7 +145,7 @@ export class AgentService {
     // Group by date
     const grouped: Record<string, EnrichedMemory[]> = {};
     for (const mem of enriched) {
-      const dateKey = mem.eventTime.slice(0, 10); // YYYY-MM-DD
+      const dateKey = mem.eventTime.toISOString().slice(0, 10); // YYYY-MM-DD
       if (!grouped[dateKey]) grouped[dateKey] = [];
       grouped[dateKey].push(mem);
     }
@@ -156,7 +157,7 @@ export class AgentService {
 
   async remember(text: string, metadata?: Record<string, unknown>): Promise<EnrichedMemory> {
     const id = randomUUID();
-    const now = new Date().toISOString();
+    const now = new Date();
 
     await this.dbService.db.insert(memories).values({
       id,
@@ -215,7 +216,7 @@ export class AgentService {
     stats: {
       totalMemories: number;
       byConnector: Record<string, number>;
-      dateRange: { earliest: string; latest: string } | null;
+      dateRange: { earliest: Date; latest: Date } | null;
     };
   } | null> {
     const contact = await this.contactsService.getById(contactId);
@@ -286,9 +287,9 @@ export class AgentService {
     }
 
     // Date range
-    let dateRange: { earliest: string; latest: string } | null = null;
+    let dateRange: { earliest: Date; latest: Date } | null = null;
     if (recentRows.length) {
-      const allTimes = recentRows.map((r) => r.eventTime).sort();
+      const allTimes = recentRows.map((r) => r.eventTime).sort((a, b) => a.getTime() - b.getTime());
       dateRange = {
         earliest: allTimes[0],
         latest: allTimes[allTimes.length - 1],
@@ -307,7 +308,7 @@ export class AgentService {
           )
           .orderBy(memories.eventTime)
           .limit(1);
-        if (earliestRow.length) dateRange.earliest = earliestRow[0].eventTime;
+        if (earliestRow.length) dateRange!.earliest = earliestRow[0].eventTime;
       }
     }
 
@@ -341,7 +342,10 @@ export class AgentService {
 
     // Build prompt
     const memoriesText = enriched
-      .map((m) => `[${m.eventTime.slice(0, 10)}] [${m.connectorType}/${m.sourceType}] ${m.text}`)
+      .map(
+        (m) =>
+          `[${m.eventTime.toISOString().slice(0, 10)}] [${m.connectorType}/${m.sourceType}] ${m.text}`,
+      )
       .join('\n\n');
 
     const prompt = `Based on the following personal memories, answer the question concisely.
@@ -468,7 +472,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     const grouped: EnrichedMemory[] = [];
     for (const group of threadGroups) {
       // Sort within thread by eventTime ascending (chronological)
-      group.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
+      group.sort((a, b) => a.eventTime.getTime() - b.eventTime.getTime());
       grouped.push(...group);
     }
     grouped.push(...noThread);

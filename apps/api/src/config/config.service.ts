@@ -5,6 +5,9 @@ export class ConfigService implements OnModuleInit {
   private readonly logger = new Logger(ConfigService.name);
 
   onModuleInit() {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('FATAL: DATABASE_URL environment variable is required');
+    }
     this.validateProductionSecrets();
   }
 
@@ -42,6 +45,11 @@ export class ConfigService implements OnModuleInit {
     return process.env.REDIS_URL || 'redis://localhost:6379';
   }
 
+  get databaseUrl(): string {
+    return process.env.DATABASE_URL!;
+  }
+
+  /** @deprecated Use databaseUrl instead. Kept temporarily for migration scripts. */
   get dbPath(): string {
     return process.env.DB_PATH || './data/botmem.db';
   }
