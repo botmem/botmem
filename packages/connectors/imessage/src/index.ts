@@ -11,7 +11,7 @@ import type {
 } from '@botmem/connector-sdk';
 import { ImsgClient } from './imsg-client.js';
 
-const DEFAULT_HOST = 'host.docker.internal';
+const DEFAULT_HOST = 'localhost';
 const DEFAULT_PORT = 19876;
 const PROGRESS_INTERVAL = 50; // emit progress every N messages
 
@@ -30,7 +30,8 @@ export class IMessageConnector extends BaseConnector {
         myIdentifier: {
           type: 'string',
           title: 'Your Email or Phone',
-          description: 'Your iMessage email or phone number (used to identify you in conversations)',
+          description:
+            'Your iMessage email or phone number (used to identify you in conversations)',
         },
         imsgHost: {
           type: 'string',
@@ -48,7 +49,7 @@ export class IMessageConnector extends BaseConnector {
     },
     entities: ['person', 'message'],
     pipeline: { clean: false, embed: true, enrich: true },
-    trustScore: 0.80,
+    trustScore: 0.8,
   };
 
   embed(event: ConnectorDataEvent, cleanedText: string, ctx: PipelineContext): EmbedResult {
@@ -73,9 +74,17 @@ export class IMessageConnector extends BaseConnector {
       if (myIdentifier && participant === myIdentifier) continue;
 
       if (participant.includes('@')) {
-        entities.push({ type: 'person', id: `email:${participant}`, role: isFromMe ? 'recipient' : 'sender' });
+        entities.push({
+          type: 'person',
+          id: `email:${participant}`,
+          role: isFromMe ? 'recipient' : 'sender',
+        });
       } else {
-        entities.push({ type: 'person', id: `phone:${participant}`, role: isFromMe ? 'recipient' : 'sender' });
+        entities.push({
+          type: 'person',
+          id: `phone:${participant}`,
+          role: isFromMe ? 'recipient' : 'sender',
+        });
       }
     }
 
