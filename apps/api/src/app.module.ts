@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { RlsInterceptor } from './db/rls.interceptor';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -66,6 +67,10 @@ const serveStatic = !isDev && existsSync(webDistPath);
     CryptoModule,
   ],
   providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RlsInterceptor,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
