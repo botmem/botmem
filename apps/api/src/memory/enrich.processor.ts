@@ -7,7 +7,6 @@ import { EnrichService } from './enrich.service';
 import { MemoryService } from './memory.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
-import { EncryptionKeyMissingError } from '../crypto/encryption-key-missing.error';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -102,16 +101,20 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       factuality: mem?.factuality,
     });
 
-    // Encrypt memory fields at rest before marking as done
-    this.encryptMemoryAtRest(memoryId, ownerUserId ?? undefined).catch((err) => {
-      this.logger.warn(`[Enrich] encryptMemoryAtRest failed for ${memoryId}: ${err.message}`);
-    });
+    // Encrypt memory fields at rest before marking as done (blocking — must succeed or log clearly)
+    try {
+      await this.encryptMemoryAtRest(memoryId, ownerUserId ?? undefined);
+    } catch (err) {
+      this.logger.warn(
+        `[Enrich] encryptMemoryAtRest failed for ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     // Mark memory as done + pipeline complete — use withUserId scope if available
     const updateDone = (db: typeof this.dbService.db) =>
       db
         .update(memories)
-        .set({ embeddingStatus: 'done', pipelineComplete: true })
+        .set({ embeddingStatus: 'done', pipelineComplete: true, enrichedAt: new Date() })
         .where(eq(memories.id, memoryId));
     if (ownerUserId) {
       await this.dbService.withUserId(ownerUserId, updateDone);
@@ -191,9 +194,35 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       return;
     }
 
-    const userKey = this.userKeyService.getKey(ownerUserId);
+    const userKey = await this.userKeyService.getDek(ownerUserId);
     if (!userKey) {
-      throw new EncryptionKeyMissingError(ownerUserId);
+      // User key not in memory or Redis — fall back to APP_SECRET encryption
+      this.logger.debug(
+        `[Enrich] User key not available for ${ownerUserId}, falling back to APP_SECRET`,
+      );
+      const enc = this.crypto.encryptMemoryFields({
+        text: mem.text,
+        entities: mem.entities,
+        claims: mem.claims,
+        metadata: mem.metadata,
+      });
+      const writeFallback = (db: typeof this.dbService.db) =>
+        db
+          .update(memories)
+          .set({
+            text: enc.text,
+            entities: enc.entities,
+            claims: enc.claims,
+            metadata: enc.metadata,
+            keyVersion: 0,
+          })
+          .where(eq(memories.id, memoryId));
+      if (ownerUserId) {
+        await this.dbService.withUserId(ownerUserId, writeFallback);
+      } else {
+        await writeFallback(this.dbService.db);
+      }
+      return;
     }
 
     // Get user's current keyVersion — users table is NOT RLS-protected, unscoped OK

@@ -40,18 +40,25 @@ async function fetchUserMap(client: WebClient): Promise<Map<string, UserProfile>
     do {
       const res = await client.users.list({ limit: 200, cursor });
       for (const u of res.members || []) {
-        if (u.id && u.name) {
-          const profile = (u as any).profile || {};
-          map.set(u.id, {
-            name: u.name,
-            realName: (u as any).real_name || u.name,
-            email: profile.email || undefined,
-            phone: profile.phone || undefined,
-            title: profile.title || undefined,
-            avatarUrl: profile.image_72 || undefined,
-            slackId: u.id,
-          });
-        }
+        if (!u.id) continue;
+        const profile = (u as any).profile || {};
+        // Try every possible name field — bots use different fields
+        const realName =
+          profile.real_name_normalized || profile.real_name || (u as any).real_name || '';
+        const displayName = profile.display_name_normalized || profile.display_name || '';
+        const name = u.name || '';
+        const bestName = realName || displayName || name;
+        if (!bestName) continue; // truly anonymous — skip
+
+        map.set(u.id, {
+          name: name || bestName,
+          realName: bestName,
+          email: profile.email || undefined,
+          phone: profile.phone || undefined,
+          title: profile.title || undefined,
+          avatarUrl: profile.image_72 || undefined,
+          slackId: u.id,
+        });
       }
       cursor = res.response_metadata?.next_cursor || undefined;
     } while (cursor);
@@ -61,9 +68,10 @@ async function fetchUserMap(client: WebClient): Promise<Map<string, UserProfile>
   return map;
 }
 
-/** Get display name from user map, falling back to raw ID */
+/** Get display name from user map */
 function userName(users: Map<string, UserProfile>, id: string): string {
-  return users.get(id)?.realName ?? users.get(id)?.name ?? id;
+  const u = users.get(id);
+  return u?.realName ?? u?.name ?? id;
 }
 
 /** Resolve Slack mrkdwn to human-readable text */
@@ -160,9 +168,10 @@ function buildParticipantData(
 
   for (const [userId, roleSet] of participantIds) {
     const profile = users.get(userId);
-    const name = profile?.realName || profile?.name || userId;
+    if (!profile) continue; // Skip unresolved Slack IDs
+    const name = profile.realName || profile.name || userId;
     participants.push(name);
-    if (profile) participantProfiles[name] = profile;
+    participantProfiles[name] = profile;
     roles[name] = [...roleSet];
   }
 

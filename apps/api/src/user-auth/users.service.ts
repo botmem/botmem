@@ -61,6 +61,23 @@ export class UsersService {
     return rows[0]?.keyVersion ?? 1;
   }
 
+  async updateRecoveryKeyHash(userId: string, hash: string) {
+    const now = new Date();
+    await this.db.db
+      .update(users)
+      .set({ recoveryKeyHash: hash, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  async getRecoveryKeyHash(userId: string): Promise<string | null> {
+    const rows = await this.db.db
+      .select({ recoveryKeyHash: users.recoveryKeyHash })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return rows[0]?.recoveryKeyHash ?? null;
+  }
+
   async findByEmail(email: string) {
     const rows = await this.db.db
       .select()

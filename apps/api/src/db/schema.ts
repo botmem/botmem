@@ -215,6 +215,7 @@ export const users = pgTable(
     onboarded: boolean('onboarded').notNull().default(false),
     encryptionSalt: text('encryption_salt'), // nullable for existing users pre-E2EE
     keyVersion: integer('key_version').notNull().default(1),
+    recoveryKeyHash: text('recovery_key_hash'), // SHA-256 hash of recovery key for verification
     firebaseUid: text('firebase_uid').unique(), // nullable — Firebase UID for firebase auth provider users
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),

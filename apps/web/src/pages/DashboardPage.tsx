@@ -66,7 +66,7 @@ export function DashboardPage() {
           <>
             {/* Graph FIRST */}
             <div className="mb-6 relative">
-              {memoryStats?.needsRelogin && (
+              {memoryStats?.needsRecoveryKey && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nb-bg/80 backdrop-blur-sm">
                   <svg
                     width="40"
@@ -83,7 +83,7 @@ export function DashboardPage() {
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
                   <p className="font-display text-sm text-nb-muted text-center max-w-xs">
-                    Your encryption key needs to be restored
+                    Enter your recovery key to unlock your data
                   </p>
                   <button
                     onClick={() => setReauthOpen(true)}

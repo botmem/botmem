@@ -183,7 +183,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         [];
 
       for (const entity of embedResult.entities) {
-        if (entity.type === 'person' || entity.type === 'group' || entity.type === 'device') {
+        if (
+          entity.type === 'person' ||
+          entity.type === 'group' ||
+          entity.type === 'device' ||
+          entity.type === 'organization'
+        ) {
           const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
           let merged = false;
           for (const bucket of buckets) {
@@ -294,8 +299,15 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     });
     const qdrantMs = Date.now() - t0;
 
-    // File processing (image → VL model description → re-embed)
-    if (mergedMetadata.fileUrl && (mergedMetadata.mimetype as string)?.startsWith('image/')) {
+    // File processing (image → VL model description, document → text extraction, re-embed)
+    const hasFile = mergedMetadata.fileUrl || mergedMetadata.fileBase64;
+    const fileMime = (mergedMetadata.mimetype as string) || '';
+    if (
+      hasFile &&
+      (fileMime.startsWith('image/') ||
+        fileMime === 'application/pdf' ||
+        fileMime.includes('document'))
+    ) {
       try {
         const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
         if (fileContent) {
@@ -478,7 +490,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     metadata: Record<string, any>,
     rawEvent: any,
   ): Promise<string | null> {
-    const fileUrl: string = metadata.fileUrl;
+    const fileUrl: string = metadata.fileUrl || '';
+    const fileBase64: string = metadata.fileBase64 || '';
     const mimetype: string = metadata.mimetype || '';
     const fileName: string = metadata.fileName || '';
     const mid = memoryId.slice(0, 8);
@@ -487,22 +500,28 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       rawEvent.connectorType,
       rawEvent.accountId,
       'info',
-      `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'})`,
+      `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'}) ${fileBase64 ? 'inline' : 'url'}`,
     );
 
-    const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
-
-    // Use thumbnail size for images to speed up VL model processing
-    const fetchUrl = mimetype.startsWith('image/')
-      ? fileUrl.replace('size=preview', 'size=thumbnail').replace('size=original', 'size=thumbnail')
-      : fileUrl;
-
-    const res = await fetch(fetchUrl, {
-      headers,
-      signal: AbortSignal.timeout(120_000),
-    });
-    if (!res.ok) {
-      throw new Error(`File download failed: ${res.status} ${res.statusText}`);
+    // Get file buffer — either from inline base64 or by fetching URL
+    let fileBuffer: Buffer;
+    if (fileBase64) {
+      fileBuffer = Buffer.from(fileBase64, 'base64');
+    } else {
+      const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
+      const fetchUrl = mimetype.startsWith('image/')
+        ? fileUrl
+            .replace('size=preview', 'size=thumbnail')
+            .replace('size=original', 'size=thumbnail')
+        : fileUrl;
+      const res = await fetch(fetchUrl, {
+        headers,
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        throw new Error(`File download failed: ${res.status} ${res.statusText}`);
+      }
+      fileBuffer = Buffer.from(await res.arrayBuffer());
     }
 
     const mime = mimetype.toLowerCase();
@@ -510,14 +529,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const header = fileName ? `# ${fileName}` : '';
 
     if (mime.startsWith('image/')) {
-      // processFile runs inside process() after ownerUserId is resolved — use unscoped read
-      // since this is a read-only lookup for VL model context and the memory was just inserted above
       const [memory] = await this.dbService.db
         .select({ text: memories.text })
         .from(memories)
         .where(eq(memories.id, memoryId));
-      const buffer = await res.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
+      const base64 = fileBuffer.toString('base64');
       const description = await this.ollama.generate(photoDescriptionPrompt(memory?.text || ''), [
         base64,
       ]);
@@ -527,8 +543,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     if (mime === 'application/pdf' || ext === 'pdf') {
       const pdfParseModule = await import('pdf-parse');
       const pdfParse = pdfParseModule.default || pdfParseModule;
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const data = await (pdfParse as any)(buffer);
+      const data = await (pdfParse as any)(fileBuffer);
       const text = data.text?.trim();
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;
@@ -544,8 +559,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       ext === 'docx'
     ) {
       const mammoth = await import('mammoth');
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const result = await mammoth.extractRawText({ buffer });
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
       const text = result.value?.trim();
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;
@@ -565,8 +579,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       ext === 'csv'
     ) {
       const XLSX = await import('xlsx');
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
       const sections: string[] = [];
 
       for (const sheetName of workbook.SheetNames) {
@@ -596,7 +609,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
 
     if (mime.startsWith('text/') && ext !== 'csv') {
-      const text = await res.text();
+      const text = fileBuffer.toString('utf-8');
       if (!text.trim()) return null;
       let content = header ? `${header}\n\n${text.trim()}` : text.trim();
       if (content.length > MAX_CONTENT_LENGTH) {

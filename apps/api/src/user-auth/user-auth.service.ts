@@ -34,22 +34,28 @@ export class UserAuthService {
     @InjectQueue('reencrypt') private reencryptQueue: Queue,
   ) {}
 
+  private hashRecoveryKey(recoveryKey: string): string {
+    return createHash('sha256').update(recoveryKey).digest('hex');
+  }
+
   async register(email: string, password: string, name: string) {
     if (!password || password.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters long');
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-
-    // Generate per-user encryption salt for E2EE key derivation
     const salt = randomBytes(16);
     const encryptionSalt = salt.toString('base64');
+
+    // Generate random DEK — this IS the recovery key
+    const dek = this.userKeyService.generateDek();
+    const recoveryKey = dek.toString('base64');
+    const recoveryKeyHash = this.hashRecoveryKey(recoveryKey);
 
     let user: any;
     try {
       user = await this.usersService.createUser(email, passwordHash, name, encryptionSalt);
     } catch (err: any) {
-      // PostgreSQL unique constraint error (code 23505)
       if (
         err?.message?.includes('UNIQUE constraint failed') ||
         err?.code === '23505' ||
@@ -60,10 +66,12 @@ export class UserAuthService {
       throw err;
     }
 
-    // Derive and cache user encryption key in memory
-    await this.userKeyService.deriveAndStore(user!.id, password, salt);
+    // Store recovery key hash and cache DEK
+    await this.usersService.updateRecoveryKeyHash(user!.id, recoveryKeyHash);
+    await this.usersService.incrementKeyVersion(user!.id); // bump to 2
+    await this.userKeyService.storeDek(user!.id, dek);
 
-    // Create default memory bank for the new user
+    // Create default memory bank
     await this.memoryBanksService.getOrCreateDefault(user!.id);
 
     const tokens = await this.generateTokenPair(user!.id, user!.email);
@@ -71,13 +79,13 @@ export class UserAuthService {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       user: this.sanitizeUser(user!),
+      recoveryKey, // shown to user ONCE
     };
   }
 
   async login(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
 
-    // Always run bcrypt.compare to prevent timing attacks
     const hashToCompare = user?.passwordHash ?? DUMMY_HASH;
     const valid = await bcrypt.compare(password, hashToCompare);
 
@@ -85,57 +93,81 @@ export class UserAuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Derive and cache user encryption key
-    let encryptionSalt = user.encryptionSalt;
-    if (!encryptionSalt) {
-      // Legacy user created before E2EE -- generate salt on first login
-      const salt = randomBytes(16);
-      encryptionSalt = salt.toString('base64');
-      await this.usersService.updateEncryptionSalt(user.id, encryptionSalt);
-      this.logger.log(`Generated encryption salt for legacy user ${user.id}`);
+    let recoveryKey: string | undefined;
+    let needsRecoveryKey = false;
+
+    // Try 2-tier DEK lookup (memory → Redis)
+    const dek = await this.userKeyService.getDek(user.id);
+
+    if (!user.recoveryKeyHash) {
+      // Pre-migration user: generate recovery key, enqueue re-encryption
+      const newDek = this.userKeyService.generateDek();
+      recoveryKey = newDek.toString('base64');
+      const recoveryKeyHash = this.hashRecoveryKey(recoveryKey);
+      await this.usersService.updateRecoveryKeyHash(user.id, recoveryKeyHash);
+      await this.userKeyService.storeDek(user.id, newDek);
+
+      // Bump key version and enqueue migration from old encryption to new DEK
+      const oldKeyVersion = user.keyVersion ?? 1;
+      const newKeyVersion = await this.usersService.incrementKeyVersion(user.id);
+
+      // Derive old password-based key for re-encryption (kv>=1 memories)
+      let oldKeyBase64 = '';
+      if (oldKeyVersion >= 1 && user.encryptionSalt) {
+        const salt = Buffer.from(user.encryptionSalt, 'base64');
+        const oldKey = (await argon2.hash(password, {
+          type: argon2.argon2id,
+          raw: true,
+          hashLength: 32,
+          salt,
+          timeCost: 3,
+          memoryCost: 19456,
+          parallelism: 1,
+        })) as Buffer;
+        oldKeyBase64 = oldKey.toString('base64');
+      }
+      await this.reencryptQueue.add('reencrypt-memories', {
+        userId: user.id,
+        oldKey: oldKeyBase64,
+        newKey: newDek.toString('base64'),
+        newKeyVersion,
+      });
+      this.logger.log(
+        `Migrated user ${user.id} to recovery key (kv ${oldKeyVersion} → ${newKeyVersion})`,
+      );
+    } else if (!dek) {
+      needsRecoveryKey = true;
     }
-    await this.userKeyService.deriveAndStore(
-      user.id,
-      password,
-      Buffer.from(encryptionSalt, 'base64'),
-    );
 
     const tokens = await this.generateTokenPair(user.id, user.email);
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       user: this.sanitizeUser(user),
+      needsRecoveryKey,
+      recoveryKey,
     };
   }
 
   /**
-   * Re-authenticate: verify password and re-derive encryption key without creating a new session.
-   * Used when server restarts and the in-memory encryption key is lost.
+   * Verify recovery key and restore DEK into cache.
    */
-  async reauth(userId: string, password: string) {
+  async submitRecoveryKey(userId: string, recoveryKey: string) {
     const user = await this.usersService.findById(userId);
     if (!user) throw new UnauthorizedException('User not found');
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid password');
-
-    let encryptionSalt = user.encryptionSalt;
-    if (!encryptionSalt) {
-      const salt = randomBytes(16);
-      encryptionSalt = salt.toString('base64');
-      await this.usersService.updateEncryptionSalt(user.id, encryptionSalt);
+    const hash = this.hashRecoveryKey(recoveryKey);
+    if (hash !== user.recoveryKeyHash) {
+      throw new BadRequestException('Invalid recovery key');
     }
-    await this.userKeyService.deriveAndStore(
-      user.id,
-      password,
-      Buffer.from(encryptionSalt, 'base64'),
-    );
 
-    this.logger.log(`Re-authenticated user ${userId}, encryption key restored`);
+    const dek = Buffer.from(recoveryKey, 'base64');
+    await this.userKeyService.storeDek(userId, dek);
+
+    this.logger.log(`Recovery key accepted for user ${userId}, DEK restored`);
   }
 
   async refresh(oldRefreshToken: string) {
-    // Verify the refresh JWT
     let payload: any;
     try {
       payload = this.jwt.verify(oldRefreshToken, {
@@ -145,7 +177,6 @@ export class UserAuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Look up by token hash
     const tokenHash = this.hashToken(oldRefreshToken);
     const stored = await this.usersService.findRefreshToken(tokenHash);
 
@@ -153,23 +184,15 @@ export class UserAuthService {
       throw new UnauthorizedException('Refresh token not found');
     }
 
-    // Replay detection: if token was already revoked, reject it.
-    // Note: we intentionally do NOT revoke the entire family here because
-    // multi-tab browsing legitimately causes stale tokens — one tab rotates
-    // the token while the other tab still holds the old cookie.
     if (stored.revokedAt) {
       throw new UnauthorizedException('Refresh token already used');
     }
 
-    // Check expiration
     if (new Date(stored.expiresAt) < new Date()) {
       throw new UnauthorizedException('Refresh token expired');
     }
 
-    // Revoke the old token
     await this.usersService.revokeRefreshToken(stored.id);
-
-    // Generate new token pair with the same family
     const tokens = await this.generateTokenPair(payload.sub, payload.email, stored.family);
 
     return {
@@ -188,23 +211,16 @@ export class UserAuthService {
 
   async forgotPassword(email: string): Promise<void> {
     const user = await this.usersService.findByEmail(email);
-    if (!user) {
-      // No user found -- return silently to prevent email enumeration
-      return;
-    }
+    if (!user) return;
 
-    // Generate a random token and store its SHA-256 hash
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
 
-    // Invalidate any existing unused reset tokens for this user
     await this.usersService.invalidateUserResets(user.id);
 
-    // Store the hash with 1 hour expiry
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await this.usersService.createPasswordReset(user.id, tokenHash, expiresAt);
 
-    // Build reset URL and send email
     const resetUrl = `${this.config.frontendUrl}/reset-password?token=${token}`;
     await this.mailService.sendResetEmail(user.email, resetUrl);
   }
@@ -214,33 +230,21 @@ export class UserAuthService {
       throw new BadRequestException('Password must be at least 8 characters long');
     }
 
-    // Hash the submitted token to look up in DB
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const reset = await this.usersService.findPasswordReset(tokenHash);
 
-    if (!reset) {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    if (reset.usedAt) {
-      throw new BadRequestException('Reset token already used');
-    }
-
-    if (new Date(reset.expiresAt) < new Date()) {
+    if (!reset) throw new BadRequestException('Invalid or expired reset token');
+    if (reset.usedAt) throw new BadRequestException('Reset token already used');
+    if (new Date(reset.expiresAt) < new Date())
       throw new BadRequestException('Reset token expired');
-    }
 
-    // Hash the new password
+    // Just update password — encryption is independent of password
     const passwordHash = await bcrypt.hash(newPassword, 12);
-
-    // Update the user's password
     await this.usersService.updatePasswordHash(reset.userId, passwordHash);
-
-    // Mark the token as used
     await this.usersService.markResetUsed(reset.id);
-
-    // Revoke all refresh tokens for the user
     await this.usersService.revokeAllUserTokens(reset.userId);
+
+    this.logger.log(`Password reset for user ${reset.userId} — encryption unchanged`);
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
@@ -249,73 +253,22 @@ export class UserAuthService {
     }
 
     const user = await this.usersService.findById(userId);
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
+    if (!user) throw new BadRequestException('User not found');
 
-    // Verify old password
     const valid = await bcrypt.compare(oldPassword, user.passwordHash);
-    if (!valid) {
-      throw new UnauthorizedException('Current password is incorrect');
-    }
+    if (!valid) throw new UnauthorizedException('Current password is incorrect');
 
-    // Derive old encryption key
-    const oldSalt = user.encryptionSalt
-      ? Buffer.from(user.encryptionSalt, 'base64')
-      : randomBytes(16);
-    const oldKey = (await argon2.hash(oldPassword, {
-      type: argon2.argon2id,
-      raw: true,
-      hashLength: 32,
-      salt: oldSalt,
-      timeCost: 3,
-      memoryCost: 19456,
-      parallelism: 1,
-    })) as Buffer;
-
-    // Generate new salt and derive new key
-    const newSalt = randomBytes(16);
-    const newSaltBase64 = newSalt.toString('base64');
-    const newKey = (await argon2.hash(newPassword, {
-      type: argon2.argon2id,
-      raw: true,
-      hashLength: 32,
-      salt: newSalt,
-      timeCost: 3,
-      memoryCost: 19456,
-      parallelism: 1,
-    })) as Buffer;
-
-    // Hash new password with bcrypt
+    // Just update password hash — encryption is independent
     const newPasswordHash = await bcrypt.hash(newPassword, 12);
-
-    // Update user: password hash, encryption salt
     await this.usersService.updatePasswordHash(userId, newPasswordHash);
-    await this.usersService.updateEncryptionSalt(userId, newSaltBase64);
-    const newKeyVersion = await this.usersService.incrementKeyVersion(userId);
-
-    // Update in-memory key cache
-    this.userKeyService.removeKey(userId);
-    await this.userKeyService.deriveAndStore(userId, newPassword, newSalt);
-
-    // Enqueue re-encryption job (processed by Plan 02's processor)
-    await this.reencryptQueue.add('reencrypt-memories', {
-      userId,
-      oldKey: oldKey.toString('base64'),
-      newKey: newKey.toString('base64'),
-      newKeyVersion,
-    });
-
-    // Revoke all refresh tokens (force re-login with new password)
     await this.usersService.revokeAllUserTokens(userId);
 
-    this.logger.log(`Password changed for user ${userId}, re-encryption enqueued`);
+    this.logger.log(`Password changed for user ${userId} — encryption unchanged`);
   }
 
   private async generateTokenPair(userId: string, email: string, family?: string) {
     const tokenFamily = family ?? randomUUID();
 
-    // Sign access token (15min)
     const accessToken = this.jwt.sign(
       { sub: userId, email },
       {
@@ -325,7 +278,6 @@ export class UserAuthService {
       },
     );
 
-    // Generate refresh token: random bytes signed as JWT
     const refreshPayload = {
       sub: userId,
       email,
@@ -337,7 +289,6 @@ export class UserAuthService {
       algorithm: 'HS256',
     });
 
-    // Store hash of refresh token in DB
     const tokenHash = this.hashToken(refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await this.usersService.saveRefreshToken(userId, tokenHash, tokenFamily, expiresAt);

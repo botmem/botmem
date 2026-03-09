@@ -7,7 +7,6 @@ import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { EnrichService } from './enrich.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
-import { EncryptionKeyMissingError } from '../crypto/encryption-key-missing.error';
 import { EventsService } from '../events/events.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
@@ -89,8 +88,8 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         // Legacy APP_SECRET encrypted
         decrypted = this.crypto.decryptMemoryFields(mem);
       } else {
-        const userKey = this.userKeyService.getKey(ownerUserId);
-        if (!userKey) throw new EncryptionKeyMissingError(ownerUserId);
+        const userKey = await this.userKeyService.getDek(ownerUserId);
+        if (!userKey) throw new Error(`Encryption key not available for user ${ownerUserId}`);
         decrypted = this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
       }
       const writeDecrypted = (db: typeof this.dbService.db) =>
@@ -231,8 +230,8 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
       return;
     }
 
-    const userKey = this.userKeyService.getKey(ownerUserId);
-    if (!userKey) throw new EncryptionKeyMissingError(ownerUserId);
+    const userKey = await this.userKeyService.getDek(ownerUserId);
+    if (!userKey) throw new Error(`Encryption key not available for user ${ownerUserId}`);
 
     // users table is NOT RLS-protected — unscoped lookup is correct
     const [user] = await this.dbService.db

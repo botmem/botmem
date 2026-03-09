@@ -9,10 +9,13 @@ interface AuthState {
   accessToken: string | null;
   isLoading: boolean;
   error: string | null;
+  recoveryKey: string | null;
+  needsRecoveryKey: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
-  reauth: (password: string) => Promise<void>;
+  submitRecoveryKey: (recoveryKey: string) => Promise<void>;
+  dismissRecoveryKey: () => void;
   refreshSession: () => Promise<boolean>;
   initialize: () => Promise<void>;
   completeOnboarding: () => void;
@@ -47,15 +50,28 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       isLoading: true,
       error: null,
+      recoveryKey: null,
+      needsRecoveryKey: false,
 
       login: async (email: string, password: string) => {
         set({ error: null, isLoading: true });
         try {
-          const data = await authFetch<{ accessToken: string; user: User }>('/login', {
+          const data = await authFetch<{
+            accessToken: string;
+            user: User;
+            needsRecoveryKey?: boolean;
+            recoveryKey?: string;
+          }>('/login', {
             method: 'POST',
             body: JSON.stringify({ email, password }),
           });
-          set({ user: data.user, accessToken: data.accessToken, isLoading: false });
+          set({
+            user: data.user,
+            accessToken: data.accessToken,
+            isLoading: false,
+            needsRecoveryKey: !!data.needsRecoveryKey,
+            recoveryKey: data.recoveryKey ?? null,
+          });
         } catch (err: any) {
           set({ error: err.message, isLoading: false });
           throw err;
@@ -65,33 +81,45 @@ export const useAuthStore = create<AuthState>()(
       signup: async (email: string, password: string, name: string) => {
         set({ error: null, isLoading: true });
         try {
-          const data = await authFetch<{ accessToken: string; user: User }>('/register', {
+          const data = await authFetch<{
+            accessToken: string;
+            user: User;
+            recoveryKey?: string;
+          }>('/register', {
             method: 'POST',
             body: JSON.stringify({ email, password, name }),
           });
-          set({ user: data.user, accessToken: data.accessToken, isLoading: false });
+          set({
+            user: data.user,
+            accessToken: data.accessToken,
+            isLoading: false,
+            recoveryKey: data.recoveryKey ?? null,
+          });
         } catch (err: any) {
           set({ error: err.message, isLoading: false });
           throw err;
         }
       },
 
-      reauth: async (password: string) => {
+      submitRecoveryKey: async (recoveryKey: string) => {
         const { accessToken } = get();
-        const res = await fetch(`${API_BASE}/reauth`, {
+        const res = await fetch(`${API_BASE}/recovery-key`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
           },
           credentials: 'include',
-          body: JSON.stringify({ password }),
+          body: JSON.stringify({ recoveryKey }),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({ message: `Error ${res.status}` }));
           throw new Error(body.message || `Error ${res.status}`);
         }
+        set({ needsRecoveryKey: false });
       },
+
+      dismissRecoveryKey: () => set({ recoveryKey: null }),
 
       logout: async () => {
         // Sign out of Firebase if in firebase mode
@@ -225,10 +253,16 @@ export const useAuthStore = create<AuthState>()(
             const body = await res.json().catch(() => ({ message: 'Sync failed' }));
             throw new Error(body.message || 'Backend sync failed');
           }
-          const { user } = await res.json();
+          const data = await res.json();
 
           // Store Firebase ID token as the accessToken — used for Bearer auth on all API calls
-          set({ user, accessToken: idToken, isLoading: false });
+          set({
+            user: data.user,
+            accessToken: idToken,
+            isLoading: false,
+            recoveryKey: data.recoveryKey ?? null,
+            needsRecoveryKey: !!data.needsRecoveryKey,
+          });
         } catch (err: any) {
           // Firebase popup closed by user is not an error
           if (

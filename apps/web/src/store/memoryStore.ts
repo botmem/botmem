@@ -29,7 +29,7 @@ interface MemoryStats {
   total: number;
   bySource: Record<string, number>;
   byConnector: Record<string, number>;
-  needsRelogin?: boolean;
+  needsRecoveryKey?: boolean;
 }
 
 interface MemoryState {

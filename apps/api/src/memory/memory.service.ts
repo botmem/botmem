@@ -129,18 +129,17 @@ export class MemoryService {
       metadata: string;
       keyVersion?: number;
     },
-  >(mem: T, userId?: string | null): T {
+  >(mem: T, userId?: string | null, resolvedKey?: Buffer | null): T {
     const kv = (mem as any).keyVersion ?? 0;
     if (kv >= 1 && userId) {
-      const userKey = this.userKeyService.getKey(userId);
+      const userKey = resolvedKey ?? this.userKeyService.getKey(userId);
       if (userKey) {
         return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
       }
-      // User key not in memory (server restarted) — return placeholder instead of garbled ciphertext.
-      // User must log out and log back in to re-derive their encryption key.
+      // Key not available — return placeholder. User must enter recovery key.
       return {
         ...mem,
-        text: '[Encrypted — please log out and log in again to view]',
+        text: '[Encrypted — enter your recovery key to view]',
         entities: '[]',
         claims: '[]',
       };
@@ -148,10 +147,18 @@ export class MemoryService {
     return this.crypto.decryptMemoryFields(mem);
   }
 
-  /** Check if user has encrypted memories but no decryption key in memory (server restarted). */
-  async needsRelogin(userId?: string): Promise<boolean> {
+  /** Resolve user key once (async) for use in batch decryption. */
+  async resolveUserKey(userId?: string | null): Promise<Buffer | null> {
+    if (!userId) return null;
+    return this.userKeyService.getDek(userId);
+  }
+
+  /** Check if user has encrypted memories but no decryption key available. */
+  async needsRecoveryKey(userId?: string): Promise<boolean> {
     if (!userId) return false;
-    if (this.userKeyService.hasKey(userId)) return false;
+    // Try async 2-tier lookup first
+    const dek = await this.userKeyService.getDek(userId);
+    if (dek) return false;
     // Only flag if there are actually user-encrypted memories (keyVersion >= 1)
     const [row] = await this.dbService.db
       .select({ count: sql<number>`COUNT(*)` })
@@ -164,6 +171,11 @@ export class MemoryService {
       )
       .limit(1);
     return (row?.count ?? 0) > 0;
+  }
+
+  /** @deprecated Use needsRecoveryKey instead */
+  async needsRelogin(userId?: string): Promise<boolean> {
+    return this.needsRecoveryKey(userId);
   }
 
   /** Invalidate contacts cache (call after contact writes) */

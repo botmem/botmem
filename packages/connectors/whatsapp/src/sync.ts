@@ -3,11 +3,63 @@ import {
   useMultiFileAuthState,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
+  downloadContentFromMessage,
+  type proto,
 } from '@whiskeysockets/baileys';
+import type { Transform } from 'stream';
 import pino from 'pino';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+
+/**
+ * Simple in-memory message store for Baileys getMessage callback.
+ * When Baileys fails to decrypt a message, it retries using this store
+ * to provide the original message content for re-encryption.
+ */
+const messageStore = new Map<string, proto.IMessage>();
+const MESSAGE_STORE_MAX = 10_000;
+
+function storeMessage(
+  key: proto.IMessageKey | undefined | null,
+  message: proto.IMessage | undefined | null,
+) {
+  if (!key?.id || !message) return;
+  const storeKey = `${key.remoteJid}:${key.id}`;
+  messageStore.set(storeKey, message);
+  // Evict oldest entries if store gets too large
+  if (messageStore.size > MESSAGE_STORE_MAX) {
+    const firstKey = messageStore.keys().next().value;
+    if (firstKey) messageStore.delete(firstKey);
+  }
+}
+
+async function getMessage(key: proto.IMessageKey): Promise<proto.IMessage | undefined> {
+  const storeKey = `${key.remoteJid}:${key.id}`;
+  return messageStore.get(storeKey);
+}
+
+/** Simple CacheStore implementation for msgRetryCounterCache */
+function makeCacheStore(): {
+  get<T>(key: string): T | undefined;
+  set<T>(key: string, value: T): void;
+  del(key: string): void;
+  flushAll(): void;
+} {
+  const store = new Map<string, any>();
+  return {
+    get: <T>(key: string) => store.get(key) as T | undefined,
+    set: <T>(key: string, value: T) => {
+      store.set(key, value);
+    },
+    del: (key: string) => {
+      store.delete(key);
+    },
+    flushAll: () => {
+      store.clear();
+    },
+  };
+}
 
 /** Track decrypt failures to surface re-auth warnings */
 let decryptFailCount = 0;
@@ -22,7 +74,7 @@ export function setDecryptFailureCallback(cb: (count: number) => void) {
 }
 
 const logger = pino({
-  level: 'warn',
+  level: 'debug',
   hooks: {
     logMethod(inputArgs: any[], method: any) {
       const msg = typeof inputArgs[0] === 'string' ? inputArgs[0] : inputArgs[1];
@@ -170,6 +222,51 @@ function nameFromVcard(vcard: string): string {
   return '';
 }
 
+/** Download image or document media and return base64-encoded content */
+async function downloadMedia(
+  msg: any,
+): Promise<{ base64: string; mimetype: string; fileName?: string } | null> {
+  const m = msg.message;
+  if (!m) return null;
+
+  let mediaMsg: any = null;
+  let mediaType: string = '';
+  let mime = '';
+  let fileName = '';
+
+  if (m.imageMessage) {
+    mediaMsg = m.imageMessage;
+    mediaType = 'image';
+    mime = m.imageMessage.mimetype || 'image/jpeg';
+  } else if (m.documentMessage) {
+    mediaMsg = m.documentMessage;
+    mediaType = 'document';
+    mime = m.documentMessage.mimetype || 'application/octet-stream';
+    fileName = m.documentMessage.fileName || '';
+  } else if (m.documentWithCaptionMessage?.message?.documentMessage) {
+    mediaMsg = m.documentWithCaptionMessage.message.documentMessage;
+    mediaType = 'document';
+    mime = mediaMsg.mimetype || 'application/octet-stream';
+    fileName = mediaMsg.fileName || '';
+  }
+
+  if (!mediaMsg || !mediaMsg.mediaKey || !mediaMsg.directPath) return null;
+
+  try {
+    // Small jitter before media download to avoid burst requests
+    await jitter(200, 800);
+    const stream: Transform = await downloadContentFromMessage(mediaMsg, mediaType as any);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const buffer = Buffer.concat(chunks);
+    return { base64: buffer.toString('base64'), mimetype: mime, fileName: fileName || undefined };
+  } catch {
+    return null; // Media expired or unavailable — non-fatal
+  }
+}
+
 /** Persist identity maps to the session directory so re-syncs can reuse them */
 function saveIdentityMaps(
   sessionDir: string,
@@ -211,16 +308,33 @@ function loadIdentityMaps(sessionDir: string): {
   }
 }
 
+/** Random jitter delay to mimic human browsing patterns */
+function jitter(minMs: number, maxMs: number): Promise<void> {
+  const delay = minMs + Math.random() * (maxMs - minMs);
+  return new Promise((r) => setTimeout(r, delay));
+}
+
 // Emit data as it arrives — don't block waiting for more history
 const MAX_SYNC_MS = 10 * 60_000; // 10 minutes hard deadline
 const IDLE_TIMEOUT_FIRST_MS = 30_000; // 30 seconds — process what we have, don't wait forever
 const IDLE_TIMEOUT_RESYNC_MS = 15_000; // 15 seconds for re-syncs
+
+// On-demand per-chat history fetching
+const ON_DEMAND_ROUNDS_PER_CHAT = 5; // max fetch rounds per chat
+const ON_DEMAND_MSGS_PER_FETCH = 50; // messages per fetch request
+const ON_DEMAND_WAIT_MS = 3000; // wait for messages to arrive after fetch
 
 type WaSock = ReturnType<typeof makeWASocket>;
 
 async function createSyncSocket(sessionDir: string): Promise<WaSock> {
   mkdirSync(sessionDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+
+  // Clear processedHistoryMessages so WhatsApp re-delivers history on reconnect
+  if (state.creds.processedHistoryMessages?.length) {
+    state.creds.processedHistoryMessages = [];
+  }
+
   const version = await getWhatsAppVersion();
   const sock = makeWASocket({
     auth: {
@@ -228,10 +342,13 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
     version,
+    browser: ['Mac OS', 'Chrome', '10.15.7'],
     printQRInTerminal: false,
     logger,
     syncFullHistory: true,
     markOnlineOnConnect: false,
+    getMessage,
+    msgRetryCounterCache: makeCacheStore(),
   });
 
   if (sock.ws && typeof (sock.ws as any).on === 'function') {
@@ -308,6 +425,7 @@ export async function syncWhatsApp(
     });
   }
 
+  const syncStartTime = Date.now();
   const selfJid = (sock as any).user?.id || '';
   const selfPhone = phoneFromJid(selfJid);
   const isFirstSync = !!existingSock;
@@ -333,8 +451,8 @@ export async function syncWhatsApp(
     );
   }
 
-  // Buffer history messages — process them at the end after all identity maps are populated
-  const bufferedMessages: Array<{ msg: any; source: string }> = [];
+  // Track history message count (no longer buffered — emitted immediately)
+  let historyMsgCount = 0;
 
   // Listen for LID → phone mappings
   sock.ev.on('chats.phoneNumberShare' as any, (data: any) => {
@@ -401,10 +519,10 @@ export async function syncWhatsApp(
     }
   });
 
-  let oldestTimestamp = Math.floor(Date.now() / 1000);
-  let oldestMsgKey: any = null;
+  // Per-chat oldest message tracking for on-demand fetching
+  const chatOldest = new Map<string, { key: any; ts: number }>();
 
-  const processMessage = (msg: any, source: string) => {
+  const processMessage = async (msg: any, source: string, skipMedia = false) => {
     if (!msg.message) return;
 
     const msgType = detectMessageType(msg);
@@ -583,6 +701,19 @@ export async function syncWhatsApp(
 
     const msgTs = Number(msg.messageTimestamp || 0);
 
+    // Download image/document media if available
+    let fileBase64: string | undefined;
+    let fileMimetype: string | undefined;
+    let fileFileName: string | undefined;
+    if (!skipMedia && (msgType.type === 'image' || msgType.type === 'document')) {
+      const media = await downloadMedia(msg);
+      if (media) {
+        fileBase64 = media.base64;
+        fileMimetype = media.mimetype;
+        fileFileName = media.fileName;
+      }
+    }
+
     emit({
       sourceType: 'message',
       sourceId: msg.key?.id || `wa:${Date.now()}:${processed}`,
@@ -608,18 +739,21 @@ export async function syncWhatsApp(
           sharedContacts: sharedContacts.length > 0 ? sharedContacts : undefined,
           location: location || undefined,
           attachments: attachments.length > 0 ? attachments : undefined,
+          fileBase64,
+          mimetype: fileMimetype,
+          fileName: fileFileName,
         },
       },
     });
     processed++;
   };
 
+  // --- Phase 1: Passive history collection ---
+  // Wait for WhatsApp to push history batches via messaging-history.set,
+  // then after idle timeout, switch to on-demand per-chat fetching.
   await new Promise<void>((resolve) => {
     let idleTimer: ReturnType<typeof setTimeout>;
     let finished = false;
-    let fetchHistoryAttempts = 0;
-    const MAX_FETCH_ATTEMPTS = 2;
-    let lastBufferedCount = 0;
 
     const finish = () => {
       if (finished) return;
@@ -631,34 +765,9 @@ export async function syncWhatsApp(
 
     const resetIdle = () => {
       clearTimeout(idleTimer);
-      idleTimer = setTimeout(async () => {
-        // Only try fetchMessageHistory if we haven't exhausted attempts
-        // and new messages actually arrived since last attempt
-        const newMessages = bufferedMessages.length > lastBufferedCount;
-        if (newMessages) {
-          fetchHistoryAttempts = 0; // Reset if we got new data
-        }
-
-        if (
-          oldestMsgKey &&
-          fetchHistoryAttempts < MAX_FETCH_ATTEMPTS &&
-          typeof (sock as any).fetchMessageHistory === 'function'
-        ) {
-          fetchHistoryAttempts++;
-          lastBufferedCount = bufferedMessages.length;
-          ctx.logger.info(
-            `Idle timeout — requesting more history before oldest msg (${new Date(oldestTimestamp * 1000).toISOString()}) attempt ${fetchHistoryAttempts}/${MAX_FETCH_ATTEMPTS}`,
-          );
-          try {
-            await (sock as any).fetchMessageHistory(50, oldestMsgKey, oldestTimestamp);
-            resetIdle();
-            return;
-          } catch (err: any) {
-            ctx.logger.info(`fetchMessageHistory failed: ${err.message} — finishing`);
-          }
-        }
+      idleTimer = setTimeout(() => {
         ctx.logger.info(
-          `No new data for ${IDLE_TIMEOUT_MS / 1000}s, finishing (${bufferedMessages.length} buffered msgs)`,
+          `No new data for ${IDLE_TIMEOUT_MS / 1000}s, ending passive phase (${historyMsgCount} history msgs processed)`,
         );
         finish();
       }, IDLE_TIMEOUT_MS);
@@ -723,24 +832,20 @@ export async function syncWhatsApp(
         `Identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name, ${chatNames.size} chats`,
       );
 
-      // Buffer history messages — process after all batches arrive for best identity resolution
-      let sampleGroupMsg = false;
+      // Process history messages immediately — emit as they arrive
       for (const msg of messages) {
-        const msgTs = Number(msg.messageTimestamp || 0);
-        if (msgTs > 0 && msgTs < oldestTimestamp) {
-          oldestTimestamp = msgTs;
-          oldestMsgKey = msg.key;
-        }
-        bufferedMessages.push({ msg, source: 'history' });
+        storeMessage(msg.key, msg.message);
 
-        // Debug: log a sample group message to see available fields
-        const participantJid = msg.key?.participant || msg.participant || '';
-        if (!sampleGroupMsg && participantJid && isLid(participantJid) && historyBatches === 1) {
-          ctx.logger.info(
-            `Sample LID msg: participant=${participantJid} pushName=${msg.pushName || '(none)'} verifiedBizName=${msg.verifiedBizName || '(none)'} keys=${Object.keys(msg).join(',')}`,
-          );
-          sampleGroupMsg = true;
+        const msgTs = Number(msg.messageTimestamp || 0);
+        const chatJid = msg.key?.remoteJid || '';
+        if (chatJid && msgTs > 0) {
+          const existing = chatOldest.get(chatJid);
+          if (!existing || msgTs < existing.ts) {
+            chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
+          }
         }
+        historyMsgCount++;
+        processMessage(msg, 'history', true);
       }
 
       resetIdle();
@@ -752,6 +857,18 @@ export async function syncWhatsApp(
       const type = upsert.type === 'notify' ? 'realtime' : 'append';
       ctx.logger.info(`messages.upsert: ${msgs.length} msgs, type=${upsert.type}`);
       for (const msg of msgs) {
+        // Store message for decrypt retry callback
+        storeMessage(msg.key, msg.message);
+
+        // Track per-chat oldest for on-demand fetching
+        const msgTs = Number(msg.messageTimestamp || 0);
+        const chatJid = msg.key?.remoteJid || '';
+        if (chatJid && msgTs > 0) {
+          const existing = chatOldest.get(chatJid);
+          if (!existing || msgTs < existing.ts) {
+            chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
+          }
+        }
         processMessage(msg, type);
       }
       resetIdle();
@@ -765,6 +882,84 @@ export async function syncWhatsApp(
       sock.ev.flush();
     }
   });
+
+  // --- Phase 2: On-demand per-chat history fetching ---
+  // After passive history stops, iterate through chats and request older messages.
+  if (
+    !ctx.signal.aborted &&
+    chatOldest.size > 0 &&
+    typeof (sock as any).fetchMessageHistory === 'function'
+  ) {
+    const elapsedMs = Date.now() - syncStartTime;
+    const remainingMs = MAX_SYNC_MS - elapsedMs;
+
+    // Skip broadcast/newsletter chats, sort by fewest messages first (likely incomplete)
+    const chatsToFetch = [...chatOldest.entries()]
+      .filter(([jid]) => !jid.endsWith('@broadcast') && !jid.endsWith('@newsletter'))
+      .sort(); // deterministic order
+
+    ctx.logger.info(
+      `On-demand fetching: ${chatsToFetch.length} chats with known oldest messages (${remainingMs / 1000}s budget)`,
+    );
+
+    let totalOnDemandMsgs = 0;
+    let chatsChecked = 0;
+
+    for (const [chatJid, oldest] of chatsToFetch) {
+      if (ctx.signal.aborted) break;
+      if (Date.now() - syncStartTime > MAX_SYNC_MS - 5000) {
+        ctx.logger.info('On-demand fetching: time budget exhausted');
+        break;
+      }
+
+      // Jitter between chats to avoid rate limiting
+      if (chatsChecked > 0) await jitter(300, 1500);
+
+      let currentKey = oldest.key;
+      let currentTs = oldest.ts;
+
+      for (let round = 0; round < ON_DEMAND_ROUNDS_PER_CHAT; round++) {
+        // Jitter between fetches to mimic natural scrolling
+        await jitter(500, 2000);
+
+        const beforeCount = processed;
+        try {
+          await (sock as any).fetchMessageHistory(ON_DEMAND_MSGS_PER_FETCH, currentKey, currentTs);
+        } catch (err: any) {
+          ctx.logger.info(`fetchMessageHistory failed for ${chatJid}: ${err.message}`);
+          break;
+        }
+
+        // Wait for messages to arrive via messaging-history.set
+        await new Promise((r) => setTimeout(r, ON_DEMAND_WAIT_MS));
+
+        const newMsgs = processed - beforeCount;
+        totalOnDemandMsgs += newMsgs;
+
+        if (newMsgs === 0) break; // No more history for this chat
+
+        // Update oldest for next round
+        const updated = chatOldest.get(chatJid);
+        if (updated && updated.ts < currentTs) {
+          currentKey = updated.key;
+          currentTs = updated.ts;
+        } else {
+          break; // No older messages arrived
+        }
+      }
+
+      chatsChecked++;
+      if (chatsChecked % 20 === 0) {
+        ctx.logger.info(
+          `On-demand progress: ${chatsChecked}/${chatsToFetch.length} chats, +${totalOnDemandMsgs} msgs`,
+        );
+      }
+    }
+
+    ctx.logger.info(
+      `On-demand fetching complete: ${chatsChecked} chats checked, +${totalOnDemandMsgs} additional messages`,
+    );
+  }
 
   // Fetch group metadata for chat names and member tracking
   // NOTE: In Baileys v7, group participants only have LID-based IDs (no phoneNumber field)
@@ -817,14 +1012,6 @@ export async function syncWhatsApp(
   ctx.logger.info(
     `Identity maps before processing: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
   );
-
-  // Process all buffered history messages now that identity maps are fully populated
-  ctx.logger.info(
-    `Processing ${bufferedMessages.length} buffered history messages with ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name mappings`,
-  );
-  for (const { msg, source } of bufferedMessages) {
-    processMessage(msg, source);
-  }
 
   // Emit contact events for all resolved identities
   emitContactEvents(
