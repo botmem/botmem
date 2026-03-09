@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 export interface MemoryBank {
   id: string;
   name: string;
-  isDefault: number;
+  isDefault: boolean;
   memoryCount: number;
   createdAt: string;
   updatedAt: string;
@@ -68,9 +68,7 @@ export const useMemoryBankStore = create<MemoryBankState>((set, get) => ({
     try {
       await api.renameMemoryBank(id, name);
       set((state) => ({
-        memoryBanks: state.memoryBanks.map((b) =>
-          b.id === id ? { ...b, name } : b,
-        ),
+        memoryBanks: state.memoryBanks.map((b) => (b.id === id ? { ...b, name } : b)),
       }));
     } catch (err) {
       console.error('Failed to rename memory bank:', err);
