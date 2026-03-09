@@ -48,28 +48,35 @@ Every piece of personal communication and digital interaction is searchable, con
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] User authentication (email+password, JWT access+refresh tokens)
-- [ ] API keys (named, read-only, bank-scoped)
-- ✓ Memory banks (data isolation, sync-time selection) — Phase 19
-- [ ] Encryption at rest (AES-256-GCM for credentials)
-- [ ] E2EE for prod-core (Argon2id key derivation, client-side encryption)
-- [ ] PostgreSQL dual-driver with RLS
-- [ ] Firebase auth for prod-core
+<!-- v2.0 remaining (paused, dependency for v4.0) -->
 
-## Current Milestone: v3.0 Monorepo & Developer Experience
+- [ ] E2EE for prod-core (Argon2id key derivation, client-side encryption) — Phase 21
+- [ ] PostgreSQL RLS policies for data isolation — Phase 23
+- [ ] Firebase auth for prod-core — Phase 24
 
-**Goal:** Transform the hacked-together monorepo into a production-grade, plug-and-play development environment — proper tooling, Docker Compose with all services, build gates with tests, and no dev experience footguns like port conflicts.
+<!-- v4.0 E2E Testing (planned, starts after v2.0) -->
+
+- [ ] Fixture capture infrastructure: `scripts/generate-fixtures.ts`, JSON LLM I/O recordings
+- [ ] Pipeline integration tests: embed/enrich/sync processors with real Postgres + fixture LLM
+- [ ] API HTTP integration tests: all endpoints via Supertest
+- [ ] Connector parsing tests: Gmail, Slack, iMessage, Immich, Locations with recorded responses
+- [ ] CI gates: GitHub Actions test workflow, fixture cache, 80% coverage enforcement
+
+## Current Milestone: v4.0 E2E Testing & Test Infrastructure
+
+**Goal:** Establish comprehensive integration and API-level testing for Botmem using snapshot-based fixture testing to handle Ollama non-determinism — so the pipeline is verifiable in CI without GPU access.
 
 **Target features:**
 
-- Proper pnpm workspace + Turborepo configuration following latest best practices
-- Docker Compose that's truly plug-and-play (includes Ollama, Redis, Qdrant — one command to run)
-- Fix port conflict issues (file changes spawning competing instances)
-- Tests must pass before build succeeds (build pipeline gates)
-- Monorepo structure ready for productionization and commercialization
-- Consistent tsconfig, linting, and build configuration across all packages
+- Fixture capture infrastructure: scripts to record all LLM I/O (embed/enrich/vision) as JSON fixtures
+- Pipeline integration tests: full Sync→Embed→Enrich tested with fixture LLM responses and real Postgres
+- API HTTP integration tests: all REST endpoints via Supertest with real DB + mocked LLM
+- Connector parsing tests: each connector's data transformation verified with recorded API responses
+- CI gates: GitHub Actions runs all tests on PRs, fixture cache persisted, coverage enforced at 80%
 
-## Paused Milestone: v2.0 Security, Auth & Encryption (24% complete)
+**Note:** Execution depends on v2.0 completion (phases 21, 23, 24 remaining). Planning artifacts defined now; implementation after v2.0.
+
+## Paused Milestone: v2.0 Security, Auth & Encryption (phases 21, 23, 24 remaining)
 
 **Goal:** Add user authentication, API keys, memory banks, encryption at rest, E2EE for prod-core, and PostgreSQL with RLS — transforming Botmem from a completely open system into a properly secured personal memory platform.
 
@@ -156,4 +163,4 @@ Every piece of personal communication and digital interaction is searchable, con
 
 ---
 
-_Last updated: 2026-03-09 after Phase 19 (Memory Banks)_
+_Last updated: 2026-03-09 after milestone v4.0 (E2E Testing) initialized_

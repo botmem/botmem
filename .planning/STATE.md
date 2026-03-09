@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Security, Auth & Encryption
-status: completed
-stopped_at: Completed 21-01-PLAN.md
-last_updated: '2026-03-09T08:30:37.170Z'
-last_activity: '2026-03-09 - Phase 19 (Memory Banks) complete: 3/3 plans, bank-scoped sync pipeline, data migration, frontend bank selectors'
+milestone: v4.0
+milestone_name: E2E Testing & Test Infrastructure
+status: planned
+stopped_at: Milestone initialized — requirements and roadmap defined
+last_updated: '2026-03-09T00:00:00.000Z'
+last_activity: '2026-03-09 - Milestone v4.0 started: requirements and roadmap defined (phases 35-39)'
 progress:
-  total_phases: 27
-  completed_phases: 24
-  total_plans: 46
-  completed_plans: 45
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
@@ -20,13 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v2.0 Security, Auth & Encryption -- Phase 20 (Encryption at Rest) next
+**Current focus:** v4.0 E2E Testing & Test Infrastructure — Phase 35 (Fixture Capture) is first, but blocked until v2.0 phases 21, 23, 24 complete
 
 ## Current Position
 
-Phase: 20 (Encryption at Rest) - Next up
-Status: v2.1, v3.0, v3.0.1 milestones shipped. v2.0 partially complete (16, 17, 18, 19, 22 done; 20-21, 23-24 remaining).
-Last activity: 2026-03-09 - Phase 19 (Memory Banks) complete: 3/3 plans, bank-scoped sync pipeline, data migration, frontend bank selectors
+Phase: Not started (requirements and roadmap defined)
+Plan: —
+Status: Defining requirements. Execution blocked on v2.0 phases 21 (E2EE), 23 (RLS), 24 (Firebase)
+Last activity: 2026-03-09 — Milestone v4.0 started
 
 ## Performance Metrics
 
