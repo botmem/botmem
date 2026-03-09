@@ -2,6 +2,7 @@ import type { Memory } from '@botmem/shared';
 import { formatDate, formatTime, CONNECTOR_COLORS } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { AuthedImage } from '../ui/AuthedImage';
 import { useMemoryStore } from '../../store/memoryStore';
 
 function hasThumbnail(memory: Memory): boolean {
@@ -66,9 +67,8 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
 
         {hasThumbnail(memory) && (
           <div className="border-3 border-nb-border overflow-hidden">
-            <img
+            <AuthedImage
               src={`/api/memories/${memory.id}/thumbnail`}
-              alt=""
               className="w-full h-auto max-h-64 object-contain bg-black"
               loading="lazy"
             />
@@ -82,7 +82,9 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
           <div>
             <span className="text-nb-muted uppercase">Event:</span>{' '}
-            <span className="text-nb-text">{formatDate(memory.time)} {formatTime(memory.time)}</span>
+            <span className="text-nb-text">
+              {formatDate(memory.time)} {formatTime(memory.time)}
+            </span>
           </div>
           <div>
             <span className="text-nb-muted uppercase">Ingested:</span>{' '}
@@ -91,7 +93,9 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
         </div>
 
         <div>
-          <h4 className="font-display text-xs font-bold uppercase mb-2 text-nb-text">Weight Breakdown</h4>
+          <h4 className="font-display text-xs font-bold uppercase mb-2 text-nb-text">
+            Weight Breakdown
+          </h4>
           <div className="flex flex-col gap-1.5">
             {weights.map(([key, val]) => (
               <div key={key} className="flex items-center gap-2">
@@ -105,7 +109,9 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
                     }}
                   />
                 </div>
-                <span className="font-mono text-xs w-10 text-right text-nb-text">{(val * 100).toFixed(0)}%</span>
+                <span className="font-mono text-xs w-10 text-right text-nb-text">
+                  {(val * 100).toFixed(0)}%
+                </span>
               </div>
             ))}
           </div>
@@ -137,7 +143,6 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
             </div>
           </div>
         )}
-
       </div>
     </Card>
   );

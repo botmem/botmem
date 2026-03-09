@@ -38,8 +38,8 @@ function sanitizeText(text: string): string {
       // Remove U+2060–U+2064 (word joiner, invisible operators)
       // Remove U+FEFF (BOM / zero-width no-break space)
       // Remove U+FFF9–U+FFFB (interlinear annotation anchors)
-      // eslint-disable-next-line no-control-regex
       .replace(
+        // eslint-disable-next-line no-control-regex
         /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g,
         '',
       )
@@ -650,7 +650,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       .where(
         and(
           eq(memories.connectorType, connectorType),
-          sql`(metadata->>'threadId')::text = ${threadId}`,
+          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
         ),
       )
       .limit(20);

@@ -34,11 +34,16 @@ export class AuthController {
     @Query() query: Record<string, string>,
     @Res() res: Response,
   ) {
-    const { returnTo } = await this.authService.handleCallback(type, query);
-    const target = returnTo
-      ? `${this.config.frontendUrl}${returnTo}`
-      : `${this.config.frontendUrl}/connectors`;
-    res.redirect(`${target}?auth=success&type=${type}`);
+    try {
+      const { returnTo } = await this.authService.handleCallback(type, query);
+      const target = returnTo
+        ? `${this.config.frontendUrl}${returnTo}`
+        : `${this.config.frontendUrl}/connectors`;
+      res.redirect(`${target}?auth=success&type=${type}`);
+    } catch (err: any) {
+      const msg = encodeURIComponent(err?.message || 'Unknown error');
+      res.redirect(`${this.config.frontendUrl}/connectors?auth=error&type=${type}&error=${msg}`);
+    }
   }
 
   @Post(':type/complete')

@@ -2,6 +2,7 @@ import type { GraphNode } from '@botmem/shared';
 import { CONNECTOR_COLORS, formatDate } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { AuthedImage } from '../ui/AuthedImage';
 import { IDENTIFIER_COLORS } from '../contacts/constants';
 
 const SELF_COLOR = '#C4F53A';
@@ -208,9 +209,8 @@ export function NodeDetailPanel({
               (selectedNode.source === 'file' || selectedNode.source === 'photo') &&
               !!selectedNode.metadata?.fileUrl && (
                 <div className="border-3 border-nb-border overflow-hidden mb-2">
-                  <img
+                  <AuthedImage
                     src={`/api/memories/${selectedNode.id}/thumbnail`}
-                    alt=""
                     className="w-full h-auto max-h-48 object-contain bg-black"
                     loading="lazy"
                   />

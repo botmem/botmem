@@ -2,6 +2,7 @@ import type { Memory } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, truncate } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { AuthedImage } from '../ui/AuthedImage';
 import { useMemoryStore } from '../../store/memoryStore';
 
 const sourceIcons: Record<string, string> = {
@@ -65,17 +66,14 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
           >
             {sourceIcons[memory.source]}
           </span>
-          <Badge color={CONNECTOR_COLORS[memory.sourceConnector]}>
-            {memory.sourceConnector}
-          </Badge>
+          <Badge color={CONNECTOR_COLORS[memory.sourceConnector]}>{memory.sourceConnector}</Badge>
         </div>
       </div>
 
       {hasThumbnail(memory) && (
         <div className="border-2 border-nb-border mb-2 overflow-hidden">
-          <img
+          <AuthedImage
             src={`/api/memories/${memory.id}/thumbnail`}
-            alt=""
             className="w-full h-32 object-cover"
             loading="lazy"
           />
