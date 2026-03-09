@@ -9,13 +9,16 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
+import { DbService } from '../db/db.service';
+import { memories } from '../db/schema';
+import { sql } from 'drizzle-orm';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import type { ConnectorAccount } from '@botmem/shared';
 
-function toApiAccount(row: any): ConnectorAccount {
+function toApiAccount(row: any, memoryCount?: number): ConnectorAccount {
   return {
     id: row.id,
     type: row.connectorType,
@@ -23,19 +26,28 @@ function toApiAccount(row: any): ConnectorAccount {
     status: row.status,
     schedule: row.schedule,
     lastSync: row.lastSyncAt,
-    memoriesIngested: row.itemsSynced,
+    memoriesIngested: memoryCount ?? row.itemsSynced,
     lastError: row.lastError || null,
   };
 }
 
 @Controller('accounts')
 export class AccountsController {
-  constructor(private accountsService: AccountsService) {}
+  constructor(
+    private accountsService: AccountsService,
+    private dbService: DbService,
+  ) {}
 
   @Get()
   async list(@CurrentUser() user: { id: string }) {
     const rows = await this.accountsService.getAll(user.id);
-    return { accounts: rows.map(toApiAccount) };
+    // Count actual memories per account from DB
+    const counts = await this.dbService.db
+      .select({ accountId: memories.accountId, count: sql<number>`count(*)::int` })
+      .from(memories)
+      .groupBy(memories.accountId);
+    const countMap = new Map(counts.map((c) => [c.accountId, c.count]));
+    return { accounts: rows.map((r) => toApiAccount(r, countMap.get(r.id) ?? 0)) };
   }
 
   @Get(':id')
