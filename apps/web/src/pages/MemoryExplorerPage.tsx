@@ -89,7 +89,7 @@ export function MemoryExplorerPage() {
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
           <p className="font-display text-lg text-nb-muted text-center max-w-md">
-            Enter your recovery key to unlock your memories.
+            Enter your recovery key to access your memories.
           </p>
           <button
             onClick={() => setReauthOpen(true)}
