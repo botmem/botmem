@@ -10,6 +10,7 @@ vi.mock('../qr-auth.js', () => ({
 
 vi.mock('../sync.js', () => ({
   syncWhatsApp: vi.fn().mockResolvedValue({ cursor: null, hasMore: false, processed: 5 }),
+  setDecryptFailureCallback: vi.fn(),
 }));
 
 describe('WhatsAppConnector', () => {
@@ -64,7 +65,9 @@ describe('WhatsAppConnector', () => {
 
   describe('revokeAuth', () => {
     it('does not throw', async () => {
-      await expect(connector.revokeAuth({ raw: { sessionDir: '/data/session' } })).resolves.toBeUndefined();
+      await expect(
+        connector.revokeAuth({ raw: { sessionDir: '/data/session' } }),
+      ).resolves.toBeUndefined();
     });
   });
 
