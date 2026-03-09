@@ -361,7 +361,7 @@ describe('ImmichConnector', () => {
       );
 
       const ctx = makeSyncCtx();
-      await expect(connector.sync(ctx)).rejects.toThrow('Immich API error');
+      await expect(connector.sync(ctx)).rejects.toThrow('Immich search/metadata returned 500');
     });
 
     it('continues gracefully when statistics endpoint fails', async () => {
