@@ -136,8 +136,14 @@ export class MemoryService {
       if (userKey) {
         return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
       }
-      // User key not available -- fall back to APP_SECRET (may produce garbled text
-      // but avoids crashing; the user needs to log in again for proper decryption)
+      // User key not in memory (server restarted) — return placeholder instead of garbled ciphertext.
+      // User must log out and log back in to re-derive their encryption key.
+      return {
+        ...mem,
+        text: '[Encrypted — please log out and log in again to view]',
+        entities: '[]',
+        claims: '[]',
+      };
     }
     return this.crypto.decryptMemoryFields(mem);
   }
