@@ -249,7 +249,13 @@ See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 
 3. Enrich processor produces entities using the canonical 10-type taxonomy and classifies factuality (FACT/UNVERIFIED/FICTION) for every memory
 4. Every enriched memory is upserted to Qdrant with correct payload fields (memory_id, source_type, connector_type, event_time) and is retrievable via vector search
 5. Searching for content known to exist in synced data returns relevant results (basic sanity check per connector)
-   **Plans**: TBD
+   **Plans**: 3 plans
+
+Plans:
+
+- [ ] 35-01-PLAN.md — pipelineComplete flag + verification script
+- [ ] 35-02-PLAN.md — Sync Gmail + Slack + WhatsApp, verify pipeline
+- [ ] 35-03-PLAN.md — Sync iMessage + Photos-Immich + Locations, verify + cleanup
 
 ### Phase 36: File & Attachment Processing
 
@@ -262,7 +268,13 @@ See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 
 2. Photo-type attachments are processed through the vision model and have caption text extracted and stored as the memory text
 3. Non-photo file attachments store metadata (filename, MIME type, size) and have meaningful text for embedding (filename + type description)
 4. File/photo memories are linked to their parent memory via memoryLinks with a relationship type that indicates parent-child association
-   **Plans**: TBD
+   **Plans**: 3 plans
+
+Plans:
+
+- [ ] 35-01-PLAN.md — pipelineComplete flag + verification script
+- [ ] 35-02-PLAN.md — Sync Gmail + Slack + WhatsApp, verify pipeline
+- [ ] 35-03-PLAN.md — Sync iMessage + Photos-Immich + Locations, verify + cleanup
 
 ### Phase 37: Relationship Graph Validation
 
@@ -274,7 +286,13 @@ See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 
 1. Contact associations have correct roles per connector -- Gmail emails have sender/recipient contacts, Slack messages have sender contacts, WhatsApp messages have participant contacts, iMessage messages have sender/recipient contacts
 2. Entity extraction produces meaningful entities per connector type -- emails yield person/organization/date entities, messages yield person/location entities, photos yield location/date entities, locations yield location entities
 3. Memory links exist for contextually related content -- email threads link replies to originals, Slack thread replies link to parent messages, WhatsApp conversation messages within a time window are linked
-   **Plans**: TBD
+   **Plans**: 3 plans
+
+Plans:
+
+- [ ] 35-01-PLAN.md — pipelineComplete flag + verification script
+- [ ] 35-02-PLAN.md — Sync Gmail + Slack + WhatsApp, verify pipeline
+- [ ] 35-03-PLAN.md — Sync iMessage + Photos-Immich + Locations, verify + cleanup
 
 ### Phase 38: Search Quality Validation
 
@@ -288,7 +306,13 @@ See [v3.0.1-ROADMAP.md](milestones/v3.0.1-ROADMAP.md) for full phase details. 3 
 3. Searching scoped to a specific contact returns only memories associated with that person, and temporal queries ("last week", "in January") return time-bounded results
 4. Source-type filtering works -- searching within "emails only", "messages only", "photos only", or "files only" returns correctly filtered results
 5. Searching for content within attachments returns results -- photo captions and file metadata are searchable alongside regular memory text
-   **Plans**: TBD
+   **Plans**: 3 plans
+
+Plans:
+
+- [ ] 35-01-PLAN.md — pipelineComplete flag + verification script
+- [ ] 35-02-PLAN.md — Sync Gmail + Slack + WhatsApp, verify pipeline
+- [ ] 35-03-PLAN.md — Sync iMessage + Photos-Immich + Locations, verify + cleanup
 
 ## Progress
 
