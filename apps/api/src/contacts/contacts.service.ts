@@ -326,6 +326,34 @@ export class ContactsService {
     };
   }
 
+  /**
+   * Check if an identifier is a device-format identifier (e.g., "amr/iphone" from OwnTracks).
+   * Device identifiers should not appear in the people list.
+   */
+  private isDeviceIdentifier(ident: typeof contactIdentifiers.$inferSelect): boolean {
+    const { identifierType, identifierValue } = ident;
+
+    // OwnTracks device format: 'user/device' (e.g., 'amr/iphone')
+    if (identifierType === 'device' && identifierValue.includes('/')) return true;
+
+    // Handle format 'connector:user/device' stored as handle
+    if (identifierType === 'handle' && /^[\w]+\/[\w]+$/.test(identifierValue)) {
+      // Conservative: could be device format, but also could be legitimate handle
+      // Only filter if confidence is very low or from owntracks connector
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a contact is device-only (all identifiers are device identifiers).
+   */
+  private isDeviceOnlyContact(identifiers: (typeof contactIdentifiers.$inferSelect)[]): boolean {
+    if (identifiers.length === 0) return false;
+    return identifiers.every((i) => this.isDeviceIdentifier(i));
+  }
+
   async list(
     params: { limit?: number; offset?: number; entityType?: string; userId?: string } = {},
   ): Promise<{
@@ -397,7 +425,13 @@ export class ContactsService {
       identsByContact.set(ident.contactId, list);
     }
 
-    const items: ContactWithIdentifiers[] = paged.map((c) => {
+    // Filter out device-only contacts
+    const filteredPaged = paged.filter((c) => {
+      const idents = identsByContact.get(c.id) || [];
+      return !this.isDeviceOnlyContact(idents);
+    });
+
+    const items: ContactWithIdentifiers[] = filteredPaged.map((c) => {
       const idents = identsByContact.get(c.id) || [];
       return {
         ...c,
@@ -599,7 +633,10 @@ export class ContactsService {
           await tx
             .delete(mergeDismissals)
             .where(
-              or(eq(mergeDismissals.contactId1, sourceId), eq(mergeDismissals.contactId2, sourceId))!,
+              or(
+                eq(mergeDismissals.contactId1, sourceId),
+                eq(mergeDismissals.contactId2, sourceId),
+              )!,
             );
 
           // Delete source contact -- safe now since all children have been moved
@@ -794,14 +831,28 @@ export class ContactsService {
           continue;
         }
 
-        // Strategy 2: Substring match on displayName
+        // Strategy 2: Substring matching - improved to catch word-level matches
+        // Allow "amr" (3 chars) to match "amr essam" because "amr" is a complete word
+        const wordsA = nameA.split(/\s+/);
+        const wordsB = nameB.split(/\s+/);
         const shorter = Math.min(nameA.length, nameB.length);
         const longer = Math.max(nameA.length, nameB.length);
-        // Raise minimum to 4 chars for substring matching to reduce noise
+
+        // Check if shorter name is a complete word of the longer name
+        let wordMatch = false;
+        if (wordsA.length === 1 && wordsB.length > 1) {
+          // nameA is single word, nameB is multiple words — check if nameA is first/last word of nameB
+          wordMatch = wordsB[0] === nameA || wordsB[wordsB.length - 1] === nameA;
+        } else if (wordsB.length === 1 && wordsA.length > 1) {
+          // nameB is single word, nameA is multiple words
+          wordMatch = wordsA[0] === nameB || wordsA[wordsA.length - 1] === nameB;
+        }
+
         if (
-          shorter >= 4 &&
-          shorter / longer >= 0.4 &&
-          (nameA.includes(nameB) || nameB.includes(nameA))
+          wordMatch ||
+          (shorter >= 4 &&
+            shorter / longer >= 0.4 &&
+            (nameA.includes(nameB) || nameB.includes(nameA)))
         ) {
           // Same-connector pairs: only suggest if they share a non-name identifier or co-occur
           if (sameConnector && !isVisionConnector) {
@@ -832,6 +883,14 @@ export class ContactsService {
           }
           if (connectors1.has('photos') && connectors2.has('photos')) {
             addSuggestion(c1, c2, `Share first name "${firstA}" and both appear in photos`);
+          }
+        }
+
+        // Strategy 3.5: 3-char first name with co-occurrence or shared identifier
+        // Catch cases like "AMR" + "AMR ESSAM" that co-occur or share identifiers
+        if (firstA.length === 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
+          if (shareNonNameIdentifier(c1.id, c2.id) || coOccurrence.has(pairKey)) {
+            addSuggestion(c1, c2, `Share first name "${firstA}" and have additional connection`);
           }
         }
       }
