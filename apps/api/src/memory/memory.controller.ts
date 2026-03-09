@@ -24,6 +24,7 @@ import { accounts, memories, memoryContacts, rawEvents, jobs } from '../db/schem
 import { eq, and, sql, isNull } from 'drizzle-orm';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
+import { Public } from '../user-auth/decorators/public.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
 import { BackfillEnrichDto } from './dto/backfill-enrich.dto';
 
@@ -372,6 +373,7 @@ export class MemoryController {
     );
   }
 
+  @Public()
   @Get(':id/thumbnail')
   async getThumbnail(@Param('id') id: string, @Res() res: Response) {
     const memory = await this.memoryService.getById(id);
