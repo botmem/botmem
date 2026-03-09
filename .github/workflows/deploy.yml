@@ -36,8 +36,12 @@ jobs:
           tags: |
             ghcr.io/botmem/open-core:latest
             ghcr.io/botmem/open-core:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/botmem/open-core:cache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=ghcr.io/botmem/open-core:cache,mode=max
           platforms: linux/amd64
 
   deploy:
