@@ -230,7 +230,7 @@ export class WhatsAppConnector extends BaseConnector {
 
     const senderPhone = metadata.senderPhone as string | undefined;
     const senderName = metadata.senderName as string | undefined;
-    const senderLid = metadata.senderLid as string | undefined;
+    // senderLid intentionally unused — LIDs are opaque and unresolvable
     const selfPhone = metadata.selfPhone as string | undefined;
     const fromMe = metadata.fromMe as boolean | undefined;
     const isGroup = metadata.isGroup as boolean | undefined;
@@ -247,22 +247,16 @@ export class WhatsAppConnector extends BaseConnector {
       entities.push({ type: 'group', id: groupParts.join('|'), role: 'group' });
     }
 
-    // Sender — compound ID with all known identifiers
+    // Sender — use phone as primary identifier, skip LIDs (opaque, unresolvable)
     const phone = senderPhone || (participants[0] || '').replace(/@.*$/, '').split(':')[0];
     if (phone && !phone.includes('-')) {
       const senderParts = [`phone:${phone}`];
       if (senderName && senderName !== 'me' && senderName !== 'Me' && senderName !== phone) {
         senderParts.push(`name:${senderName}`);
       }
-      if (senderLid) senderParts.push(`whatsapp_lid:${senderLid}`);
-      entities.push({ type: 'person', id: senderParts.join('|'), role: 'sender' });
-    } else if (senderLid) {
-      const senderParts = [`whatsapp_lid:${senderLid}`];
-      if (senderName && senderName !== 'me' && senderName !== 'Me') {
-        senderParts.push(`name:${senderName}`);
-      }
       entities.push({ type: 'person', id: senderParts.join('|'), role: 'sender' });
     }
+    // Skip LID-only senders — they can't be resolved to a real identity
 
     // DM recipient
     if (!isGroup && selfPhone) {
