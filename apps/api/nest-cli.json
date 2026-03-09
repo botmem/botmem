@@ -4,6 +4,7 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "builder": "swc",
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [{ "include": "db/migrations/**", "watchAssets": true }]
   }
 }

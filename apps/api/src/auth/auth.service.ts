@@ -315,4 +315,31 @@ export class AuthService {
       connectorType;
     return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
   }
+
+  /** Re-run initiateAuth for an existing account — validates the new config then updates the account. */
+  async reauth(connectorType: string, accountId: string, config: Record<string, unknown>) {
+    const connector = this.connectors.get(connectorType);
+    const saved = await this.getSavedCredentials(connectorType);
+    const mergedConfig = { ...saved, ...config };
+
+    let result;
+    try {
+      result = await connector.initiateAuth(mergedConfig);
+    } catch (err: any) {
+      throw new BadRequestException(err.message || 'Failed to connect — check your configuration');
+    }
+
+    if (result.type !== 'complete') {
+      throw new BadRequestException('Re-auth for this connector type requires a different flow');
+    }
+
+    await this.accountsService.update(accountId, {
+      authContext: JSON.stringify(result.auth),
+      status: 'connected',
+      lastError: null,
+      identifier: result.auth.identifier || (result.auth as any).raw?.host || accountId,
+    });
+
+    return this.accountsService.getById(accountId);
+  }
 }

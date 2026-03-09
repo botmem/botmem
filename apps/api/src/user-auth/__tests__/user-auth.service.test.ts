@@ -7,6 +7,8 @@ import { UsersService } from '../users.service';
 import { ConfigService } from '../../config/config.service';
 import { MailService } from '../../mail/mail.service';
 import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
+import { UserKeyService } from '../../crypto/user-key.service';
+import { getQueueToken } from '@nestjs/bullmq';
 import * as bcrypt from 'bcrypt';
 
 // Mock bcrypt for faster tests
@@ -45,6 +47,7 @@ describe('UserAuthService', () => {
       revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
       revokeTokenFamily: vi.fn().mockResolvedValue(undefined),
       revokeAllUserTokens: vi.fn().mockResolvedValue(undefined),
+      updateEncryptionSalt: vi.fn().mockResolvedValue(undefined),
     };
 
     jwtService = {
@@ -80,6 +83,17 @@ describe('UserAuthService', () => {
             getOrCreateDefault: vi.fn().mockResolvedValue({ id: 'bank-1', name: 'Default' }),
           },
         },
+        {
+          provide: UserKeyService,
+          useValue: {
+            deriveAndStore: vi.fn().mockResolvedValue(undefined),
+            removeKey: vi.fn(),
+          },
+        },
+        {
+          provide: getQueueToken('reencrypt'),
+          useValue: { add: vi.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compile();
 
@@ -95,6 +109,7 @@ describe('UserAuthService', () => {
         'test@test.com',
         '$2b$12$hashed',
         'Test User',
+        expect.any(String),
       );
       expect(result.accessToken).toBe('mock-jwt-token');
       expect(result.user.email).toBe('test@test.com');

@@ -33,20 +33,19 @@ export function DashboardPage() {
   const activeConnectors = accounts.filter(
     (a) => a.status === 'connected' || a.status === 'syncing',
   ).length;
-  const failedSyncJobs = jobs.filter((j) => j.status === 'failed').length;
-
-  // Pending = items still in BullMQ queues (waiting + active + delayed) across pipeline stages
+  // Pending = items waiting/active in the processing pipeline (clean/embed/enrich)
+  // Delayed sync jobs (retrying) are shown here too so nothing is invisible
   const pipelinePending = queueStats
-    ? Object.entries(queueStats)
-        .filter(([name]) => name !== 'sync')
-        .reduce((sum, [, s]) => sum + (s.waiting ?? 0) + (s.active ?? 0) + (s.delayed ?? 0), 0)
+    ? Object.values(queueStats).reduce(
+        (sum, s) => sum + (s.waiting ?? 0) + (s.active ?? 0) + (s.delayed ?? 0),
+        0,
+      )
     : 0;
 
-  // Failed = sync jobs + BullMQ queue failures across all pipeline stages
-  const pipelineFailed = queueStats
+  // Failed = BullMQ permanently-failed jobs across all queues — single source of truth
+  const failedJobs = queueStats
     ? Object.values(queueStats).reduce((sum, s) => sum + (s.failed ?? 0), 0)
     : 0;
-  const failedJobs = failedSyncJobs + pipelineFailed;
 
   const stats = [
     { label: 'TOTAL MEMORIES', value: totalMemories.toLocaleString(), color: '#C4F53A' },

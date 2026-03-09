@@ -85,6 +85,9 @@ export function ConnectorsPage() {
   }, [fetchAccounts, accessToken]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
+  const [editModal, setEditModal] = useState<{ type: ConnectorType; accountId: string } | null>(
+    null,
+  );
 
   // Use manifests from API if available, fall back to mock configs
   const displayConfigs =
@@ -149,6 +152,7 @@ export function ConnectorsPage() {
                       account={acc}
                       onRemove={removeAccount}
                       onSyncNow={(id: string, memoryBankId?: string) => syncNow(id, memoryBankId)}
+                      onEdit={(id) => setEditModal({ type: cfg.type, accountId: id })}
                     />
                   ))}
                   {typeAccounts.length === 0 && (
@@ -179,6 +183,19 @@ export function ConnectorsPage() {
           onClose={() => setModalType(null)}
           connectorType={modalType}
           onConnect={(identifier) => addAccount(modalType, identifier)}
+        />
+      )}
+
+      {editModal && (
+        <ConnectorSetupModal
+          open={!!editModal}
+          onClose={() => setEditModal(null)}
+          connectorType={editModal.type}
+          editAccountId={editModal.accountId}
+          onConnect={() => {
+            fetchAccounts();
+            setEditModal(null);
+          }}
         />
       )}
     </PageContainer>

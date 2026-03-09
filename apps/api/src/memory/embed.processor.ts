@@ -275,26 +275,53 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const metadataStr = JSON.stringify(mergedMetadata);
 
     t0 = Date.now();
-    await this.dbService.db
-      .insert(memories)
-      .values({
-        id: memoryId,
-        accountId: rawEvent.accountId,
-        memoryBankId,
-        connectorType: rawEvent.connectorType,
-        sourceType: event.sourceType,
-        sourceId: event.sourceId,
-        text: currentText,
-        eventTime: new Date(event.timestamp),
-        ingestTime: now,
-        metadata: metadataStr,
-        embeddingStatus: 'pending',
-        createdAt: now,
-      })
-      .onConflictDoUpdate({
-        target: memories.id,
-        set: { text: currentText, metadata: metadataStr, embeddingStatus: 'pending' },
-      });
+    if (ownerUserId) {
+      // Wrap memory insert in RLS scope so policy allows INSERT (account.user_id must match session var)
+      await this.dbService.withUserId(ownerUserId, (db) =>
+        db
+          .insert(memories)
+          .values({
+            id: memoryId,
+            accountId: rawEvent.accountId,
+            memoryBankId,
+            connectorType: rawEvent.connectorType,
+            sourceType: event.sourceType,
+            sourceId: event.sourceId,
+            text: currentText,
+            eventTime: new Date(event.timestamp),
+            ingestTime: now,
+            metadata: metadataStr,
+            embeddingStatus: 'pending',
+            createdAt: now,
+          })
+          .onConflictDoUpdate({
+            target: memories.id,
+            set: { text: currentText, metadata: metadataStr, embeddingStatus: 'pending' },
+          }),
+      );
+    } else {
+      // No ownerUserId — unscoped insert (orphaned account, should rarely happen)
+      await this.dbService.db
+        .insert(memories)
+        .values({
+          id: memoryId,
+          accountId: rawEvent.accountId,
+          memoryBankId,
+          connectorType: rawEvent.connectorType,
+          sourceType: event.sourceType,
+          sourceId: event.sourceId,
+          text: currentText,
+          eventTime: new Date(event.timestamp),
+          ingestTime: now,
+          metadata: metadataStr,
+          embeddingStatus: 'pending',
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: memories.id,
+          set: { text: currentText, metadata: metadataStr, embeddingStatus: 'pending' },
+        });
+    }
     const dbInsertMs = Date.now() - t0;
 
     // Link contacts + threads now that memory row exists
@@ -312,7 +339,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     for (const entity of embedResult.entities) {
       if (entity.type === 'message' && entity.id.startsWith('thread:')) {
         try {
-          await this.linkThread(memoryId, entity.id.replace('thread:', ''), rawEvent.connectorType);
+          await this.linkThread(
+            memoryId,
+            entity.id.replace('thread:', ''),
+            rawEvent.connectorType,
+            ownerUserId ?? undefined,
+          );
         } catch (err) {
           this.logger.warn(
             'Thread linking failed',
@@ -323,7 +355,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
     if (mergedMetadata.threadId) {
       try {
-        await this.linkThread(memoryId, mergedMetadata.threadId as string, rawEvent.connectorType);
+        await this.linkThread(
+          memoryId,
+          mergedMetadata.threadId as string,
+          rawEvent.connectorType,
+          ownerUserId ?? undefined,
+        );
       } catch (err) {
         this.logger.warn('Thread linking failed', err instanceof Error ? err.message : String(err));
       }
@@ -367,10 +404,14 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
       );
     } else {
-      await this.dbService.db
-        .update(memories)
-        .set({ embeddingStatus: 'done' })
-        .where(eq(memories.id, memoryId));
+      // Mark memory done in RLS scope (or unscoped if no owner)
+      const updateDone = (db: typeof this.dbService.db) =>
+        db.update(memories).set({ embeddingStatus: 'done' }).where(eq(memories.id, memoryId));
+      if (ownerUserId) {
+        await this.dbService.withUserId(ownerUserId, updateDone);
+      } else {
+        await updateDone(this.dbService.db);
+      }
       this.events.emitToChannel('memories', 'memory:updated', {
         memoryId,
         sourceType: event.sourceType,
@@ -419,6 +460,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const header = fileName ? `# ${fileName}` : '';
 
     if (mime.startsWith('image/')) {
+      // processFile runs inside process() after ownerUserId is resolved — use unscoped read
+      // since this is a read-only lookup for VL model context and the memory was just inserted above
       const [memory] = await this.dbService.db
         .select({ text: memories.text })
         .from(memories)
@@ -537,37 +580,50 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     return identifiers;
   }
 
-  private async linkThread(memoryId: string, threadId: string, connectorType: string) {
-    const threadSiblings = await this.dbService.db
-      .select({ id: memories.id })
-      .from(memories)
-      .where(
-        and(
-          eq(memories.connectorType, connectorType),
-          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
-        ),
-      )
-      .limit(20);
-    const siblings = threadSiblings.filter((s) => s.id !== memoryId);
-    if (siblings.length) {
-      const now = new Date();
-      for (const sib of siblings) {
-        const existingLink = await this.dbService.db
-          .select({ id: memoryLinks.id })
-          .from(memoryLinks)
-          .where(and(eq(memoryLinks.srcMemoryId, sib.id), eq(memoryLinks.dstMemoryId, memoryId)))
-          .limit(1);
-        if (!existingLink.length) {
-          await this.dbService.db.insert(memoryLinks).values({
-            id: randomUUID(),
-            srcMemoryId: sib.id,
-            dstMemoryId: memoryId,
-            linkType: 'related',
-            strength: 0.8,
-            createdAt: now,
-          });
+  private async linkThread(
+    memoryId: string,
+    threadId: string,
+    connectorType: string,
+    ownerUserId?: string,
+  ) {
+    // Use withUserId scope if available so memory_links RLS policy is satisfied
+    const doLink = async (db: typeof this.dbService.db) => {
+      const threadSiblings = await db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(
+          and(
+            eq(memories.connectorType, connectorType),
+            sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
+          ),
+        )
+        .limit(20);
+      const siblings = threadSiblings.filter((s) => s.id !== memoryId);
+      if (siblings.length) {
+        const now = new Date();
+        for (const sib of siblings) {
+          const existingLink = await db
+            .select({ id: memoryLinks.id })
+            .from(memoryLinks)
+            .where(and(eq(memoryLinks.srcMemoryId, sib.id), eq(memoryLinks.dstMemoryId, memoryId)))
+            .limit(1);
+          if (!existingLink.length) {
+            await db.insert(memoryLinks).values({
+              id: randomUUID(),
+              srcMemoryId: sib.id,
+              dstMemoryId: memoryId,
+              linkType: 'related',
+              strength: 0.8,
+              createdAt: now,
+            });
+          }
         }
       }
+    };
+    if (ownerUserId) {
+      await this.dbService.withUserId(ownerUserId, doLink);
+    } else {
+      await doLink(this.dbService.db);
     }
   }
 

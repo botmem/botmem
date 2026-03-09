@@ -78,11 +78,18 @@ describe('EnrichProcessor', () => {
       decryptMemoryFields: vi.fn().mockImplementation((m: any) => m),
     };
 
+    const userKeyService = {
+      deriveAndStore: vi.fn().mockResolvedValue(undefined),
+      removeKey: vi.fn(),
+      getKey: vi.fn().mockReturnValue(null),
+    };
+
     processor = new EnrichProcessor(
       makeDbService(mockDb),
       enrichService,
       memoryService as any,
       cryptoService as any,
+      userKeyService as any,
       eventsService,
       logsService,
       jobsService,

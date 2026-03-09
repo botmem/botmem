@@ -56,12 +56,24 @@ function createMockDeps() {
 
   const dbService = {
     db: {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([{ userId: 'user-1' }]),
+        }),
+      }),
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
           then: vi.fn(),
         }),
       }),
     },
+    withUserId: vi.fn().mockImplementation((_uid: string, fn: (db: any) => Promise<void>) =>
+      fn({
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockResolvedValue(undefined),
+        }),
+      }),
+    ),
   } as unknown as DbService;
 
   const cleanQueue = {
@@ -129,7 +141,11 @@ describe('SyncProcessor', () => {
       analytics,
     );
 
-    const job = { data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' } } as any;
+    const job = {
+      data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as any;
     await processor.process(job);
 
     expect(jobsService.updateJob).toHaveBeenCalledWith(
@@ -188,7 +204,11 @@ describe('SyncProcessor', () => {
       configService,
       analytics,
     );
-    const job = { data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' } } as any;
+    const job = {
+      data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as any;
 
     await expect(processor.process(job)).rejects.toThrow('API rate limited');
 
@@ -243,7 +263,11 @@ describe('SyncProcessor', () => {
       configService,
       analytics,
     );
-    const job = { data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' } } as any;
+    const job = {
+      data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as any;
     await processor.process(job);
 
     // sync should have been called twice (two pages)
@@ -280,7 +304,11 @@ describe('SyncProcessor', () => {
       configService,
       analytics,
     );
-    const job = { data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' } } as any;
+    const job = {
+      data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as any;
     await processor.process(job);
 
     expect(mockConnector.sync).toHaveBeenCalledTimes(1);
@@ -322,7 +350,11 @@ describe('SyncProcessor', () => {
       configService,
       analytics,
     );
-    const job = { data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' } } as any;
+    const job = {
+      data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as any;
     await processor.process(job);
 
     expect(logsService.add).toHaveBeenCalledTimes(4);
@@ -361,7 +393,11 @@ describe('SyncProcessor', () => {
       configService,
       analytics,
     );
-    const job = { data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' } } as any;
+    const job = {
+      data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as any;
 
     try {
       await processor.process(job);

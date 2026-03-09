@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { parseNlq } from '../nlq-parser';
 
 // Fixed reference date for deterministic tests: March 8, 2026 (Sunday)
@@ -6,6 +6,13 @@ const REF = new Date('2026-03-08T12:00:00Z');
 
 describe('parseNlq', () => {
   describe('temporal parsing', () => {
+    // Freeze clock so compromise-dates relative calculations are deterministic
+    beforeAll(() => {
+      vi.useFakeTimers({ now: REF });
+    });
+    afterAll(() => {
+      vi.useRealTimers();
+    });
     it('"this week" returns current Monday to Sunday', () => {
       const result = parseNlq('emails from this week', REF);
       expect(result.temporal).not.toBeNull();
