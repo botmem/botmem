@@ -118,7 +118,7 @@ describe('IMessageConnector', () => {
       expect(result.type).toBe('complete');
       if (result.type === 'complete') {
         expect(result.auth.raw).toEqual({
-          imsgHost: 'host.docker.internal',
+          imsgHost: 'localhost',
           imsgPort: 19876,
           myIdentifier: '',
         });
@@ -128,9 +128,7 @@ describe('IMessageConnector', () => {
     it('throws when connect fails', async () => {
       mockConnect.mockRejectedValueOnce(new Error('Connection refused'));
 
-      await expect(connector.initiateAuth({})).rejects.toThrow(
-        /Cannot connect to imsg bridge/,
-      );
+      await expect(connector.initiateAuth({})).rejects.toThrow(/Cannot connect to imsg bridge/);
     });
   });
 
@@ -142,13 +140,17 @@ describe('IMessageConnector', () => {
         myIdentifier: 'me@icloud.com',
       });
 
-      expect(auth.raw).toEqual({ imsgHost: '10.0.0.1', imsgPort: 9999, myIdentifier: 'me@icloud.com' });
+      expect(auth.raw).toEqual({
+        imsgHost: '10.0.0.1',
+        imsgPort: 9999,
+        myIdentifier: 'me@icloud.com',
+      });
     });
 
     it('uses defaults when params are empty', async () => {
       const auth = await connector.completeAuth({});
       expect(auth.raw).toEqual({
-        imsgHost: 'host.docker.internal',
+        imsgHost: 'localhost',
         imsgPort: 19876,
         myIdentifier: '',
       });
