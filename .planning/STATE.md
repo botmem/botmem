@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
-status: in_progress
-stopped_at: Phase 10 UAT complete, PostgreSQL migration fixed
-last_updated: '2026-03-09T07:45:00.000Z'
-last_activity: 2026-03-09 -- Quick task 6: Create GitHub CI/CD pipeline with GitHub Actions + Watchtower auto-deploy
+status: completed
+stopped_at: Completed 19-02-PLAN.md
+last_updated: '2026-03-09T07:09:07.893Z'
+last_activity: '2026-03-09 - Docs audit: fixed 6 roadmap discrepancies, marked v2.1 + v3.0 + v3.0.1 shipped, Phase 18 complete'
 progress:
   total_phases: 27
-  completed_phases: 23
-  total_plans: 40
-  completed_plans: 40
+  completed_phases: 22
+  total_plans: 43
+  completed_plans: 41
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every piece of personal communication is searchable, connected, and queryable -- with factuality labeling so the user knows what's verified vs. hearsay.
-**Current focus:** v2.0 Security, Auth & Encryption -- Phase 22 PostgreSQL migration in progress
+**Current focus:** v2.0 Security, Auth & Encryption -- Phase 19 (Memory Banks) next
 
 ## Current Position
 
-Phase: 10 (Entity Graph API) - Complete with Phase 22 PostgreSQL migration fixes
-Status: Phase 10 UAT passed, Phase 22 migration completed
-Last activity: 2026-03-09 - Completed quick task 5: logs are being stored to the db, which is bad, we should write to a file if we want to load in the UI, we're also logging json to stdout, so figure something out here, drop all logs from the db
+Phase: 19 (Memory Banks) - Next up
+Status: v2.1, v3.0, v3.0.1 milestones shipped. v2.0 partially complete (16, 17, 18, 22 done; 19-21, 23-24 remaining).
+Last activity: 2026-03-09 - Docs audit: fixed 6 roadmap discrepancies, marked v2.1 + v3.0 + v3.0.1 shipped, Phase 18 complete
 
 ## Performance Metrics
 
@@ -36,30 +36,31 @@ Last activity: 2026-03-09 - Completed quick task 5: logs are being stored to the
 - Average duration: 5min
 - Total execution time: 99min
 
-| Phase | Plan | Duration | Tasks | Files |
-| ----- | ---- | -------- | ----- | ----- |
-| 16    | 01   | 6min     | 2     | 16    |
-| 16    | 02   | 4min     | 2     | 7     |
-| 16    | 03   | 5min     | 3     | 15    |
-| 17    | 01   | 5min     | 2     | 13    |
-| 25    | 01   | 3min     | 2     | 4     |
-| 25    | 02   | 1min     | 1     | 1     |
-| 29    | 01   | 4min     | 2     | 18    |
-| 26    | 01   | 3min     | 2     | 3     |
-| 26    | 02   | 2min     | 2     | 2     |
-| 30    | 02   | 2min     | 1     | 3     |
-| 30    | 01   | 5min     | 2     | 27    |
-| 31    | 01   | 2min     | 2     | 2     |
-| 34    | 01   | 6min     | 2     | 29    |
-| 32    | 01   | 3min     | 2     | 14    |
-| 34    | 02   | 10min    | 2     | 16    |
-| 34    | 03   | 7min     | 2     | 12    |
-| 33    | 01   | 22min    | 2     | 5     |
-| 27    | 01   | 6min     | 2     | 7     |
-| 28    | 01   | 18min    | 2     | 1     |
-| 22    | 01   | 3min     | 3     | 6     |
-| 22    | 02   | 16min    | 2     | 26    |
-| 10    | UAT  | 15min    | 2     | 3     |
+| Phase        | Plan | Duration | Tasks   | Files |
+| ------------ | ---- | -------- | ------- | ----- |
+| 16           | 01   | 6min     | 2       | 16    |
+| 16           | 02   | 4min     | 2       | 7     |
+| 16           | 03   | 5min     | 3       | 15    |
+| 17           | 01   | 5min     | 2       | 13    |
+| 25           | 01   | 3min     | 2       | 4     |
+| 25           | 02   | 1min     | 1       | 1     |
+| 29           | 01   | 4min     | 2       | 18    |
+| 26           | 01   | 3min     | 2       | 3     |
+| 26           | 02   | 2min     | 2       | 2     |
+| 30           | 02   | 2min     | 1       | 3     |
+| 30           | 01   | 5min     | 2       | 27    |
+| 31           | 01   | 2min     | 2       | 2     |
+| 34           | 01   | 6min     | 2       | 29    |
+| 32           | 01   | 3min     | 2       | 14    |
+| 34           | 02   | 10min    | 2       | 16    |
+| 34           | 03   | 7min     | 2       | 12    |
+| 33           | 01   | 22min    | 2       | 5     |
+| 27           | 01   | 6min     | 2       | 7     |
+| 28           | 01   | 18min    | 2       | 1     |
+| 22           | 01   | 3min     | 3       | 6     |
+| 22           | 02   | 16min    | 2       | 26    |
+| 10           | UAT  | 15min    | 2       | 3     |
+| Phase 19 P02 | 2min | 2 tasks  | 5 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 16]: Access token in memory only -- never persisted; session restored via httpOnly refresh cookie
 - [Phase 16]: 401 interceptor uses mutex Promise to prevent concurrent refresh races
 - [Phase 16]: Password reset token stored as SHA-256 hash with 1hr expiry; existing unused tokens invalidated
+- [Phase 19]: Qdrant bulk update uses REST API directly in standalone migration scripts (no NestJS DI)
+- [Phase 19]: isDefault typed as boolean throughout frontend to match Postgres boolean column
 
 ### Decisions (Phase 16)
 
@@ -208,6 +211,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-09T04:32:23Z
-Stopped at: Quick task 6 — awaiting checkpoint: user must add GHCR_TOKEN to VPS, push to trigger first build, start Watchtower
+Last session: 2026-03-09T07:09:07.888Z
+Stopped at: Completed 19-02-PLAN.md
 Resume: After user completes checkpoint steps, push to main and verify Watchtower auto-deploys.
