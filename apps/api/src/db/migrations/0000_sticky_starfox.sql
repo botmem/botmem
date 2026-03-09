@@ -169,9 +169,11 @@ CREATE TABLE IF NOT EXISTS "users" (
 	"onboarded" boolean DEFAULT false NOT NULL,
 	"encryption_salt" text,
 	"key_version" integer DEFAULT 1 NOT NULL,
+	"firebase_uid" text,
 	"created_at" timestamp with time zone NOT NULL,
 	"updated_at" timestamp with time zone NOT NULL,
-	CONSTRAINT "users_email_unique" UNIQUE("email")
+	CONSTRAINT "users_email_unique" UNIQUE("email"),
+	CONSTRAINT "users_firebase_uid_unique" UNIQUE("firebase_uid")
 );
 --> statement-breakpoint
 DO $$ BEGIN
@@ -264,10 +266,5 @@ CREATE INDEX IF NOT EXISTS "idx_memories_fts" ON "memories" USING gin (to_tsvect
 CREATE INDEX IF NOT EXISTS "idx_memories_trgm" ON "memories" USING gin ("text" gin_trgm_ops);
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "idx_memory_banks_user_default" ON "memory_banks" USING btree ("user_id") WHERE "is_default" = true;
-
 --> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "encryption_salt" text;
---> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "key_version" integer DEFAULT 1 NOT NULL;
---> statement-breakpoint
-ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "key_version" integer DEFAULT 0 NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_users_firebase_uid" ON "users" USING btree ("firebase_uid");

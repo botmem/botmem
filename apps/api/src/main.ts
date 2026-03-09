@@ -60,11 +60,13 @@ async function bootstrap() {
   });
 
   // Global validation: reject invalid input, strip unknown properties
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-    transformOptions: { enableImplicitConversion: true },
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
 
   // Global exception filter: sends 5xx errors to PostHog
   const analyticsService = app.get(AnalyticsService);
@@ -86,13 +88,20 @@ async function bootstrap() {
   if (isDev && vite) {
     const webRoot = join(__dirname, '..', '..', 'web');
     server.use((req: Request, res: Response, next: NextFunction) => {
-      if (req.method !== 'GET' || req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/events')) {
+      if (
+        req.method !== 'GET' ||
+        req.originalUrl.startsWith('/api') ||
+        req.originalUrl.startsWith('/events')
+      ) {
         return next();
       }
       const template = readFileSync(join(webRoot, 'index.html'), 'utf-8');
-      vite.transformIndexHtml(req.originalUrl, template).then((html: string) => {
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
-      }).catch(next);
+      vite
+        .transformIndexHtml(req.originalUrl, template)
+        .then((html: string) => {
+          res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+        })
+        .catch(next);
     });
   }
 
@@ -102,4 +111,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-
