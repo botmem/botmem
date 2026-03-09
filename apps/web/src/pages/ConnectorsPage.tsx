@@ -15,26 +15,35 @@ import { sharedWs } from '../lib/ws';
 import { useAuthStore } from '../store/authStore';
 import { EmptyState } from '../components/ui/EmptyState';
 
-
 function ConnectorStatusDot({ type }: { type: string }) {
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     const poll = () => {
-      api.getConnectorStatus(type).then((s) => {
-        if (!active) return;
-        setStatus(s.status);
-        if (s.status !== 'qr_ready') setTimeout(poll, 5000);
-      }).catch(() => {});
+      api
+        .getConnectorStatus(type)
+        .then((s) => {
+          if (!active) return;
+          setStatus(s.status);
+          if (s.status !== 'qr_ready') setTimeout(poll, 5000);
+        })
+        .catch(() => {});
     };
     poll();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [type]);
 
   if (!status) return null;
 
-  const color = status === 'qr_ready' ? 'bg-green-400' : status === 'warming' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400';
+  const color =
+    status === 'qr_ready'
+      ? 'bg-green-400'
+      : status === 'warming'
+        ? 'bg-yellow-400 animate-pulse'
+        : 'bg-red-400';
   const label = status === 'qr_ready' ? 'Ready' : status === 'warming' ? 'Starting...' : 'Offline';
 
   return (
@@ -46,7 +55,8 @@ function ConnectorStatusDot({ type }: { type: string }) {
 }
 
 export function ConnectorsPage() {
-  const { accounts, manifests, addAccount, removeAccount, syncNow, fetchAccounts } = useConnectors();
+  const { accounts, manifests, addAccount, removeAccount, syncNow, fetchAccounts } =
+    useConnectors();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Handle OAuth callback redirect
@@ -77,9 +87,15 @@ export function ConnectorsPage() {
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
 
   // Use manifests from API if available, fall back to mock configs
-  const displayConfigs = manifests.length > 0
-    ? manifests.map((m) => ({ type: m.id as ConnectorType, label: m.name, color: m.color, description: m.description }))
-    : connectorConfigs;
+  const displayConfigs =
+    manifests.length > 0
+      ? manifests.map((m) => ({
+          type: m.id as ConnectorType,
+          label: m.name,
+          color: m.color,
+          description: m.description,
+        }))
+      : connectorConfigs;
 
   const toggle = (type: string) => {
     const next = new Set(expanded);
@@ -101,7 +117,7 @@ export function ConnectorsPage() {
               <button
                 onClick={() => toggle(cfg.type)}
                 className={cn(
-                  'w-full flex items-center justify-between p-4 cursor-pointer hover:bg-nb-surface-hover transition-colors text-nb-text'
+                  'w-full flex items-center justify-between p-4 cursor-pointer hover:bg-nb-surface-hover transition-colors text-nb-text',
                 )}
               >
                 <div className="flex items-center gap-3">
@@ -118,7 +134,9 @@ export function ConnectorsPage() {
                         <ConnectorStatusDot type={cfg.type} />
                       )}
                     </div>
-                    <p className="font-mono text-xs text-nb-muted">{typeAccounts.length} accounts</p>
+                    <p className="font-mono text-xs text-nb-muted">
+                      {typeAccounts.length} accounts
+                    </p>
                   </div>
                 </div>
                 <span className="font-bold text-lg">{isExpanded ? '−' : '+'}</span>
@@ -130,7 +148,7 @@ export function ConnectorsPage() {
                       key={acc.id}
                       account={acc}
                       onRemove={removeAccount}
-                      onSyncNow={syncNow}
+                      onSyncNow={(id: string, memoryBankId?: string) => syncNow(id, memoryBankId)}
                     />
                   ))}
                   {typeAccounts.length === 0 && (
