@@ -3,6 +3,7 @@ import { cn } from '@botmem/shared';
 import { useAuth } from '../../hooks/useAuth';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { Logo } from '../ui/Logo';
 
 const s = 16;
 const navItems: { to: string; label: string; icon: ReactNode }[] = [
@@ -300,18 +301,17 @@ export function Sidebar({ onClose }: SidebarProps) {
           </button>
         )}
         {(!collapsed || onClose) && (
-          <h1
-            className={cn(
-              'font-display text-xl font-bold tracking-wider text-nb-text',
-              onClose && 'mx-auto md:mx-0',
-            )}
-          >
-            BOTMEM
-          </h1>
+          <Logo variant="full" height={28} className={cn(onClose && 'mx-auto md:mx-0')} />
+        )}
+        {collapsed && !onClose && (
+          <div className="hidden md:flex items-center justify-center">
+            <Logo variant="mark" height={28} />
+          </div>
         )}
         {/* Desktop collapse/expand toggle — hidden on mobile */}
         <button
           onClick={() => setCollapsed(!collapsed)}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className="hidden md:flex border-2 border-nb-border w-8 h-8 items-center justify-center font-bold hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
         >
           {collapsed ? '\u2192' : '\u2190'}
@@ -358,6 +358,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         {collapsed && !onClose && user && <div className="hidden md:block mb-2" />}
         <button
           onClick={logout}
+          aria-label="Logout"
           className={cn(
             'font-display text-xs font-bold uppercase border-2 border-nb-border text-nb-text',
             'hover:bg-nb-red hover:text-white transition-colors cursor-pointer',

@@ -115,21 +115,12 @@ export function SettingsPage() {
               PROFILE
             </h2>
             <p className="font-mono text-xs text-nb-muted mb-4">
-              Your account information.
+              Your account information. Name and email are managed through your auth provider and
+              cannot be changed here.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                label="Name"
-                value={user?.name || ''}
-                disabled
-                className="opacity-70"
-              />
-              <Input
-                label="Email"
-                value={user?.email || ''}
-                disabled
-                className="opacity-70"
-              />
+              <Input label="Name" value={user?.name || ''} disabled className="opacity-70" />
+              <Input label="Email" value={user?.email || ''} disabled className="opacity-70" />
             </div>
           </Card>
         )}
@@ -153,14 +144,18 @@ export function SettingsPage() {
                 PIPELINE CONCURRENCY
               </h2>
               <p className="font-mono text-xs text-nb-muted mb-6">
-                Controls how many jobs run in parallel for each pipeline stage. Higher values process
-                faster but use more resources.
+                Controls how many jobs run in parallel for each pipeline stage. Higher values
+                process faster but use more resources.
               </p>
 
               {loading ? (
                 <div className="flex flex-col gap-3">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-10 border-3 border-nb-border bg-nb-surface-muted" style={{ animation: 'pulse-bar 1.5s ease-in-out infinite' }} />
+                    <div
+                      key={i}
+                      className="h-10 border-3 border-nb-border bg-nb-surface-muted"
+                      style={{ animation: 'pulse-bar 1.5s ease-in-out infinite' }}
+                    />
                   ))}
                 </div>
               ) : (
@@ -171,7 +166,9 @@ export function SettingsPage() {
                         <label className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
                           {setting.label}
                         </label>
-                        <p className="font-mono text-xs text-nb-muted mt-0.5">{setting.description}</p>
+                        <p className="font-mono text-xs text-nb-muted mt-0.5">
+                          {setting.description}
+                        </p>
                       </div>
                       <input
                         type="number"
@@ -221,8 +218,12 @@ export function SettingsPage() {
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between border-3 border-nb-border p-3 bg-nb-surface-muted">
                   <div>
-                    <p className="font-display text-sm font-bold uppercase text-nb-text">PURGE ALL MEMORIES</p>
-                    <p className="font-mono text-xs text-nb-muted">Delete all memories, embeddings, and raw events.</p>
+                    <p className="font-display text-sm font-bold uppercase text-nb-text">
+                      PURGE ALL MEMORIES
+                    </p>
+                    <p className="font-mono text-xs text-nb-muted">
+                      Delete all memories, embeddings, and raw events.
+                    </p>
                   </div>
                   <Button
                     variant="danger"
@@ -243,8 +244,12 @@ export function SettingsPage() {
 
                 <div className="flex items-center justify-between border-3 border-nb-border p-3 bg-nb-surface-muted">
                   <div>
-                    <p className="font-display text-sm font-bold uppercase text-nb-text">RESET VECTOR INDEX</p>
-                    <p className="font-mono text-xs text-nb-muted">Rebuild the Qdrant collection from scratch.</p>
+                    <p className="font-display text-sm font-bold uppercase text-nb-text">
+                      RESET VECTOR INDEX
+                    </p>
+                    <p className="font-mono text-xs text-nb-muted">
+                      Rebuild the Qdrant collection from scratch.
+                    </p>
                   </div>
                   <Button
                     variant="danger"
