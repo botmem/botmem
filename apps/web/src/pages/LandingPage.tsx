@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { Logo } from '../components/ui/Logo';
+import { ThemeToggle } from '../components/ui/ThemeToggle';
 
 const GITHUB_URL = 'https://github.com/botmem/open-core';
 
@@ -22,12 +24,8 @@ function Navbar() {
       aria-label="Main navigation"
     >
       <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-        <Link
-          to="/"
-          className="font-display text-xl font-bold tracking-widest text-nb-text cursor-pointer"
-          aria-label="Botmem home"
-        >
-          BOTMEM
+        <Link to="/" aria-label="Botmem home" className="cursor-pointer">
+          <Logo variant="full" height={28} />
         </Link>
         <div className="hidden sm:flex items-center gap-6 font-display text-sm tracking-wide">
           <a
@@ -49,12 +47,15 @@ function Navbar() {
             OPEN SOURCE
           </a>
         </div>
-        <Link
-          to="/signup"
-          className="font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
-        >
-          GET STARTED
-        </Link>
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <Link
+            to="/signup"
+            className="font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
+          >
+            GET STARTED
+          </Link>
+        </div>
       </div>
     </nav>
   );
@@ -216,7 +217,9 @@ function ProblemSection() {
           </svg>
         </div>
         <div className="bg-nb-surface border-3 border-nb-lime p-6 shadow-nb text-center">
-          <h3 className="font-display text-xl font-bold text-nb-lime">BOTMEM</h3>
+          <div className="flex justify-center mb-2">
+            <Logo variant="mark" height={40} />
+          </div>
           <p className="font-mono text-sm text-nb-text mt-2">
             One search. All your memories. Ranked by relevance, recency, and trust.
           </p>
@@ -226,34 +229,124 @@ function ProblemSection() {
   );
 }
 
-const FEATURES = [
+const FEATURES: { icon: ReactNode; title: string; desc: string }[] = [
   {
-    icon: '⬡',
+    icon: (
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="8" cy="12" r="3" />
+        <circle cx="16" cy="12" r="3" />
+        <path d="M11 12h2" />
+      </svg>
+    ),
     title: '6 CONNECTORS',
     desc: 'Gmail, Slack, WhatsApp, iMessage, Photos, Locations — more coming.',
   },
   {
-    icon: '⊞',
+    icon: (
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <ellipse cx="12" cy="7" rx="8" ry="3" />
+        <path d="M4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7" />
+        <path d="M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5" />
+      </svg>
+    ),
     title: 'FULLY LOCAL',
     desc: 'SQLite + Qdrant + Ollama. Your data never leaves your hardware.',
   },
   {
-    icon: '⊛',
+    icon: (
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="9" cy="7" r="3" />
+        <path d="M3 21a6 6 0 0 1 12 0" />
+        <circle cx="17" cy="8" r="2.5" />
+        <path d="M20 21a3.5 3.5 0 0 0-5-3.2" />
+      </svg>
+    ),
     title: 'CONTACT GRAPH',
     desc: 'Unified people directory merged across every source automatically.',
   },
   {
-    icon: '◈',
+    icon: (
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+      </svg>
+    ),
     title: 'FACTUALITY',
     desc: 'Every memory classified: FACT, UNVERIFIED, or FICTION with confidence.',
   },
   {
-    icon: '⬢',
+    icon: (
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="5" r="2" />
+        <circle cx="5" cy="17" r="2" />
+        <circle cx="19" cy="17" r="2" />
+        <path d="M12 7v4M12 11l-5.5 4.5M12 11l5.5 4.5" />
+      </svg>
+    ),
     title: 'MEMORY GRAPH',
     desc: 'Force-directed visualization of relationships between your memories.',
   },
   {
-    icon: '⌘',
+    icon: (
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="16 18 22 12 16 6" />
+        <polyline points="8 6 2 12 8 18" />
+        <line x1="14" y1="4" x2="10" y2="20" />
+      </svg>
+    ),
     title: 'AGENT API',
     desc: 'CLI + REST + WebSocket. Let your AI agents query your life.',
   },
@@ -388,7 +481,7 @@ function Footer() {
   return (
     <footer className="border-t-4 border-nb-border py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-sm text-nb-muted">
-        <span className="font-display font-bold tracking-widest text-nb-text">BOTMEM</span>
+        <Logo variant="full" height={24} />
         <div className="flex gap-6">
           <a
             href={GITHUB_URL}

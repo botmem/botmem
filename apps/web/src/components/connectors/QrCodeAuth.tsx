@@ -49,11 +49,7 @@ export function QrCodeAuth({ open, onClose, qrData, wsChannel, onSuccess }: QrCo
               Open WhatsApp on your phone, go to Settings &gt; Linked Devices &gt; Link a Device
             </p>
             {currentQr && (
-              <img
-                src={currentQr}
-                alt="QR Code"
-                className="w-64 h-64 border-3 border-nb-border"
-              />
+              <img src={currentQr} alt="QR Code" className="w-64 h-64 border-3 border-nb-border" />
             )}
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-nb-lime rounded-full animate-pulse" />
@@ -75,7 +71,13 @@ export function QrCodeAuth({ open, onClose, qrData, wsChannel, onSuccess }: QrCo
         {status === 'success' && (
           <div className="flex flex-col items-center gap-3 py-4">
             <div className="w-10 h-10 border-3 border-nb-lime rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-nb-lime" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <svg
+                className="w-6 h-6 text-nb-lime"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={3}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -84,12 +86,18 @@ export function QrCodeAuth({ open, onClose, qrData, wsChannel, onSuccess }: QrCo
         )}
         {status === 'failed' && (
           <div className="flex flex-col items-center gap-3 py-4">
-            <div className="w-10 h-10 border-3 border-red-500 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <div className="w-10 h-10 border-3 border-nb-red flex items-center justify-center">
+              <svg
+                className="w-6 h-6 text-nb-red"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={3}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </div>
-            <p className="font-mono text-sm text-red-400">{stepMessage || 'Connection failed'}</p>
+            <p className="font-mono text-sm text-nb-red">{stepMessage || 'Connection failed'}</p>
             <p className="font-mono text-xs text-nb-muted">Please try again.</p>
           </div>
         )}
