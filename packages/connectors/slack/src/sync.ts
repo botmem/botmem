@@ -203,7 +203,39 @@ export async function syncSlack(
   const users = await fetchUserMap(client);
   ctx.logger.info(`Fetched ${users.size} workspace users`);
 
-  // Emit contact events for all workspace users
+  // Resolve external (Slack Connect) users in DMs that aren't in workspace user list
+  const channelsPrefetch = await client.conversations.list({
+    types: 'im',
+    limit: 200,
+  });
+  for (const ch of channelsPrefetch.channels || []) {
+    if (!ch.user || users.has(ch.user)) continue;
+    try {
+      const info = await client.users.info({ user: ch.user });
+      const p = (info.user as any)?.profile || {};
+      const realName = p.real_name_normalized || p.real_name || (info.user as any)?.real_name || '';
+      const displayName = p.display_name_normalized || p.display_name || '';
+      const name = (info.user as any)?.name || '';
+      const bestName = realName || displayName || name;
+      if (bestName) {
+        users.set(ch.user, {
+          name: name || bestName,
+          realName: bestName,
+          email: p.email || undefined,
+          phone: p.phone || undefined,
+          title: p.title || undefined,
+          avatarUrl: p.image_72 || undefined,
+          slackId: ch.user,
+        });
+        ctx.logger.info(`Resolved external user ${ch.user} → ${bestName}`);
+      }
+    } catch {
+      ctx.logger.debug(`Could not resolve external user ${ch.user}`);
+    }
+  }
+  ctx.logger.info(`User map now has ${users.size} entries (including external)`);
+
+  // Emit contact events for all known users (workspace + external)
   for (const [userId, profile] of users) {
     if (userId === selfId) continue; // Skip self
     emit({
@@ -389,6 +421,7 @@ export async function syncSlack(
               participants,
               metadata: {
                 channel: convLabel,
+                channelName: convLabel,
                 channelId: channel.id,
                 channelType: convType,
                 threadTs: msg.thread_ts,
