@@ -48,7 +48,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   async process(job: Job<{ rawEventId: string; memoryId: string }>) {
     const { rawEventId, memoryId } = job.data;
 
-    // Look up parent job ID from the raw event
+    // Bootstrap (unscoped): resolve ownerUserId + parentJobId from raw event
     const rawRows = await this.dbService.db
       .select({
         jobId: rawEvents.jobId,
@@ -60,20 +60,36 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
 
     const parentJobId = rawRows[0]?.jobId;
     const connectorType = rawRows[0]?.connectorType || 'unknown';
+    const rawAccountId = rawRows[0]?.accountId;
 
-    // Run enrichment
+    // Resolve ownerUserId from account (unscoped bootstrap — accounts table needs userId)
+    let ownerUserId: string | null = null;
+    if (rawAccountId) {
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, rawAccountId));
+      ownerUserId = acct?.userId ?? null;
+    }
+
+    // Run enrichment (enrichService uses unscoped db internally — acceptable for processor context)
     await this.enrichService.enrich(memoryId);
 
-    // Read enriched memory for hook and event
-    const [mem] = await this.dbService.db
-      .select({
-        text: memories.text,
-        sourceType: memories.sourceType,
-        entities: memories.entities,
-        factuality: memories.factuality,
-      })
-      .from(memories)
-      .where(eq(memories.id, memoryId));
+    // Read enriched memory for hook and event — use withUserId scope if available
+    const readMemory = (db: typeof this.dbService.db) =>
+      db
+        .select({
+          text: memories.text,
+          sourceType: memories.sourceType,
+          entities: memories.entities,
+          factuality: memories.factuality,
+        })
+        .from(memories)
+        .where(eq(memories.id, memoryId));
+
+    const [mem] = ownerUserId
+      ? await this.dbService.withUserId(ownerUserId, readMemory)
+      : await readMemory(this.dbService.db);
 
     // Fire afterEnrich hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterEnrich', {
@@ -87,13 +103,18 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     });
 
     // Encrypt memory fields at rest before marking as done
-    this.encryptMemoryAtRest(memoryId);
+    this.encryptMemoryAtRest(memoryId, ownerUserId ?? undefined).catch((err) => {
+      this.logger.warn(`[Enrich] encryptMemoryAtRest failed for ${memoryId}: ${err.message}`);
+    });
 
-    // Mark memory as done
-    await this.dbService.db
-      .update(memories)
-      .set({ embeddingStatus: 'done' })
-      .where(eq(memories.id, memoryId));
+    // Mark memory as done — use withUserId scope if available
+    const updateDone = (db: typeof this.dbService.db) =>
+      db.update(memories).set({ embeddingStatus: 'done' }).where(eq(memories.id, memoryId));
+    if (ownerUserId) {
+      await this.dbService.withUserId(ownerUserId, updateDone);
+    } else {
+      await updateDone(this.dbService.db);
+    }
 
     this.events.emitToChannel('memories', 'memory:updated', {
       memoryId,
@@ -111,25 +132,32 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     await this.advanceAndComplete(parentJobId);
   }
 
-  private async encryptMemoryAtRest(memoryId: string) {
-    const db = this.dbService.db;
-    const rows = await db
-      .select({
-        text: memories.text,
-        entities: memories.entities,
-        claims: memories.claims,
-        metadata: memories.metadata,
-        accountId: memories.accountId,
-      })
-      .from(memories)
-      .where(eq(memories.id, memoryId));
+  private async encryptMemoryAtRest(memoryId: string, ownerUserIdHint?: string) {
+    // Read memory fields — use ownerUserIdHint scope if available (resolved in process())
+    const readRows = (db: typeof this.dbService.db) =>
+      db
+        .select({
+          text: memories.text,
+          entities: memories.entities,
+          claims: memories.claims,
+          metadata: memories.metadata,
+          accountId: memories.accountId,
+        })
+        .from(memories)
+        .where(eq(memories.id, memoryId));
+
+    const rows = ownerUserIdHint
+      ? await this.dbService.withUserId(ownerUserIdHint, readRows)
+      : await readRows(this.dbService.db);
+
     if (!rows.length) return;
     const mem = rows[0];
 
-    // Resolve owner userId from account
-    let ownerUserId: string | undefined;
-    if (mem.accountId) {
-      const [acct] = await db
+    // Resolve owner userId: use hint from process() or fall back to account lookup
+    let ownerUserId: string | undefined = ownerUserIdHint;
+    if (!ownerUserId && mem.accountId) {
+      // Unscoped bootstrap — accounts lookup to get userId
+      const [acct] = await this.dbService.db
         .select({ userId: accounts.userId })
         .from(accounts)
         .where(eq(accounts.id, mem.accountId));
@@ -144,16 +172,19 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      await db
-        .update(memories)
-        .set({
-          text: enc.text,
-          entities: enc.entities,
-          claims: enc.claims,
-          metadata: enc.metadata,
-          keyVersion: 0,
-        })
-        .where(eq(memories.id, memoryId));
+      const writeAppSecret = (db: typeof this.dbService.db) =>
+        db
+          .update(memories)
+          .set({
+            text: enc.text,
+            entities: enc.entities,
+            claims: enc.claims,
+            metadata: enc.metadata,
+            keyVersion: 0,
+          })
+          .where(eq(memories.id, memoryId));
+      // No ownerUserId means no RLS scope — write unscoped
+      await writeAppSecret(this.dbService.db);
       return;
     }
 
@@ -162,8 +193,8 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       throw new EncryptionKeyMissingError(ownerUserId);
     }
 
-    // Get user's current keyVersion
-    const [user] = await db
+    // Get user's current keyVersion — users table is NOT RLS-protected, unscoped OK
+    const [user] = await this.dbService.db
       .select({ keyVersion: users.keyVersion })
       .from(users)
       .where(eq(users.id, ownerUserId));
@@ -173,16 +204,18 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
       userKey,
     );
-    await db
-      .update(memories)
-      .set({
-        text: enc.text,
-        entities: enc.entities,
-        claims: enc.claims,
-        metadata: enc.metadata,
-        keyVersion,
-      })
-      .where(eq(memories.id, memoryId));
+    await this.dbService.withUserId(ownerUserId, (db) =>
+      db
+        .update(memories)
+        .set({
+          text: enc.text,
+          entities: enc.entities,
+          claims: enc.claims,
+          metadata: enc.metadata,
+          keyVersion,
+        })
+        .where(eq(memories.id, memoryId)),
+    );
   }
 
   private emitGraphDelta(memoryId: string) {
