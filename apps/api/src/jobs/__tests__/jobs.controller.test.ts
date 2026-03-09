@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { JobsController } from '../jobs.controller';
 import { JobsService } from '../jobs.service';
 import { AccountsService } from '../../accounts/accounts.service';
+import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 
 function createMocks() {
   const jobsService = {
@@ -16,7 +17,19 @@ function createMocks() {
     getById: vi.fn(),
   } as unknown as AccountsService;
 
-  const dbService = {} as any;
+  const memoryBanksService = {
+    getById: vi.fn(),
+  } as unknown as MemoryBanksService;
+
+  const dbService = {
+    db: {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([{ id: 'a1' }]),
+        }),
+      }),
+    },
+  } as any;
   const syncQueue = {} as any;
   const cleanQueue = {} as any;
   const embedQueue = {} as any;
@@ -26,6 +39,7 @@ function createMocks() {
   return {
     jobsService,
     accountsService,
+    memoryBanksService,
     dbService,
     syncQueue,
     cleanQueue,
@@ -53,6 +67,7 @@ describe('JobsController', () => {
     const {
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -65,6 +80,7 @@ describe('JobsController', () => {
     const controller = new JobsController(
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -72,7 +88,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     );
-    const result = await controller.list();
+    const result = await controller.list({ id: 'u1' });
 
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0].connector).toBe('gmail');
@@ -83,6 +99,7 @@ describe('JobsController', () => {
     const {
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -95,6 +112,7 @@ describe('JobsController', () => {
     const controller = new JobsController(
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -102,7 +120,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     );
-    await controller.list('a1');
+    await controller.list({ id: 'u1' }, 'a1');
 
     expect(jobsService.getAll).toHaveBeenCalledWith({ accountId: 'a1' });
   });
@@ -111,6 +129,7 @@ describe('JobsController', () => {
     const {
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -123,6 +142,7 @@ describe('JobsController', () => {
     const controller = new JobsController(
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -139,6 +159,7 @@ describe('JobsController', () => {
     const {
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -151,6 +172,7 @@ describe('JobsController', () => {
     const controller = new JobsController(
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -166,6 +188,7 @@ describe('JobsController', () => {
     const {
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -183,6 +206,7 @@ describe('JobsController', () => {
     const controller = new JobsController(
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -190,10 +214,15 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     );
-    const result = await controller.triggerSync('a1');
+    const result = await controller.triggerSync({ id: 'u1' }, 'a1');
 
     expect(accountsService.getById).toHaveBeenCalledWith('a1');
-    expect(jobsService.triggerSync).toHaveBeenCalledWith('a1', 'gmail', 'test@gmail.com');
+    expect(jobsService.triggerSync).toHaveBeenCalledWith(
+      'a1',
+      'gmail',
+      'test@gmail.com',
+      undefined,
+    );
     expect(result.job.id).toBe('j1');
   });
 
@@ -201,6 +230,7 @@ describe('JobsController', () => {
     const {
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
@@ -213,6 +243,7 @@ describe('JobsController', () => {
     const controller = new JobsController(
       jobsService,
       accountsService,
+      memoryBanksService,
       dbService,
       syncQueue,
       cleanQueue,
