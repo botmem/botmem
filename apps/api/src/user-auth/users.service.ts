@@ -75,6 +75,20 @@ export class UsersService {
     return rows[0] ?? null;
   }
 
+  async findByFirebaseUid(firebaseUid: string) {
+    const rows = await this.db.db
+      .select()
+      .from(users)
+      .where(eq(users.firebaseUid, firebaseUid))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async setFirebaseUid(userId: string, firebaseUid: string) {
+    const now = new Date();
+    await this.db.db.update(users).set({ firebaseUid, updatedAt: now }).where(eq(users.id, userId));
+  }
+
   async saveRefreshToken(
     userId: string,
     tokenHash: string,

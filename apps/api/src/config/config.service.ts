@@ -163,4 +163,15 @@ export class ConfigService implements OnModuleInit {
   get logsPath(): string {
     return process.env.LOGS_PATH || './data/logs.ndjson';
   }
+
+  // --- Auth provider ---
+
+  get authProvider(): 'local' | 'firebase' {
+    const val = process.env.AUTH_PROVIDER || 'local';
+    return val === 'firebase' ? 'firebase' : 'local';
+  }
+
+  get firebaseProjectId(): string {
+    return process.env.FIREBASE_PROJECT_ID || 'botmem-app';
+  }
 }
