@@ -202,17 +202,22 @@ export const mergeDismissals = pgTable(
 
 // --- User authentication tables ---
 
-export const users = pgTable('users', {
-  id: text('id').primaryKey(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  name: text('name').notNull(),
-  onboarded: boolean('onboarded').notNull().default(false),
-  encryptionSalt: text('encryption_salt'), // nullable for existing users pre-E2EE
-  keyVersion: integer('key_version').notNull().default(1),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    name: text('name').notNull(),
+    onboarded: boolean('onboarded').notNull().default(false),
+    encryptionSalt: text('encryption_salt'), // nullable for existing users pre-E2EE
+    keyVersion: integer('key_version').notNull().default(1),
+    firebaseUid: text('firebase_uid').unique(), // nullable — Firebase UID for firebase auth provider users
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [uniqueIndex('idx_users_firebase_uid').on(table.firebaseUid)],
+);
 
 export const refreshTokens = pgTable('refresh_tokens', {
   id: text('id').primaryKey(),
