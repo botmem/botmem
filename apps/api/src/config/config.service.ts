@@ -77,6 +77,14 @@ export class ConfigService implements OnModuleInit {
     return process.env.OLLAMA_RERANKER_MODEL || 'sam860/qwen3-reranker:0.6b-Q8_0';
   }
 
+  get ollamaUsername(): string {
+    return process.env.OLLAMA_USERNAME || '';
+  }
+
+  get ollamaPassword(): string {
+    return process.env.OLLAMA_PASSWORD || '';
+  }
+
   get qdrantUrl(): string {
     return process.env.QDRANT_URL || 'http://localhost:6333';
   }

@@ -9,6 +9,7 @@ export class OllamaService implements OnModuleInit {
   private textModel: string;
   private vlModel: string;
   private rerankerModel: string;
+  private authHeaders: Record<string, string>;
 
   constructor(config: ConfigService) {
     this.baseUrl = config.ollamaBaseUrl;
@@ -16,6 +17,12 @@ export class OllamaService implements OnModuleInit {
     this.textModel = config.ollamaTextModel;
     this.vlModel = config.ollamaVlModel;
     this.rerankerModel = config.ollamaRerankerModel;
+    const username = config.ollamaUsername;
+    const password = config.ollamaPassword;
+    this.authHeaders =
+      username && password
+        ? { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` }
+        : {};
   }
 
   async onModuleInit() {
@@ -23,7 +30,7 @@ export class OllamaService implements OnModuleInit {
     try {
       await fetch(`${this.baseUrl}/api/embed`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.authHeaders },
         body: JSON.stringify({ model: this.embedModel, input: 'warmup' }),
         signal: AbortSignal.timeout(30_000),
       });
@@ -40,7 +47,7 @@ export class OllamaService implements OnModuleInit {
       try {
         const res = await fetch(`${this.baseUrl}/api/embed`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...this.authHeaders },
           body: JSON.stringify({ model: this.embedModel, input }),
           signal: AbortSignal.timeout(60_000),
         });
@@ -76,7 +83,12 @@ export class OllamaService implements OnModuleInit {
     throw new Error('Unreachable');
   }
 
-  async generate(prompt: string, images?: string[], retries = 2, format?: Record<string, unknown>): Promise<string> {
+  async generate(
+    prompt: string,
+    images?: string[],
+    retries = 2,
+    format?: Record<string, unknown>,
+  ): Promise<string> {
     // Use VL model for images, text model for text-only; always disable thinking
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
@@ -98,7 +110,7 @@ export class OllamaService implements OnModuleInit {
 
         const res = await fetch(`${this.baseUrl}/api/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...this.authHeaders },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(180_000),
         });
@@ -128,10 +140,8 @@ export class OllamaService implements OnModuleInit {
    * Gracefully degrades: returns 0 for any document that fails (timeout, model unavailable, etc.).
    */
   async rerank(query: string, documents: string[]): Promise<number[]> {
-    const results = await Promise.allSettled(
-      documents.map(doc => this.rerankOne(query, doc)),
-    );
-    return results.map(r => r.status === 'fulfilled' ? r.value : 0);
+    const results = await Promise.allSettled(documents.map((doc) => this.rerankOne(query, doc)));
+    return results.map((r) => (r.status === 'fulfilled' ? r.value : 0));
   }
 
   private async rerankOne(query: string, doc: string): Promise<number> {
@@ -140,7 +150,7 @@ export class OllamaService implements OnModuleInit {
     try {
       const res = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.authHeaders },
         body: JSON.stringify({
           model: this.rerankerModel,
           prompt,
@@ -161,7 +171,8 @@ export class OllamaService implements OnModuleInit {
       const data = await res.json();
 
       if (data.logprobs?.[0]?.top_logprobs) {
-        const topLogprobs: Array<{ token: string; logprob: number }> = data.logprobs[0].top_logprobs;
+        const topLogprobs: Array<{ token: string; logprob: number }> =
+          data.logprobs[0].top_logprobs;
         let yesProb = 0;
         let noProb = 0;
         for (const entry of topLogprobs) {

@@ -47,6 +47,8 @@ packages/
 | `DATABASE_URL`       | `postgresql://botmem:botmem@localhost:5432/botmem` | PostgreSQL database connection                     |
 | `QDRANT_URL`         | `http://localhost:6333`                            | Vector DB                                          |
 | `OLLAMA_BASE_URL`    | `http://192.168.10.250:11434`                      | Remote Ollama inference                            |
+| `OLLAMA_USERNAME`    | _(empty)_                                          | Basic auth username (optional)                     |
+| `OLLAMA_PASSWORD`    | _(empty)_                                          | Basic auth password (optional)                     |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text`                                 | Embedding model (768d)                             |
 | `OLLAMA_TEXT_MODEL`  | `qwen3:0.6b`                                       | Text enrichment model (uses /no_think)             |
 | `OLLAMA_VL_MODEL`    | `qwen3-vl:2b`                                      | Vision-language model (photo enrichment)           |
