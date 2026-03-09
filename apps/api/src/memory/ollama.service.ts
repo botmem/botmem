@@ -105,6 +105,7 @@ export class OllamaService implements OnModuleInit {
           messages: [message],
           stream: false,
           think: false,
+          options: { num_ctx: 2048 },
         };
         if (format) body.format = format;
 
