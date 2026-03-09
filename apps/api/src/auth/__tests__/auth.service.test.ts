@@ -7,6 +7,7 @@ import { EventsService } from '../../events/events.service';
 import { DbService } from '../../db/db.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { CryptoService } from '../../crypto/crypto.service';
+import { ConfigService } from '../../config/config.service';
 
 function createMockDeps() {
   const { EventEmitter } = require('events');
@@ -66,6 +67,12 @@ function createMockDeps() {
     capture: vi.fn(),
   } as unknown as AnalyticsService;
 
+  const config = {
+    authProvider: 'local',
+    gmailClientId: '',
+    gmailClientSecret: '',
+  } as unknown as ConfigService;
+
   return {
     connectors,
     accountsService,
@@ -74,12 +81,14 @@ function createMockDeps() {
     dbService,
     crypto,
     analytics,
+    config,
     mockConnector,
   };
 }
 
 function makeService(deps: ReturnType<typeof createMockDeps>) {
-  const { connectors, accountsService, jobsService, events, dbService, crypto, analytics } = deps;
+  const { connectors, accountsService, jobsService, events, dbService, crypto, analytics, config } =
+    deps;
   return new AuthService(
     connectors,
     accountsService,
@@ -88,6 +97,7 @@ function makeService(deps: ReturnType<typeof createMockDeps>) {
     dbService,
     crypto,
     analytics,
+    config,
   );
 }
 
