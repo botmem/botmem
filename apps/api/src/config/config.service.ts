@@ -174,4 +174,9 @@ export class ConfigService implements OnModuleInit {
   get firebaseProjectId(): string {
     return process.env.FIREBASE_PROJECT_ID || 'botmem-app';
   }
+
+  /** Service account JSON string for Firebase Admin (required on non-GCP servers) */
+  get firebaseServiceAccount(): string {
+    return process.env.FIREBASE_SERVICE_ACCOUNT || '';
+  }
 }
