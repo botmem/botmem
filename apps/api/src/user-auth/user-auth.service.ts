@@ -108,6 +108,32 @@ export class UserAuthService {
     };
   }
 
+  /**
+   * Re-authenticate: verify password and re-derive encryption key without creating a new session.
+   * Used when server restarts and the in-memory encryption key is lost.
+   */
+  async reauth(userId: string, password: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) throw new UnauthorizedException('Invalid password');
+
+    let encryptionSalt = user.encryptionSalt;
+    if (!encryptionSalt) {
+      const salt = randomBytes(16);
+      encryptionSalt = salt.toString('base64');
+      await this.usersService.updateEncryptionSalt(user.id, encryptionSalt);
+    }
+    await this.userKeyService.deriveAndStore(
+      user.id,
+      password,
+      Buffer.from(encryptionSalt, 'base64'),
+    );
+
+    this.logger.log(`Re-authenticated user ${userId}, encryption key restored`);
+  }
+
   async refresh(oldRefreshToken: string) {
     // Verify the refresh JWT
     let payload: any;
@@ -127,10 +153,12 @@ export class UserAuthService {
       throw new UnauthorizedException('Refresh token not found');
     }
 
-    // Replay detection: if token was already revoked, kill entire family
+    // Replay detection: if token was already revoked, reject it.
+    // Note: we intentionally do NOT revoke the entire family here because
+    // multi-tab browsing legitimately causes stale tokens — one tab rotates
+    // the token while the other tab still holds the old cookie.
     if (stored.revokedAt) {
-      await this.usersService.revokeTokenFamily(stored.family);
-      throw new UnauthorizedException('Refresh token reuse detected');
+      throw new UnauthorizedException('Refresh token already used');
     }
 
     // Check expiration
