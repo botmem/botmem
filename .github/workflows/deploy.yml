@@ -1,4 +1,4 @@
-name: Build & Push to GHCR
+name: Build & Deploy
 
 on:
   push:
@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   build-and-push:
+    name: Build & Push to GHCR
     runs-on: ubuntu-latest
 
     steps:
@@ -38,3 +39,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Pull & restart api on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 65.20.85.57
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/botmem
+            docker compose -f docker-compose.prod.yml pull api
+            docker compose -f docker-compose.prod.yml up -d api
+
+      - name: Validate deployment
+        run: |
+          sleep 10
+          STATUS=$(curl -sf https://botmem.xyz/api/version | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok')" 2>/dev/null || echo "fail")
+          if [ "$STATUS" = "ok" ]; then
+            echo "Deployment validated — API is healthy"
+          else
+            echo "API health check failed" && exit 1
+          fi
