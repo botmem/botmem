@@ -9,6 +9,11 @@ export class ConfigService implements OnModuleInit {
       throw new Error('FATAL: DATABASE_URL environment variable is required');
     }
     this.validateProductionSecrets();
+
+    // Warn in dev mode if APP_SECRET is using the default value
+    if (this.appSecret === 'dev-app-secret-change-in-production') {
+      this.logger.warn('APP_SECRET is using default value. Set a secure value for production.');
+    }
   }
 
   validateProductionSecrets(): void {
