@@ -41,7 +41,7 @@ export class OllamaService implements OnModuleInit {
   }
 
   async embed(text: string, retries = 3): Promise<number[]> {
-    // nomic-embed-text has 2048 token context (~8K chars); truncate upfront
+    // Truncate long inputs upfront; models will truncate internally if still too long
     let input = text.length > 8000 ? text.slice(0, 8000) : text;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {

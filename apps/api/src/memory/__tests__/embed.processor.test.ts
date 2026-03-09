@@ -5,7 +5,7 @@ import { QdrantService } from '../qdrant.service';
 
 function createMockOllama(): OllamaService {
   return {
-    embed: vi.fn().mockResolvedValue(new Array(768).fill(0.1)),
+    embed: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
     generate: vi.fn().mockResolvedValue('{}'),
   } as unknown as OllamaService;
 }

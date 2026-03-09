@@ -67,15 +67,15 @@ export class ConfigService implements OnModuleInit {
   }
 
   get ollamaEmbedModel(): string {
-    return process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
+    return process.env.OLLAMA_EMBED_MODEL || 'mxbai-embed-large';
   }
 
   get ollamaTextModel(): string {
-    return process.env.OLLAMA_TEXT_MODEL || 'qwen3:0.6b';
+    return process.env.OLLAMA_TEXT_MODEL || 'qwen3:8b';
   }
 
   get ollamaVlModel(): string {
-    return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:2b';
+    return process.env.OLLAMA_VL_MODEL || 'gemma3:4b';
   }
 
   get ollamaRerankerModel(): string {
@@ -88,6 +88,10 @@ export class ConfigService implements OnModuleInit {
 
   get ollamaPassword(): string {
     return process.env.OLLAMA_PASSWORD || '';
+  }
+
+  get ollamaEmbedDimension(): number {
+    return parseInt(process.env.OLLAMA_EMBED_DIMENSION || '1024', 10);
   }
 
   get qdrantUrl(): string {

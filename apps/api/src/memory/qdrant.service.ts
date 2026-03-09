@@ -19,17 +19,18 @@ export class QdrantService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    // Ensure the collection exists at startup with the known embed dimension.
-    // nomic-embed-text produces 768-dim vectors; this avoids a chicken-and-egg
-    // problem where the first embed failure prevents the collection from being created.
+    // Ensure the collection exists at startup with the configured embed dimension.
     try {
-      await this.ensureCollection(768);
+      await this.ensureCollection(this.config.ollamaEmbedDimension);
       // Ensure HNSW index is built even for small collections
       await this.ensureIndexed();
       // Create datetime payload index on event_time for temporal filtering
       await this.ensureTemporalIndex();
     } catch (err) {
-      this.logger.error('Qdrant collection init failed (will retry on first embed)', err instanceof Error ? err.stack : String(err));
+      this.logger.error(
+        'Qdrant collection init failed (will retry on first embed)',
+        err instanceof Error ? err.stack : String(err),
+      );
     }
   }
 
@@ -53,7 +54,10 @@ export class QdrantService implements OnModuleInit {
     } catch (err: any) {
       // 400 = index already exists, safe to ignore
       if (err?.status !== 400 && !err?.message?.includes('already exists')) {
-        this.logger.error('Failed to create event_time payload index', err instanceof Error ? err.stack : String(err));
+        this.logger.error(
+          'Failed to create event_time payload index',
+          err instanceof Error ? err.stack : String(err),
+        );
       }
     }
   }
@@ -69,15 +73,22 @@ export class QdrantService implements OnModuleInit {
     }
   }
 
-  async upsert(memoryId: string, vector: number[], payload: Record<string, unknown>, retries = 2): Promise<void> {
+  async upsert(
+    memoryId: string,
+    vector: number[],
+    payload: Record<string, unknown>,
+    retries = 2,
+  ): Promise<void> {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         await this.client.upsert(QdrantService.COLLECTION, {
-          points: [{
-            id: memoryId,
-            vector,
-            payload,
-          }],
+          points: [
+            {
+              id: memoryId,
+              vector,
+              payload,
+            },
+          ],
         });
         return;
       } catch (err: any) {
@@ -95,7 +106,11 @@ export class QdrantService implements OnModuleInit {
     }
   }
 
-  async search(vector: number[], limit: number, filter?: Record<string, unknown>): Promise<ScoredPoint[]> {
+  async search(
+    vector: number[],
+    limit: number,
+    filter?: Record<string, unknown>,
+  ): Promise<ScoredPoint[]> {
     const params: Record<string, unknown> = {
       vector,
       limit,
@@ -122,7 +137,11 @@ export class QdrantService implements OnModuleInit {
     }
   }
 
-  async recommend(memoryId: string, limit: number, filter?: Record<string, unknown>): Promise<ScoredPoint[]> {
+  async recommend(
+    memoryId: string,
+    limit: number,
+    filter?: Record<string, unknown>,
+  ): Promise<ScoredPoint[]> {
     try {
       const params: Record<string, unknown> = {
         positive: [memoryId],
@@ -144,7 +163,11 @@ export class QdrantService implements OnModuleInit {
     }
   }
 
-  async getCollectionInfo(): Promise<{ pointsCount: number; indexedVectorsCount: number; status: string }> {
+  async getCollectionInfo(): Promise<{
+    pointsCount: number;
+    indexedVectorsCount: number;
+    status: string;
+  }> {
     try {
       const info = await this.client.getCollection(QdrantService.COLLECTION);
       return {
@@ -159,7 +182,11 @@ export class QdrantService implements OnModuleInit {
 
   async pointExists(id: string): Promise<boolean> {
     try {
-      const result = await this.client.retrieve(QdrantService.COLLECTION, { ids: [id], with_payload: false, with_vector: false });
+      const result = await this.client.retrieve(QdrantService.COLLECTION, {
+        ids: [id],
+        with_payload: false,
+        with_vector: false,
+      });
       return result.length > 0;
     } catch {
       return false;
