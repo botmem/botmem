@@ -552,7 +552,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       .where(
         and(
           eq(memories.connectorType, connectorType),
-          sql`json_extract(${memories.metadata}, '$.threadId') = ${threadId}`,
+          sql`(${memories.metadata}->>'threadId')::text = ${threadId}`,
         ),
       )
       .limit(20);

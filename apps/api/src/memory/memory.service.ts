@@ -777,12 +777,12 @@ export class MemoryService {
     // Factuality is stored as JSON, extract label with json_extract
     const factRows = await db
       .select({
-        label: sql<string>`json_extract(${memories.factuality}, '$.label')`,
+        label: sql<string>`(${memories.factuality}->>'label')::text`,
         count: sql<number>`COUNT(*)`,
       })
       .from(memories)
       .where(doneFilter)
-      .groupBy(sql`json_extract(${memories.factuality}, '$.label')`);
+      .groupBy(sql`(${memories.factuality}->>'label')::text`);
     const byFactuality: Record<string, number> = {};
     for (const r of factRows) {
       if (r.label) byFactuality[r.label] = r.count;
