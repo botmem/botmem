@@ -22,6 +22,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
 
     this.db = drizzle(this.pool, { schema });
     await this.createTables();
+    await this.dropLegacyTables();
     this.logger.log('PostgreSQL connected and tables ensured');
   }
 
@@ -77,17 +78,6 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
           started_at TIMESTAMPTZ,
           completed_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS logs (
-          id TEXT PRIMARY KEY,
-          job_id TEXT,
-          connector_type TEXT NOT NULL,
-          account_id TEXT,
-          stage TEXT,
-          level TEXT NOT NULL,
-          message TEXT NOT NULL,
-          timestamp TIMESTAMPTZ NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS connector_credentials (
@@ -247,7 +237,6 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         CREATE INDEX IF NOT EXISTS idx_memories_memory_bank_id ON memories(memory_bank_id);
         CREATE INDEX IF NOT EXISTS idx_raw_events_source_id ON raw_events(source_id);
         CREATE INDEX IF NOT EXISTS idx_raw_events_job_id ON raw_events(job_id);
-        CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
         CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
         CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
         CREATE INDEX IF NOT EXISTS idx_memory_banks_user_id ON memory_banks(user_id);
@@ -272,6 +261,21 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_memories_trgm ON memories USING gin (text gin_trgm_ops);
       `);
+    } finally {
+      client.release();
+    }
+  }
+
+  private async dropLegacyTables() {
+    const client = await this.pool.connect();
+    try {
+      await client.query('DROP TABLE IF EXISTS logs CASCADE');
+      this.logger.log('Legacy logs table dropped (now file-based)');
+    } catch (err) {
+      this.logger.warn(
+        'Could not drop legacy logs table:',
+        err instanceof Error ? err.message : String(err),
+      );
     } finally {
       client.release();
     }
