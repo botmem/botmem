@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
 import {
   accounts,
   contacts,
@@ -16,7 +18,11 @@ const SELF_CONTACT_ID_KEY = 'selfContactId';
 
 @Injectable()
 export class MeService {
-  constructor(private dbService: DbService) {}
+  constructor(
+    private dbService: DbService,
+    private crypto: CryptoService,
+    private userKeyService: UserKeyService,
+  ) {}
 
   /**
    * Set the "self" contact manually by storing the contact ID in settings.
@@ -492,6 +498,7 @@ export class MeService {
           sourceType: memories.sourceType,
           text: memories.text,
           eventTime: memories.eventTime,
+          keyVersion: memories.keyVersion,
         })
         .from(memoryContacts)
         .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
@@ -499,7 +506,27 @@ export class MeService {
         .orderBy(desc(memories.eventTime))
         .limit(20);
 
-      recentMemories = recentRows;
+      recentMemories = recentRows.map((row) => {
+        const kv = (row.keyVersion ?? 0) as number;
+        let text = row.text;
+        if (kv >= 1 && userId) {
+          const userKey = this.userKeyService.getKey(userId);
+          if (userKey) {
+            text = this.crypto.decryptWithKey(row.text, userKey) ?? text;
+          } else {
+            text = '[Encrypted — please log out and log in again to view]';
+          }
+        } else {
+          text = this.crypto.decrypt(row.text) ?? text;
+        }
+        return {
+          id: row.id,
+          connectorType: row.connectorType,
+          sourceType: row.sourceType,
+          text,
+          eventTime: row.eventTime,
+        };
+      });
     }
 
     return {
