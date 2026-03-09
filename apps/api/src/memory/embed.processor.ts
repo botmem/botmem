@@ -1,7 +1,7 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { OllamaService } from './ollama.service';
@@ -17,7 +17,15 @@ import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { rawEvents, memories, memoryLinks, settings, accounts, memoryBanks } from '../db/schema';
+import {
+  rawEvents,
+  memories,
+  memoryLinks,
+  settings,
+  accounts,
+  memoryBanks,
+  jobs,
+} from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import { normalizeEntities } from './entity-normalizer';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
@@ -113,8 +121,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       }),
     );
 
-    // Create memory record — resolve memoryBankId from account's user
-    const memoryId = randomUUID();
+    // Deterministic ID from rawEventId so retries overwrite the same Qdrant point
+    const memoryId = createHash('sha256')
+      .update(rawEventId)
+      .digest('hex')
+      .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12}).*/, '$1-$2-$3-$4-$5');
     const now = new Date();
     const mergedMetadata: Record<string, unknown> = {
       ...metadata,
@@ -122,16 +133,29 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       embedEntities,
     };
 
-    // Look up the account's userId to find their default memory bank
+    // Look up the memory bank: use explicit job-level override, else default bank
     let memoryBankId: string | null = null;
     let ownerUserId: string | null = null;
     try {
+      // Check if the parent job specifies a target memory bank
+      if (parentJobId) {
+        const [parentJob] = await this.dbService.db
+          .select({ memoryBankId: jobs.memoryBankId })
+          .from(jobs)
+          .where(eq(jobs.id, parentJobId));
+        if (parentJob?.memoryBankId) {
+          memoryBankId = parentJob.memoryBankId;
+        }
+      }
+
       const [acct] = await this.dbService.db
         .select({ userId: accounts.userId })
         .from(accounts)
         .where(eq(accounts.id, rawEvent.accountId));
       ownerUserId = acct?.userId || null;
-      if (acct?.userId) {
+
+      // Fall back to default bank if no job-level override
+      if (!memoryBankId && acct?.userId) {
         const [defaultBank] = await this.dbService.db
           .select({ id: memoryBanks.id })
           .from(memoryBanks)
@@ -145,47 +169,17 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       );
     }
 
+    // --- Resolve contacts (create/find) BEFORE inserting memory ---
     let t0 = Date.now();
-    await this.dbService.db.insert(memories).values({
-      id: memoryId,
-      accountId: rawEvent.accountId,
-      memoryBankId,
-      connectorType: rawEvent.connectorType,
-      sourceType: event.sourceType,
-      sourceId: event.sourceId,
-      text: embedText,
-      eventTime: new Date(event.timestamp),
-      ingestTime: now,
-      metadata: JSON.stringify(mergedMetadata),
-      embeddingStatus: 'pending',
-      createdAt: now,
-    });
-    const dbInsertMs = Date.now() - t0;
-
-    // Fire afterIngest hook (fire-and-forget)
-    void this.pluginRegistry.fireHook('afterIngest', {
-      id: memoryId,
-      text: embedText,
-      sourceType: event.sourceType,
-      connectorType: rawEvent.connectorType,
-      eventTime: new Date(event.timestamp),
-    });
-
-    // Contact resolution + linking
-    t0 = Date.now();
-    let contactCount = 0;
+    let selfContactId: string | null = null;
+    const resolvedContacts: Array<{ contactId: string; role: string }> = [];
     try {
-      // Always link self-contact — the user is a participant in all their memories
       const selfRow = await this.dbService.db
         .select({ value: settings.value })
         .from(settings)
         .where(eq(settings.key, 'selfContactId'))
         .limit(1);
-      const selfContactId = selfRow[0]?.value;
-      if (selfContactId) {
-        await this.contactsService.linkMemory(memoryId, selfContactId, 'participant');
-        contactCount++;
-      }
+      selfContactId = selfRow[0]?.value || null;
 
       const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> =
         [];
@@ -211,9 +205,6 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             });
           }
         }
-        if (entity.type === 'message' && entity.id.startsWith('thread:')) {
-          await this.linkThread(memoryId, entity.id.replace('thread:', ''), rawEvent.connectorType);
-        }
       }
 
       for (const { entityType, role, identifiers } of buckets) {
@@ -224,8 +215,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           ownerUserId || undefined,
         );
         if (contact) {
-          await this.contactsService.linkMemory(memoryId, contact.id, role);
-          contactCount++;
+          resolvedContacts.push({ contactId: contact.id, role });
         }
       }
     } catch (err) {
@@ -236,7 +226,108 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
     const contactMs = Date.now() - t0;
 
-    // Thread linking from metadata
+    // --- Generate embedding + store in Qdrant (before DB insert) ---
+    const maxChars = 6000;
+    let currentText = embedText;
+    const truncatedText =
+      currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+
+    t0 = Date.now();
+    let vector = await this.ollama.embed(truncatedText);
+    const embedMs = Date.now() - t0;
+
+    t0 = Date.now();
+    await this.qdrant.upsert(memoryId, vector, {
+      source_type: event.sourceType,
+      connector_type: rawEvent.connectorType,
+      event_time: event.timestamp,
+      account_id: rawEvent.accountId,
+      memory_bank_id: memoryBankId,
+    });
+    const qdrantMs = Date.now() - t0;
+
+    // File processing (image → VL model description → re-embed)
+    if (mergedMetadata.fileUrl && (mergedMetadata.mimetype as string)?.startsWith('image/')) {
+      try {
+        const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
+        if (fileContent) {
+          currentText = fileContent + '\n\n' + currentText;
+          const reEmbedText =
+            currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+          vector = await this.ollama.embed(reEmbedText);
+          await this.qdrant.upsert(memoryId, vector, {
+            source_type: event.sourceType,
+            connector_type: rawEvent.connectorType,
+            event_time: event.timestamp,
+            account_id: rawEvent.accountId,
+            memory_bank_id: memoryBankId,
+          });
+        }
+      } catch (err: any) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[embed:file] ${mid} file processing failed: ${err?.message}`,
+        );
+      }
+    }
+
+    // --- All external work succeeded — now insert the memory encrypted ---
+    const enc = this.crypto.encryptMemoryFields({
+      text: currentText,
+      entities: null,
+      claims: null,
+      metadata: JSON.stringify(mergedMetadata),
+    });
+
+    t0 = Date.now();
+    await this.dbService.db
+      .insert(memories)
+      .values({
+        id: memoryId,
+        accountId: rawEvent.accountId,
+        memoryBankId,
+        connectorType: rawEvent.connectorType,
+        sourceType: event.sourceType,
+        sourceId: event.sourceId,
+        text: enc.text,
+        eventTime: new Date(event.timestamp),
+        ingestTime: now,
+        metadata: enc.metadata,
+        embeddingStatus: 'pending',
+        createdAt: now,
+      })
+      .onConflictDoUpdate({
+        target: memories.id,
+        set: { text: enc.text, metadata: enc.metadata, embeddingStatus: 'pending' },
+      });
+    const dbInsertMs = Date.now() - t0;
+
+    // Link contacts + threads now that memory row exists
+    let contactCount = 0;
+    if (selfContactId) {
+      await this.contactsService.linkMemory(memoryId, selfContactId, 'participant');
+      contactCount++;
+    }
+    for (const { contactId, role } of resolvedContacts) {
+      await this.contactsService.linkMemory(memoryId, contactId, role);
+      contactCount++;
+    }
+
+    // Thread linking from entities
+    for (const entity of embedResult.entities) {
+      if (entity.type === 'message' && entity.id.startsWith('thread:')) {
+        try {
+          await this.linkThread(memoryId, entity.id.replace('thread:', ''), rawEvent.connectorType);
+        } catch (err) {
+          this.logger.warn(
+            'Thread linking failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    }
     if (mergedMetadata.threadId) {
       try {
         await this.linkThread(memoryId, mergedMetadata.threadId as string, rawEvent.connectorType);
@@ -245,148 +336,56 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       }
     }
 
-    // Generate embedding + store in Qdrant
-    const maxChars = 6000;
-    let currentText = embedText;
-    const truncatedText =
-      currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
-    try {
-      t0 = Date.now();
-      let vector = await this.ollama.embed(truncatedText);
-      const embedMs = Date.now() - t0;
+    // Fire hooks (fire-and-forget)
+    void this.pluginRegistry.fireHook('afterIngest', {
+      id: memoryId,
+      text: embedText,
+      sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType,
+      eventTime: new Date(event.timestamp),
+    });
+    void this.pluginRegistry.fireHook('afterEmbed', {
+      id: memoryId,
+      text: embedText,
+      sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType,
+      eventTime: new Date(event.timestamp),
+    });
 
-      t0 = Date.now();
-      await this.qdrant.upsert(memoryId, vector, {
-        source_type: event.sourceType,
-        connector_type: rawEvent.connectorType,
-        event_time: event.timestamp,
-        account_id: rawEvent.accountId,
-        memory_bank_id: memoryBankId,
-      });
-      const qdrantMs = Date.now() - t0;
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`,
+    );
 
-      // Fire afterEmbed hook (fire-and-forget)
-      void this.pluginRegistry.fireHook('afterEmbed', {
-        id: memoryId,
-        text: embedText,
+    this.analytics.capture('embed_complete', {
+      memory_id: memoryId,
+      source_type: event.sourceType,
+      connector_type: rawEvent.connectorType,
+    });
+
+    // Enqueue to enrich stage or finalize
+    const pipelineEnrich = connector.manifest.pipeline?.enrich !== false;
+    if (pipelineEnrich) {
+      await this.enrichQueue.add(
+        'enrich',
+        { rawEventId, memoryId },
+        { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+      );
+    } else {
+      await this.dbService.db
+        .update(memories)
+        .set({ embeddingStatus: 'done' })
+        .where(eq(memories.id, memoryId));
+      this.events.emitToChannel('memories', 'memory:updated', {
+        memoryId,
         sourceType: event.sourceType,
         connectorType: rawEvent.connectorType,
-        eventTime: new Date(event.timestamp),
+        text: currentText.slice(0, 100),
       });
-
-      this.addLog(
-        rawEvent.connectorType,
-        rawEvent.accountId,
-        'info',
-        `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`,
-      );
-
-      this.analytics.capture('embed_complete', {
-        memory_id: memoryId,
-        source_type: event.sourceType,
-        connector_type: rawEvent.connectorType,
-      });
-
-      // File processing (image → VL model description → re-embed)
-      if (mergedMetadata.fileUrl && (mergedMetadata.mimetype as string)?.startsWith('image/')) {
-        try {
-          const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
-          if (fileContent) {
-            currentText = fileContent + '\n\n' + currentText;
-            await this.dbService.db
-              .update(memories)
-              .set({ text: currentText })
-              .where(eq(memories.id, memoryId));
-
-            const reEmbedText =
-              currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
-            vector = await this.ollama.embed(reEmbedText);
-            await this.qdrant.upsert(memoryId, vector, {
-              source_type: event.sourceType,
-              connector_type: rawEvent.connectorType,
-              event_time: event.timestamp,
-              account_id: rawEvent.accountId,
-              memory_bank_id: memoryBankId,
-            });
-          }
-        } catch (err: any) {
-          this.addLog(
-            rawEvent.connectorType,
-            rawEvent.accountId,
-            'warn',
-            `[embed:file] ${mid} file processing failed: ${err?.message}`,
-          );
-        }
-      }
-
-      // Enqueue to enrich stage
-      const pipelineEnrich = connector.manifest.pipeline?.enrich !== false;
-      if (pipelineEnrich) {
-        await this.enrichQueue.add(
-          'enrich',
-          { rawEventId, memoryId },
-          { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
-        );
-      } else {
-        // No enrich — encrypt at rest and mark done directly
-        this.encryptMemoryAtRest(memoryId);
-        await this.dbService.db
-          .update(memories)
-          .set({ embeddingStatus: 'done' })
-          .where(eq(memories.id, memoryId));
-        this.events.emitToChannel('memories', 'memory:updated', {
-          memoryId,
-          sourceType: event.sourceType,
-          connectorType: rawEvent.connectorType,
-          text: currentText.slice(0, 100),
-        });
-        // Emit graph delta + debounced stats for no-enrich path
-        this.emitGraphDelta(memoryId);
-        // Dashboard stats are fetched per-user via REST — no global WS broadcast
-        await this.advanceAndComplete(parentJobId);
-      }
-    } catch (err: any) {
-      const totalMs = Date.now() - pipelineStart;
-      await this.dbService.db
-        .update(memories)
-        .set({ embeddingStatus: 'failed' })
-        .where(eq(memories.id, memoryId));
-      this.addLog(
-        rawEvent.connectorType,
-        rawEvent.accountId,
-        'error',
-        `[embed:fail] ${event.sourceType} after ${totalMs}ms: ${err?.message || err}`,
-      );
-      throw err;
-    }
-  }
-
-  private async encryptMemoryAtRest(memoryId: string) {
-    try {
-      const rows = await this.dbService.db
-        .select({
-          text: memories.text,
-          entities: memories.entities,
-          claims: memories.claims,
-          metadata: memories.metadata,
-        })
-        .from(memories)
-        .where(eq(memories.id, memoryId));
-      if (!rows.length) return;
-      const mem = rows[0];
-
-      const enc = this.crypto.encryptMemoryFields({
-        text: mem.text,
-        entities: mem.entities,
-        claims: mem.claims,
-        metadata: mem.metadata,
-      });
-      await this.dbService.db
-        .update(memories)
-        .set({ text: enc.text, entities: enc.entities, claims: enc.claims, metadata: enc.metadata })
-        .where(eq(memories.id, memoryId));
-    } catch (err: any) {
-      this.logger.warn(`[encrypt] Failed to encrypt memory ${memoryId}: ${err.message}`);
+      this.emitGraphDelta(memoryId);
+      await this.advanceAndComplete(parentJobId);
     }
   }
 
@@ -552,7 +551,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       .where(
         and(
           eq(memories.connectorType, connectorType),
-          sql`(metadata->>'threadId')::text = ${threadId}`,
+          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
         ),
       )
       .limit(20);

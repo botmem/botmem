@@ -1,21 +1,23 @@
-import { Controller, Get, Post, Delete, Param, Query, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Body, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { eq, and } from 'drizzle-orm';
 import { JobsService } from './jobs.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { DbService } from '../db/db.service';
 import { rawEvents, memories, memoryContacts, accounts } from '../db/schema';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import type { Job } from '@botmem/shared';
 
-function toApiJob(row: any): Job {
+function toApiJob(row: any): Job & { memoryBankId?: string | null } {
   return {
     id: row.id,
     connector: row.connectorType,
     accountId: row.accountId,
     accountIdentifier: row.accountIdentifier || null,
+    memoryBankId: row.memoryBankId || null,
     status: row.status,
     priority: row.priority,
     progress: row.progress,
@@ -32,6 +34,7 @@ export class JobsController {
   constructor(
     private jobsService: JobsService,
     private accountsService: AccountsService,
+    private memoryBanksService: MemoryBanksService,
     private dbService: DbService,
     @InjectQueue('sync') private syncQueue: Queue,
     @InjectQueue('clean') private cleanQueue: Queue,
@@ -87,12 +90,23 @@ export class JobsController {
 
   @RequiresJwt()
   @Post('sync/:accountId')
-  async triggerSync(@Param('accountId') accountId: string) {
+  async triggerSync(
+    @CurrentUser() user: { id: string },
+    @Param('accountId') accountId: string,
+    @Body() body?: { memoryBankId?: string },
+  ) {
     const account = await this.accountsService.getById(accountId);
+
+    // Validate memoryBankId belongs to the current user if provided
+    if (body?.memoryBankId) {
+      await this.memoryBanksService.getById(user.id, body.memoryBankId);
+    }
+
     const row = await this.jobsService.triggerSync(
       accountId,
       account.connectorType,
       account.identifier,
+      body?.memoryBankId,
     );
     return { job: toApiJob(row) };
   }
@@ -125,83 +139,92 @@ export class JobsController {
       }
     }
 
-    // Retry failed BullMQ pipeline jobs in batches
+    // Retry failed BullMQ pipeline jobs in batches, looping until all are retried
     const BATCH = 500;
 
     // Embed/clean failures: delete stale memory, then re-enqueue through clean
     const db = this.dbService.db;
     for (const queue of [this.cleanQueue, this.embedQueue]) {
-      const failed = await queue.getFailed(0, BATCH);
-      for (const fjob of failed) {
-        try {
-          const rawEventId = fjob.data?.rawEventId;
-          await fjob.remove();
-          if (!rawEventId) continue;
+      let failed = await queue.getFailed(0, BATCH);
+      while (failed.length > 0) {
+        for (const fjob of failed) {
+          try {
+            const rawEventId = fjob.data?.rawEventId;
+            await fjob.remove();
+            if (!rawEventId) continue;
 
-          // Find the raw event to get source_id + connector_type
-          const raw = await db
-            .select({ sourceId: rawEvents.sourceId, connectorType: rawEvents.connectorType })
-            .from(rawEvents)
-            .where(eq(rawEvents.id, rawEventId))
-            .limit(1);
-          if (!raw.length) continue;
+            // Find the raw event to get source_id + connector_type
+            const raw = await db
+              .select({ sourceId: rawEvents.sourceId, connectorType: rawEvents.connectorType })
+              .from(rawEvents)
+              .where(eq(rawEvents.id, rawEventId))
+              .limit(1);
+            if (!raw.length) continue;
 
-          // Delete existing stale memory (if any) so clean processor won't skip as dedup
-          const existing = await db
-            .select({ id: memories.id })
-            .from(memories)
-            .where(
-              and(
-                eq(memories.sourceId, raw[0].sourceId),
-                eq(memories.connectorType, raw[0].connectorType),
-              ),
-            )
-            .limit(1);
-          if (existing.length) {
-            await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, existing[0].id));
-            await db.delete(memories).where(eq(memories.id, existing[0].id));
+            // Delete existing stale memory (if any) so clean processor won't skip as dedup
+            const existing = await db
+              .select({ id: memories.id })
+              .from(memories)
+              .where(
+                and(
+                  eq(memories.sourceId, raw[0].sourceId),
+                  eq(memories.connectorType, raw[0].connectorType),
+                ),
+              )
+              .limit(1);
+            if (existing.length) {
+              await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, existing[0].id));
+              await db.delete(memories).where(eq(memories.id, existing[0].id));
+            }
+
+            await this.cleanQueue.add(
+              'clean',
+              { rawEventId },
+              {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+              },
+            );
+            retried++;
+          } catch (err) {
+            this.logger.warn(
+              'Pipeline retry failed for job',
+              err instanceof Error ? err.message : String(err),
+            );
           }
-
-          await this.cleanQueue.add(
-            'clean',
-            { rawEventId },
-            {
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 5000 },
-            },
-          );
-          retried++;
-        } catch (err) {
-          this.logger.warn(
-            'Pipeline retry failed for job',
-            err instanceof Error ? err.message : String(err),
-          );
         }
+        failed = await queue.getFailed(0, BATCH);
       }
     }
 
     // Enrich failures: re-add directly
-    const enrichFailed = await this.enrichQueue.getFailed(0, BATCH);
-    for (const fjob of enrichFailed) {
-      try {
-        const { name, data } = fjob;
-        await fjob.remove();
-        await this.enrichQueue.add(name, data, {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-        });
-        retried++;
-      } catch (err) {
-        this.logger.warn(
-          'Pipeline retry failed for enrich job',
-          err instanceof Error ? err.message : String(err),
-        );
+    let enrichFailed = await this.enrichQueue.getFailed(0, BATCH);
+    while (enrichFailed.length > 0) {
+      for (const fjob of enrichFailed) {
+        try {
+          const { name, data } = fjob;
+          await fjob.remove();
+          await this.enrichQueue.add(name, data, {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+          });
+          retried++;
+        } catch (err) {
+          this.logger.warn(
+            'Pipeline retry failed for enrich job',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
+      enrichFailed = await this.enrichQueue.getFailed(0, BATCH);
     }
 
     // Clean failed sync jobs from BullMQ
-    const failedSync = await this.syncQueue.getFailed(0, BATCH);
-    await Promise.allSettled(failedSync.map((fjob) => fjob.remove()));
+    let failedSync = await this.syncQueue.getFailed(0, BATCH);
+    while (failedSync.length > 0) {
+      await Promise.allSettled(failedSync.map((fjob) => fjob.remove()));
+      failedSync = await this.syncQueue.getFailed(0, BATCH);
+    }
 
     return { ok: true, retried };
   }

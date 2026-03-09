@@ -16,7 +16,12 @@ export class JobsService {
     return this.dbService.db;
   }
 
-  async triggerSync(accountId: string, connectorType: string, accountIdentifier?: string) {
+  async triggerSync(
+    accountId: string,
+    connectorType: string,
+    accountIdentifier?: string,
+    memoryBankId?: string,
+  ) {
     const id = crypto.randomUUID();
     const now = new Date();
 
@@ -25,6 +30,7 @@ export class JobsService {
       accountId,
       connectorType,
       accountIdentifier: accountIdentifier || null,
+      memoryBankId: memoryBankId || null,
       status: 'queued',
       priority: 0,
       progress: 0,
@@ -32,9 +38,13 @@ export class JobsService {
       createdAt: now,
     });
 
-    await this.syncQueue.add('sync', { accountId, connectorType, jobId: id }, {
-      jobId: id,
-    });
+    await this.syncQueue.add(
+      'sync',
+      { accountId, connectorType, jobId: id, memoryBankId: memoryBankId || undefined },
+      {
+        jobId: id,
+      },
+    );
 
     const [job] = await this.db.select().from(jobs).where(eq(jobs.id, id));
     return job;
@@ -61,10 +71,23 @@ export class JobsService {
     return job || null;
   }
 
-  async updateJob(id: string, data: Partial<{ status: string; progress: number; total: number; error: string; startedAt: Date | string; completedAt: Date | string }>) {
+  async updateJob(
+    id: string,
+    data: Partial<{
+      status: string;
+      progress: number;
+      total: number;
+      error: string;
+      startedAt: Date | string;
+      completedAt: Date | string;
+    }>,
+  ) {
     const toSet: any = { ...data };
-    if (data.startedAt) toSet.startedAt = data.startedAt instanceof Date ? data.startedAt : new Date(data.startedAt);
-    if (data.completedAt) toSet.completedAt = data.completedAt instanceof Date ? data.completedAt : new Date(data.completedAt);
+    if (data.startedAt)
+      toSet.startedAt = data.startedAt instanceof Date ? data.startedAt : new Date(data.startedAt);
+    if (data.completedAt)
+      toSet.completedAt =
+        data.completedAt instanceof Date ? data.completedAt : new Date(data.completedAt);
     await this.db.update(jobs).set(toSet).where(eq(jobs.id, id));
   }
 
@@ -73,7 +96,10 @@ export class JobsService {
   }
 
   async cancel(id: string) {
-    await this.db.update(jobs).set({ status: 'cancelled', completedAt: new Date() }).where(eq(jobs.id, id));
+    await this.db
+      .update(jobs)
+      .set({ status: 'cancelled', completedAt: new Date() })
+      .where(eq(jobs.id, id));
     const bullJob = await this.syncQueue.getJob(id);
     if (bullJob) await bullJob.remove();
   }
@@ -82,13 +108,18 @@ export class JobsService {
    * Increment job progress by 1 and return the updated job.
    * Does NOT auto-mark the job as done -- that's handled by tryCompleteJob().
    */
-  async incrementProgress(jobId: string): Promise<{ progress: number; total: number; done: boolean }> {
-    await this.db.update(jobs)
+  async incrementProgress(
+    jobId: string,
+  ): Promise<{ progress: number; total: number; done: boolean }> {
+    await this.db
+      .update(jobs)
       .set({ progress: sql`${jobs.progress} + 1` })
       .where(eq(jobs.id, jobId));
 
-    const [job] = await this.db.select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
-      .from(jobs).where(eq(jobs.id, jobId));
+    const [job] = await this.db
+      .select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
+      .from(jobs)
+      .where(eq(jobs.id, jobId));
 
     if (!job) return { progress: 0, total: 0, done: false };
 
@@ -101,17 +132,22 @@ export class JobsService {
    * Called by the enrich processor after incrementing progress.
    */
   async tryCompleteJob(jobId: string): Promise<boolean> {
-    const [job] = await this.db.select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
-      .from(jobs).where(eq(jobs.id, jobId));
+    const [job] = await this.db
+      .select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
+      .from(jobs)
+      .where(eq(jobs.id, jobId));
 
     if (!job || job.status !== 'running') return false;
     if (job.total <= 0 || job.progress < job.total) return false;
 
-    await this.db.update(jobs).set({
-      status: 'done',
-      progress: job.total,
-      completedAt: new Date(),
-    }).where(eq(jobs.id, jobId));
+    await this.db
+      .update(jobs)
+      .set({
+        status: 'done',
+        progress: job.total,
+        completedAt: new Date(),
+      })
+      .where(eq(jobs.id, jobId));
 
     return true;
   }
@@ -121,8 +157,7 @@ export class JobsService {
    * This catches jobs orphaned by server restarts or Redis flushes.
    */
   async markStaleRunning(): Promise<number> {
-    const running = await this.db.select().from(jobs)
-      .where(eq(jobs.status, 'running'));
+    const running = await this.db.select().from(jobs).where(eq(jobs.status, 'running'));
     let marked = 0;
     for (const job of running) {
       const bullJob = await this.syncQueue.getJob(job.id);
@@ -137,18 +172,23 @@ export class JobsService {
       const staleThreshold = 5 * 60 * 1000;
       if (Date.now() - startedAt < staleThreshold) continue;
 
-      await this.db.update(jobs).set({
-        status: 'failed',
-        error: job.error || 'Pipeline stalled -- sync finished but not all items were processed',
-        completedAt: job.completedAt || new Date(),
-      }).where(eq(jobs.id, job.id));
+      await this.db
+        .update(jobs)
+        .set({
+          status: 'failed',
+          error: job.error || 'Pipeline stalled -- sync finished but not all items were processed',
+          completedAt: job.completedAt || new Date(),
+        })
+        .where(eq(jobs.id, job.id));
       marked++;
     }
     return marked;
   }
 
   async cleanupDone() {
-    const done = await this.db.select({ id: jobs.id }).from(jobs)
+    const done = await this.db
+      .select({ id: jobs.id })
+      .from(jobs)
       .where(inArray(jobs.status, ['done', 'cancelled']));
     if (done.length === 0) return 0;
     for (const j of done) {
