@@ -1,5 +1,19 @@
 import { BaseConnector } from '@botmem/connector-sdk';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, EmbedResult, PipelineContext } from '@botmem/connector-sdk';
+import type {
+  ConnectorManifest,
+  AuthContext,
+  AuthInitResult,
+  SyncContext,
+  SyncResult,
+  ConnectorDataEvent,
+  EmbedResult,
+  PipelineContext,
+} from '@botmem/connector-sdk';
+
+/** Strip trailing slashes and any accidental /api suffix so calls like `${host}/api/...` are correct. */
+function normalizeHost(raw: string): string {
+  return raw.replace(/\/+$/, '').replace(/\/api\/?$/, '');
+}
 
 interface ImmichAsset {
   id: string;
@@ -53,15 +67,23 @@ export class ImmichConnector extends BaseConnector {
     configSchema: {
       type: 'object',
       properties: {
-        host: { type: 'string', title: 'Immich Server URL', description: 'e.g. http://localhost:2283' },
-        apiKey: { type: 'string', title: 'API Key', description: 'Immich API key from Account Settings' },
+        host: {
+          type: 'string',
+          title: 'Immich Server URL',
+          description: 'e.g. http://localhost:2283',
+        },
+        apiKey: {
+          type: 'string',
+          title: 'API Key',
+          description: 'Immich API key from Account Settings',
+        },
       },
       required: ['host', 'apiKey'],
     },
     entities: ['person', 'location'],
     pipeline: { clean: true, embed: true, enrich: true },
     trustScore: 0.85,
-    weights: { semantic: 0.30, recency: 0.15, importance: 0.35, trust: 0.20 },
+    weights: { semantic: 0.3, recency: 0.15, importance: 0.35, trust: 0.2 },
   };
 
   embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {
@@ -72,7 +94,11 @@ export class ImmichConnector extends BaseConnector {
     const people = (metadata.people as Array<{ id: string; name: string }>) || [];
     for (const person of people) {
       if (!person.name) continue;
-      entities.push({ type: 'person', id: `immich_person_id:${person.id}|name:${person.name}`, role: 'participant' });
+      entities.push({
+        type: 'person',
+        id: `immich_person_id:${person.id}|name:${person.name}`,
+        role: 'participant',
+      });
     }
 
     // GPS coordinates as location entity
@@ -83,7 +109,7 @@ export class ImmichConnector extends BaseConnector {
     }
 
     // Also resolve any participants not in people array
-    const resolvedNames = new Set(people.map(p => p.name));
+    const resolvedNames = new Set(people.map((p) => p.name));
     for (const name of event.content?.participants || []) {
       if (!name || resolvedNames.has(name)) continue;
       entities.push({ type: 'person', id: `name:${name}`, role: 'participant' });
@@ -93,7 +119,7 @@ export class ImmichConnector extends BaseConnector {
   }
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
-    const host = (config.host as string).replace(/\/+$/, '');
+    const host = normalizeHost(config.host as string);
     const apiKey = config.apiKey as string;
 
     const res = await fetch(`${host}/api/server/ping`, {
@@ -123,7 +149,7 @@ export class ImmichConnector extends BaseConnector {
   }
 
   async completeAuth(params: Record<string, unknown>): Promise<AuthContext> {
-    const host = (params.host as string).replace(/\/+$/, '');
+    const host = normalizeHost(params.host as string);
     return { accessToken: params.apiKey as string, raw: { host } };
   }
 
@@ -150,9 +176,7 @@ export class ImmichConnector extends BaseConnector {
     let processed = 0;
 
     // Parse cursor
-    const cursor: CursorState = ctx.cursor
-      ? JSON.parse(ctx.cursor)
-      : { page: 1 };
+    const cursor: CursorState = ctx.cursor ? JSON.parse(ctx.cursor) : { page: 1 };
 
     ctx.logger.info(
       `Starting Immich sync (page ${cursor.page}${cursor.takenAfter ? `, after ${cursor.takenAfter}` : ', full sync'})`,
@@ -196,7 +220,13 @@ export class ImmichConnector extends BaseConnector {
       signal: ctx.signal,
     });
 
-    if (!res.ok) throw new Error(`Immich API error: ${res.status}`);
+    if (!res.ok) {
+      const hint =
+        res.status === 404
+          ? ` — check that the host URL does not include /api (use http://host:port, not http://host:port/api)`
+          : '';
+      throw new Error(`Immich search/metadata returned ${res.status}${hint}`);
+    }
 
     const searchResponse = await res.json();
     const assets: ImmichAsset[] = searchResponse.assets?.items ?? [];
@@ -216,13 +246,13 @@ export class ImmichConnector extends BaseConnector {
         timestamp,
         content: {
           text,
-          participants: (asset.people ?? [])
-            .filter((p) => p.name)
-            .map((p) => p.name),
-          attachments: [{
-            uri: `${host}/api/assets/${asset.id}/thumbnail?size=preview`,
-            mimeType: asset.originalMimeType ?? 'image/jpeg',
-          }],
+          participants: (asset.people ?? []).filter((p) => p.name).map((p) => p.name),
+          attachments: [
+            {
+              uri: `${host}/api/assets/${asset.id}/thumbnail?size=preview`,
+              mimeType: asset.originalMimeType ?? 'image/jpeg',
+            },
+          ],
           metadata: {
             fileUrl: `${host}/api/assets/${asset.id}/thumbnail?size=preview`,
             mimetype: asset.originalMimeType ?? 'image/jpeg',

@@ -16,9 +16,15 @@ interface ConnectorAccountRowProps {
   account: ConnectorAccount;
   onRemove: (id: string) => void;
   onSyncNow: (id: string, memoryBankId?: string) => void;
+  onEdit?: (id: string) => void;
 }
 
-export function ConnectorAccountRow({ account, onRemove, onSyncNow }: ConnectorAccountRowProps) {
+export function ConnectorAccountRow({
+  account,
+  onRemove,
+  onSyncNow,
+  onEdit,
+}: ConnectorAccountRowProps) {
   const { memoryBanks, activeMemoryBankId } = useMemoryBankStore();
   const defaultBankId = activeMemoryBankId || memoryBanks.find((b) => b.isDefault)?.id;
   const [selectedBankId, setSelectedBankId] = useState(defaultBankId);
@@ -58,6 +64,11 @@ export function ConnectorAccountRow({ account, onRemove, onSyncNow }: ConnectorA
                 </option>
               ))}
             </select>
+          )}
+          {account.status === 'error' && onEdit && (
+            <Button size="sm" variant="danger" onClick={() => onEdit(account.id)}>
+              EDIT
+            </Button>
           )}
           <Button
             size="sm"

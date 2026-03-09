@@ -54,4 +54,13 @@ export class AuthController {
   ) {
     return this.authService.complete(type, body, user.id);
   }
+
+  @Post(':type/reauth/:accountId')
+  async reauth(
+    @Param('type') type: string,
+    @Param('accountId') accountId: string,
+    @Body() body: { config: Record<string, unknown> },
+  ) {
+    return this.authService.reauth(type, accountId, body.config || {});
+  }
 }

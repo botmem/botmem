@@ -80,6 +80,11 @@ export const api = {
     request<any>(`/auth/${type}/initiate`, { method: 'POST', body: JSON.stringify({ config }) }),
   completeAuth: (type: string, params: Record<string, unknown>) =>
     request<any>(`/auth/${type}/complete`, { method: 'POST', body: JSON.stringify({ params }) }),
+  reauthAccount: (type: string, accountId: string, config: Record<string, unknown>) =>
+    request<any>(`/auth/${type}/reauth/${accountId}`, {
+      method: 'POST',
+      body: JSON.stringify({ config }),
+    }),
 
   // Jobs
   listJobs: (accountId?: string) =>

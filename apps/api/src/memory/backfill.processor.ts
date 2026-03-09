@@ -52,16 +52,28 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
   private async processEnrich(job: Job<{ memoryId: string; jobId?: string }>) {
     const { memoryId, jobId } = job.data;
-    const db = this.dbService.db;
 
-    // Read memory
-    const memRows = await db.select().from(memories).where(eq(memories.id, memoryId));
+    // Bootstrap (unscoped): read memory to resolve ownerUserId
+    const memRows = await this.dbService.db
+      .select()
+      .from(memories)
+      .where(eq(memories.id, memoryId));
     if (!memRows.length) {
       this.logger.warn(`[backfill-enrich] Memory ${memoryId} not found, skipping`);
       await this.advanceAndComplete(jobId);
       return { skipped: true, reason: 'not-found' };
     }
     const mem = memRows[0];
+
+    // Resolve ownerUserId (unscoped bootstrap)
+    let ownerUserId: string | undefined;
+    if (mem.accountId) {
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, mem.accountId));
+      ownerUserId = acct?.userId ?? undefined;
+    }
 
     // Resumability: skip if already enriched
     if (mem.enrichedAt) {
@@ -72,16 +84,6 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     // Decrypt if needed
     const wasEncrypted = this.crypto.isEncrypted(mem.text);
     if (wasEncrypted) {
-      // Resolve owner userId for per-user key decryption
-      let ownerUserId: string | undefined;
-      if (mem.accountId) {
-        const [acct] = await db
-          .select({ userId: accounts.userId })
-          .from(accounts)
-          .where(eq(accounts.id, mem.accountId));
-        ownerUserId = acct?.userId ?? undefined;
-      }
-
       let decrypted: typeof mem;
       if (mem.keyVersion === 0 || !ownerUserId) {
         // Legacy APP_SECRET encrypted
@@ -91,23 +93,35 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         if (!userKey) throw new EncryptionKeyMissingError(ownerUserId);
         decrypted = this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
       }
-      await db
-        .update(memories)
-        .set({
-          text: decrypted.text,
-          entities: decrypted.entities,
-          claims: decrypted.claims,
-          metadata: decrypted.metadata,
-        })
-        .where(eq(memories.id, memoryId));
+      const writeDecrypted = (db: typeof this.dbService.db) =>
+        db
+          .update(memories)
+          .set({
+            text: decrypted.text,
+            entities: decrypted.entities,
+            claims: decrypted.claims,
+            metadata: decrypted.metadata,
+          })
+          .where(eq(memories.id, memoryId));
+      if (ownerUserId) {
+        await this.dbService.withUserId(ownerUserId, writeDecrypted);
+      } else {
+        await writeDecrypted(this.dbService.db);
+      }
     }
 
-    // Run enrichment
+    // Run enrichment (enrichService uses unscoped db — acceptable for processor context)
     await this.enrichService.enrich(memoryId);
 
     // Re-encrypt + set enrichedAt
-    await this.encryptMemoryAtRest(memoryId);
-    await db.update(memories).set({ enrichedAt: new Date() }).where(eq(memories.id, memoryId));
+    await this.encryptMemoryAtRest(memoryId, ownerUserId);
+    const writeEnrichedAt = (db: typeof this.dbService.db) =>
+      db.update(memories).set({ enrichedAt: new Date() }).where(eq(memories.id, memoryId));
+    if (ownerUserId) {
+      await this.dbService.withUserId(ownerUserId, writeEnrichedAt);
+    } else {
+      await writeEnrichedAt(this.dbService.db);
+    }
 
     await this.advanceAndComplete(jobId);
     return { memoryId, enriched: true };
@@ -117,22 +131,43 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
   private async processContact(job: Job<{ memoryId: string }>) {
     const { memoryId } = job.data;
-    const db = this.dbService.db;
+
+    // Bootstrap (unscoped): resolve ownerUserId from memory → account
+    const bootstrapRows = await this.dbService.db
+      .select({ accountId: memories.accountId })
+      .from(memories)
+      .where(eq(memories.id, memoryId));
+    const bootstrapAccountId = bootstrapRows[0]?.accountId;
+
+    let ownerUserId: string | undefined;
+    if (bootstrapAccountId) {
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, bootstrapAccountId));
+      ownerUserId = acct?.userId ?? undefined;
+    }
+
+    const withScope = <T>(fn: (db: typeof this.dbService.db) => Promise<T>) =>
+      ownerUserId ? this.dbService.withUserId(ownerUserId, fn) : fn(this.dbService.db);
 
     // Skip if already has contact links
-    const existing = await db
-      .select()
-      .from(memoryContacts)
-      .where(eq(memoryContacts.memoryId, memoryId));
+    const existing = await withScope((db) =>
+      db.select().from(memoryContacts).where(eq(memoryContacts.memoryId, memoryId)),
+    );
     if (existing.length > 0) return { skipped: true };
 
     // Fetch the memory
-    const memRows = await db.select().from(memories).where(eq(memories.id, memoryId));
+    const memRows = await withScope((db) =>
+      db.select().from(memories).where(eq(memories.id, memoryId)),
+    );
     if (!memRows.length) return { skipped: true };
     const mem = memRows[0];
 
-    // Find the raw event for participant data
-    const rawRows = await db.select().from(rawEvents).where(eq(rawEvents.sourceId, mem.sourceId));
+    // Find the raw event for participant data (rawEvents is RLS-protected)
+    const rawRows = await withScope((db) =>
+      db.select().from(rawEvents).where(eq(rawEvents.sourceId, mem.sourceId)),
+    );
     if (!rawRows.length) return { skipped: true, reason: 'no raw event' };
 
     const event = JSON.parse(rawRows[0].payload);
@@ -145,25 +180,31 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
   // ---- Shared helpers ----
 
-  private async encryptMemoryAtRest(memoryId: string) {
-    const db = this.dbService.db;
-    const rows = await db
-      .select({
-        text: memories.text,
-        entities: memories.entities,
-        claims: memories.claims,
-        metadata: memories.metadata,
-        accountId: memories.accountId,
-      })
-      .from(memories)
-      .where(eq(memories.id, memoryId));
+  private async encryptMemoryAtRest(memoryId: string, ownerUserIdHint?: string) {
+    // Read memory fields — use ownerUserIdHint scope if available
+    const readRows = (db: typeof this.dbService.db) =>
+      db
+        .select({
+          text: memories.text,
+          entities: memories.entities,
+          claims: memories.claims,
+          metadata: memories.metadata,
+          accountId: memories.accountId,
+        })
+        .from(memories)
+        .where(eq(memories.id, memoryId));
+
+    const rows = ownerUserIdHint
+      ? await this.dbService.withUserId(ownerUserIdHint, readRows)
+      : await readRows(this.dbService.db);
+
     if (!rows.length) return;
     const mem = rows[0];
 
-    // Resolve owner userId
-    let ownerUserId: string | undefined;
-    if (mem.accountId) {
-      const [acct] = await db
+    // Resolve owner userId: use hint or fall back to account lookup (unscoped bootstrap)
+    let ownerUserId: string | undefined = ownerUserIdHint;
+    if (!ownerUserId && mem.accountId) {
+      const [acct] = await this.dbService.db
         .select({ userId: accounts.userId })
         .from(accounts)
         .where(eq(accounts.id, mem.accountId));
@@ -177,7 +218,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         claims: mem.claims,
         metadata: mem.metadata,
       });
-      await db
+      await this.dbService.db
         .update(memories)
         .set({
           text: enc.text,
@@ -193,7 +234,8 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     const userKey = this.userKeyService.getKey(ownerUserId);
     if (!userKey) throw new EncryptionKeyMissingError(ownerUserId);
 
-    const [user] = await db
+    // users table is NOT RLS-protected — unscoped lookup is correct
+    const [user] = await this.dbService.db
       .select({ keyVersion: users.keyVersion })
       .from(users)
       .where(eq(users.id, ownerUserId));
@@ -203,16 +245,18 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
       { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
       userKey,
     );
-    await db
-      .update(memories)
-      .set({
-        text: enc.text,
-        entities: enc.entities,
-        claims: enc.claims,
-        metadata: enc.metadata,
-        keyVersion,
-      })
-      .where(eq(memories.id, memoryId));
+    await this.dbService.withUserId(ownerUserId, (db) =>
+      db
+        .update(memories)
+        .set({
+          text: enc.text,
+          entities: enc.entities,
+          claims: enc.claims,
+          metadata: enc.metadata,
+          keyVersion,
+        })
+        .where(eq(memories.id, memoryId)),
+    );
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {

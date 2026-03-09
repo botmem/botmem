@@ -11,6 +11,7 @@ interface ConnectorSetupModalProps {
   onClose: () => void;
   connectorType: ConnectorType;
   onConnect: (identifier: string) => void;
+  editAccountId?: string;
 }
 
 const fallbackFields: Record<
@@ -239,18 +240,28 @@ function FormView({
   connectorType,
   onConnect,
   onClose,
+  editAccountId,
 }: {
   state: ModalState;
   dispatch: React.Dispatch<ModalAction>;
   connectorType: ConnectorType;
   onConnect: (id: string) => void;
   onClose: () => void;
+  editAccountId?: string;
 }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     dispatch({ type: 'SET_LOADING', loading: true });
 
     try {
+      if (editAccountId) {
+        const account = await api.reauthAccount(connectorType, editAccountId, state.values);
+        onConnect(account?.identifier || connectorType);
+        dispatch({ type: 'RESET_VALUES' });
+        onClose();
+        return;
+      }
+
       const result = await api.initiateAuth(connectorType, {
         ...state.values,
         returnTo: window.location.pathname,
@@ -340,7 +351,13 @@ function FormView({
           ),
         )}
         <Button type="submit" disabled={state.loading}>
-          {state.loading ? 'CONNECTING...' : 'CONNECT'}
+          {state.loading
+            ? editAccountId
+              ? 'SAVING...'
+              : 'CONNECTING...'
+            : editAccountId
+              ? 'SAVE CHANGES'
+              : 'CONNECT'}
         </Button>
       </form>
     </Modal>
@@ -354,6 +371,7 @@ export function ConnectorSetupModal({
   onClose,
   connectorType,
   onConnect,
+  editAccountId,
 }: ConnectorSetupModalProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const wsRef = useRef<WebSocket | null>(null);
@@ -495,7 +513,15 @@ export function ConnectorSetupModal({
 
   if (state.checkingCredentials || (state.loading && !state.fields.length)) {
     return (
-      <Modal open onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
+      <Modal
+        open
+        onClose={onClose}
+        title={
+          editAccountId
+            ? `Edit ${connectorType.toUpperCase()}`
+            : `Connect ${connectorType.toUpperCase()}`
+        }
+      >
         <div className="flex flex-col items-center gap-3 py-6">
           <p className="font-mono text-sm text-nb-muted uppercase">
             {state.loading ? 'Redirecting to authorization...' : 'Checking saved credentials...'}
@@ -512,6 +538,7 @@ export function ConnectorSetupModal({
       connectorType={connectorType}
       onConnect={onConnect}
       onClose={onClose}
+      editAccountId={editAccountId}
     />
   );
 }

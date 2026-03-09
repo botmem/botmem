@@ -55,11 +55,18 @@ function createProcessor(overrides: Record<string, any> = {}) {
     onChange: vi.fn(),
   };
 
+  const userKeyService = {
+    deriveAndStore: vi.fn().mockResolvedValue(undefined),
+    removeKey: vi.fn(),
+    getKey: vi.fn().mockReturnValue(null),
+  };
+
   const deps = {
     dbService,
     contactsService,
     enrichService,
     crypto,
+    userKeyService,
     jobsService,
     events,
     settingsService,
@@ -71,6 +78,7 @@ function createProcessor(overrides: Record<string, any> = {}) {
     deps.contactsService as any,
     deps.enrichService as any,
     deps.crypto as any,
+    deps.userKeyService as any,
     deps.events as any,
     deps.jobsService as any,
     deps.settingsService as any,
@@ -222,8 +230,10 @@ describe('BackfillProcessor', () => {
         limit: vi.fn().mockReturnThis(),
         then: vi.fn((resolve: any) => {
           if (callCount.n === 1)
-            resolve([]); // no existing contacts
+            resolve([{ accountId: null }]); // bootstrap: memory accountId (no account → skip user lookup)
           else if (callCount.n === 2)
+            resolve([]); // no existing contacts
+          else if (callCount.n === 3)
             resolve([
               {
                 id: 'mem-c',
