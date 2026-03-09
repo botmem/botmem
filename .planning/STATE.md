@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Security, Auth & Encryption
 status: completed
-stopped_at: Completed 24-01-PLAN.md
-last_updated: '2026-03-09T11:44:37.312Z'
+stopped_at: Completed 24-02-PLAN.md
+last_updated: '2026-03-09T11:50:00.997Z'
 last_activity: 2026-03-09 — Roadmap v4.0 finalized (phases 35-39)
 progress:
   total_phases: 32
-  completed_phases: 26
+  completed_phases: 27
   total_plans: 51
-  completed_plans: 50
+  completed_plans: 51
 ---
 
 # Project State
@@ -81,6 +81,7 @@ Phase 39: CI Gates & Coverage      [ ] Not started
 | Phase 23 P03               | 2min | 2 tasks  | 2 files  |
 | Phase 24 P01               | 4min | 2 tasks  | 11 files |
 | Phase 24-firebase-auth P01 | 4min | 2 tasks  | 11 files |
+| Phase 24-firebase-auth P02 | 8min | 2 tasks  | 5 files  |
 
 ## Accumulated Context
 
@@ -131,6 +132,9 @@ Recent decisions affecting current work:
 - [Phase 24-firebase-auth]: AuthProviderGuard delegation pattern — single APP_GUARD reads AUTH_PROVIDER at request time and delegates to JwtAuthGuard (local) or FirebaseAuthGuard (firebase)
 - [Phase 24-firebase-auth]: Sentinel passwordHash ('firebase:<uid>') for Firebase users — never compared via bcrypt, prevents password login
 - [Phase 24-firebase-auth]: firebaseUid nullable unique column on users table — allows linking Firebase accounts to existing local accounts by email on first Firebase login
+- [Phase 24-firebase-auth]: Firebase ID token stored as accessToken in authStore — reuses existing Bearer token infrastructure without changes to API fetch layer
+- [Phase 24-firebase-auth]: isFirebaseMode = VITE_AUTH_PROVIDER === firebase — module-level constant, zero runtime cost, gates all Firebase UI conditionally
+- [Phase 24-firebase-auth]: popup-closed-by-user / cancelled-popup-request handled gracefully — no error state shown to user
 
 ### Decisions (Phase 16)
 
@@ -262,6 +266,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T11:44:37.310Z
-Stopped at: Completed 24-01-PLAN.md
+Last session: 2026-03-09T11:50:00.995Z
+Stopped at: Completed 24-02-PLAN.md
 Resume file: None

@@ -206,7 +206,7 @@ Phase 10: Source Citations (deferred)
 - [x] **Phase 21: End-to-End Encryption** - Argon2id key derivation, client-side memory encryption, vectors plaintext, password change re-encryption (E2EE-01 through E2EE-04) (completed 2026-03-09)
 - [x] **Phase 22: PostgreSQL Dual-Driver** - Postgres schema, pg Pool, DATABASE_URL, Docker Compose postgres service (DB-01 through DB-04) -- Complete
 - [x] **Phase 23: Row Level Security** - Postgres RLS policies for user data isolation (DB-05) (completed 2026-03-09)
-- [ ] **Phase 24: Firebase Auth (Prod-Core)** - Firebase guard, React Firebase UI, AUTH_PROVIDER switch, social login (FBAUTH-01 through FBAUTH-04)
+- [x] **Phase 24: Firebase Auth (Prod-Core)** - Firebase guard, React Firebase UI, AUTH_PROVIDER switch, social login (FBAUTH-01 through FBAUTH-04) (completed 2026-03-09)
 
 ## v2.1 Data Quality & Pipeline Integrity (Phases 25-28) - SHIPPED 2026-03-09
 
@@ -428,7 +428,7 @@ Phases 12-15 (DB, Inference, Docker, CI/CD) are restructured:
 
 ### Phase 11: Repository & Infrastructure Foundation (COMPLETE)
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 - [x] 11-01: Clean inline secrets and sanitize git history (REPO-04)
 - [x] 11-02: Create GitHub org, open-core and prod-core repos (REPO-01, REPO-02, REPO-03)
@@ -623,7 +623,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 8.1 -> 
 | 21. E2EE (Prod-Core)             | 2/2       | Complete       | 2026-03-09  | -          |
 | 22. PostgreSQL Dual-Driver       | v2.0      | 2/2            | Complete    | 2026-03-09 |
 | 23. Row Level Security           | 3/3       | Complete       | 2026-03-09  | -          |
-| 24. Firebase Auth (Prod-Core)    | 1/2       | In Progress    |             | -          |
+| 24. Firebase Auth (Prod-Core)    | 2/2       | Complete       | 2026-03-09  | -          |
 | 25. Source Type Reclassification | v2.1      | 2/2            | Complete    | 2026-03-08 |
 | 26. Entity Format & Quality      | v2.1      | 2/2            | Complete    | 2026-03-08 |
 | 27. Data Backfill                | v2.1      | 1/1            | Complete    | 2026-03-09 |
