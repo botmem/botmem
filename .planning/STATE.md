@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 
 Phase: 10 (Entity Graph API) - Complete with Phase 22 PostgreSQL migration fixes
 Status: Phase 10 UAT passed, Phase 22 migration completed
-Last activity: 2026-03-09 -- Entity graph endpoints working, PostgreSQL JSON syntax fixed in 3 processors
+Last activity: 2026-03-09 - Completed quick task 5: logs are being stored to the db, which is bad, we should write to a file if we want to load in the UI, we're also logging json to stdout, so figure something out here, drop all logs from the db
 
 ## Performance Metrics
 
