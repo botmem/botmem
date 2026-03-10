@@ -15,6 +15,10 @@ export class AuthController {
   @Get(':type/has-credentials')
   async hasCredentials(@Param('type') type: string) {
     const saved = await this.authService.getSavedCredentials(type);
+    // In Firebase mode, server-side creds count as "saved"
+    if (!saved && this.config.authProvider === 'firebase' && type === 'gmail') {
+      return { hasSavedCredentials: !!this.config.gmailClientId };
+    }
     return { hasSavedCredentials: !!saved };
   }
 

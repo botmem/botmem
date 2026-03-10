@@ -142,13 +142,16 @@ export class AuthService {
     let mergedConfig = { ...saved, ...connectorConfig };
 
     // In Firebase mode, inject server-side OAuth creds for Google connectors
+    // Server creds override saved/user creds (spread AFTER mergedConfig)
     if (this.config.authProvider === 'firebase' && connectorType === 'gmail') {
-      if (this.config.gmailClientId)
+      if (this.config.gmailClientId) {
         mergedConfig = {
+          ...mergedConfig,
           clientId: this.config.gmailClientId,
           clientSecret: this.config.gmailClientSecret,
-          ...mergedConfig,
+          redirectUri: `${this.config.baseUrl}/api/auth/gmail/callback`,
         };
+      }
     }
 
     let result;
