@@ -80,7 +80,7 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
   if (json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(formatAgentAnswer(result.data || result));
+    console.log(formatAgentAnswer((result as Record<string, unknown>).data || result));
   }
 }
 
@@ -97,6 +97,6 @@ export async function runContext(client: BotmemClient, args: string[], json: boo
   if (json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(formatAgentContext(result.data || result));
+    console.log(formatAgentContext((result as Record<string, unknown>).data || result));
   }
 }

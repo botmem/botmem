@@ -223,7 +223,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         for (const { entityType, identifiers } of buckets) {
           await this.contactsService.resolveContact(
             identifiers,
-            entityType === 'person' ? undefined : entityType,
+            entityType === 'person'
+              ? undefined
+              : (entityType as 'person' | 'group' | 'organization' | 'device'),
           );
         }
       } catch {
@@ -347,7 +349,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       }
 
       for (const { entityType, role, identifiers } of buckets) {
-        const resolveType = entityType === 'person' ? undefined : entityType;
+        const resolveType =
+          entityType === 'person'
+            ? undefined
+            : (entityType as 'person' | 'group' | 'organization' | 'device');
         const contact = await this.contactsService.resolveContact(identifiers, resolveType);
         if (contact) {
           await this.contactsService.linkMemory(memoryId, contact.id, role);
@@ -433,7 +438,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             rawEvent.connectorType,
             rawEvent.accountId,
             'warn',
-            `[memory:file] ${mid} file processing failed: ${err?.message}`,
+            `[memory:file] ${mid} file processing failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
@@ -505,13 +510,16 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const mid = memoryId.slice(0, 8);
 
     this.addLog(
-      rawEvent.connectorType,
-      rawEvent.accountId,
+      rawEvent.connectorType as string,
+      rawEvent.accountId as string,
       'info',
       `[memory:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'})`,
     );
 
-    const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
+    const headers = await this.buildAuthHeaders(
+      rawEvent.accountId as string,
+      rawEvent.connectorType as string,
+    );
 
     const res = await fetch(fileUrl, {
       headers,
@@ -544,7 +552,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       const pdfParseModule = await import('pdf-parse');
       const pdfParse = pdfParseModule.default || pdfParseModule;
       const buffer = Buffer.from(await res.arrayBuffer());
-      const data = await (pdfParse as (buf: Buffer) => Promise<{ text?: string }>)(buffer);
+      const data = await (pdfParse as unknown as (buf: Buffer) => Promise<{ text?: string }>)(
+        buffer,
+      );
       const text = data.text?.trim();
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;

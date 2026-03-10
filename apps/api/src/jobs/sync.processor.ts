@@ -252,9 +252,12 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         return;
       }
 
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errName = err instanceof Error ? err.name : 'UnknownError';
+
       this.analytics.capture('sync_error', {
         connector_type: connectorType,
-        error_type: err.name,
+        error_type: errName,
       });
 
       const maxAttempts = job.opts.attempts ?? 1;
@@ -263,10 +266,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       if (isLastAttempt) {
         await this.jobsService.updateJob(jobId, {
           status: 'failed',
-          error: err.message,
+          error: errMsg,
           completedAt: new Date(),
         });
-        await this.accountsService.update(accountId, { status: 'error', lastError: err.message });
+        await this.accountsService.update(accountId, { status: 'error', lastError: errMsg });
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'failed' });
         this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_failed', jobId });
       }

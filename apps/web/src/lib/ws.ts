@@ -1,4 +1,5 @@
-type MessageHandler = (msg: { channel: string; event: string; data: unknown }) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MessageHandler = (msg: { channel: string; event: string; data: any }) => void;
 
 const MAX_BACKOFF = 30_000;
 
