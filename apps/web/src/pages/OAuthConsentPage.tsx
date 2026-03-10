@@ -291,7 +291,7 @@ export default function OAuthConsentPage() {
                 Authorized
               </h2>
               <p className="font-mono text-sm text-nb-muted">
-                You can close this tab and return to your app.
+                Redirecting you now...
               </p>
             </div>
           )}
