@@ -4,6 +4,7 @@ import {
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
   downloadContentFromMessage,
+  DisconnectReason,
   type proto,
 } from '@whiskeysockets/baileys';
 import type { Transform } from 'stream';
@@ -73,10 +74,12 @@ export function setDecryptFailureCallback(cb: (count: number) => void) {
   onDecryptFailure = cb;
 }
 
+// Suppress Baileys protocol noise — logMethod hook intercepts all calls for
+// decrypt-fail counting but never writes output (level: silent + no method.apply).
 const logger = pino({
-  level: 'debug',
+  level: 'silent',
   hooks: {
-    logMethod(inputArgs: any[], method: any) {
+    logMethod(inputArgs: any[], _method: any) {
       const msg = typeof inputArgs[0] === 'string' ? inputArgs[0] : inputArgs[1];
       if (typeof msg === 'string' && msg.includes('failed to decrypt')) {
         decryptFailCount++;
@@ -90,7 +93,9 @@ const logger = pino({
           onDecryptFailure(decryptFailCount);
         }
       }
-      method.apply(this, inputArgs);
+      // Intentionally not calling _method.apply() — suppresses all Baileys output.
+      // In pino, logMethod hooks bypass the level gate, so method.apply() writes
+      // even at 'silent' level.
     },
   },
 }) as any;
@@ -398,6 +403,7 @@ export async function syncWhatsApp(
   ctx: SyncContext,
   emit: (event: ConnectorDataEvent) => void,
   existingSock?: WaSock,
+  onDisconnect?: (reason: string, code: number) => void,
 ): Promise<{ cursor: string | null; hasMore: boolean; processed: number }> {
   const sessionDir = ctx.auth.raw?.sessionDir as string;
   if (!sessionDir) throw new Error('No WhatsApp session found');
@@ -538,6 +544,10 @@ export async function syncWhatsApp(
     if (!text && contactCards.length === 0 && !location && msgType.type === 'unknown') return;
 
     const remoteJid = msg.key?.remoteJid || '';
+
+    // Skip WhatsApp Status/Story posts — ephemeral broadcasts, not conversations
+    if (remoteJid === 'status@broadcast') return;
+
     // Baileys history uses top-level participant (LID format)
     const participantJid = msg.key?.participant || msg.participant || '';
     const isGroup = remoteJid.endsWith('@g.us');
@@ -591,47 +601,34 @@ export async function syncWhatsApp(
 
     // Build contextual text
     const chatName = chatNames.get(remoteJid) || '';
-    const senderLabel = buildSenderLabel(senderName, senderPhone, isGroup);
-
+    // Text is the message body only — sender/chat context lives in metadata
     let contextualText = '';
 
     if (text) {
-      if (isGroup && chatName) {
-        contextualText = `[${chatName}] ${senderLabel}: ${text}`;
-      } else {
-        contextualText = `${senderLabel}: ${text}`;
-      }
+      contextualText = text;
     }
 
     // Handle special message types that may not have text
     if (msgType.type === 'image' && !text) {
-      contextualText = `${senderLabel} sent an image`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = 'sent an image';
     } else if (msgType.type === 'video' && !text) {
-      contextualText = `${senderLabel} sent a video`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = 'sent a video';
     } else if (msgType.type === 'audio') {
-      contextualText = `${senderLabel} sent a voice message`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = 'sent a voice message';
     } else if (msgType.type === 'document') {
       const fname = msgType.fileName || 'a document';
-      contextualText = `${senderLabel} sent ${fname}`;
-      if (text) contextualText += `: ${text}`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = text ? `${fname}: ${text}` : `sent ${fname}`;
     } else if (msgType.type === 'sticker' && !text) {
-      contextualText = `${senderLabel} sent a sticker`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = 'sent a sticker';
     } else if (msgType.type === 'contact_card') {
       const names = contactCards
         .map((c) => c.displayName)
         .filter(Boolean)
         .join(', ');
-      contextualText = `${senderLabel} shared contact${contactCards.length > 1 ? 's' : ''}: ${names}`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = `shared contact${contactCards.length > 1 ? 's' : ''}: ${names}`;
     } else if (location) {
       const locLabel = location.name || location.address || `${location.lat},${location.lng}`;
-      contextualText = `${senderLabel} shared location: ${locLabel}`;
-      if (isGroup && chatName) contextualText = `[${chatName}] ${contextualText}`;
+      contextualText = `shared location: ${locLabel}`;
     }
 
     if (!contextualText) return;
@@ -676,9 +673,8 @@ export async function syncWhatsApp(
       if (name || phones.length) {
         sharedContacts.push({ name, phones });
         for (const p of phones) {
-          const normalized = p.replace(/^\+/, '');
-          if (!participants.includes(normalized)) {
-            participants.push(normalized);
+          if (!participants.includes(p)) {
+            participants.push(p);
           }
         }
       }
@@ -751,6 +747,8 @@ export async function syncWhatsApp(
   // --- Phase 1: Passive history collection ---
   // Wait for WhatsApp to push history batches via messaging-history.set,
   // then after idle timeout, switch to on-demand per-chat fetching.
+  let disconnectedDuringSync = false;
+  let disconnectReason = '';
   await new Promise<void>((resolve) => {
     let idleTimer: ReturnType<typeof setTimeout>;
     let finished = false;
@@ -783,6 +781,31 @@ export async function syncWhatsApp(
       return;
     }
     ctx.signal.addEventListener('abort', finish, { once: true });
+
+    // Detect mid-sync disconnection (e.g. user logged out from phone)
+    sock.ev.on('connection.update', (update: any) => {
+      if (update.connection === 'close') {
+        const statusCode = (update.lastDisconnect?.error as any)?.output?.statusCode ?? 0;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+        const isBadSession = statusCode === DisconnectReason.badSession;
+        const isMultidevice = statusCode === DisconnectReason.multideviceMismatch;
+        const isFatal = isLoggedOut || isBadSession || isMultidevice;
+
+        const reason = isFatal
+          ? isLoggedOut
+            ? 'Session logged out from phone'
+            : isBadSession
+              ? 'Session expired or corrupted'
+              : 'Multi-device mismatch'
+          : 'Connection lost during sync';
+
+        ctx.logger.error(`WhatsApp disconnected during sync: ${reason} (code ${statusCode})`);
+        disconnectedDuringSync = true;
+        disconnectReason = reason;
+        if (onDisconnect) onDisconnect(reason, statusCode);
+        finish();
+      }
+    });
 
     // History sync — buffer messages, index contacts immediately
     sock.ev.on('messaging-history.set', (data: any) => {
@@ -845,7 +868,7 @@ export async function syncWhatsApp(
           }
         }
         historyMsgCount++;
-        processMessage(msg, 'history', true);
+        processMessage(msg, 'history');
       }
 
       resetIdle();
@@ -882,6 +905,13 @@ export async function syncWhatsApp(
       sock.ev.flush();
     }
   });
+
+  // If disconnected during sync, throw so the job gets marked as failed
+  if (disconnectedDuringSync) {
+    // Save whatever identity maps we collected before dying
+    saveIdentityMaps(sessionDir, { lidToPhone, phoneToName, lidToName });
+    throw new Error(`WhatsApp session disconnected: ${disconnectReason}`);
+  }
 
   // --- Phase 2: On-demand per-chat history fetching ---
   // After passive history stops, iterate through chats and request older messages.
@@ -1141,15 +1171,4 @@ function emitContactEvents(
   );
 }
 
-function buildSenderLabel(name: string, phone: string, isGroup?: boolean): string {
-  if (name && phone && name !== phone) {
-    return `${name} (+${phone})`;
-  }
-  if (phone) {
-    return `+${phone}`;
-  }
-  if (name) {
-    return name;
-  }
-  return isGroup ? 'A member' : 'Someone';
-}
+

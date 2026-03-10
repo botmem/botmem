@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -157,7 +160,7 @@
       }
     ]
   },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true
   }
 }

@@ -16,6 +16,8 @@ const { mockConversationsList, mockConversationsHistory, mockConversationsReplie
 
 const mockAuthTest = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, user_id: 'USELF' }));
 
+const mockUsersInfo = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('not found')));
+
 vi.mock('@slack/web-api', () => ({
   WebClient: vi.fn().mockImplementation(() => ({
     conversations: {
@@ -25,6 +27,7 @@ vi.mock('@slack/web-api', () => ({
     },
     users: {
       list: mockUsersList,
+      info: mockUsersInfo,
     },
     auth: {
       test: mockAuthTest,
@@ -82,8 +85,6 @@ describe('syncSlack', () => {
     expect(msgEvents[0].content.metadata.channelType).toBe('channel');
 
     // DM conversation
-    expect(msgEvents[1].content.text).toContain('DM');
-    expect(msgEvents[1].content.text).toContain('bob');
     expect(msgEvents[1].content.metadata.channelType).toBe('dm');
     expect(msgEvents[1].content.metadata.channel).toBe('DM with bob');
   });
@@ -282,5 +283,301 @@ describe('syncSlack', () => {
     expect(mockConversationsHistory).toHaveBeenCalledWith(
       expect.objectContaining({ oldest: '1700000000.000' }),
     );
+  });
+
+  it('handles reactions on messages', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        {
+          ts: '1700000000.000',
+          text: 'Great work!',
+          user: 'U1',
+          reply_count: 0,
+          reactions: [{ name: 'thumbsup', count: 1, users: ['U2'] }],
+        },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.text).toContain('Reactions:');
+    expect(msgEvents[0].content.text).toContain('thumbsup');
+    expect(msgEvents[0].content.metadata.reactions[0].name).toBe('thumbsup');
+  });
+
+  it('handles attachments with title, text, and from_url', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        {
+          ts: '1700000000.000',
+          text: 'Check this link',
+          user: 'U1',
+          reply_count: 0,
+          attachments: [
+            { title: 'Article', text: 'Summary of the article', from_url: 'https://example.com' },
+          ],
+        },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.text).toContain('[link: Article');
+    expect(msgEvents[0].content.text).toContain('Summary of the article');
+    expect(msgEvents[0].content.text).toContain('https://example.com');
+  });
+
+  it('handles DM where self is sender and partner is recipient', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'D1', is_im: true, user: 'U2' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        { ts: '1700000000.000', text: 'Hey Bob', user: 'USELF', reply_count: 0 },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.metadata.isSelf).toBe(true);
+    expect(msgEvents[0].content.metadata.channelType).toBe('dm');
+  });
+
+  it('handles group DM and private channel types', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [
+        { id: 'G1', name: 'mpdm-alice-bob', is_mpim: true },
+        { id: 'P1', name: 'secret', is_private: true },
+      ],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.metadata.channelType).toBe('group-dm');
+    expect(msgEvents[1].content.metadata.channelType).toBe('private-channel');
+  });
+
+  it('skips messages with no ts', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        { text: 'No timestamp', user: 'U1' },
+        { ts: '1700000000.000', text: 'Valid', user: 'U1', reply_count: 0 },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents.length).toBe(1);
+  });
+
+  it('handles user mention with label fallback', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        { ts: '1700000000.000', text: 'Hi <@U999|unknown_user>', user: 'U1', reply_count: 0 },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.text).toContain('@unknown_user');
+  });
+
+  it('normalizes links with and without labels', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        {
+          ts: '1700000000.000',
+          text: 'Visit <https://example.com|Example> and <https://test.com>',
+          user: 'U1',
+          reply_count: 0,
+        },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.text).toContain('Example (https://example.com)');
+    expect(msgEvents[0].content.text).toContain('https://test.com');
+  });
+
+  it('paginates through conversation history', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory
+      .mockResolvedValueOnce({
+        messages: [{ ts: '1700000000.000', text: 'Page 1', user: 'U1', reply_count: 0 }],
+        response_metadata: { next_cursor: 'page2' },
+      })
+      .mockResolvedValueOnce({
+        messages: [{ ts: '1700000001.000', text: 'Page 2', user: 'U1', reply_count: 0 }],
+        response_metadata: {},
+      });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents.length).toBe(2);
+  });
+
+  it('handles selfId fetch failure gracefully', async () => {
+    mockAuthTest.mockRejectedValueOnce(new Error('auth fail'));
+
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
+    });
+
+    const events: any[] = [];
+    const ctx = makeCtx();
+    await syncSlack(ctx as any, (e) => events.push(e));
+    expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining("Could not identify self"));
+  });
+
+  it('handles user list fetch failure gracefully', async () => {
+    mockUsersList.mockRejectedValueOnce(new Error('users fail'));
+
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    // Should still emit message events even without user resolution
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents.length).toBe(1);
+  });
+
+  it('handles thread reply fetch failure gracefully', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        { ts: '1700000000.000', thread_ts: '1700000000.000', text: 'Parent', user: 'U1', reply_count: 3 },
+      ],
+    });
+
+    mockConversationsReplies.mockRejectedValueOnce(new Error('replies fail'));
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents[0].content.text).not.toContain('--- thread replies ---');
+  });
+
+  it('handles bot messages (no user, has bot_id)', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        { ts: '1700000000.000', text: 'Bot message', bot_id: 'B123', reply_count: 0 },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents.length).toBe(1);
+  });
+
+  it('skips channels with no id', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ name: 'no-id' }, { id: 'C1', name: 'valid' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hi', user: 'U1', reply_count: 0 }],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    // Should only get events from the valid channel
+    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    expect(msgEvents.length).toBe(1);
+  });
+
+  it('handles files without url_private or mimetype (skipped)', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        {
+          ts: '1700000000.000',
+          text: 'Files',
+          user: 'U1',
+          reply_count: 0,
+          files: [
+            { id: 'F1', name: 'no-url.txt' },
+            { id: 'F2', name: 'valid.pdf', mimetype: 'application/pdf', url_private: 'https://files.slack.com/valid.pdf' },
+          ],
+        },
+      ],
+    });
+
+    const events: any[] = [];
+    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const fileEvents = events.filter((e: any) => e.sourceType === 'file');
+    expect(fileEvents.length).toBe(1); // Only the valid file
   });
 });

@@ -22,6 +22,7 @@
     "@botmem/connector-slack": "workspace:*",
     "@botmem/connector-whatsapp": "workspace:*",
     "@botmem/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@nestjs/bullmq": "^11.0.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
@@ -42,6 +43,7 @@
     "compromise-dates": "^3.7.1",
     "cookie-parser": "^1.4.7",
     "drizzle-orm": "^0.38.0",
+    "firebase-admin": "^12.0.0",
     "ioredis": "^5.0.0",
     "mammoth": "^1.11.0",
     "nodemailer": "^6.9.0",
@@ -53,8 +55,8 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "stopword": "^3.1.5",
+    "stripe": "^20.4.1",
     "ws": "^8.19.0",
-    "firebase-admin": "^12.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

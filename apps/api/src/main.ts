@@ -29,13 +29,13 @@ async function bootstrap() {
     const webRoot = join(__dirname, '..', '..', 'web');
     vite = await createViteServer({
       root: webRoot,
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'custom',
     });
 
     // Vite handles HMR, static assets, module transforms — skip /api and /events
     server.use((req: Request, res: Response, next: NextFunction) => {
-      if (req.url.startsWith('/api') || req.url.startsWith('/events')) {
+      if (req.url.startsWith('/api') || req.url.startsWith('/events') || req.url.startsWith('/.well-known') || (req.url.startsWith('/oauth') && !req.url.startsWith('/oauth/consent')) || req.url.startsWith('/mcp')) {
         return next();
       }
       vite.middlewares(req, res, next);
@@ -43,20 +43,30 @@ async function bootstrap() {
   }
 
   const cookieParser = (await import('cookie-parser')).default;
-  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(server), { rawBody: true });
   app.use(cookieParser());
   app.enableShutdownHooks();
   app.useWebSocketAdapter(new WsAdapter(app));
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: ['.well-known/(.*)', 'oauth/(.*)', 'mcp'],
+  });
 
   const config = app.get(ConfigService);
   app.enableCors({
-    origin: config.frontendUrl.includes(',')
-      ? config.frontendUrl.split(',').map((s) => s.trim())
-      : config.frontendUrl,
+    origin: (origin, callback) => {
+      // Allow MCP requests from any origin (AI tools have varied origins)
+      if (!origin) return callback(null, true);
+      const allowed = config.frontendUrl.includes(',')
+        ? config.frontendUrl.split(',').map((s) => s.trim())
+        : [config.frontendUrl];
+      if (allowed.includes(origin)) return callback(null, true);
+      // Allow all origins for MCP/OAuth endpoints (stateless Bearer auth)
+      callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
+    exposedHeaders: ['Mcp-Session-Id'],
   });
 
   // Global validation: reject invalid input, strip unknown properties
@@ -91,7 +101,10 @@ async function bootstrap() {
       if (
         req.method !== 'GET' ||
         req.originalUrl.startsWith('/api') ||
-        req.originalUrl.startsWith('/events')
+        req.originalUrl.startsWith('/events') ||
+        req.originalUrl.startsWith('/.well-known') ||
+        (req.originalUrl.startsWith('/oauth') && !req.originalUrl.startsWith('/oauth/consent')) ||
+        req.originalUrl.startsWith('/mcp')
       ) {
         return next();
       }

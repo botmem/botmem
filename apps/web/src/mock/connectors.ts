@@ -42,7 +42,7 @@ export const mockAccounts: ConnectorAccount[] = [
     type: 'slack',
     identifier: 'botmem-workspace',
     status: 'syncing',
-    schedule: '15min',
+    schedule: 'hourly',
     lastSync: '2026-02-23T11:45:00Z',
     lastError: null,
     contactsCount: 0,

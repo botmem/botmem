@@ -428,7 +428,7 @@ export class MeService {
     const userAccountIds = userAccounts.map((a) => a.id);
 
     // Stats — only count fully-processed memories for this user
-    const doneConditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    const doneConditions: any[] = [eq(memories.pipelineComplete, true)];
     if (userAccountIds.length > 0) {
       doneConditions.push(inArray(memories.accountId, userAccountIds));
     }

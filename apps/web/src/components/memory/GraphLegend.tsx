@@ -4,6 +4,7 @@ import type { FilterState, FilterAction } from './graphReducers';
 const CONTACT_COLOR = '#60A5FA';
 const GROUP_COLOR = '#C084FC';
 const FILE_COLOR = '#FB923C';
+const PHOTO_COLOR = '#F9A8D4';
 const DEVICE_COLOR = '#2DD4BF';
 
 function edgeTypeColor(type: string): string {
@@ -130,6 +131,18 @@ export function GraphLegend({
                   label="Files"
                 />
                 <LegendToggle
+                  active={!filters.hidePhotos}
+                  onClick={() => dispatch({ type: 'togglePhotos' })}
+                  icon={
+                    <svg width="16" height="16" viewBox="0 0 16 16">
+                      <rect x="2" y="2" width="12" height="12" rx="3" fill={PHOTO_COLOR} stroke="#E0E0E0" strokeWidth="1" />
+                      <circle cx="10" cy="5.5" r="1.5" fill="#1A1A2E" />
+                      <polygon points="3,12 6.5,7 9,10 10.5,8.5 13,12" fill="#1A1A2E" />
+                    </svg>
+                  }
+                  label="Photos"
+                />
+                <LegendToggle
                   active={!filters.hideDevices}
                   onClick={() => dispatch({ type: 'toggleDevices' })}
                   icon={
@@ -141,7 +154,7 @@ export function GraphLegend({
                   }
                   label="Devices"
                 />
-                {sourceTypes.map((st) => (
+                {sourceTypes.filter((st) => st !== 'file' && st !== 'photo').map((st) => (
                   <LegendToggle
                     key={st}
                     active={!filters.hiddenSourceTypes.has(st)}

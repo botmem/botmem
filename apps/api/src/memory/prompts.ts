@@ -58,16 +58,20 @@ Text: "${text}"`;
 }
 
 export function photoDescriptionPrompt(existingText: string): string {
-  return `Describe this photo in detail for a personal memory system. Focus on:
-- What is happening in the scene
-- Notable objects, landmarks, or features
-- The mood and atmosphere
-- If people are listed in the metadata, refer to them by name instead of generic terms like "a woman" or "a man". Match names to visible people by position (e.g. left to right) when multiple people are present.
+  return `You are describing a photo for a personal memory system. Be STRICTLY factual — only describe what you can actually see.
+
+RULES:
+- Describe ONLY what is visually present: people, objects, setting, actions.
+- If people are listed in the metadata, use those names. NEVER invent names, pet names, or nicknames not in the metadata.
+- Do NOT invent details you cannot see (breed of animal, relationship between people, names of objects, etc.).
+- Do NOT guess emotions, backstories, or narrative context.
+- If you cannot clearly identify something, say so or omit it.
+- Do NOT repeat metadata fields (dates, locations, camera info).
 
 Context from metadata:
 ${existingText}
 
-Return a concise 2-3 sentence description. Add NEW visual information not already present in the metadata. Do not repeat metadata fields like dates, locations, or camera info — but DO use people's names from the metadata when describing them.`;
+Return 2-3 factual sentences describing what is visible in the photo.`;
 }
 
 export function factualityPrompt(text: string, sourceType: string, connectorType: string): string {

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AuthedImage } from './AuthedImage';
 
 interface ImageLightboxProps {
@@ -16,9 +17,10 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      className="fixed inset-0 flex items-center justify-center bg-black/80"
+      style={{ zIndex: 9999 }}
       onClick={onClose}
     >
       <button
@@ -34,6 +36,7 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
       >
         <AuthedImage src={src} alt={alt} className="max-w-full max-h-[90vh] object-contain" />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

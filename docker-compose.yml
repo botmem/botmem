@@ -58,8 +58,27 @@ services:
       retries: 3
       start_period: 10s
 
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    profiles:
+      - reranker
+    ports:
+      - '8080:80'
+    volumes:
+      - reranker-data:/data
+    command: --model-id BAAI/bge-reranker-v2-m3 --port 80
+    environment:
+      HF_HUB_CACHE: /data
+    healthcheck:
+      test: ['CMD-SHELL', "bash -c 'echo > /dev/tcp/localhost/80'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
 volumes:
   postgres-data:
   redis-data:
   qdrant-data:
   ollama-data:
+  reranker-data:

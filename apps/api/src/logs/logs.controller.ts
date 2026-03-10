@@ -11,12 +11,14 @@ export class LogsController {
     @Query('accountId') accountId?: string,
     @Query('level') level?: string,
     @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
     return this.logsService.query({
       jobId,
       accountId,
       level,
       limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined,
     });
   }
 }

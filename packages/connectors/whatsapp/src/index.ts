@@ -93,7 +93,7 @@ export class WhatsAppConnector extends BaseConnector {
         }
       },
       onConnected: (auth: AuthContext, sock) => {
-        console.log(`[WhatsApp] onConnected sessionId=${sessionId} jid=${auth.raw?.jid}`);
+        console.debug(`[WhatsApp] onConnected sessionId=${sessionId} jid=${auth.raw?.jid}`);
         if (this.warm?.sessionId !== sessionId) {
           console.warn(
             `[WhatsApp] onConnected: warm session mismatch (warm=${this.warm?.sessionId}, got=${sessionId}) — ignoring`,
@@ -105,13 +105,13 @@ export class WhatsAppConnector extends BaseConnector {
 
         // Buffer events so history isn't lost before sync attaches handlers.
         // creds.update is NOT bufferable (Baileys fires it immediately), so this is safe.
-        console.log(`[WhatsApp] Buffering events on auth socket for sessionDir=${sd}`);
+        console.debug(`[WhatsApp] Buffering events on auth socket for sessionDir=${sd}`);
         sock.ev.buffer();
         this.authSockets.set(sd, sock);
         // Auto-cleanup after 10 minutes if sync never picks it up
         setTimeout(() => {
           if (this.authSockets.has(sd)) {
-            console.warn(`[WhatsApp] Auth socket for ${sd} expired (never picked up by sync)`);
+            console.debug(`[WhatsApp] Auth socket for ${sd} expired (never picked up by sync)`);
             this.authSockets.delete(sd);
             try {
               sock.ws?.close();
@@ -121,12 +121,12 @@ export class WhatsAppConnector extends BaseConnector {
           }
         }, 10 * 60_000);
 
-        console.log(`[WhatsApp] Emitting 'connected' event on channel=${ch}`);
+        console.debug(`[WhatsApp] Emitting 'connected' event on channel=${ch}`);
         this.emit('connected', { wsChannel: ch, sessionDir: sd, auth });
         this._warm();
       },
       onError: (err) => {
-        console.error('[WhatsApp] warm session error:', err.message);
+        console.debug('[WhatsApp] warm session error:', err.message);
         this.warmStatus = 'error';
         this.warmError = err.message;
         if (this.warm?.sessionId !== sessionId) return;
@@ -145,7 +145,7 @@ export class WhatsAppConnector extends BaseConnector {
         }
       },
     }).catch((err) => {
-      console.error('[WhatsApp] startQrAuth failed:', err.message);
+      console.debug('[WhatsApp] startQrAuth failed:', err.message);
       this.warmStatus = 'error';
       this.warmError = err.message;
       if (this.warm?.sessionId === sessionId) {
@@ -217,9 +217,9 @@ export class WhatsAppConnector extends BaseConnector {
     const { rm } = await import('fs/promises');
     try {
       await rm(sessionDir, { recursive: true, force: true });
-      console.log(`[WhatsApp] Deleted session directory: ${sessionDir}`);
+      console.debug(`[WhatsApp] Deleted session directory: ${sessionDir}`);
     } catch (err) {
-      console.warn(`[WhatsApp] Failed to delete session ${sessionDir}:`, err);
+      console.debug(`[WhatsApp] Failed to delete session ${sessionDir}:`, err);
     }
   }
 
@@ -281,7 +281,7 @@ export class WhatsAppConnector extends BaseConnector {
     for (const sc of sharedContacts) {
       const scParts: string[] = [];
       if (sc.name) scParts.push(`name:${sc.name}`);
-      for (const p of sc.phones) scParts.push(`phone:${p.replace(/^\+/, '')}`);
+      for (const p of sc.phones) scParts.push(`phone:${p}`);
       if (scParts.length)
         entities.push({ type: 'person', id: scParts.join('|'), role: 'mentioned' });
     }
@@ -291,7 +291,7 @@ export class WhatsAppConnector extends BaseConnector {
       phone,
       selfPhone,
       ...mentions.map((m) => m.phone),
-      ...sharedContacts.flatMap((sc) => sc.phones.map((p) => p.replace(/^\+/, ''))),
+      ...sharedContacts.flatMap((sc) => sc.phones),
     ]);
     for (const p of participants) {
       if (!p || p.includes('-')) continue;
@@ -306,7 +306,14 @@ export class WhatsAppConnector extends BaseConnector {
     const sessionDir = ctx.auth.raw?.sessionDir as string;
     // Pass the auth socket if available (first sync after QR link gets the history dump)
     const authSock = sessionDir ? this.popAuthSocket(sessionDir) : undefined;
-    const result = await syncWhatsApp(ctx, (event) => this.emitData(event), authSock);
+    const result = await syncWhatsApp(
+      ctx,
+      (event) => this.emitData(event),
+      authSock,
+      (reason, code) => {
+        this.emit('session-expired', { message: reason, code });
+      },
+    );
     this.emit('progress', { processed: result.processed });
     return result;
   }

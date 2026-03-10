@@ -104,7 +104,7 @@ export async function runEntities(client: BotmemClient, args: string[], json: bo
         console.log('');
         console.log(bold('Recent Memories:'));
         for (const m of result.memories.slice(0, 10)) {
-          console.log(`  ${dim(m.eventTime?.slice(0, 10) || '')} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 80)}`);
+          console.log(`  ${dim(m.eventTime ? new Date(m.eventTime).toLocaleDateString() : '')} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 80)}`);
           console.log(`           ${dim(m.id)}`);
         }
       }

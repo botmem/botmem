@@ -34,7 +34,7 @@ packages/
 - **Backend**: NestJS 11, Drizzle ORM + PostgreSQL
 - **Queue**: BullMQ on Redis
 - **Vector DB**: Qdrant (cosine similarity, auto-created collection)
-- **AI**: Ollama (remote) — `mxbai-embed-large` for embeddings, `qwen3:8b` for text enrichment, `qwen3-vl:4b` for vision
+- **AI**: Ollama (remote, default) or OpenRouter — swappable via `AI_BACKEND` env var
 - **Frontend**: React 19, Vite 6, Zustand 5, Tailwind 4, react-force-graph-2d
 - **Tooling**: pnpm 9.15 workspaces, Turbo 2.4, Vitest 3
 
@@ -52,6 +52,12 @@ packages/
 | `OLLAMA_EMBED_MODEL` | `mxbai-embed-large`                                | Embedding model (1024d)                            |
 | `OLLAMA_TEXT_MODEL`  | `qwen3:8b`                                         | Text enrichment model (uses /no_think)             |
 | `OLLAMA_VL_MODEL`    | `qwen3-vl:4b`                                      | Vision-language model (photo enrichment)           |
+| `AI_BACKEND`         | `ollama`                                           | AI backend: `ollama` or `openrouter`               |
+| `OPENROUTER_API_KEY` | _(empty)_                                          | OpenRouter API key (required if backend=openrouter)|
+| `OPENROUTER_EMBED_MODEL` | `google/gemini-embedding-001`                  | OpenRouter embedding model (3072d)                 |
+| `OPENROUTER_TEXT_MODEL`  | `mistralai/mistral-nemo`                       | OpenRouter text enrichment model                   |
+| `OPENROUTER_VL_MODEL`   | `google/gemma-3-4b-it`                         | OpenRouter vision-language model                   |
+| `EMBED_DIMENSION`    | `1024`                                             | Embedding vector dimension (3072 for Gemini)       |
 | `FRONTEND_URL`       | `http://localhost:12412`                           | CORS / OAuth redirect origin                       |
 | `APP_SECRET`         | `dev-app-secret-change-in-production`              | AES-256-GCM key for encrypting credentials at rest |
 | `PLUGINS_DIR`        | `./plugins`                                        | External plugin directory                          |

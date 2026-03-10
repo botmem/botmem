@@ -11,6 +11,7 @@ export const searchHelp = `
     --source <type>      Filter by source (email, message, photo, location)
     --connector <type>   Filter by connector (gmail, slack, whatsapp, imessage, locations)
     --contact <id>       Filter by contact UUID
+    --memory-bank <id>   Filter by memory bank ID
     --limit <n>          Max results (default: 20)
     --json               Output raw JSON
 
@@ -27,16 +28,19 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
   const query: string[] = [];
   const filters: Record<string, string> = {};
   let limit: number | undefined;
+  let memoryBankId: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--source' || a === '--connector' || a === '--contact') {
       const val = args[++i];
       if (!val) { console.error(`Missing value for ${a}`); process.exit(1); }
-      const key = a.slice(2); // 'source' -> sourceType, etc
+      const key = a.slice(2);
       if (key === 'source') filters['sourceType'] = val;
       else if (key === 'connector') filters['connectorType'] = val;
       else if (key === 'contact') filters['contactId'] = val;
+    } else if (a === '--memory-bank') {
+      memoryBankId = args[++i];
     } else if (a === '--limit') {
       limit = parseInt(args[++i], 10);
     } else if (!a.startsWith('--')) {
@@ -51,7 +55,7 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     process.exit(1);
   }
 
-  const response = await client.searchMemories(queryStr, Object.keys(filters).length ? filters : undefined, limit);
+  const response = await client.searchMemories(queryStr, Object.keys(filters).length ? filters : undefined, limit, memoryBankId);
   const { items: results, fallback, resolvedEntities, parsed } = response as any;
 
   if (json) {

@@ -59,29 +59,39 @@ function createProcessor(overrides: Record<string, any> = {}) {
     deriveAndStore: vi.fn().mockResolvedValue(undefined),
     removeKey: vi.fn(),
     getKey: vi.fn().mockReturnValue(null),
+    getDek: vi.fn().mockResolvedValue(null),
+  };
+
+  const accountsService = { getById: vi.fn().mockResolvedValue({ id: 'acc-1' }) };
+  const config = {
+    aiConcurrency: { backfill: 2 },
   };
 
   const deps = {
     dbService,
     contactsService,
+    accountsService,
     enrichService,
     crypto,
     userKeyService,
     jobsService,
     events,
     settingsService,
+    config,
     ...overrides,
   };
 
   const processor = new BackfillProcessor(
     deps.dbService as any,
     deps.contactsService as any,
+    deps.accountsService as any,
     deps.enrichService as any,
     deps.crypto as any,
     deps.userKeyService as any,
     deps.events as any,
     deps.jobsService as any,
     deps.settingsService as any,
+    deps.config as any,
   );
 
   // WorkerHost has a getter-only `worker` property. Use defineProperty to override.

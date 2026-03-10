@@ -4,12 +4,14 @@ import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
+import { AccountsService } from '../accounts/accounts.service';
 import { EnrichService } from './enrich.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { EventsService } from '../events/events.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
+import { ConfigService } from '../config/config.service';
 import { memories, rawEvents, memoryContacts, settings, accounts, users } from '../db/schema';
 
 @Processor('backfill')
@@ -18,24 +20,27 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     private dbService: DbService,
     private contactsService: ContactsService,
+    private accountsService: AccountsService,
     private enrichService: EnrichService,
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
     private events: EventsService,
     private jobsService: JobsService,
     private settingsService: SettingsService,
+    private config: ConfigService,
   ) {
     super();
   }
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[backfill worker] ${err.message}`));
-    const concurrency = parseInt(await this.settingsService.get('backfill_concurrency'), 10) || 2;
+    const defaultC = this.config.aiConcurrency.backfill;
+    const concurrency = parseInt(await this.settingsService.get('backfill_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'backfill_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 2;
+        this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
     });
   }
@@ -43,6 +48,9 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
   async process(job: Job<{ memoryId: string; jobId?: string }>) {
     if (job.name === 'backfill-enrich') {
       return this.processEnrich(job);
+    }
+    if (job.name === 'backfill-thumbnails') {
+      return this.processThumbnail(job);
     }
     return this.processContact(job);
   }
@@ -124,6 +132,119 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
     await this.advanceAndComplete(jobId);
     return { memoryId, enriched: true };
+  }
+
+  // ---- Thumbnail backfill ----
+
+  private async processThumbnail(job: Job<{ memoryId: string; jobId?: string }>) {
+    const { memoryId, jobId } = job.data;
+
+    const memRows = await this.dbService.db
+      .select()
+      .from(memories)
+      .where(eq(memories.id, memoryId));
+    if (!memRows.length) {
+      await this.advanceAndComplete(jobId);
+      return { skipped: true, reason: 'not-found' };
+    }
+    const mem = memRows[0];
+
+    // Resolve owner for RLS
+    let ownerUserId: string | undefined;
+    if (mem.accountId) {
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, mem.accountId));
+      ownerUserId = acct?.userId ?? undefined;
+    }
+
+    // Decrypt metadata if needed
+    let metadata: Record<string, any> = {};
+    try {
+      const wasEncrypted = this.crypto.isEncrypted(mem.metadata);
+      if (wasEncrypted) {
+        const decrypted =
+          mem.keyVersion === 0 || !ownerUserId
+            ? this.crypto.decryptMemoryFields(mem)
+            : this.crypto.decryptMemoryFieldsWithKey(
+                mem,
+                (await this.userKeyService.getDek(ownerUserId!))!,
+              );
+        metadata = JSON.parse(decrypted.metadata);
+      } else {
+        metadata = JSON.parse(mem.metadata);
+      }
+    } catch {
+      await this.advanceAndComplete(jobId);
+      return { skipped: true, reason: 'metadata-parse-failed' };
+    }
+
+    // Skip if already has thumbnail
+    if (metadata.thumbnailBase64) {
+      await this.advanceAndComplete(jobId);
+      return { skipped: true, reason: 'already-has-thumbnail' };
+    }
+
+    const fileUrl: string | undefined = metadata.fileUrl;
+    if (!fileUrl) {
+      await this.advanceAndComplete(jobId);
+      return { skipped: true, reason: 'no-file-url' };
+    }
+
+    // Build auth headers for fetching from Immich
+    const headers: Record<string, string> = {};
+    if (mem.accountId) {
+      try {
+        const account = await this.accountsService.getById(mem.accountId);
+        const authContext = account.authContext ? JSON.parse(account.authContext) : null;
+        if (authContext?.accessToken) {
+          if (mem.connectorType === 'photos') {
+            headers['x-api-key'] = authContext.accessToken;
+          } else {
+            headers['Authorization'] = `Bearer ${authContext.accessToken}`;
+          }
+        }
+      } catch {
+        await this.advanceAndComplete(jobId);
+        return { skipped: true, reason: 'auth-failed' };
+      }
+    }
+
+    const thumbUrl = fileUrl
+      .replace('size=preview', 'size=thumbnail')
+      .replace('size=original', 'size=thumbnail');
+
+    try {
+      const res = await fetch(thumbUrl, { headers, signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const buffer = Buffer.from(await res.arrayBuffer());
+
+      if (buffer.length <= 30_000) {
+        metadata.thumbnailBase64 = buffer.toString('base64');
+
+        // Write updated metadata back (re-encrypt if needed)
+        const metadataStr = JSON.stringify(metadata);
+        const writeUpdate = (db: typeof this.dbService.db) =>
+          db.update(memories).set({ metadata: metadataStr }).where(eq(memories.id, memoryId));
+
+        if (ownerUserId) {
+          await this.dbService.withUserId(ownerUserId, writeUpdate);
+        } else {
+          await writeUpdate(this.dbService.db);
+        }
+
+        // Re-encrypt at rest
+        await this.encryptMemoryAtRest(memoryId, ownerUserId);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[backfill-thumbnails] ${memoryId.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    await this.advanceAndComplete(jobId);
+    return { memoryId, thumbnailStored: true };
   }
 
   // ---- Contact backfill (existing logic) ----

@@ -72,16 +72,24 @@ describe('EnrichProcessor', () => {
     };
 
     const cryptoService = {
+      isEncrypted: vi.fn().mockReturnValue(false),
       encrypt: vi.fn().mockImplementation((v: string) => v),
       decrypt: vi.fn().mockImplementation((v: string) => v),
       encryptMemoryFields: vi.fn().mockImplementation((f: any) => f),
       decryptMemoryFields: vi.fn().mockImplementation((m: any) => m),
+      encryptMemoryFieldsWithKey: vi.fn().mockImplementation((f: any) => f),
+      decryptMemoryFieldsWithKey: vi.fn().mockImplementation((m: any) => m),
     };
 
     const userKeyService = {
       deriveAndStore: vi.fn().mockResolvedValue(undefined),
       removeKey: vi.fn(),
       getKey: vi.fn().mockReturnValue(null),
+      getDek: vi.fn().mockResolvedValue(null),
+    };
+
+    const configService = {
+      aiConcurrency: { enrich: 2 },
     };
 
     processor = new EnrichProcessor(
@@ -95,6 +103,7 @@ describe('EnrichProcessor', () => {
       jobsService,
       settingsService,
       pluginRegistry,
+      configService as any,
     );
   });
 

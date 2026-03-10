@@ -9,6 +9,8 @@ import {
   Res,
   HttpStatus,
   Logger,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -17,11 +19,12 @@ import { randomUUID } from 'crypto';
 import { MemoryService } from './memory.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
-import { OllamaService } from './ollama.service';
+import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { EventsService } from '../events/events.service';
 import { accounts, memories, memoryContacts, rawEvents, jobs } from '../db/schema';
 import { eq, and, sql, isNull } from 'drizzle-orm';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
@@ -34,7 +37,7 @@ export class MemoryController {
     private memoryService: MemoryService,
     private dbService: DbService,
     private accountsService: AccountsService,
-    private ollama: OllamaService,
+    private ai: AiService,
     private qdrant: QdrantService,
     private events: EventsService,
     @InjectQueue('backfill') private backfillQueue: Queue,
@@ -75,22 +78,25 @@ export class MemoryController {
   @Get('graph')
   async getGraphData(
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },
-    @Query('memoryLimit') memoryLimit?: string,
-    @Query('linkLimit') linkLimit?: string,
+    @Query('memoryLimit', new DefaultValuePipe(5000), ParseIntPipe) memoryLimit: number,
+    @Query('linkLimit', new DefaultValuePipe(50000), ParseIntPipe) linkLimit: number,
     @Query('memoryBankId') memoryBankId?: string,
+    @Query('memoryIds') memoryIdsParam?: string,
   ) {
     if (await this.memoryService.needsRecoveryKey(user.id))
       return { nodes: [], edges: [], needsRecoveryKey: true };
-    const ml = memoryLimit ? Math.min(parseInt(memoryLimit, 10) || 5000, 10000) : 5000;
-    const ll = linkLimit ? Math.min(parseInt(linkLimit, 10) || 50000, 100000) : 50000;
-    return this.memoryService.getGraphData(ml, ll, user.id, memoryBankId, user.memoryBankIds);
+    const ml = Math.min(memoryLimit, 10000);
+    const ll = Math.min(linkLimit, 100000);
+    const memoryIds = memoryIdsParam ? memoryIdsParam.split(',').filter(Boolean) : undefined;
+    return this.memoryService.getGraphData(ml, ll, user.id, memoryBankId, user.memoryBankIds, memoryIds);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Get()
   async list(
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('connectorType') connectorType?: string,
     @Query('sourceType') sourceType?: string,
     @Query('memoryBankId') memoryBankId?: string,
@@ -98,8 +104,8 @@ export class MemoryController {
     const needsRecoveryKey = await this.memoryService.needsRecoveryKey(user.id);
     if (needsRecoveryKey) return { items: [], total: 0, needsRecoveryKey: true };
     return this.memoryService.list({
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      limit,
+      offset,
       connectorType,
       sourceType,
       userId: user.id,
@@ -259,6 +265,68 @@ export class MemoryController {
   }
 
   @RequiresJwt()
+  @Post('backfill-thumbnails')
+  async backfillThumbnails(@CurrentUser() user: { id: string }) {
+    const db = this.dbService.db;
+
+    // Find photo memories without thumbnailBase64 in metadata
+    const photoMemories = await db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(
+        and(
+          eq(memories.sourceType, 'photo'),
+          eq(memories.pipelineComplete, true),
+          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'thumbnailBase64') IS NULL AND (metadata::jsonb->>'fileUrl') IS NOT NULL`,
+        ),
+      );
+
+    if (!photoMemories.length) {
+      return { jobId: null, enqueued: 0, message: 'All photos already have thumbnails' };
+    }
+
+    const userAccounts = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.userId, user.id))
+      .limit(1);
+
+    if (!userAccounts.length) {
+      return { error: 'No account found -- sync a connector first' };
+    }
+
+    const now = new Date();
+    const jobId = randomUUID();
+
+    await db.insert(jobs).values({
+      id: jobId,
+      accountId: userAccounts[0].id,
+      connectorType: 'backfill',
+      status: 'running',
+      progress: 0,
+      total: photoMemories.length,
+      startedAt: now,
+      createdAt: now,
+    });
+
+    for (const m of photoMemories) {
+      await this.backfillQueue.add(
+        'backfill-thumbnails',
+        { memoryId: m.id, jobId },
+        { attempts: 2, backoff: { type: 'exponential', delay: 1000 } },
+      );
+    }
+
+    this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
+      jobId,
+      processed: 0,
+      total: photoMemories.length,
+    });
+
+    return { jobId, enqueued: photoMemories.length, total: photoMemories.length };
+  }
+
+  @RequiresJwt()
   @Post('backfill-embeddings')
   async backfillEmbeddings(@Query('limit') limitParam?: string) {
     const db = this.dbService.db;
@@ -295,7 +363,7 @@ export class MemoryController {
 
         const maxChars = 6000;
         const text = mem.text.length > maxChars ? mem.text.slice(0, maxChars) : mem.text;
-        const vector = await this.ollama.embed(text);
+        const vector = await this.ai.embed(text);
         await this.qdrant.upsert(mem.id, vector, {
           source_type: mem.sourceType,
           connector_type: mem.connectorType,
@@ -377,6 +445,7 @@ export class MemoryController {
     );
   }
 
+  @SkipThrottle()
   @RequiresJwt()
   @Get(':id/thumbnail')
   async getThumbnail(
@@ -395,6 +464,15 @@ export class MemoryController {
       // metadata may be encrypted ciphertext when user key is not loaded
       return res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ error: 'encrypted' });
     }
+
+    // Serve from stored thumbnail if available (no upstream fetch needed)
+    if (metadata.thumbnailBase64) {
+      const buffer = Buffer.from(metadata.thumbnailBase64, 'base64');
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+      return res.send(buffer);
+    }
+
     const fileUrl: string | undefined = metadata.fileUrl;
     if (!fileUrl) return res.status(HttpStatus.NOT_FOUND).json({ error: 'no file' });
 
@@ -447,6 +525,7 @@ export class MemoryController {
     return this.memoryService.getById(id, user.id);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },

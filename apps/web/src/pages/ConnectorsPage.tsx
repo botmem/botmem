@@ -154,6 +154,7 @@ export function ConnectorsPage() {
                     <ConnectorAccountRow
                       key={acc.id}
                       account={acc}
+                      authType={manifests.find((m) => m.id === cfg.type)?.authType}
                       onRemove={removeAccount}
                       onSyncNow={(id: string, memoryBankId?: string) => syncNow(id, memoryBankId)}
                       onEdit={(id) => setEditModal({ type: cfg.type, accountId: id })}

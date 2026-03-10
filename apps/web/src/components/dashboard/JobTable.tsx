@@ -117,7 +117,7 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
         )}
       </div>
 
-      <div className="max-h-[360px] overflow-y-auto">
+      <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 20rem)' }}>
         {filtered.map((job, idx) => (
           <JobRow key={`${job.id}-${idx}`} job={job} onCancel={onCancel} onMove={onMove} />
         ))}

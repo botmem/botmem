@@ -49,4 +49,28 @@ describe('ConfigService', () => {
     const config = new ConfigService();
     expect(config.frontendUrl).toBe('https://app.example.com');
   });
+
+  describe('Gmail OAuth server-side creds', () => {
+    it('returns empty gmailClientId by default', () => {
+      const config = new ConfigService();
+      expect(config.gmailClientId).toBe('');
+    });
+
+    it('returns gmailClientId from GMAIL_CLIENT_ID env', () => {
+      process.env.GMAIL_CLIENT_ID = 'server-cid';
+      const config = new ConfigService();
+      expect(config.gmailClientId).toBe('server-cid');
+    });
+
+    it('returns empty gmailClientSecret by default', () => {
+      const config = new ConfigService();
+      expect(config.gmailClientSecret).toBe('');
+    });
+
+    it('returns gmailClientSecret from GMAIL_CLIENT_SECRET env', () => {
+      process.env.GMAIL_CLIENT_SECRET = 'server-csec';
+      const config = new ConfigService();
+      expect(config.gmailClientSecret).toBe('server-csec');
+    });
+  });
 });

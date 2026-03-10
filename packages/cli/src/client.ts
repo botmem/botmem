@@ -181,10 +181,11 @@ export class BotmemClient {
     query: string,
     filters?: Record<string, string>,
     limit?: number,
+    memoryBankId?: string,
   ): Promise<{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] } }> {
     return this.request<{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] } }>('/memories/search', {
       method: 'POST',
-      body: JSON.stringify({ query, filters, limit }),
+      body: JSON.stringify({ query, filters, limit, memoryBankId }),
     });
   }
 
@@ -286,8 +287,63 @@ export class BotmemClient {
     return this.request<QueueStats>('/jobs/queues');
   }
 
-  async getVersion(): Promise<{ version: string }> {
-    return this.request<{ version: string }>('/version');
+  async getVersion(): Promise<{ buildTime: string; gitHash: string; uptime: number }> {
+    return this.request<{ buildTime: string; gitHash: string; uptime: number }>('/version');
+  }
+
+  // --- Recovery Key ---
+
+  async submitRecoveryKey(recoveryKey: string): Promise<any> {
+    return this.request('/user-auth/recovery-key', {
+      method: 'POST',
+      body: JSON.stringify({ recoveryKey }),
+    });
+  }
+
+  // --- Agent ---
+
+  async agentAsk(query: string, filters?: Record<string, string>, limit?: number): Promise<any> {
+    return this.request('/agent/ask', {
+      method: 'POST',
+      body: JSON.stringify({ query, filters, limit }),
+    });
+  }
+
+  async agentSummarize(query: string, maxResults?: number): Promise<any> {
+    return this.request('/agent/summarize', {
+      method: 'POST',
+      body: JSON.stringify({ query, maxResults }),
+    });
+  }
+
+  async agentContext(contactId: string): Promise<any> {
+    return this.request(`/agent/context/${encodeURIComponent(contactId)}`);
+  }
+
+  // --- Memory Banks ---
+
+  async listMemoryBanks(): Promise<any> {
+    return this.request('/memory-banks');
+  }
+
+  async createMemoryBank(name: string): Promise<any> {
+    return this.request('/memory-banks', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async renameMemoryBank(id: string, name: string): Promise<any> {
+    return this.request(`/memory-banks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteMemoryBank(id: string): Promise<void> {
+    await this.request(`/memory-banks/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
   }
 
   // --- Timeline & Related ---

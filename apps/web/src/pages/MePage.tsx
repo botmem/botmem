@@ -7,6 +7,7 @@ import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { api } from '../lib/api';
+import { Avatar } from '../components/ui/Avatar';
 
 /* ---------- connector display config ---------- */
 
@@ -204,7 +205,7 @@ export function MePage() {
 
   const { identity, accounts: connectedAccounts, stats, topEntities, recentMemories } = data!;
 
-  const avatarUrl = identity.avatars?.[selectedAvatarIndex]?.url ?? identity.avatars?.[0]?.url;
+  const selectedAvatar = identity.avatars?.[selectedAvatarIndex] ?? identity.avatars?.[0];
 
   const statCards = [
     { label: 'TOTAL MEMORIES', value: stats.totalMemories.toLocaleString(), color: '#C4F53A' },
@@ -227,19 +228,14 @@ export function MePage() {
       <Card className="p-0 overflow-hidden mb-6">
         <div className="bg-nb-lime h-2" />
         <div className="p-6 flex items-center gap-6">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={identity.name ?? 'Avatar'}
-              className="w-24 h-24 border-4 border-nb-border object-cover shrink-0"
-            />
-          ) : (
-            <div className="w-24 h-24 border-4 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
-              <span className="text-4xl font-display font-bold text-nb-muted">
-                {(identity.name ?? '?')[0]?.toUpperCase()}
-              </span>
-            </div>
-          )}
+          <Avatar
+            contactId={identity.contactId ?? undefined}
+            src={selectedAvatar?.url}
+            fallbackInitials={(identity.name ?? '?')[0]?.toUpperCase() ?? '?'}
+            isSelf
+            size="lg"
+            className="w-24 h-24 shrink-0"
+          />
 
           <div className="flex-1 min-w-0">
             <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text truncate">
@@ -268,13 +264,18 @@ export function MePage() {
                       }
                     }}
                     className={[
-                      'w-12 h-12 border-3 object-cover overflow-hidden p-0 cursor-pointer transition-all',
+                      'w-12 h-12 border-3 overflow-hidden p-0 cursor-pointer transition-all',
                       i === selectedAvatarIndex
                         ? 'border-nb-lime ring-2 ring-nb-lime'
                         : 'border-nb-border hover:border-nb-text',
                     ].join(' ')}
                   >
-                    <img src={a.url} alt={a.source} className="w-full h-full object-cover" />
+                    <Avatar
+                      src={a.url}
+                      fallbackInitials={a.source[0]?.toUpperCase() ?? '?'}
+                      size="sm"
+                      className="w-full h-full border-0"
+                    />
                   </button>
                 ))}
               </div>
@@ -516,13 +517,6 @@ function ContactPickerModal({
         )}
         {!loading &&
           filtered.map((c) => {
-            let avatar: string | null = null;
-            try {
-              const parsed = JSON.parse(c.avatars || '[]');
-              avatar = parsed[0]?.url ?? null;
-            } catch {
-              // ignore
-            }
             const email = c.identifiers?.find((i) => i.identifierType === 'email')?.identifierValue;
             const phone = c.identifiers?.find((i) => i.identifierType === 'phone')?.identifierValue;
 
@@ -532,19 +526,12 @@ function ContactPickerModal({
                 onClick={() => onSelect(c.id)}
                 className="flex items-center gap-3 border-2 border-nb-border p-3 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-left w-full"
               >
-                {avatar ? (
-                  <img
-                    src={avatar}
-                    alt=""
-                    className="w-10 h-10 border-2 border-nb-border object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-10 h-10 border-2 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
-                    <span className="font-display font-bold text-nb-muted">
-                      {c.displayName[0]?.toUpperCase()}
-                    </span>
-                  </div>
-                )}
+                <Avatar
+                  contactId={c.id}
+                  fallbackInitials={c.displayName[0]?.toUpperCase() ?? '?'}
+                  size="sm"
+                  className="shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="font-display text-sm font-bold uppercase truncate">
                     {c.displayName}

@@ -386,6 +386,279 @@ describe('ImmichConnector', () => {
       expect(result.processed).toBe(1);
     });
   });
+
+  // ─── Embed ────────────────────────────────────────────
+  describe('embed', () => {
+    it('extracts person entities from people metadata', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Photo: test.jpg',
+          participants: ['John Doe'],
+          metadata: {
+            people: [{ id: 'p1', name: 'John Doe' }, { id: 'p2', name: '' }],
+          },
+        },
+      };
+      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      // Should only include named people, skip empty name
+      expect(result.entities).toHaveLength(1);
+      expect(result.entities[0]).toEqual({ type: 'person', id: 'immich_person_id:p1|name:John Doe', role: 'participant' });
+    });
+
+    it('extracts pet entities when person type is pet', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Photo: cat.jpg',
+          participants: [],
+          metadata: {
+            people: [{ id: 'p1', name: 'Whiskers', type: 'pet' }],
+          },
+        },
+      };
+      const result = connector.embed(event, 'Photo: cat.jpg', {} as any);
+      expect(result.entities[0].type).toBe('pet');
+    });
+
+    it('extracts location entity from lat/lon', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Photo: test.jpg',
+          participants: [],
+          metadata: { latitude: 34.0195, longitude: -118.4912, people: [] },
+        },
+      };
+      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      expect(result.entities).toContainEqual({ type: 'location', id: 'geo:34.0195,-118.4912', role: 'location' });
+    });
+
+    it('does not extract location when lat/lon missing', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Photo: test.jpg',
+          participants: [],
+          metadata: { people: [] },
+        },
+      };
+      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      expect(result.entities.filter(e => e.type === 'location')).toHaveLength(0);
+    });
+
+    it('includes participants not already in people array', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Photo: test.jpg',
+          participants: ['John Doe', 'Extra Person'],
+          metadata: {
+            people: [{ id: 'p1', name: 'John Doe' }],
+          },
+        },
+      };
+      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      // p1 from people, Extra Person as additional participant
+      expect(result.entities).toHaveLength(2);
+      expect(result.entities[1]).toEqual({ type: 'person', id: 'name:Extra Person', role: 'participant' });
+    });
+
+    it('handles empty content metadata gracefully', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: { text: 'Photo: test.jpg', metadata: {} },
+      };
+      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      expect(result.entities).toEqual([]);
+    });
+
+    it('skips empty participant names', () => {
+      const event = {
+        sourceType: 'photo' as const,
+        sourceId: 'a1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Photo: test.jpg',
+          participants: ['', 'Alice'],
+          metadata: { people: [] },
+        },
+      };
+      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      expect(result.entities).toHaveLength(1);
+      expect(result.entities[0].id).toBe('name:Alice');
+    });
+  });
+
+  // ─── initiateAuth server info branch ──────────────────
+  describe('initiateAuth (server info)', () => {
+    it('uses server name from /api/server/about when available', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
+        if (url.includes('/api/server/about')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ name: 'My Immich' }) });
+        return Promise.resolve({ ok: true });
+      }));
+      const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
+      if (result.type === 'complete') {
+        expect(result.auth.identifier).toBe('My Immich');
+      }
+    });
+
+    it('falls back to host when /api/server/about fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
+        if (url.includes('/api/server/about')) return Promise.reject(new Error('fail'));
+        return Promise.resolve({ ok: true });
+      }));
+      const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
+      if (result.type === 'complete') {
+        expect(result.auth.identifier).toBe('http://localhost:2283');
+      }
+    });
+
+    it('falls back to host when /api/server/about returns not ok', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
+        if (url.includes('/api/server/about')) return Promise.resolve({ ok: false });
+        return Promise.resolve({ ok: true });
+      }));
+      const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
+      if (result.type === 'complete') {
+        expect(result.auth.identifier).toBe('http://localhost:2283');
+      }
+    });
+
+    it('strips /api suffix from host', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+      const result = await connector.initiateAuth({ host: 'http://localhost:2283/api', apiKey: 'k' });
+      if (result.type === 'complete') {
+        expect(result.auth.raw?.host).toBe('http://localhost:2283');
+      }
+    });
+  });
+
+  // ─── Sync edge cases ─────────────────────────────────
+  describe('sync (edge cases)', () => {
+    it('returns original cursor when no assets and no lastTimestamp', async () => {
+      vi.stubGlobal('fetch', mockFetchForSync([]));
+      connector.on('data', () => {});
+      const cursor = JSON.stringify({ takenAfter: '2026-01-01T00:00:00.000Z', page: 1 });
+      const result = await connector.sync(makeSyncCtx({ cursor }));
+      expect(result.cursor).toBe(cursor);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it('provides 404 hint in error message', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/assets/statistics')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ images: 0 }) });
+        if (url.includes('/api/search/metadata')) return Promise.resolve({ ok: false, status: 404 });
+        return Promise.resolve({ ok: true });
+      }));
+      await expect(connector.sync(makeSyncCtx())).rejects.toThrow('check that the host URL');
+    });
+
+    it('handles statistics returning total instead of images', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/assets/statistics')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ total: 300 }) });
+        if (url.includes('/api/search/metadata')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ assets: { items: [], nextPage: null } }) });
+        return Promise.resolve({ ok: true });
+      }));
+      const progressListener = vi.fn();
+      connector.on('data', () => {});
+      connector.on('progress', progressListener);
+      await connector.sync(makeSyncCtx());
+      expect(progressListener).toHaveBeenCalledWith(expect.objectContaining({ total: 300 }));
+    });
+
+    it('composeText handles asset with model only (no make)', async () => {
+      const asset = makeAsset({ exifInfo: { model: 'iPhone 15 Pro' } });
+      vi.stubGlobal('fetch', mockFetchForSync([asset]));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx());
+      expect(dataListener.mock.calls[0][0].content.text).toContain('iPhone 15 Pro');
+    });
+
+    it('respects abort signal', async () => {
+      const ac = new AbortController();
+      ac.abort(); // pre-abort
+      const assets = [makeAsset(), makeAsset({ id: 'asset-2' })];
+      vi.stubGlobal('fetch', mockFetchForSync(assets));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx({ signal: ac.signal }));
+      // Should have stopped before processing assets
+      expect(dataListener).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── composeText branches ─────────────────────────────
+  describe('composeText branches', () => {
+    it('handles asset with only localDateTime (no fileCreatedAt)', async () => {
+      const asset = makeAsset({ fileCreatedAt: '', localDateTime: '2026-06-01T12:00:00.000Z' });
+      vi.stubGlobal('fetch', mockFetchForSync([asset]));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx());
+      expect(dataListener.mock.calls[0][0].content.text).toContain('2026-06-01');
+    });
+
+    it('handles asset with no exifInfo', async () => {
+      const asset = makeAsset({ exifInfo: undefined });
+      vi.stubGlobal('fetch', mockFetchForSync([asset]));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx());
+      const text = dataListener.mock.calls[0][0].content.text;
+      expect(text).toContain('Photo:');
+      expect(text).not.toContain('Location:');
+      expect(text).not.toContain('Camera:');
+    });
+
+    it('handles location without GPS coords', async () => {
+      const asset = makeAsset({ exifInfo: { city: 'Tokyo', country: 'Japan' } });
+      vi.stubGlobal('fetch', mockFetchForSync([asset]));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx());
+      const text = dataListener.mock.calls[0][0].content.text;
+      expect(text).toContain('Location: Tokyo, Japan');
+      expect(text).not.toContain('('); // no coords
+    });
+
+    it('handles tags with name fallback (no value)', async () => {
+      const asset = makeAsset({ tags: [{ id: 't1', name: 'nature', value: '' }, { id: 't2', name: 'outdoor', value: null }] });
+      vi.stubGlobal('fetch', mockFetchForSync([asset]));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx());
+      const text = dataListener.mock.calls[0][0].content.text;
+      expect(text).toContain('Tags: nature, outdoor');
+    });
+
+    it('handles people with unnamed entries filtered', async () => {
+      const asset = makeAsset({ people: [{ id: 'p1', name: 'Alice' }, { id: 'p2', name: '' }] });
+      vi.stubGlobal('fetch', mockFetchForSync([asset]));
+      const dataListener = vi.fn();
+      connector.on('data', dataListener);
+      await connector.sync(makeSyncCtx());
+      const text = dataListener.mock.calls[0][0].content.text;
+      expect(text).toContain('People: Alice');
+      expect(dataListener.mock.calls[0][0].content.participants).toEqual(['Alice']);
+    });
+  });
 });
 
 describe('default export', () => {

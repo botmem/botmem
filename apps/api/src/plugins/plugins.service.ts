@@ -46,8 +46,9 @@ export class PluginsService {
 
     this.logger.log(`Loaded ${this.connectors.list().length} total connectors`);
 
-    // Wire up WhatsApp decrypt-failure notifications
+    // Wire up WhatsApp decrypt-failure and session-expired notifications
     this.setupDecryptFailureListener();
+    this.setupSessionExpiredListener();
 
     // Load lifecycle and scorer plugins from manifest.json files
     await this.loadManifestPlugins(dir);
@@ -146,6 +147,32 @@ export class PluginsService {
         this.events.emitToChannel('notifications', 'connector:warning', {
           connectorType: 'whatsapp',
           message,
+          action: 'reauth',
+        });
+      });
+    } catch {
+      // WhatsApp connector not loaded — skip
+    }
+  }
+
+  private setupSessionExpiredListener() {
+    try {
+      const wa = this.connectors.get('whatsapp');
+      wa.on('session-expired', async ({ message }: { message: string; code: number }) => {
+        this.logger.warn(`WhatsApp session expired: ${message}`);
+        const waAccounts = await this.dbService.db
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(eq(accounts.connectorType, 'whatsapp'));
+        for (const acc of waAccounts) {
+          await this.dbService.db
+            .update(accounts)
+            .set({ status: 'disconnected', lastError: message, updatedAt: new Date() })
+            .where(eq(accounts.id, acc.id));
+        }
+        this.events.emitToChannel('notifications', 'connector:warning', {
+          connectorType: 'whatsapp',
+          message: `WhatsApp: ${message}. Please reconnect.`,
           action: 'reauth',
         });
       });

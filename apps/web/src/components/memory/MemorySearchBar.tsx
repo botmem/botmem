@@ -9,6 +9,7 @@ interface MemorySearchBarProps {
   onSourceChange: (s: SourceType | null) => void;
   resultCount?: number;
   loading?: boolean;
+  pending?: boolean;
   availableSources?: SourceType[];
 }
 
@@ -27,6 +28,7 @@ export function MemorySearchBar({
   onSourceChange,
   resultCount,
   loading,
+  pending,
   availableSources,
 }: MemorySearchBarProps) {
   return (
@@ -54,7 +56,7 @@ export function MemorySearchBar({
         ))}
         {resultCount !== undefined && (
           <span className="ml-auto font-mono text-xs text-nb-muted uppercase">
-            {loading ? (
+            {(loading || pending) ? (
               <span className="flex items-center gap-2">
                 <span className="w-3 h-3 border-2 border-nb-text border-t-transparent rounded-full animate-spin" />
                 SEARCHING...

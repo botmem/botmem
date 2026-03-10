@@ -71,10 +71,13 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
       </div>
 
       {hasThumbnail(memory) && (
-        <div className="border-2 border-nb-border mb-2 overflow-hidden">
+        <div className="border-2 border-nb-border mb-2 overflow-hidden max-h-72">
           <AuthedImage
             src={`/api/memories/${memory.id}/thumbnail`}
-            className="w-full h-32 object-cover"
+            className="w-full object-cover"
+            style={memory.metadata?.width && memory.metadata?.height
+              ? { aspectRatio: `${memory.metadata.width} / ${memory.metadata.height}` }
+              : { height: '10rem' }}
             loading="lazy"
           />
         </div>

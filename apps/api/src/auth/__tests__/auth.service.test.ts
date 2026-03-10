@@ -46,6 +46,7 @@ function createMockDeps() {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockResolvedValue([]),
+          limit: vi.fn().mockResolvedValue([{ id: 'user-1' }]),
         }),
       }),
       insert: vi.fn().mockReturnValue({
@@ -251,6 +252,100 @@ describe('AuthService', () => {
       deps.mockConnector.completeAuth.mockClear();
       await service.handleCallback('test', { code: 'def' });
       expect(deps.mockConnector.completeAuth).toHaveBeenCalledWith({ code: 'def' });
+    });
+  });
+
+  describe('Firebase mode credential injection', () => {
+    it('injects server-side Gmail creds when authProvider is firebase', async () => {
+      const deps = createMockDeps();
+      (deps.config as any).authProvider = 'firebase';
+      (deps.config as any).gmailClientId = 'server-cid';
+      (deps.config as any).gmailClientSecret = 'server-csec';
+      deps.mockConnector.initiateAuth.mockResolvedValue({
+        type: 'redirect',
+        url: 'https://accounts.google.com/auth',
+      });
+
+      const service = makeService(deps);
+      await service.initiate('gmail', {});
+
+      expect(deps.mockConnector.initiateAuth).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: 'server-cid',
+          clientSecret: 'server-csec',
+        }),
+      );
+    });
+
+    it('user-provided config overrides server-side creds in Firebase mode', async () => {
+      const deps = createMockDeps();
+      (deps.config as any).authProvider = 'firebase';
+      (deps.config as any).gmailClientId = 'server-cid';
+      (deps.config as any).gmailClientSecret = 'server-csec';
+      deps.mockConnector.initiateAuth.mockResolvedValue({
+        type: 'redirect',
+        url: 'https://accounts.google.com/auth',
+      });
+
+      const service = makeService(deps);
+      await service.initiate('gmail', { clientId: 'user-cid', clientSecret: 'user-csec' });
+
+      expect(deps.mockConnector.initiateAuth).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: 'user-cid',
+          clientSecret: 'user-csec',
+        }),
+      );
+    });
+
+    it('does not inject server creds in local auth mode', async () => {
+      const deps = createMockDeps();
+      (deps.config as any).authProvider = 'local';
+      (deps.config as any).gmailClientId = 'server-cid';
+      (deps.config as any).gmailClientSecret = 'server-csec';
+      deps.mockConnector.initiateAuth.mockResolvedValue({
+        type: 'redirect',
+        url: 'https://accounts.google.com/auth',
+      });
+
+      const service = makeService(deps);
+      await service.initiate('gmail', {});
+
+      expect(deps.mockConnector.initiateAuth).toHaveBeenCalledWith({});
+    });
+
+    it('does not inject Gmail creds for non-Gmail connectors in Firebase mode', async () => {
+      const deps = createMockDeps();
+      (deps.config as any).authProvider = 'firebase';
+      (deps.config as any).gmailClientId = 'server-cid';
+      (deps.config as any).gmailClientSecret = 'server-csec';
+      deps.mockConnector.initiateAuth.mockResolvedValue({
+        type: 'redirect',
+        url: 'https://oauth.example.com',
+      });
+
+      const service = makeService(deps);
+      await service.initiate('slack', {});
+
+      expect(deps.mockConnector.initiateAuth).toHaveBeenCalledWith({});
+    });
+
+    it('does not inject when server creds are empty', async () => {
+      const deps = createMockDeps();
+      (deps.config as any).authProvider = 'firebase';
+      (deps.config as any).gmailClientId = '';
+      (deps.config as any).gmailClientSecret = '';
+      deps.mockConnector.initiateAuth.mockResolvedValue({
+        type: 'redirect',
+        url: 'https://accounts.google.com/auth',
+      });
+
+      const service = makeService(deps);
+      await service.initiate('gmail', {});
+
+      const calledWith = deps.mockConnector.initiateAuth.mock.calls[0][0];
+      expect(calledWith.clientId).toBeUndefined();
+      expect(calledWith.clientSecret).toBeUndefined();
     });
   });
 

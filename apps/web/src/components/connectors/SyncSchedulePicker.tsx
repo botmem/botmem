@@ -7,8 +7,8 @@ interface SyncSchedulePickerProps {
 }
 
 const options: Array<{ value: SyncSchedule; label: string; desc: string }> = [
-  { value: '15min', label: 'EVERY 15M', desc: 'Near real-time' },
-  { value: 'hourly', label: 'HOURLY', desc: 'Balanced' },
+  { value: 'hourly', label: 'HOURLY', desc: 'Near real-time' },
+  { value: 'every-6h', label: 'EVERY 6H', desc: 'Balanced' },
   { value: 'daily', label: 'DAILY', desc: 'Low bandwidth' },
   { value: 'manual', label: 'MANUAL', desc: 'On demand only' },
 ];

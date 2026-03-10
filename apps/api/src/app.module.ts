@@ -23,7 +23,11 @@ import { MailModule } from './mail/mail.module';
 import { UserAuthModule } from './user-auth/user-auth.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { MemoryBanksModule } from './memory-banks/memory-banks.module';
+import { McpModule } from './mcp/mcp.module';
 import { CryptoModule } from './crypto/crypto.module';
+import { BillingModule } from './billing/billing.module';
+import { OAuthModule } from './oauth/oauth.module';
+import { PlanGuard } from './billing/plan.guard';
 import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -67,8 +71,11 @@ const serveStatic = !isDev && existsSync(webDistPath);
     UserAuthModule,
     ApiKeysModule,
     MemoryBanksModule,
+    McpModule,
     CryptoModule,
     FirebaseAuthModule,
+    BillingModule,
+    OAuthModule,
   ],
   providers: [
     {
@@ -85,6 +92,10 @@ const serveStatic = !isDev && existsSync(webDistPath);
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PlanGuard,
     },
   ],
 })

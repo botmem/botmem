@@ -26,8 +26,11 @@ interface ContactState {
   selectedId: string | null;
   searchQuery: string;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   entityFilter: string;
   loadContacts: (entityType?: string) => Promise<void>;
+  loadMoreContacts: () => Promise<void>;
   searchContacts: (query: string) => Promise<void>;
   setSearchQuery: (q: string) => void;
   setEntityFilter: (filter: string) => void;
@@ -67,6 +70,7 @@ function parseContact(raw: any): Contact {
   };
 }
 
+const CONTACT_PAGE_SIZE = 100;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useContactStore = create<ContactState>((set, get) => ({
@@ -76,18 +80,50 @@ export const useContactStore = create<ContactState>((set, get) => ({
   selectedId: null,
   searchQuery: '',
   loading: false,
+  loadingMore: false,
+  hasMore: true,
   entityFilter: 'person',
 
   loadContacts: async (entityType?: string) => {
     set({ loading: true });
     const filter = entityType ?? get().entityFilter;
     try {
-      const result = await api.listContacts({ limit: 200, entityType: filter });
+      const result = await api.listContacts({ limit: CONTACT_PAGE_SIZE, offset: 0, entityType: filter });
       const contacts = result.items.map(parseContact);
-      set({ contacts, total: result.total, loading: false });
+      set({
+        contacts,
+        total: result.total,
+        hasMore: contacts.length < result.total,
+        loading: false,
+      });
     } catch (err) {
       console.error('Failed to load contacts:', err);
       set({ loading: false });
+    }
+  },
+
+  loadMoreContacts: async () => {
+    const { loadingMore, hasMore, contacts, searchQuery } = get();
+    if (loadingMore || !hasMore || searchQuery.trim()) return;
+    set({ loadingMore: true });
+    try {
+      const filter = get().entityFilter;
+      const result = await api.listContacts({
+        limit: CONTACT_PAGE_SIZE,
+        offset: contacts.length,
+        entityType: filter,
+      });
+      const newContacts = result.items.map(parseContact);
+      const merged = [...contacts, ...newContacts];
+      set({
+        contacts: merged,
+        total: result.total,
+        hasMore: merged.length < result.total,
+        loadingMore: false,
+      });
+    } catch (err) {
+      console.error('Failed to load more contacts:', err);
+      set({ loadingMore: false });
     }
   },
 
