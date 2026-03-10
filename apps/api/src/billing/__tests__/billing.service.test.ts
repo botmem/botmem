@@ -110,12 +110,13 @@ describe('BillingService', () => {
         expect(result).toEqual({ url: 'https://billing.stripe.com/portal' });
       });
 
-      it('throws when no Stripe customer found', async () => {
-        mockDb = createChainDb([[{ stripeCustomerId: null }]]);
+      it('re-creates customer when stripeCustomerId is null', async () => {
+        mockDb = createChainDb([[{ stripeCustomerId: null, email: 'test@example.com' }]]);
         dbService.db = mockDb;
         service = new BillingService(dbService, config as any);
 
-        await expect(service.createPortalSession('user-1')).rejects.toThrow('No Stripe customer found');
+        const result = await service.createPortalSession('user-1');
+        expect(result).toEqual({ url: 'https://billing.stripe.com/portal' });
       });
 
       it('throws when user not found', async () => {
@@ -123,7 +124,7 @@ describe('BillingService', () => {
         dbService.db = mockDb;
         service = new BillingService(dbService, config as any);
 
-        await expect(service.createPortalSession('user-1')).rejects.toThrow('No Stripe customer found');
+        await expect(service.createPortalSession('user-1')).rejects.toThrow('User not found');
       });
     });
 
