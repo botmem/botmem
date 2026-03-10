@@ -1,25 +1,32 @@
 import { useRef, useCallback, useState, useMemo, useReducer, useEffect } from 'react';
 import type { GraphData } from '@botmem/shared';
-import { Card } from '../ui/Card';
 import { SearchResultsBanner } from './SearchResultsBanner';
 import { NodeDetailPanel } from './NodeDetailPanel';
 import { GraphLegend } from './GraphLegend';
-import { filterReducer, searchReducer, uiReducer } from './graphReducers';
+import { SearchInput } from '../ui/SearchInput';
+import { filterReducer, uiReducer } from './graphReducers';
 import { renderNode, renderNodePointerArea } from './graphDrawing';
 import type { NodeRenderCtx } from './graphDrawing';
 import { useGraphKeyboard } from './useGraphKeyboard';
 import { useFilteredGraph } from './useFilteredGraph';
 import { useGraphEffects } from './useGraphEffects';
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../store/authStore';
 import { trackEvent } from '../../lib/posthog';
+import type { UseSearchReturn } from '../../hooks/useSearch';
 
 interface MemoryGraphProps {
   data: GraphData;
-  onReload?: () => void;
+  onReloadPreview?: () => void;
+  graphPreview?: boolean;
+  graphLoading?: boolean;
+  onLoadAll?: () => void;
+  onLoadGraphForIds?: (ids: string[]) => Promise<void>;
+  search: UseSearchReturn;
 }
 
 
-export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
+export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading, onLoadAll, search }: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -33,15 +40,22 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     hideContacts: false,
     hideGroups: false,
     hideFiles: false,
+    hidePhotos: false,
     hideDevices: false,
     hiddenEdgeTypes: new Set<string>(),
   });
 
-  const [search, dispatchSearch] = useReducer(searchReducer, {
-    term: '',
-    pending: false,
-    results: null,
-  });
+  // Bridge useSearch return into SearchState format for useFilteredGraph
+  const searchState = useMemo(() => ({
+    term: search.term,
+    pending: search.pending,
+    results: search.results ? {
+      memoryIds: search.results.memoryIds,
+      contactNodeIds: search.results.contactNodeIds,
+      scoreMap: search.results.scoreMap,
+      resolvedEntities: search.results.resolvedEntities ?? undefined,
+    } : null,
+  }), [search.term, search.pending, search.results]);
 
   const [ui, dispatchUI] = useReducer(uiReducer, {
     legendOpen: false,
@@ -132,8 +146,9 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
   }, [data.nodes.length]);
 
   const { filteredData, isInitialRender, searchMatchIds, highlightedIds, focusVisibleIds, adjacency, linkColor, linkWidth } = useFilteredGraph({
-    data, filters, search, dispatchSearch, connectionCounts, selfNodeId,
-    focusedNodeId: ui.focusedNodeId, focusExpansion: ui.focusExpansion, onReload,
+    data, filters, search: searchState, connectionCounts, selfNodeId,
+    focusedNodeId: ui.focusedNodeId, focusExpansion: ui.focusExpansion,
+    onReloadPreview,
     graphRef, containerRef, dimensions, adaptiveConfig,
   });
 
@@ -141,13 +156,15 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     dispatchUI({ type: 'doubleClickNode', node });
   }, []);
 
+  const authToken = useAuthStore((s) => s.accessToken);
   const renderCtx = useMemo<NodeRenderCtx>(() => ({
     searchMatchIds,
     highlightedIds,
     focusVisibleIds,
     selfNodeId,
-    scoreMap: search.results?.scoreMap ?? null,
-  }), [searchMatchIds, highlightedIds, focusVisibleIds, selfNodeId, search.results]);
+    scoreMap: searchState.results?.scoreMap ?? null,
+    authToken,
+  }), [searchMatchIds, highlightedIds, focusVisibleIds, selfNodeId, searchState.results, authToken]);
 
   const nodeCanvasObject = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => renderNode(node, ctx, globalScale, renderCtx),
@@ -163,7 +180,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     selectedNode: ui.selectedNode,
     isFullscreen: ui.isFullscreen,
     selfNodeId,
-    search,
+    search: searchState,
     filteredNodes: filteredData.nodes,
     graphRef,
     dispatchUI,
@@ -181,13 +198,7 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     dispatchUI,
   });
 
-  if (!ForceGraph) {
-    return (
-      <Card className="flex items-center justify-center h-[300px]">
-        <p className="font-mono text-sm uppercase text-nb-text">LOADING GRAPH ENGINE...</p>
-      </Card>
-    );
-  }
+  const graphNotReady = !ForceGraph || (graphLoading && data.nodes.length === 0);
 
   const totalNodes = data.nodes.length;
   const visibleNodes = filteredData.nodes.length;
@@ -197,94 +208,111 @@ export function MemoryGraph({ data, onReload }: MemoryGraphProps) {
     <div className={ui.isFullscreen ? 'fixed inset-0 z-50 bg-nb-bg flex flex-col p-4 overflow-hidden' : ''}>
       {/* Controls */}
       <div className="flex items-center gap-3 mb-2">
-        <div className="flex-1 relative">
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={search.term}
-            onChange={(e) => dispatchSearch({ type: 'setTerm', term: e.target.value })}
-            placeholder="SEARCH NODES, ENTITIES..."
-            className="w-full border-3 px-3 py-1.5 pr-24 font-mono text-xs bg-nb-surface text-nb-text focus:outline-none focus:border-nb-lime placeholder:text-nb-muted placeholder:uppercase transition-all duration-300"
-            style={{
-              borderColor: search.pending ? '#C4F53A' : ui.searchFocused ? '#C4F53A' : undefined,
-              boxShadow: search.pending ? '0 0 8px #C4F53A40' : ui.searchFocused ? '0 0 8px #C4F53A60' : undefined,
-            }}
-          />
-          {search.pending && (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-              <div className="w-3 h-3 border-2 border-nb-lime border-t-transparent rounded-full animate-spin" />
-              <span className="font-mono text-[10px] text-nb-lime uppercase">Searching...</span>
-            </div>
-          )}
-        </div>
+        <SearchInput
+          value={search.term}
+          onChange={search.setTerm}
+          pending={search.pending}
+          placeholder="SEARCH NODES, ENTITIES..."
+          className="flex-1"
+          inputRef={searchInputRef}
+        />
       </div>
 
       {/* Status bar */}
-      <div className="flex gap-4 mb-2 font-mono text-xs text-nb-muted uppercase">
-        <span>{visibleNodes} / {totalNodes} nodes</span>
-        <span>{filteredData.links.length} edges</span>
-        {search.term && <span>{matchCount} matches</span>}
-        {adaptiveConfig.performanceMode && (
-          <span className="text-nb-lime cursor-help relative group" title="">
-            &#9889;
-            <span className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-nb-surface border-2 border-nb-border px-2 py-1 text-[10px] text-nb-text normal-case whitespace-nowrap shadow-lg">
-              {totalNodes}+ nodes — reduced detail for performance
-            </span>
-          </span>
+      <div className="flex items-center gap-4 mb-2 font-mono text-xs text-nb-muted uppercase">
+        {graphNotReady ? (
+          <span className="text-nb-lime">LOADING...</span>
+        ) : (
+          <>
+            <span>{visibleNodes} / {totalNodes} nodes</span>
+            <span>{filteredData.links.length} edges</span>
+            {searchState.term && <span>{matchCount} matches</span>}
+            {graphPreview && onLoadAll && (
+              <button
+                onClick={onLoadAll}
+                disabled={graphLoading}
+                className="px-2 py-0.5 border-2 border-nb-lime text-nb-lime font-bold cursor-pointer hover:bg-nb-lime hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {graphLoading ? 'LOADING...' : 'LOAD ALL'}
+              </button>
+            )}
+            {graphLoading && !graphPreview && (
+              <span className="text-nb-lime">LOADING...</span>
+            )}
+            {adaptiveConfig.performanceMode && (
+              <span className="text-nb-lime cursor-help relative group" title="">
+                &#9889;
+                <span className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-nb-surface border-2 border-nb-border px-2 py-1 text-[10px] text-nb-text normal-case whitespace-nowrap shadow-lg">
+                  {totalNodes}+ nodes — reduced detail for performance
+                </span>
+              </span>
+            )}
+          </>
         )}
       </div>
 
-      {!search.pending && search.results && search.term.trim() && (
+      {!searchState.pending && searchState.results && searchState.term.trim() && (
         <SearchResultsBanner
-          resolvedEntities={search.results.resolvedEntities ?? null}
-          resultCount={search.results.memoryIds.size}
+          resolvedEntities={searchState.results.resolvedEntities ?? null}
+          resultCount={searchState.results.memoryIds.size}
         />
       )}
 
-      <div ref={containerRef} className={`relative border-3 border-nb-border bg-nb-surface overflow-hidden ${ui.isFullscreen ? 'flex-1' : ''}`} style={ui.isFullscreen ? undefined : { maxHeight: dimensions.height }}>
-        <ForceGraph
-          ref={graphRef}
-          graphData={filteredData}
-          width={dimensions.width}
-          height={dimensions.height}
-          nodeCanvasObject={nodeCanvasObject}
-          nodePointerAreaPaint={nodePointerArea}
-          linkColor={linkColor}
-          linkWidth={linkWidth}
-          linkLineDash={adaptiveConfig.disableLinkDash ? undefined : (link: any) => (link.linkType === 'involves' || link.linkType === 'source') ? [4, 2] : []}
-          onNodeClick={(node: any) => {
-            dispatchUI({ type: 'selectNode', node });
-            trackEvent('graph_node_click', {
-              node_type: node.nodeType || 'unknown',
-            });
-          }}
-          onNodeDoubleClick={handleNodeDoubleClick}
-          onNodeDragEnd={(node: any) => { node.fx = undefined; node.fy = undefined; }}
-          onBackgroundClick={() => dispatchUI({ type: 'clearFocus' })}
-          cooldownTicks={adaptiveConfig.cooldownTicks}
-          onEngineStop={() => {
-            if (isInitialRender.current) {
-              isInitialRender.current = false;
-              // Center on self node and zoom to fit
-              const g = graphRef.current;
-              if (!g) return;
-              const gd = g.graphData?.();
-              const meNode = gd?.nodes?.find((n: any) => n.id === selfNodeId);
-              if (meNode && meNode.x !== undefined) {
-                g.centerAt(meNode.x, meNode.y, 400);
-                setTimeout(() => g.zoomToFit(400, 80), 450);
-              } else {
-                g.zoomToFit(400, 80);
-              }
-              if (gd?.nodes) {
-                for (const n of gd.nodes) {
-                  if (n.fx !== undefined) { n.fx = undefined; n.fy = undefined; }
+      <div ref={containerRef} className={`relative border-3 border-nb-border bg-nb-surface overflow-hidden ${ui.isFullscreen ? 'flex-1' : ''}`} style={ui.isFullscreen ? undefined : { maxHeight: dimensions.height, minHeight: 300 }}>
+        {graphNotReady ? (
+          <div className="flex items-center justify-center h-[300px]">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-6 h-6 border-3 border-nb-lime border-t-transparent rounded-full animate-spin" />
+              <p className="font-mono text-sm uppercase text-nb-text">
+                {!ForceGraph ? 'LOADING GRAPH ENGINE...' : 'LOADING GRAPH DATA...'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <ForceGraph
+            ref={graphRef}
+            graphData={filteredData}
+            width={dimensions.width}
+            height={dimensions.height}
+            nodeCanvasObject={nodeCanvasObject}
+            nodePointerAreaPaint={nodePointerArea}
+            linkColor={linkColor}
+            linkWidth={linkWidth}
+            linkLineDash={adaptiveConfig.disableLinkDash ? undefined : (link: any) => (link.linkType === 'involves' || link.linkType === 'source') ? [4, 2] : []}
+            onNodeClick={(node: any) => {
+              dispatchUI({ type: 'selectNode', node });
+              trackEvent('graph_node_click', {
+                node_type: node.nodeType || 'unknown',
+              });
+            }}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            onNodeDragEnd={(node: any) => { node.fx = undefined; node.fy = undefined; }}
+            onBackgroundClick={() => dispatchUI({ type: 'clearFocus' })}
+            d3VelocityDecay={0.4}
+            cooldownTicks={adaptiveConfig.cooldownTicks}
+            onEngineStop={() => {
+              if (isInitialRender.current) {
+                isInitialRender.current = false;
+                const g = graphRef.current;
+                if (!g) return;
+                const gd = g.graphData?.();
+                const meNode = gd?.nodes?.find((n: any) => n.id === selfNodeId);
+                if (meNode && meNode.x !== undefined) {
+                  g.centerAt(meNode.x, meNode.y, 400);
+                  setTimeout(() => g.zoomToFit(400, 80), 450);
+                } else {
+                  g.zoomToFit(400, 80);
+                }
+                if (gd?.nodes) {
+                  for (const n of gd.nodes) {
+                    if (n.fx !== undefined) { n.fx = undefined; n.fy = undefined; }
+                  }
                 }
               }
-            }
-          }}
-          backgroundColor="#1A1A2E"
-        />
+            }}
+            backgroundColor="#1A1A2E"
+          />
+        )}
 
         {/* Keyboard shortcuts hint */}
         {ui.isFullscreen && (

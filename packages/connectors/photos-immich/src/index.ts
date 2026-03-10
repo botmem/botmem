@@ -47,7 +47,7 @@ interface ImmichAsset {
     rating?: number;
     timeZone?: string;
   };
-  people?: Array<{ id: string; name: string; birthDate?: string }>;
+  people?: Array<{ id: string; name: string; birthDate?: string; type?: string }>;
   tags?: Array<{ id: string; name: string; value?: string }>;
 }
 
@@ -91,11 +91,12 @@ export class ImmichConnector extends BaseConnector {
     const metadata = event.content?.metadata || {};
 
     // People from facial recognition — compound ID per person
-    const people = (metadata.people as Array<{ id: string; name: string }>) || [];
+    const people = (metadata.people as Array<{ id: string; name: string; type?: string }>) || [];
     for (const person of people) {
       if (!person.name) continue;
+      const entityType = person.type === 'pet' ? 'pet' : 'person';
       entities.push({
-        type: 'person',
+        type: entityType,
         id: `immich_person_id:${person.id}|name:${person.name}`,
         role: 'participant',
       });
@@ -282,6 +283,8 @@ export class ImmichConnector extends BaseConnector {
               id: p.id,
               name: p.name,
               birthDate: p.birthDate,
+              type: p.type,
+              thumbnailUrl: `${host}/api/people/${p.id}/thumbnail`,
             })),
             // Tags
             tags: (asset.tags ?? []).map((t) => t.value || t.name).filter(Boolean),

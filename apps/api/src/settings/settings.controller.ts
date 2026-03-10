@@ -13,9 +13,9 @@ export class SettingsController {
 
   @RequiresJwt()
   @Patch()
-  update(@Body() body: Record<string, string>) {
+  async update(@Body() body: Record<string, string>) {
     for (const [key, value] of Object.entries(body)) {
-      this.settingsService.set(key, String(value));
+      await this.settingsService.set(key, String(value));
     }
     return this.settingsService.getAll();
   }

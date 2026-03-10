@@ -5,10 +5,11 @@ import { settings } from '../db/schema';
 type SettingChangeListener = (key: string, value: string) => void;
 
 const DEFAULTS: Record<string, string> = {
-  sync_concurrency: '2',
-  embed_concurrency: '12',
-  enrich_concurrency: '6',
-  file_concurrency: '4',
+  sync_concurrency: '8',
+  embed_concurrency: '64',
+  enrich_concurrency: '64',
+  clean_concurrency: '64',
+  file_concurrency: '8',
   sync_debug_limit: '0',
 };
 

@@ -106,11 +106,12 @@ export const api = {
     >('/jobs/queues'),
 
   // Logs
-  listLogs: (params?: { jobId?: string; accountId?: string; limit?: number }) => {
+  listLogs: (params?: { jobId?: string; accountId?: string; limit?: number; offset?: number }) => {
     const query = new URLSearchParams();
     if (params?.jobId) query.set('jobId', params.jobId);
     if (params?.accountId) query.set('accountId', params.accountId);
     if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
     return request<{ logs: any[]; total: number }>(`/logs?${query}`);
   },
 
@@ -163,11 +164,12 @@ export const api = {
     const qs = query.toString();
     return request<any>(`/memories/stats${qs ? `?${qs}` : ''}`);
   },
-  getGraphData: (params?: { memoryLimit?: number; linkLimit?: number; memoryBankId?: string }) => {
+  getGraphData: (params?: { memoryLimit?: number; linkLimit?: number; memoryBankId?: string; memoryIds?: string[] }) => {
     const query = new URLSearchParams();
     if (params?.memoryLimit) query.set('memoryLimit', String(params.memoryLimit));
     if (params?.linkLimit) query.set('linkLimit', String(params.linkLimit));
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
+    if (params?.memoryIds?.length) query.set('memoryIds', params.memoryIds.join(','));
     const qs = query.toString();
     return request<any>(`/memories/graph${qs ? `?${qs}` : ''}`);
   },
@@ -313,6 +315,11 @@ export const api = {
         body: JSON.stringify(connectorType ? { connectorType } : {}),
       },
     ),
+
+  // Billing
+  getBillingInfo: () => request<{ enabled: boolean; plan?: string; status?: string; currentPeriodEnd?: string | null; cancelAtPeriodEnd?: boolean }>('/billing/info'),
+  createCheckoutSession: () => request<{ url: string }>('/billing/checkout', { method: 'POST' }),
+  createPortalSession: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
 
   // Admin / Danger Zone
   purgeMemories: () => request<any>('/memories/purge', { method: 'POST' }),

@@ -11,6 +11,7 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
+import { ConfigService } from '../config/config.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { rawEvents, memories, accounts, users } from '../db/schema';
 
@@ -28,18 +29,20 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     private jobsService: JobsService,
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
+    private config: ConfigService,
   ) {
     super();
   }
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[enrich worker] ${err.message}`));
-    const concurrency = parseInt(await this.settingsService.get('enrich_concurrency'), 10) || 8;
+    const defaultC = this.config.aiConcurrency.enrich;
+    const concurrency = parseInt(await this.settingsService.get('enrich_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'enrich_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 8;
+        this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
     });
   }
@@ -91,7 +94,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       : await readMemory(this.dbService.db);
 
     // Fire afterEnrich hook (fire-and-forget)
-    void this.pluginRegistry.fireHook('afterEnrich', {
+    this.pluginRegistry.fireHook('afterEnrich', {
       id: memoryId,
       text: mem?.text,
       sourceType: mem?.sourceType,
@@ -99,16 +102,15 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       eventTime: undefined,
       entities: mem?.entities,
       factuality: mem?.factuality,
+    }).catch((err) => {
+      this.logger.warn(
+        `afterEnrich hook failed for memory ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     });
 
-    // Encrypt memory fields at rest before marking as done (blocking — must succeed or log clearly)
-    try {
-      await this.encryptMemoryAtRest(memoryId, ownerUserId ?? undefined);
-    } catch (err) {
-      this.logger.warn(
-        `[Enrich] encryptMemoryAtRest failed for ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    // Encrypt memory fields at rest — must succeed before marking done.
+    // If user key is missing, this throws and BullMQ retries with backoff.
+    await this.encryptMemoryAtRest(memoryId, ownerUserId ?? undefined);
 
     // Mark memory as done + pipeline complete — use withUserId scope if available
     const updateDone = (db: typeof this.dbService.db) =>
@@ -132,7 +134,21 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     // Emit graph delta for incremental graph updates
     this.emitGraphDelta(memoryId);
 
-    // Dashboard stats are fetched per-user via REST — no global WS broadcast
+    // Emit dashboard signals (debounced) — frontend re-fetches via REST
+    this.events.emitDebounced(
+      'dashboard:queue-stats',
+      'dashboard',
+      'dashboard:queue-stats-changed',
+      async () => ({ ts: Date.now() }),
+      2000,
+    );
+    this.events.emitDebounced(
+      'dashboard:memory-stats',
+      'dashboard',
+      'dashboard:memory-stats-changed',
+      async () => ({ ts: Date.now() }),
+      2000,
+    );
 
     // Advance parent job progress
     await this.advanceAndComplete(parentJobId);
@@ -171,58 +187,19 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     }
 
     if (!ownerUserId) {
-      // No owner -- fall back to APP_SECRET encryption
-      const enc = this.crypto.encryptMemoryFields({
-        text: mem.text,
-        entities: mem.entities,
-        claims: mem.claims,
-        metadata: mem.metadata,
-      });
-      const writeAppSecret = (db: typeof this.dbService.db) =>
-        db
-          .update(memories)
-          .set({
-            text: enc.text,
-            entities: enc.entities,
-            claims: enc.claims,
-            metadata: enc.metadata,
-            keyVersion: 0,
-          })
-          .where(eq(memories.id, memoryId));
-      // No ownerUserId means no RLS scope — write unscoped
-      await writeAppSecret(this.dbService.db);
+      // Orphaned memory with no owner — skip encryption (should rarely happen)
+      this.logger.warn(`[Enrich] No owner for memory ${memoryId}, skipping encryption`);
       return;
     }
 
     const userKey = await this.userKeyService.getDek(ownerUserId);
     if (!userKey) {
-      // User key not in memory or Redis — fall back to APP_SECRET encryption
-      this.logger.debug(
-        `[Enrich] User key not available for ${ownerUserId}, falling back to APP_SECRET`,
+      // User's recovery key not in cache — throw to trigger BullMQ retry.
+      // The user must submit their recovery key (via login or /recovery-key endpoint)
+      // for encryption to succeed. Retries with exponential backoff give time for that.
+      throw new Error(
+        `User key not available. Submit recovery key to unlock encryption.`,
       );
-      const enc = this.crypto.encryptMemoryFields({
-        text: mem.text,
-        entities: mem.entities,
-        claims: mem.claims,
-        metadata: mem.metadata,
-      });
-      const writeFallback = (db: typeof this.dbService.db) =>
-        db
-          .update(memories)
-          .set({
-            text: enc.text,
-            entities: enc.entities,
-            claims: enc.claims,
-            metadata: enc.metadata,
-            keyVersion: 0,
-          })
-          .where(eq(memories.id, memoryId));
-      if (ownerUserId) {
-        await this.dbService.withUserId(ownerUserId, writeFallback);
-      } else {
-        await writeFallback(this.dbService.db);
-      }
-      return;
     }
 
     // Get user's current keyVersion — users table is NOT RLS-protected, unscoped OK

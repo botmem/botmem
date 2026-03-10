@@ -5,8 +5,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { ConfigService } from '../config/config.service';
 
 const SCHEDULE_CRON: Record<string, string> = {
-  '15min': '*/15 * * * *',
   hourly: '0 * * * *',
+  'every-6h': '0 */6 * * *',
   daily: '0 0 * * *',
 };
 

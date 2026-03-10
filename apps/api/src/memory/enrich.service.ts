@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { OllamaService } from './ollama.service';
+import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
@@ -18,7 +18,7 @@ const SIMILAR_MEMORY_LIMIT = 5;
 export class EnrichService {
   constructor(
     private dbService: DbService,
-    private ollama: OllamaService,
+    private ai: AiService,
     private qdrant: QdrantService,
     private logsService: LogsService,
     private events: EventsService,
@@ -163,7 +163,7 @@ export class EnrichService {
 
   private async extractEntities(text: string): Promise<Array<{ type: string; value: string }>> {
     try {
-      const response = await this.ollama.generate(
+      const response = await this.ai.generate(
         entityExtractionPrompt(text),
         undefined,
         2,
@@ -182,7 +182,7 @@ export class EnrichService {
     connectorType: string,
   ): Promise<{ label: string; confidence: number; rationale: string } | null> {
     try {
-      const response = await this.ollama.generate(
+      const response = await this.ai.generate(
         factualityPrompt(text, sourceType, connectorType),
       );
       const parsed = this.parseJsonObject(response);

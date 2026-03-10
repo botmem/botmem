@@ -21,7 +21,7 @@ export class QdrantService implements OnModuleInit {
   async onModuleInit() {
     // Ensure the collection exists at startup with the configured embed dimension.
     try {
-      await this.ensureCollection(this.config.ollamaEmbedDimension);
+      await this.ensureCollection(this.config.embedDimension);
       // Ensure HNSW index is built even for small collections
       await this.ensureIndexed();
       // Create datetime payload index on event_time for temporal filtering

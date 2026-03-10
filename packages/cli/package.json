@@ -1,19 +1,37 @@
 {
   "name": "@botmem/cli",
-  "version": "0.0.1",
-  "private": true,
-  "bin": {
-    "botmem": "./dist/cli.js"
+  "version": "0.1.0",
+  "description": "CLI for Botmem — query and manage your personal memory system",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/botmem/open-core.git",
+    "directory": "packages/cli"
   },
+  "homepage": "https://github.com/botmem/open-core/tree/main/packages/cli",
+  "keywords": ["botmem", "memory", "rag", "cli", "personal-knowledge"],
+  "bin": {
+    "botmem": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "tsc",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.1.0"
   }
 }

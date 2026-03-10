@@ -166,11 +166,8 @@ describe('EmbedProcessor', () => {
       getStats: vi.fn().mockResolvedValue({ total: 0 }),
       buildGraphDelta: vi.fn().mockResolvedValue(null),
     };
-    const cryptoService = {
-      encrypt: vi.fn().mockImplementation((v: string) => v),
-      decrypt: vi.fn().mockImplementation((v: string) => v),
-      encryptMemoryFields: vi.fn().mockImplementation((f: any) => f),
-      decryptMemoryFields: vi.fn().mockImplementation((m: any) => m),
+    const configService = {
+      aiConcurrency: { embed: 2 },
     };
 
     const processor = new EmbedProcessor(
@@ -187,7 +184,7 @@ describe('EmbedProcessor', () => {
       createMockSettingsService() as any,
       createMockPluginRegistry() as any,
       { capture: vi.fn() } as any,
-      cryptoService as any,
+      configService as any,
       enrichQueue as any,
     );
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AccountsController } from '../accounts.controller';
 import { AccountsService } from '../accounts.service';
+import { DbService } from '../../db/db.service';
 
 function mockAccountsService() {
   return {
@@ -11,6 +12,26 @@ function mockAccountsService() {
     remove: vi.fn(),
     findByTypeAndIdentifier: vi.fn().mockResolvedValue(null),
   } as unknown as AccountsService;
+}
+
+function mockDbService() {
+  return {
+    db: {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          groupBy: vi.fn().mockResolvedValue([]),
+          where: vi.fn().mockResolvedValue([]),
+          innerJoin: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                groupBy: vi.fn().mockResolvedValue([]),
+              }),
+            }),
+          }),
+        }),
+      }),
+    },
+  } as unknown as DbService;
 }
 
 const fakeRow = {
@@ -29,7 +50,7 @@ describe('AccountsController', () => {
 
   beforeEach(() => {
     service = mockAccountsService();
-    controller = new AccountsController(service as any);
+    controller = new AccountsController(service as any, mockDbService() as any);
   });
 
   it('list returns mapped accounts', async () => {
@@ -37,13 +58,13 @@ describe('AccountsController', () => {
     const result = await controller.list({ id: 'user-1' });
     expect(result.accounts).toHaveLength(1);
     expect(result.accounts[0].type).toBe('gmail');
-    expect(result.accounts[0].memoriesIngested).toBe(10);
+    expect(result.accounts[0].memoriesIngested).toBe(0);
     expect(service.getAll).toHaveBeenCalledWith('user-1');
   });
 
   it('get returns single mapped account', async () => {
-    (service.getById as any).mockResolvedValue(fakeRow);
-    const result = await controller.get('a1');
+    (service.getById as any).mockResolvedValue({ ...fakeRow, userId: 'user-1' });
+    const result = await controller.get({ id: 'user-1' }, 'a1');
     expect(result.id).toBe('a1');
     expect(result.type).toBe('gmail');
   });

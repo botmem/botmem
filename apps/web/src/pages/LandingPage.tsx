@@ -6,6 +6,25 @@ import { ThemeToggle } from '../components/ui/ThemeToggle';
 
 const GITHUB_URL = 'https://github.com/botmem/open-core';
 
+function CheckIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-nb-lime shrink-0 mt-0.5"
+      aria-hidden="true"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
 function SkipToContent() {
   return (
     <a
@@ -45,6 +64,12 @@ function Navbar() {
             className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
           >
             OPEN SOURCE
+          </a>
+          <a
+            href="#pricing"
+            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            PRICING
           </a>
         </div>
         <div className="flex items-center gap-3">
@@ -446,6 +471,115 @@ function TechStrip() {
   );
 }
 
+const FREE_FEATURES = [
+  'All 6 connectors',
+  'Unlimited memories',
+  'Local AI enrichment',
+  'Contact graph',
+  'Memory graph visualization',
+  'CLI + REST API',
+  'Community support',
+];
+
+const PRO_FEATURES = [
+  'Everything in Free',
+  'Cloud-hosted infrastructure',
+  'Managed Qdrant + Redis',
+  'Priority enrichment pipeline',
+  'Advanced analytics dashboard',
+  'Full API access + webhooks',
+  'Email support',
+  'Automatic backups',
+];
+
+function PricingSection() {
+  return (
+    <section
+      id="pricing"
+      className="px-4 sm:px-6 py-20 border-t-4 border-nb-border"
+      aria-labelledby="pricing-heading"
+    >
+      <div className="max-w-6xl mx-auto">
+        <h2
+          id="pricing-heading"
+          className="font-display text-3xl sm:text-4xl font-bold uppercase text-center"
+        >
+          SIMPLE, <span className="text-nb-lime">HONEST</span> PRICING
+        </h2>
+        <p className="font-mono text-sm text-nb-muted mt-4 text-center max-w-xl mx-auto">
+          Self-host for free or let us handle the infrastructure. Same open-source code either way.
+        </p>
+        <div className="mt-12 grid sm:grid-cols-2 gap-6 max-w-4xl mx-auto">
+          {/* Free tier */}
+          <div className="bg-nb-surface border-3 border-nb-border p-6 shadow-nb flex flex-col">
+            <div className="mb-6">
+              <h3 className="font-display text-lg font-bold tracking-wide uppercase">FREE</h3>
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="font-display text-4xl font-bold">$0</span>
+                <span className="font-mono text-sm text-nb-muted">/forever</span>
+              </div>
+              <p className="font-mono text-sm text-nb-muted mt-2">
+                Self-hosted on your hardware. Full control.
+              </p>
+            </div>
+            <ul className="space-y-3 flex-1" aria-label="Free tier features">
+              {FREE_FEATURES.map((f) => (
+                <li key={f} className="flex items-start gap-2 font-mono text-sm text-nb-text">
+                  <CheckIcon />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-8 font-display text-sm font-bold px-8 py-3 bg-transparent text-nb-text border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none hover:bg-nb-surface active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
+            >
+              SELF-HOST FREE
+            </a>
+          </div>
+          {/* Pro tier */}
+          <div className="bg-nb-surface border-3 border-nb-lime p-6 shadow-nb flex flex-col relative">
+            <div className="absolute -top-4 right-4 bg-nb-lime text-black font-display text-xs font-bold px-3 py-1 border-3 border-nb-border">
+              RECOMMENDED
+            </div>
+            <div className="mb-6">
+              <h3 className="font-display text-lg font-bold tracking-wide uppercase text-nb-lime">
+                PRO
+              </h3>
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="font-display text-4xl font-bold">$14.99</span>
+                <span className="font-mono text-sm text-nb-muted">/month</span>
+              </div>
+              <p className="font-mono text-sm text-nb-muted mt-2">
+                We handle the infrastructure. You keep the memories.
+              </p>
+            </div>
+            <ul className="space-y-3 flex-1" aria-label="Pro tier features">
+              {PRO_FEATURES.map((f) => (
+                <li key={f} className="flex items-start gap-2 font-mono text-sm text-nb-text">
+                  <CheckIcon />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+            <Link
+              to="/signup"
+              className="mt-8 font-display text-sm font-bold px-8 py-3 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
+            >
+              START PRO
+            </Link>
+            <p className="font-mono text-xs text-nb-muted mt-3 text-center">
+              14-day free trial · Cancel anytime
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function OpenSourceCTA() {
   return (
     <section id="open-source" className="px-4 sm:px-6 py-24" aria-labelledby="oss-heading">
@@ -455,6 +589,10 @@ function OpenSourceCTA() {
         </h2>
         <p className="font-mono text-sm text-nb-muted mt-4 tracking-widest uppercase">
           MIT License · Auditable · Extensible
+        </p>
+        <p className="font-mono text-sm text-nb-muted mt-3 max-w-lg mx-auto leading-relaxed">
+          Self-host on your own hardware for free, or let us run it for you with Botmem Pro.
+          Same code, same features, your choice.
         </p>
         <div className="mt-10 flex flex-wrap justify-center gap-4">
           <a
@@ -499,6 +637,12 @@ function Footer() {
           >
             Docs
           </a>
+          <Link
+            to="/pricing"
+            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            Pricing
+          </Link>
         </div>
       </div>
     </footer>
@@ -548,6 +692,9 @@ export function LandingPage() {
           <HowItWorks />
         </div>
         <TechStrip />
+        <div className="landing-fade-in">
+          <PricingSection />
+        </div>
         <div className="landing-fade-in">
           <OpenSourceCTA />
         </div>

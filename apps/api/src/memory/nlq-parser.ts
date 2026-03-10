@@ -49,13 +49,12 @@ const SOURCE_TYPE_MAP: [RegExp, string][] = [
 ];
 
 /**
- * Extract the local date/time from a compromise-dates string and treat it as UTC.
- * compromise-dates returns "2026-03-02T00:00:00.000+04:00" — we want "2026-03-02T00:00:00.000Z"
- * because our system stores all dates in UTC and the user means "that calendar day".
+ * Convert a compromise-dates timestamp to UTC ISO string.
+ * compromise-dates returns local-offset strings like "2026-03-02T00:00:00.000+04:00".
+ * We convert properly to UTC so temporal filters match our UTC-stored event_time.
  */
 function localToUTC(dateStr: string): string {
-  // Strip timezone offset, replace with Z
-  return dateStr.replace(/[+-]\d{2}:\d{2}$/, 'Z');
+  return new Date(dateStr).toISOString();
 }
 
 /**

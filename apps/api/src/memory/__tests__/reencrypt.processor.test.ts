@@ -23,6 +23,7 @@ function makeJob(overrides: Record<string, any> = {}) {
 
 function makeCrypto() {
   return {
+    isEncrypted: vi.fn().mockReturnValue(true),
     decrypt: vi.fn().mockImplementation((v: string) => `dec-app-${v}`),
     decryptWithKey: vi.fn().mockImplementation((v: string) => `dec-user-${v}`),
     encryptWithKey: vi.fn().mockImplementation((v: string) => `enc-new-${v}`),

@@ -3,6 +3,7 @@ import { formatDate } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { Avatar } from '../ui/Avatar';
 import { api } from '../../lib/api';
 import { IDENTIFIER_COLORS } from './constants';
 import { useContactStore } from '../../store/contactStore';
@@ -127,21 +128,10 @@ export function ContactDetailPanel({
       </div>
 
       <div className="flex flex-col gap-4">
-        {/* Avatar gallery */}
-        {contact.avatars.length > 0 && (
-          <div className="flex gap-2 flex-wrap">
-            {contact.avatars.map((av, i) => (
-              <div key={i} className="flex flex-col items-center">
-                <img
-                  src={av.url}
-                  alt={contact.displayName}
-                  className="border-3 border-nb-border w-16 h-16 object-cover"
-                />
-                <span className="font-mono text-[10px] text-nb-muted mt-0.5">{av.source}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Avatar */}
+        <div className="flex gap-2 flex-wrap">
+          <Avatar contactId={contact.id} fallbackInitials={contact.displayName.slice(0, 2).toUpperCase()} isSelf={isSelf} size="lg" />
+        </div>
 
         {/* Editable name */}
         <div>
@@ -302,7 +292,9 @@ export function ContactDetailPanel({
 
         {/* Delete */}
         <Button variant="danger" size="sm" onClick={handleDelete}>
-          {confirmDelete ? 'CONFIRM DELETE' : 'DELETE PERSON'}
+          {confirmDelete
+            ? 'CONFIRM DELETE'
+            : `DELETE ${(contact.entityType || 'person').toUpperCase()}`}
         </Button>
       </div>
     </Card>

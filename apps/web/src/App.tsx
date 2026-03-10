@@ -13,6 +13,8 @@ import { ContactsPage } from './pages/ContactsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { MePage } from './pages/MePage';
 import { LandingPage } from './pages/LandingPage';
+import { PricingPage } from './pages/PricingPage';
+import OAuthConsentPage from './pages/OAuthConsentPage';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { useAuth } from './hooks/useAuth';
@@ -97,6 +99,8 @@ export function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/landing" element={<LandingPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/oauth/consent" element={<OAuthConsentPage />} />
         <Route
           path="/onboarding"
           element={

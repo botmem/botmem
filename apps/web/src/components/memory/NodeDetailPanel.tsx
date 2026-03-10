@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import type { GraphNode } from '@botmem/shared';
 import { CONNECTOR_COLORS, formatDate } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { AuthedImage } from '../ui/AuthedImage';
+import { Avatar } from '../ui/Avatar';
+import { ImageLightbox } from '../ui/ImageLightbox';
+import { MemoryDetailCore } from './MemoryDetailCore';
 import { IDENTIFIER_COLORS } from '../contacts/constants';
 
 const SELF_COLOR = '#C4F53A';
@@ -27,6 +30,7 @@ export function NodeDetailPanel({
   const isSelf = selfNodeId === selectedNode.id;
   const contactDetail = contactInfo?.detail ?? null;
   const contactMemories = contactInfo?.memories ?? [];
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   return (
     <div className="absolute top-2 right-2 w-72 z-10">
@@ -70,28 +74,12 @@ export function NodeDetailPanel({
                 {contactDetail.displayName}
               </div>
 
-              {contactDetail.avatars &&
-                (() => {
-                  try {
-                    const avList = Array.isArray(contactDetail.avatars)
-                      ? contactDetail.avatars
-                      : JSON.parse(contactDetail.avatars || '[]');
-                    return avList.length > 0 ? (
-                      <div className="flex gap-2 flex-wrap">
-                        {avList.map((av: any) => (
-                          <img
-                            key={av.url}
-                            src={av.url}
-                            alt=""
-                            className="border-2 border-nb-border w-12 h-12 object-cover"
-                          />
-                        ))}
-                      </div>
-                    ) : null;
-                  } catch {
-                    return null;
-                  }
-                })()}
+              <Avatar
+                contactId={contactDetail.id}
+                fallbackInitials={contactDetail.displayName?.slice(0, 2).toUpperCase() || '?'}
+                isSelf={isSelf}
+                size="md"
+              />
 
               <div className="flex gap-1 flex-wrap">
                 {(selectedNode.connectors || []).map((c: string) => (
@@ -172,132 +160,23 @@ export function NodeDetailPanel({
             <div className="font-mono text-xs text-nb-muted">Loading...</div>
           )
         ) : (
-          <>
-            <div className="flex gap-1 flex-wrap mb-2">
-              {selectedNode.nodeType === 'connector' ? (
-                <span
-                  className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase"
-                  style={{
-                    backgroundColor: CONNECTOR_COLORS[selectedNode.source] || '#999',
-                    color: '#000',
-                  }}
-                >
-                  {selectedNode.source}
-                </span>
-              ) : (
-                <>
-                  <span
-                    className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase"
-                    style={{
-                      backgroundColor:
-                        CONNECTOR_COLORS[selectedNode.sourceConnector] ||
-                        CONNECTOR_COLORS[selectedNode.source] ||
-                        '#999',
-                      color: '#000',
-                    }}
-                  >
-                    {selectedNode.sourceConnector || selectedNode.source}
-                  </span>
-                  <span className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-nb-text">
-                    {selectedNode.source}
-                  </span>
-                </>
-              )}
-            </div>
-
-            {selectedNode.nodeType === 'memory' &&
-              (selectedNode.source === 'file' || selectedNode.source === 'photo') &&
-              !!selectedNode.metadata?.fileUrl && (
-                <div className="border-3 border-nb-border overflow-hidden mb-2">
-                  <AuthedImage
-                    src={`/api/memories/${selectedNode.id}/thumbnail`}
-                    className="w-full h-auto max-h-48 object-contain bg-black"
-                    loading="lazy"
-                  />
-                </div>
-              )}
-
-            {selectedNode.text && (
-              <div className="border-3 border-nb-border p-2 bg-nb-surface-muted mb-2 max-h-32 overflow-y-auto">
-                <p className="font-mono text-xs text-nb-text whitespace-pre-wrap break-words">
-                  {selectedNode.text}
-                </p>
-              </div>
-            )}
-
-            {selectedNode.eventTime && (
-              <div className="font-mono text-[10px] text-nb-muted mb-2">
-                EVENT: {new Date(selectedNode.eventTime).toLocaleDateString()}{' '}
-                {new Date(selectedNode.eventTime).toLocaleTimeString()}
-              </div>
-            )}
-
-            <div className="flex gap-3 mb-2 font-mono text-[10px]">
-              <span className="text-nb-muted">
-                Connections:{' '}
-                <span className="text-nb-text font-bold">
-                  {connectionCounts.get(selectedNode.id) || 0}
-                </span>
-              </span>
-              {selectedNode.nodeType === 'memory' && selectedNode.importance != null && (
-                <span className="text-nb-muted">
-                  Importance:{' '}
-                  <span className="text-nb-text font-bold">
-                    {(selectedNode.importance * 100).toFixed(0)}%
-                  </span>
-                </span>
-              )}
-            </div>
-
-            {selectedNode.nodeType === 'memory' && selectedNode.weights && (
-              <div className="mb-2">
-                <span className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted block mb-1">
-                  Weight Breakdown
-                </span>
-                <div className="flex flex-col gap-1">
-                  {Object.entries(selectedNode.weights).map(([key, val]) => (
-                    <div key={key} className="flex items-center gap-1.5">
-                      <span className="font-mono text-[10px] uppercase w-16 text-nb-muted">
-                        {key}
-                      </span>
-                      <div className="flex-1 h-3 border border-nb-border bg-nb-surface-muted">
-                        <div
-                          className="h-full"
-                          style={{
-                            width: `${(typeof val === 'number' ? val : 0) * 100}%`,
-                            backgroundColor: key === 'final' ? '#C4F53A' : '#A855F7',
-                          }}
-                        />
-                      </div>
-                      <span className="font-mono text-[10px] w-8 text-right text-nb-text">
-                        {(typeof val === 'number' ? val * 100 : 0).toFixed(0)}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selectedNode.entities && selectedNode.entities.length > 0 && (
-              <div>
-                <span className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted block mb-1">
-                  Entities
-                </span>
-                <div className="flex gap-1 flex-wrap">
-                  {selectedNode.entities.map((e: string) => (
-                    <span
-                      key={e}
-                      className="border border-nb-border px-1.5 py-0.5 font-mono text-[10px] bg-nb-surface text-nb-text"
-                    >
-                      {e}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
+          <MemoryDetailCore
+            id={selectedNode.id}
+            source={selectedNode.source}
+            sourceConnector={selectedNode.sourceConnector}
+            text={selectedNode.text || ''}
+            eventTime={selectedNode.eventTime}
+            weights={selectedNode.weights}
+            entities={selectedNode.entities}
+            metadata={selectedNode.metadata}
+            importance={selectedNode.nodeType === 'memory' ? selectedNode.importance : undefined}
+            connectionCount={connectionCounts.get(selectedNode.id) || 0}
+            compact
+            onThumbnailClick={setLightboxSrc}
+          />
         )}
       </Card>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </div>
   );
 }

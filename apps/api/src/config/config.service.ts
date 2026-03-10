@@ -31,6 +31,11 @@ export class ConfigService implements OnModuleInit {
         value: this.jwtRefreshSecret,
         default: 'dev-refresh-secret-change-in-production',
       },
+      {
+        name: 'OAUTH_JWT_SECRET',
+        value: this.oauthJwtSecret,
+        default: 'dev-oauth-jwt-secret-change-in-production',
+      },
     ];
 
     for (const { name, value, default: def } of defaults) {
@@ -234,6 +239,34 @@ export class ConfigService implements OnModuleInit {
 
   get openrouterVlModel(): string {
     return process.env.OPENROUTER_VL_MODEL || 'google/gemma-3-4b-it';
+  }
+
+  // --- Stripe Billing ---
+
+  get stripeSecretKey(): string {
+    return process.env.STRIPE_SECRET_KEY || '';
+  }
+
+  get stripeWebhookSecret(): string {
+    return process.env.STRIPE_WEBHOOK_SECRET || '';
+  }
+
+  get stripePriceId(): string {
+    return process.env.STRIPE_PRO_PRICE_ID || '';
+  }
+
+  get isSelfHosted(): boolean {
+    return !this.stripeSecretKey;
+  }
+
+  // --- OAuth ---
+
+  get oauthJwtSecret(): string {
+    return process.env.OAUTH_JWT_SECRET || 'dev-oauth-jwt-secret-change-in-production';
+  }
+
+  get baseUrl(): string {
+    return process.env.BASE_URL || this.frontendUrl;
   }
 
   get embedDimension(): number {

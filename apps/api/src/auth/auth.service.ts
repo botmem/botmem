@@ -8,7 +8,7 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
-import { connectorCredentials } from '../db/schema';
+import { connectorCredentials, users } from '../db/schema';
 
 @Injectable()
 export class AuthService {
@@ -77,12 +77,10 @@ export class AuthService {
     auth: Record<string, unknown>,
     userId?: string,
   ) {
-    this.logger.log(
-      `[Auth] createAndSync called: type=${connectorType}, identifier=${identifier}, userId=${userId}`,
-    );
+    this.logger.log(`[Auth] createAndSync called: type=${connectorType}`);
     const lockKey = `${connectorType}:${identifier}`;
     if (this.creatingAccounts.has(lockKey)) {
-      this.logger.warn(`[Auth] createAndSync: lock already held for ${lockKey}, waiting...`);
+      this.logger.warn(`[Auth] createAndSync: lock already held for ${connectorType}, waiting...`);
       await new Promise((r) => setTimeout(r, 2000));
       const existing = await this.accountsService.findByTypeAndIdentifier(
         connectorType,
@@ -231,7 +229,7 @@ export class AuthService {
         const auth = payload.auth;
         const jid = auth?.raw?.jid || '';
         const identifier = jid.split('@')[0]?.split(':')[0] || connectorType;
-        this.logger.log(`[Auth] Creating account for ${connectorType} identifier=${identifier}`);
+        this.logger.log(`[Auth] Creating account for ${connectorType}`);
 
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'connecting',
@@ -244,7 +242,7 @@ export class AuthService {
           auth as Record<string, unknown>,
           userId,
         );
-        this.logger.log(`[Auth] Account created: id=${account.id}, identifier=${identifier}`);
+        this.logger.log(`[Auth] Account created: id=${account.id}`);
 
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'success',
@@ -293,13 +291,27 @@ export class AuthService {
     const auth = await connector.completeAuth(mergedParams);
     this.pendingConfigs.delete(connectorType);
 
+    // Resolve userId: prefer pending (set during initiate), fall back to single-user lookup
+    let userId = pending?.userId;
+    if (!userId) {
+      const allUsers = await this.dbService.db.select({ id: users.id }).from(users).limit(2);
+      if (allUsers.length === 1) {
+        userId = allUsers[0].id;
+        this.logger.warn(`[Auth] OAuth callback had no userId, inferred from single user`);
+      } else {
+        throw new BadRequestException(
+          'OAuth callback failed: could not determine user. Please re-initiate the auth flow while logged in.',
+        );
+      }
+    }
+
     const identifier =
       auth.identifier || (auth as any).raw?.email || (params.identifier as string) || connectorType;
     const account = await this.createAndSync(
       connectorType,
       identifier,
       auth as Record<string, unknown>,
-      pending?.userId,
+      userId,
     );
 
     return { account, returnTo: pending?.returnTo };

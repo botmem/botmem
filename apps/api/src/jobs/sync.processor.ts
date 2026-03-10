@@ -38,7 +38,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[sync worker] ${err.message}`));
-    const concurrency = parseInt(await this.settingsService.get('sync_concurrency'), 10) || 2;
+    const defaultSyncC = this.configService.aiBackend === 'openrouter' ? 8 : 2;
+    const concurrency = parseInt(await this.settingsService.get('sync_concurrency'), 10) || defaultSyncC;
     this.worker.concurrency = concurrency;
     // Settings-based sync_debug_limit takes priority over env var
     const settingsLimit = parseInt(await this.settingsService.get('sync_debug_limit'), 10);
@@ -48,7 +49,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         : this.configService.syncDebugLimit;
     this.settingsService.onChange((key, value) => {
       if (key === 'sync_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 2;
+        this.worker.concurrency = parseInt(value, 10) || defaultSyncC;
       }
       if (key === 'sync_debug_limit') {
         BaseConnector.DEBUG_SYNC_LIMIT = parseInt(value, 10) || 0;
@@ -195,6 +196,15 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
       // Wait for all pending DB writes / embed enqueues to finish
       await Promise.allSettled(pendingWrites);
+
+      // Emit dashboard queue stats signal (debounced)
+      this.events.emitDebounced(
+        'dashboard:queue-stats',
+        'dashboard',
+        'dashboard:queue-stats-changed',
+        async () => ({ ts: Date.now() }),
+        2000,
+      );
 
       if (totalProcessed === 0) {
         // Nothing to process through pipeline — mark done immediately
