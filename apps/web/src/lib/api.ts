@@ -60,41 +60,54 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Connectors
-  listConnectors: () => request<{ connectors: any[] }>('/connectors'),
-  getConnectorSchema: (type: string) => request<{ schema: any }>(`/connectors/${type}/schema`),
+  listConnectors: () => request<{ connectors: Record<string, unknown>[] }>('/connectors'),
+  getConnectorSchema: (type: string) =>
+    request<{ schema: Record<string, unknown> }>(`/connectors/${type}/schema`),
   getConnectorStatus: (type: string) =>
     request<{ ready: boolean; status: string; message?: string }>(`/connectors/${type}/status`),
 
   // Accounts
-  listAccounts: () => request<{ accounts: any[] }>('/accounts'),
+  listAccounts: () => request<{ accounts: Record<string, unknown>[] }>('/accounts'),
   createAccount: (data: { connectorType: string; identifier: string }) =>
-    request<any>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
+    request<Record<string, unknown>>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
   updateAccount: (id: string, data: { schedule?: string }) =>
-    request<any>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteAccount: (id: string) => request<any>(`/accounts/${id}`, { method: 'DELETE' }),
+    request<Record<string, unknown>>(`/accounts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteAccount: (id: string) =>
+    request<Record<string, unknown>>(`/accounts/${id}`, { method: 'DELETE' }),
 
   // Auth
   hasCredentials: (type: string) =>
     request<{ hasSavedCredentials: boolean }>(`/auth/${type}/has-credentials`),
   initiateAuth: (type: string, config: Record<string, unknown>) =>
-    request<any>(`/auth/${type}/initiate`, { method: 'POST', body: JSON.stringify({ config }) }),
+    request<Record<string, unknown>>(`/auth/${type}/initiate`, {
+      method: 'POST',
+      body: JSON.stringify({ config }),
+    }),
   completeAuth: (type: string, params: Record<string, unknown>) =>
-    request<any>(`/auth/${type}/complete`, { method: 'POST', body: JSON.stringify({ params }) }),
+    request<Record<string, unknown>>(`/auth/${type}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ params }),
+    }),
   reauthAccount: (type: string, accountId: string, config: Record<string, unknown>) =>
-    request<any>(`/auth/${type}/reauth/${accountId}`, {
+    request<Record<string, unknown>>(`/auth/${type}/reauth/${accountId}`, {
       method: 'POST',
       body: JSON.stringify({ config }),
     }),
 
   // Jobs
   listJobs: (accountId?: string) =>
-    request<{ jobs: any[] }>(`/jobs${accountId ? `?accountId=${accountId}` : ''}`),
+    request<{ jobs: Record<string, unknown>[] }>(
+      `/jobs${accountId ? `?accountId=${accountId}` : ''}`,
+    ),
   triggerSync: (accountId: string, memoryBankId?: string) =>
-    request<{ job: any }>(`/jobs/sync/${accountId}`, {
+    request<{ job: Record<string, unknown> }>(`/jobs/sync/${accountId}`, {
       method: 'POST',
       body: JSON.stringify({ memoryBankId: memoryBankId || undefined }),
     }),
-  cancelJob: (id: string) => request<any>(`/jobs/${id}`, { method: 'DELETE' }),
+  cancelJob: (id: string) => request<Record<string, unknown>>(`/jobs/${id}`, { method: 'DELETE' }),
   retryFailedJobs: () =>
     request<{ ok: boolean; retried: number }>('/jobs/retry-failed', { method: 'POST' }),
   getQueueStats: () =>
@@ -112,7 +125,7 @@ export const api = {
     if (params?.accountId) query.set('accountId', params.accountId);
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
-    return request<{ logs: any[]; total: number }>(`/logs?${query}`);
+    return request<{ logs: Record<string, unknown>[]; total: number }>(`/logs?${query}`);
   },
 
   // Memories
@@ -123,7 +136,7 @@ export const api = {
     memoryBankId?: string,
   ) =>
     request<{
-      items: any[];
+      items: Record<string, unknown>[];
       fallback: boolean;
       resolvedEntities?: {
         contacts: { id: string; displayName: string }[];
@@ -149,32 +162,39 @@ export const api = {
     if (params?.sourceType) query.set('sourceType', params.sourceType);
     if (params?.sortBy) query.set('sortBy', params.sortBy);
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
-    return request<{ items: any[]; total: number }>(`/memories?${query}`);
+    return request<{ items: Record<string, unknown>[]; total: number }>(`/memories?${query}`);
   },
-  getMemory: (id: string) => request<any>(`/memories/${id}`),
+  getMemory: (id: string) => request<Record<string, unknown>>(`/memories/${id}`),
   pinMemory: (id: string) => request<{ ok: boolean }>(`/memories/${id}/pin`, { method: 'POST' }),
   unpinMemory: (id: string) =>
     request<{ ok: boolean }>(`/memories/${id}/pin`, { method: 'DELETE' }),
   recordRecall: (id: string) =>
     request<{ ok: boolean }>(`/memories/${id}/recall`, { method: 'POST' }),
-  deleteMemory: (id: string) => request<any>(`/memories/${id}`, { method: 'DELETE' }),
+  deleteMemory: (id: string) =>
+    request<Record<string, unknown>>(`/memories/${id}`, { method: 'DELETE' }),
   getMemoryStats: (params?: { memoryBankId?: string }) => {
     const query = new URLSearchParams();
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     const qs = query.toString();
-    return request<any>(`/memories/stats${qs ? `?${qs}` : ''}`);
+    return request<Record<string, unknown>>(`/memories/stats${qs ? `?${qs}` : ''}`);
   },
-  getGraphData: (params?: { memoryLimit?: number; linkLimit?: number; memoryBankId?: string; memoryIds?: string[] }) => {
+  getGraphData: (params?: {
+    memoryLimit?: number;
+    linkLimit?: number;
+    memoryBankId?: string;
+    memoryIds?: string[];
+  }) => {
     const query = new URLSearchParams();
     if (params?.memoryLimit) query.set('memoryLimit', String(params.memoryLimit));
     if (params?.linkLimit) query.set('linkLimit', String(params.linkLimit));
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     if (params?.memoryIds?.length) query.set('memoryIds', params.memoryIds.join(','));
     const qs = query.toString();
-    return request<any>(`/memories/graph${qs ? `?${qs}` : ''}`);
+    return request<Record<string, unknown>>(`/memories/graph${qs ? `?${qs}` : ''}`);
   },
-  getGraphSeeds: () => request<any>('/memories/graph/seeds'),
-  getGraphNeighbors: (nodeId: string) => request<any>(`/memories/graph/neighbors/${nodeId}`),
+  getGraphSeeds: () => request<Record<string, unknown>>('/memories/graph/seeds'),
+  getGraphNeighbors: (nodeId: string) =>
+    request<Record<string, unknown>>(`/memories/graph/neighbors/${nodeId}`),
 
   // Contacts
   listContacts: (params?: { limit?: number; offset?: number; entityType?: string }) => {
@@ -182,12 +202,15 @@ export const api = {
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.entityType) query.set('entityType', params.entityType);
-    return request<{ items: any[]; total: number }>(`/people?${query}`);
+    return request<{ items: Record<string, unknown>[]; total: number }>(`/people?${query}`);
   },
-  getContact: (id: string) => request<any>(`/people/${id}`),
-  getContactMemories: (id: string) => request<any[]>(`/people/${id}/memories`),
+  getContact: (id: string) => request<Record<string, unknown>>(`/people/${id}`),
+  getContactMemories: (id: string) => request<Record<string, unknown>[]>(`/people/${id}/memories`),
   searchContacts: (query: string) =>
-    request<any[]>('/people/search', { method: 'POST', body: JSON.stringify({ query }) }),
+    request<Record<string, unknown>[]>('/people/search', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
   updateContact: (
     id: string,
     data: {
@@ -195,35 +218,48 @@ export const api = {
       avatars?: Array<{ url: string; source: string }>;
       metadata?: Record<string, unknown>;
     },
-  ) => request<any>(`/people/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  ) =>
+    request<Record<string, unknown>>(`/people/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
   mergeContacts: (targetId: string, sourceId: string) =>
-    request<any>(`/people/${targetId}/merge`, {
+    request<Record<string, unknown>>(`/people/${targetId}/merge`, {
       method: 'POST',
       body: JSON.stringify({ sourceId }),
     }),
-  deleteContact: (id: string) => request<any>(`/people/${id}`, { method: 'DELETE' }),
+  deleteContact: (id: string) =>
+    request<Record<string, unknown>>(`/people/${id}`, { method: 'DELETE' }),
   getMergeSuggestions: () =>
-    request<Array<{ contact1: any; contact2: any; reason: string }>>('/people/suggestions'),
+    request<
+      Array<{
+        contact1: Record<string, unknown>;
+        contact2: Record<string, unknown>;
+        reason: string;
+      }>
+    >('/people/suggestions'),
   dismissSuggestion: (contactId1: string, contactId2: string) =>
-    request<any>('/people/suggestions/dismiss', {
+    request<Record<string, unknown>>('/people/suggestions/dismiss', {
       method: 'POST',
       body: JSON.stringify({ contactId1, contactId2 }),
     }),
   undismissSuggestion: (contactId1: string, contactId2: string) =>
-    request<any>('/people/suggestions/undismiss', {
+    request<Record<string, unknown>>('/people/suggestions/undismiss', {
       method: 'POST',
       body: JSON.stringify({ contactId1, contactId2 }),
     }),
   removeIdentifier: (contactId: string, identifierId: string) =>
-    request<any>(`/people/${contactId}/identifiers/${identifierId}`, { method: 'DELETE' }),
+    request<Record<string, unknown>>(`/people/${contactId}/identifiers/${identifierId}`, {
+      method: 'DELETE',
+    }),
   splitContact: (contactId: string, identifierIds: string[]) =>
-    request<any>(`/people/${contactId}/split`, {
+    request<Record<string, unknown>>(`/people/${contactId}/split`, {
       method: 'POST',
       body: JSON.stringify({ identifierIds }),
     }),
 
   // Me
-  getMe: () => request<any>('/me'),
+  getMe: () => request<Record<string, unknown>>('/me'),
   getMeStatus: () => request<{ isSet: boolean; contactId: string | null }>('/me/status'),
   getMeMergeCandidates: () =>
     request<
@@ -236,7 +272,10 @@ export const api = {
       }>
     >('/me/merge-candidates'),
   setMe: (contactId: string) =>
-    request<any>('/me/set', { method: 'POST', body: JSON.stringify({ contactId }) }),
+    request<Record<string, unknown>>('/me/set', {
+      method: 'POST',
+      body: JSON.stringify({ contactId }),
+    }),
   setPreferredAvatar: (avatarIndex: number) =>
     request<{ ok: boolean }>('/me/avatar', {
       method: 'PATCH',
@@ -293,7 +332,10 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   renameMemoryBank: (id: string, name: string) =>
-    request<any>(`/memory-banks/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+    request<Record<string, unknown>>(`/memory-banks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
   deleteMemoryBank: (id: string) =>
     request<{ deleted: boolean; memoriesDeleted: number }>(`/memory-banks/${id}`, {
       method: 'DELETE',
@@ -317,13 +359,21 @@ export const api = {
     ),
 
   // Billing
-  getBillingInfo: () => request<{ enabled: boolean; plan?: string; status?: string; currentPeriodEnd?: string | null; cancelAtPeriodEnd?: boolean }>('/billing/info'),
+  getBillingInfo: () =>
+    request<{
+      enabled: boolean;
+      plan?: string;
+      status?: string;
+      currentPeriodEnd?: string | null;
+      cancelAtPeriodEnd?: boolean;
+    }>('/billing/info'),
   createCheckoutSession: () => request<{ url: string }>('/billing/checkout', { method: 'POST' }),
   createPortalSession: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
 
   // Admin / Danger Zone
-  purgeMemories: () => request<any>('/memories/purge', { method: 'POST' }),
-  resetVectorIndex: () => request<any>('/memories/vector-index/reset', { method: 'POST' }),
+  purgeMemories: () => request<Record<string, unknown>>('/memories/purge', { method: 'POST' }),
+  resetVectorIndex: () =>
+    request<Record<string, unknown>>('/memories/vector-index/reset', { method: 'POST' }),
 };
 
 // WebSocket connection

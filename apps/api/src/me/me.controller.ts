@@ -23,8 +23,11 @@ export class MeController {
     }
     try {
       return await this.meService.setSelfContact(body.contactId, user.id);
-    } catch (err: any) {
-      throw new HttpException(err.message || 'Failed to set self contact', HttpStatus.NOT_FOUND);
+    } catch (err: unknown) {
+      throw new HttpException(
+        err instanceof Error ? err.message : 'Failed to set self contact',
+        HttpStatus.NOT_FOUND,
+      );
     }
   }
 

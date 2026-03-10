@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type, @typescript-eslint/no-unused-vars */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock all Baileys imports before importing sync module
@@ -277,9 +278,9 @@ describe('sync module', () => {
         signal: new AbortController().signal,
       };
 
-      await expect(
-        syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect),
-      ).rejects.toThrow('WhatsApp session disconnected');
+      await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
+        'WhatsApp session disconnected',
+      );
       expect(onDisconnect).toHaveBeenCalledWith('Session logged out from phone', 401);
     });
 
@@ -496,9 +497,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const imgEmit = emit.mock.calls.find(
-        (c: any) => c[0].sourceId === 'img1',
-      );
+      const imgEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'img1');
       expect(imgEmit).toBeDefined();
       expect(imgEmit![0].content.text).toBe('Check this out');
       expect(imgEmit![0].content.metadata.messageType).toBe('image');
@@ -1281,7 +1280,8 @@ describe('sync module', () => {
       await promise;
       // Group metadata event should be emitted
       const groupEmits = emit.mock.calls.filter(
-        (c: any) => c[0].content?.metadata?.isGroup === true && c[0].content?.metadata?.type === 'contact',
+        (c: any) =>
+          c[0].content?.metadata?.isGroup === true && c[0].content?.metadata?.type === 'contact',
       );
       expect(groupEmits.length).toBeGreaterThanOrEqual(1);
     });
@@ -1501,9 +1501,9 @@ describe('sync module', () => {
         signal: new AbortController().signal,
       };
 
-      await expect(
-        syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect),
-      ).rejects.toThrow('WhatsApp session disconnected');
+      await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
+        'WhatsApp session disconnected',
+      );
       expect(onDisconnect).toHaveBeenCalledWith('Session expired or corrupted', 500);
     });
 
@@ -1547,9 +1547,9 @@ describe('sync module', () => {
         signal: new AbortController().signal,
       };
 
-      await expect(
-        syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect),
-      ).rejects.toThrow('WhatsApp session disconnected');
+      await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
+        'WhatsApp session disconnected',
+      );
       expect(onDisconnect).toHaveBeenCalledWith('Multi-device mismatch', 411);
     });
 
@@ -1593,9 +1593,9 @@ describe('sync module', () => {
         signal: new AbortController().signal,
       };
 
-      await expect(
-        syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect),
-      ).rejects.toThrow('WhatsApp session disconnected');
+      await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
+        'WhatsApp session disconnected',
+      );
       expect(onDisconnect).toHaveBeenCalledWith('Connection lost during sync', 428);
     });
 
@@ -1962,9 +1962,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const noIdEmit = emit.mock.calls.find(
-        (c: any) => c[0].content?.text === 'No key ID',
-      );
+      const noIdEmit = emit.mock.calls.find((c: any) => c[0].content?.text === 'No key ID');
       expect(noIdEmit).toBeDefined();
       expect(noIdEmit![0].sourceId).toMatch(/^wa:/);
     });
@@ -1972,11 +1970,13 @@ describe('sync module', () => {
     it('loads saved identity maps when available', async () => {
       // Set up the mocks to simulate a saved identity map file
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        lidToPhone: { lid123: '5551234' },
-        phoneToName: { '5551234': 'SavedAlice' },
-        lidToName: { lid123: 'SavedAlice' },
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          lidToPhone: { lid123: '5551234' },
+          phoneToName: { '5551234': 'SavedAlice' },
+          lidToName: { lid123: 'SavedAlice' },
+        }),
+      );
 
       const { syncWhatsApp } = await import('../sync.js');
       const emit = vi.fn();

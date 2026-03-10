@@ -20,8 +20,8 @@ export function useApiKeys() {
       setError(null);
       const data = await api.listApiKeys();
       setKeys(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load API keys');
     } finally {
       setLoading(false);
     }

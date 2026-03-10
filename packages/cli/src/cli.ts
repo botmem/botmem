@@ -256,7 +256,9 @@ function runConfig(args: string[]) {
     const cfg = loadConfig();
     console.log(`Config: ${CONFIG_FILE}`);
     console.log(`  Host:    ${cfg.apiUrl || DEFAULT_API_URL} ${!cfg.apiUrl ? '(default)' : ''}`);
-    console.log(`  API Key: ${cfg.apiKey ? cfg.apiKey.slice(0, 10) + '...' + cfg.apiKey.slice(-4) : '(not set)'}`);
+    console.log(
+      `  API Key: ${cfg.apiKey ? cfg.apiKey.slice(0, 10) + '...' + cfg.apiKey.slice(-4) : '(not set)'}`,
+    );
     console.log(`  Token:   ${cfg.token ? '(set)' : '(not set)'}`);
     console.log(`  Recovery Key: ${cfg.recoveryKey ? '(set)' : '(not set)'}`);
     return;
@@ -347,7 +349,7 @@ async function runLogin(client: BotmemClient, args: string[]) {
     // Read from stdin if not provided
     const readline = await import('readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    const ask = (q: string): Promise<string> => new Promise(r => rl.question(q, r));
+    const ask = (q: string): Promise<string> => new Promise((r) => rl.question(q, r));
     if (!email) email = await ask('Email: ');
     if (!password) password = await ask('Password: ');
     rl.close();
@@ -366,13 +368,15 @@ async function main() {
   // --toon: intercept JSON output and flatten for LLM consumption
   if (toon) {
     const origLog = console.log.bind(console);
-    console.log = (...args: any[]) => {
+    console.log = (...args: unknown[]) => {
       if (args.length === 1 && typeof args[0] === 'string') {
         try {
           const parsed = JSON.parse(args[0]);
           origLog(toonify(parsed));
           return;
-        } catch { /* not JSON, pass through */ }
+        } catch {
+          /* not JSON, pass through */
+        }
       }
       origLog(...args);
     };
@@ -412,7 +416,10 @@ async function main() {
   try {
     switch (command) {
       case 'config':
-        if (help) { console.log(configHelp); return; }
+        if (help) {
+          console.log(configHelp);
+          return;
+        }
         runConfig(commandArgs);
         return;
       case 'login':
@@ -431,7 +438,10 @@ async function main() {
         await runMemoryBanks(client, commandArgs, json);
         break;
       case 'search':
-        if (help) { console.log(COMMAND_HELP['search']); return; }
+        if (help) {
+          console.log(COMMAND_HELP['search']);
+          return;
+        }
         await runSearch(client, commandArgs, json);
         break;
       case 'memories':

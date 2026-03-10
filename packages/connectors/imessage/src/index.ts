@@ -107,9 +107,9 @@ export class IMessageConnector extends BaseConnector {
       await client.connect();
       await client.chatsList(1); // ping to verify the bridge works
       client.disconnect();
-    } catch (err: any) {
+    } catch (err: unknown) {
       throw new Error(
-        `Cannot connect to imsg bridge at ${imsgHost}:${imsgPort} — ${err.message}. ` +
+        `Cannot connect to imsg bridge at ${imsgHost}:${imsgPort} — ${err instanceof Error ? err.message : String(err)}. ` +
           'Make sure the imsg RPC bridge is running: socat TCP-LISTEN:19876,reuseaddr,fork EXEC:"imsg rpc"',
       );
     }

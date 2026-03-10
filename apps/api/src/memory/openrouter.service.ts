@@ -62,8 +62,11 @@ export class OpenRouterService implements OnModuleInit {
           throw new Error(`Empty embedding response for ${input.length} chars`);
         }
         return data.data[0].embedding;
-      } catch (err: any) {
-        if (err?.message?.includes('context length') || err?.message?.includes('too long')) {
+      } catch (err: unknown) {
+        if (
+          err instanceof Error &&
+          (err.message.includes('context length') || err.message.includes('too long'))
+        ) {
           input = input.slice(0, Math.floor(input.length * 0.5));
           continue;
         }

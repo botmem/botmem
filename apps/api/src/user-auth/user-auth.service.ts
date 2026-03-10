@@ -52,14 +52,15 @@ export class UserAuthService {
     const recoveryKey = dek.toString('base64');
     const recoveryKeyHash = this.hashRecoveryKey(recoveryKey);
 
-    let user: any;
+    let user: Awaited<ReturnType<typeof this.usersService.createUser>>;
     try {
       user = await this.usersService.createUser(email, passwordHash, name, encryptionSalt);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const dbErr = err as { message?: string; code?: string; constraint?: string };
       if (
-        err?.message?.includes('UNIQUE constraint failed') ||
-        err?.code === '23505' ||
-        err?.constraint
+        dbErr.message?.includes('UNIQUE constraint failed') ||
+        dbErr.code === '23505' ||
+        dbErr.constraint
       ) {
         throw new ConflictException('Email already registered');
       }

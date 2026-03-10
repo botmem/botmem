@@ -44,7 +44,10 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
       summarize = true;
     } else if (a === '--source' || a === '--connector') {
       const val = args[++i];
-      if (!val) { console.error(`Missing value for ${a}`); process.exit(1); }
+      if (!val) {
+        console.error(`Missing value for ${a}`);
+        process.exit(1);
+      }
       if (a === '--source') filters['sourceType'] = val;
       else filters['connectorType'] = val;
     } else if (a === '--memory-bank') {
@@ -63,11 +66,15 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
     process.exit(1);
   }
 
-  let result: any;
+  let result: Record<string, unknown>;
   if (summarize) {
     result = await client.agentSummarize(queryStr, limit);
   } else {
-    result = await client.agentAsk(queryStr, Object.keys(filters).length ? filters : undefined, limit);
+    result = await client.agentAsk(
+      queryStr,
+      Object.keys(filters).length ? filters : undefined,
+      limit,
+    );
   }
 
   if (json) {

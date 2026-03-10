@@ -107,7 +107,8 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[memory worker] ${err.message}`));
     const defaultC = this.config.aiConcurrency.memory;
-    const concurrency = parseInt(await this.settingsService.get('memory_concurrency'), 10) || defaultC;
+    const concurrency =
+      parseInt(await this.settingsService.get('memory_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -155,8 +156,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
               event.content.text =
                 extracted + (event.content.text ? `\n\n${event.content.text}` : '');
             }
-          } catch (err: any) {
-            ctx.logger.warn(`[memory:file-extract] ${mid} failed: ${err?.message}`);
+          } catch (err: unknown) {
+            ctx.logger.warn(
+              `[memory:file-extract] ${mid} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
@@ -220,7 +223,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         for (const { entityType, identifiers } of buckets) {
           await this.contactsService.resolveContact(
             identifiers,
-            entityType === 'person' ? undefined : (entityType as any),
+            entityType === 'person' ? undefined : entityType,
           );
         }
       } catch {
@@ -345,7 +348,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
       for (const { entityType, role, identifiers } of buckets) {
         const resolveType = entityType === 'person' ? undefined : entityType;
-        const contact = await this.contactsService.resolveContact(identifiers, resolveType as any);
+        const contact = await this.contactsService.resolveContact(identifiers, resolveType);
         if (contact) {
           await this.contactsService.linkMemory(memoryId, contact.id, role);
           contactCount++;
@@ -425,7 +428,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
               account_id: rawEvent.accountId,
             });
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.addLog(
             rawEvent.connectorType,
             rawEvent.accountId,
@@ -475,7 +478,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
       // 15. Advance progress + try complete
       await this.advanceAndComplete(parentJobId);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const totalMs = Date.now() - pipelineStart;
       await this.dbService.db
         .update(memories)
@@ -485,7 +488,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         rawEvent.connectorType,
         rawEvent.accountId,
         'error',
-        `[memory:fail] ${event.sourceType} after ${totalMs}ms: ${err?.message || err}`,
+        `[memory:fail] ${event.sourceType} after ${totalMs}ms: ${err instanceof Error ? err.message : String(err)}`,
       );
       throw err;
     }
@@ -493,12 +496,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
   private async processFile(
     memoryId: string,
-    metadata: Record<string, any>,
-    rawEvent: any,
+    metadata: Record<string, unknown>,
+    rawEvent: Record<string, unknown>,
   ): Promise<string | null> {
-    const fileUrl: string = metadata.fileUrl;
-    const mimetype: string = metadata.mimetype || '';
-    const fileName: string = metadata.fileName || '';
+    const fileUrl = metadata.fileUrl as string;
+    const mimetype = (metadata.mimetype as string) || '';
+    const fileName = (metadata.fileName as string) || '';
     const mid = memoryId.slice(0, 8);
 
     this.addLog(
@@ -541,7 +544,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       const pdfParseModule = await import('pdf-parse');
       const pdfParse = pdfParseModule.default || pdfParseModule;
       const buffer = Buffer.from(await res.arrayBuffer());
-      const data = await (pdfParse as any)(buffer);
+      const data = await (pdfParse as (buf: Buffer) => Promise<{ text?: string }>)(buffer);
       const text = data.text?.trim();
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;
@@ -703,10 +706,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     accountId: string,
     connectorType: string,
   ): Promise<PipelineContext> {
-    let auth: any = {};
+    let auth: Record<string, unknown> = {};
     try {
       const account = await this.accountsService.getById(accountId);
-      if (account.authContext) auth = JSON.parse(account.authContext);
+      if (account.authContext) auth = JSON.parse(account.authContext) as Record<string, unknown>;
     } catch {
       /* empty */
     }

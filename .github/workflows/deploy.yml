@@ -32,9 +32,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # TODO: re-enable lint after fixing all lint errors
-      # - name: Lint
-      #   run: pnpm lint
+      - name: Lint
+        run: pnpm lint
 
       - name: Run tests with coverage
         run: pnpm test:coverage

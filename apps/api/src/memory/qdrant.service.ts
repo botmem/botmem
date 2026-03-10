@@ -51,9 +51,12 @@ export class QdrantService implements OnModuleInit {
         field_name: 'event_time',
         field_schema: 'datetime',
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // 400 = index already exists, safe to ignore
-      if (err?.status !== 400 && !err?.message?.includes('already exists')) {
+      if (
+        (err as { status?: number }).status !== 400 &&
+        !(err instanceof Error && err.message.includes('already exists'))
+      ) {
         this.logger.error(
           'Failed to create event_time payload index',
           err instanceof Error ? err.stack : String(err),
@@ -91,8 +94,8 @@ export class QdrantService implements OnModuleInit {
           ],
         });
         return;
-      } catch (err: any) {
-        const msg = err?.message || String(err);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('Not Found') || msg.includes("doesn't exist")) {
           await this.ensureCollection(vector.length);
           continue;
@@ -121,14 +124,17 @@ export class QdrantService implements OnModuleInit {
     }
 
     try {
-      const results = await this.client.search(QdrantService.COLLECTION, params as any);
-      return results.map((r: any) => ({
+      const results = await this.client.search(
+        QdrantService.COLLECTION,
+        params as Parameters<typeof this.client.search>[1],
+      );
+      return results.map((r) => ({
         id: r.id as string,
         score: r.score as number,
         payload: (r.payload || {}) as Record<string, unknown>,
       }));
-    } catch (err: any) {
-      const msg = err?.message || String(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('Not Found') || msg.includes("doesn't exist")) {
         await this.ensureCollection(vector.length);
         return [];
@@ -152,8 +158,11 @@ export class QdrantService implements OnModuleInit {
         params.filter = filter;
       }
 
-      const results = await this.client.recommend(QdrantService.COLLECTION, params as any);
-      return results.map((r: any) => ({
+      const results = await this.client.recommend(
+        QdrantService.COLLECTION,
+        params as Parameters<typeof this.client.recommend>[1],
+      );
+      return results.map((r) => ({
         id: r.id as string,
         score: r.score as number,
         payload: (r.payload || {}) as Record<string, unknown>,
@@ -171,9 +180,9 @@ export class QdrantService implements OnModuleInit {
     try {
       const info = await this.client.getCollection(QdrantService.COLLECTION);
       return {
-        pointsCount: (info as any).points_count ?? 0,
-        indexedVectorsCount: (info as any).indexed_vectors_count ?? 0,
-        status: (info as any).status ?? 'unknown',
+        pointsCount: (info as unknown as Record<string, number>).points_count ?? 0,
+        indexedVectorsCount: (info as unknown as Record<string, number>).indexed_vectors_count ?? 0,
+        status: (info as unknown as Record<string, string>).status ?? 'unknown',
       };
     } catch {
       return { pointsCount: 0, indexedVectorsCount: 0, status: 'not_found' };
@@ -218,8 +227,8 @@ export class QdrantService implements OnModuleInit {
       await this.client.delete(QdrantService.COLLECTION, {
         points: [memoryId],
       });
-    } catch (err: any) {
-      const msg = err?.message || String(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('Not Found') || msg.includes("doesn't exist")) return;
       throw err;
     }

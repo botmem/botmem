@@ -66,8 +66,8 @@ export function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps)
         computeExpiry(),
         selectedBankIds.length > 0 ? selectedBankIds : undefined,
       );
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create key');
     } finally {
       setCreating(false);
     }

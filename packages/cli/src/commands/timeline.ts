@@ -42,7 +42,7 @@ export async function runTimeline(client: BotmemClient, args: string[], json: bo
     else if (a === '--limit') limit = parseInt(args[++i], 10);
   }
 
-  const result = await client.getTimeline({ ...params, limit } as any);
+  const result = await client.getTimeline({ ...params, limit });
 
   if (json) {
     console.log(JSON.stringify(result, null, 2));
@@ -67,7 +67,9 @@ export async function runTimeline(client: BotmemClient, args: string[], json: bo
       currentDate = date;
       console.log(bold(`\n--- ${date} ---`));
     }
-    const time = m.eventTime ? new Date(m.eventTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const time = m.eventTime
+      ? new Date(m.eventTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
     console.log(
       `  ${dim(time)} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 100)}`,
     );

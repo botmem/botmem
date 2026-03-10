@@ -65,7 +65,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[embed worker] ${err.message}`));
     const defaultC = this.config.aiConcurrency.embed;
-    const concurrency = parseInt(await this.settingsService.get('embed_concurrency'), 10) || defaultC;
+    const concurrency =
+      parseInt(await this.settingsService.get('embed_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -291,18 +292,25 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
           // Update avatar for Immich — face thumbnails (highest priority)
           if (rawEvent.connectorType === 'photos') {
-            const immichPeople = (metadata.people as Array<{ name?: string; thumbnailUrl?: string }>) || [];
+            const immichPeople =
+              (metadata.people as Array<{ name?: string; thumbnailUrl?: string }>) || [];
             const nameIdent = identifiers.find((i) => i.type === 'name');
             const matchedPerson = nameIdent
-              ? immichPeople.find((p) => p.name && p.name.toLowerCase() === nameIdent.value.toLowerCase())
+              ? immichPeople.find(
+                  (p) => p.name && p.name.toLowerCase() === nameIdent.value.toLowerCase(),
+                )
               : undefined;
             if (matchedPerson?.thumbnailUrl) {
               try {
                 const immichHeaders = await this.buildAuthHeaders(rawEvent.accountId, 'photos');
-                await this.contactsService.updateAvatar(contact.id, {
-                  url: matchedPerson.thumbnailUrl,
-                  source: 'immich',
-                }, immichHeaders);
+                await this.contactsService.updateAvatar(
+                  contact.id,
+                  {
+                    url: matchedPerson.thumbnailUrl,
+                    source: 'immich',
+                  },
+                  immichHeaders,
+                );
               } catch (err) {
                 this.logger.warn(
                   `[embed] Immich avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -364,12 +372,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             memory_bank_id: memoryBankId,
           });
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.addLog(
           rawEvent.connectorType,
           rawEvent.accountId,
           'warn',
-          `[embed:file] ${mid} file processing failed: ${err?.message}`,
+          `[embed:file] ${mid} file processing failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -445,7 +453,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             ownerUserId ?? undefined,
           );
         } catch (err) {
-          this.logger.debug(`Thread linking skipped: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.debug(
+            `Thread linking skipped: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     }
@@ -600,9 +610,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       }
 
       const base64 = fileBuffer.toString('base64');
-      const description = await this.ai.generate(photoDescriptionPrompt(promptContext), [
-        base64,
-      ]);
+      const description = await this.ai.generate(photoDescriptionPrompt(promptContext), [base64]);
       return description.trim() || null;
     }
 
@@ -733,14 +741,17 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const now = new Date();
     for (const sib of siblings) {
       try {
-        await db.insert(memoryLinks).values({
-          id: randomUUID(),
-          srcMemoryId: sib.id,
-          dstMemoryId: memoryId,
-          linkType: 'related',
-          strength: 0.8,
-          createdAt: now,
-        }).onConflictDoNothing();
+        await db
+          .insert(memoryLinks)
+          .values({
+            id: randomUUID(),
+            srcMemoryId: sib.id,
+            dstMemoryId: memoryId,
+            linkType: 'related',
+            strength: 0.8,
+            createdAt: now,
+          })
+          .onConflictDoNothing();
       } catch {
         // FK violation — sibling or current memory not yet committed; skip
       }
