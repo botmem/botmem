@@ -75,9 +75,9 @@ export class AccountsController {
     const groupsMap = new Map<string, number>();
     for (const row of contactCountRows) {
       if (row.entityType === 'group') {
-        groupsMap.set(row.accountId, (groupsMap.get(row.accountId) || 0) + row.count);
+        groupsMap.set(row.accountId!, (groupsMap.get(row.accountId!) || 0) + row.count);
       } else {
-        contactsMap.set(row.accountId, (contactsMap.get(row.accountId) || 0) + row.count);
+        contactsMap.set(row.accountId!, (contactsMap.get(row.accountId!) || 0) + row.count);
       }
     }
 

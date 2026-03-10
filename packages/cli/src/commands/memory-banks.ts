@@ -74,7 +74,8 @@ export async function runMemoryBanks(client: BotmemClient, args: string[], json:
 
   // Default: list
   const result = await client.listMemoryBanks();
-  const banks = result.memoryBanks || result;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const banks = (result as any).memoryBanks || result;
 
   if (json) {
     console.log(JSON.stringify(banks, null, 2));

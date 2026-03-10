@@ -331,7 +331,8 @@ export function formatVersion(v: { buildTime: string; gitHash: string; uptime: n
   return lines.join('\n');
 }
 
-export function formatAgentAnswer(data: Record<string, unknown>): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function formatAgentAnswer(data: any): string {
   const lines: string[] = [];
 
   // Show temporal fallback notice
@@ -366,7 +367,8 @@ export function formatAgentAnswer(data: Record<string, unknown>): string {
   return lines.join('\n');
 }
 
-export function formatAgentContext(data: Record<string, unknown>): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function formatAgentContext(data: any): string {
   const lines: string[] = [];
   if (data.contact) {
     lines.push(bold(data.contact.displayName || 'Unknown'));
@@ -394,10 +396,11 @@ export function formatAgentContext(data: Record<string, unknown>): string {
   return lines.join('\n');
 }
 
-export function formatMemoryBanks(banks: Record<string, unknown>[]): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function formatMemoryBanks(banks: any[]): string {
   if (!banks.length) return dim('No memory banks.');
-  const lines = banks.map((b) => {
-    return `${bold(b.name.padEnd(25))} ${dim(String(b.memoryCount ?? 0).padStart(5) + ' memories')}  ${dim(b.id)}`;
+  const lines = banks.map((b: any) => {
+    return `${bold(String(b.name).padEnd(25))} ${dim(String(b.memoryCount ?? 0).padStart(5) + ' memories')}  ${dim(b.id)}`;
   });
   lines.push('');
   lines.push(dim(`${banks.length} bank(s)`));

@@ -35,7 +35,13 @@ async function bootstrap() {
 
     // Vite handles HMR, static assets, module transforms — skip /api and /events
     server.use((req: Request, res: Response, next: NextFunction) => {
-      if (req.url.startsWith('/api') || req.url.startsWith('/events') || req.url.startsWith('/.well-known') || (req.url.startsWith('/oauth') && !req.url.startsWith('/oauth/consent')) || req.url.startsWith('/mcp')) {
+      if (
+        req.url.startsWith('/api') ||
+        req.url.startsWith('/events') ||
+        req.url.startsWith('/.well-known') ||
+        (req.url.startsWith('/oauth') && !req.url.startsWith('/oauth/consent')) ||
+        req.url.startsWith('/mcp')
+      ) {
         return next();
       }
       vite.middlewares(req, res, next);
@@ -53,7 +59,10 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
       // Allow MCP requests from any origin (AI tools have varied origins)
       if (!origin) return callback(null, true);
       const allowed = config.frontendUrl.includes(',')

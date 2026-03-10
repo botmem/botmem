@@ -45,10 +45,7 @@ export class BillingService {
     return customer.id;
   }
 
-  async createCheckoutSession(
-    userId: string,
-    email: string,
-  ): Promise<{ url: string }> {
+  async createCheckoutSession(userId: string, email: string): Promise<{ url: string }> {
     const customerId = await this.getOrCreateStripeCustomer(userId, email);
 
     const session = await this.stripe!.checkout.sessions.create({
@@ -96,7 +93,10 @@ export class BillingService {
 
   async getBillingInfo(userId: string): Promise<BillingInfo> {
     const rows = await this.db.db
-      .select({ subscriptionStatus: users.subscriptionStatus, subscriptionCurrentPeriodEnd: users.subscriptionCurrentPeriodEnd })
+      .select({
+        subscriptionStatus: users.subscriptionStatus,
+        subscriptionCurrentPeriodEnd: users.subscriptionCurrentPeriodEnd,
+      })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
@@ -147,16 +147,21 @@ export class BillingService {
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
-        const status = subscription.status === 'active' ? 'active'
-          : subscription.status === 'trialing' ? 'trialing'
-          : subscription.status === 'past_due' ? 'past_due'
-          : subscription.status === 'canceled' ? 'canceled'
-          : subscription.status;
+        const status =
+          subscription.status === 'active'
+            ? 'active'
+            : subscription.status === 'trialing'
+              ? 'trialing'
+              : subscription.status === 'past_due'
+                ? 'past_due'
+                : subscription.status === 'canceled'
+                  ? 'canceled'
+                  : subscription.status;
         await this.db.db
           .update(users)
           .set({
             subscriptionStatus: status,
-            subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            subscriptionCurrentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
           })
           .where(eq(users.stripeCustomerId, subscription.customer as string));
         this.logger.log(`Subscription ${subscription.id} updated → ${status}`);
