@@ -48,6 +48,9 @@ describe('UserAuthService', () => {
       revokeTokenFamily: vi.fn().mockResolvedValue(undefined),
       revokeAllUserTokens: vi.fn().mockResolvedValue(undefined),
       updateEncryptionSalt: vi.fn().mockResolvedValue(undefined),
+      updateRecoveryKeyHash: vi.fn().mockResolvedValue(undefined),
+      incrementKeyVersion: vi.fn().mockResolvedValue(2),
+      updatePasswordHash: vi.fn().mockResolvedValue(undefined),
     };
 
     jwtService = {
@@ -67,6 +70,9 @@ describe('UserAuthService', () => {
       },
       get jwtRefreshExpiresIn() {
         return '7d';
+      },
+      get frontendUrl() {
+        return 'http://localhost:12412';
       },
     };
 
@@ -88,6 +94,9 @@ describe('UserAuthService', () => {
           useValue: {
             deriveAndStore: vi.fn().mockResolvedValue(undefined),
             removeKey: vi.fn(),
+            generateDek: vi.fn().mockReturnValue(Buffer.from('a'.repeat(32))),
+            getDek: vi.fn().mockResolvedValue(Buffer.from('a'.repeat(32))),
+            storeDek: vi.fn().mockResolvedValue(undefined),
           },
         },
         {

@@ -8,9 +8,11 @@ import {
   Query,
   HttpCode,
   NotFoundException,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { AskDto } from './dto/ask.dto';
 import { RememberDto } from './dto/remember.dto';
@@ -29,15 +31,15 @@ export class AgentController {
   constructor(private readonly agentService: AgentService) {}
 
   /** Natural language memory search with enriched results. */
-  @RequiresJwt()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('ask')
   @HttpCode(200)
-  async ask(@Body() dto: AskDto) {
+  async ask(@CurrentUser() user: { id: string }, @Body() dto: AskDto) {
     const start = Date.now();
     const result = await this.agentService.ask(dto.query, {
       filters: dto.filters,
       limit: dto.limit,
+      userId: user.id,
     });
 
     const sources = [...new Set(result.results.map((r) => r.connectorType))];
@@ -54,12 +56,10 @@ export class AgentController {
     @Query('contactId') contactId?: string,
     @Query('connectorType') connectorType?: string,
     @Query('sourceType') sourceType?: string,
-    @Query('days') daysStr?: string,
-    @Query('limit') limitStr?: string,
+    @Query('days', new ParseIntPipe({ optional: true })) days?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
   ) {
     const start = Date.now();
-    const days = daysStr ? parseInt(daysStr, 10) : undefined;
-    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
 
     const result = await this.agentService.timeline({
       contactId,
@@ -125,13 +125,12 @@ export class AgentController {
   }
 
   /** Search + LLM summarization of matching memories. */
-  @RequiresJwt()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('summarize')
   @HttpCode(200)
-  async summarize(@Body() dto: SummarizeDto) {
+  async summarize(@CurrentUser() user: { id: string }, @Body() dto: SummarizeDto) {
     const start = Date.now();
-    const result = await this.agentService.summarize(dto.query, dto.maxResults);
+    const result = await this.agentService.summarize(dto.query, dto.maxResults, user.id);
 
     const sources = [...new Set(result.memories.map((r) => r.connectorType))];
     return ok(result, {

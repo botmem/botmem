@@ -49,5 +49,6 @@ export const CONNECTOR_COLORS: Record<string, string> = {
   message: '#A855F7',
   location: '#4CAF50',
   file: '#FFE66D',
+  photo: '#888888',
   contact: '#60A5FA',
 };

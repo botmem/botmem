@@ -170,10 +170,11 @@ export class SlackConnector extends BaseConnector {
     }
 
     // Channel — compound ID
-    if (metadata.channelId || metadata.channelName) {
+    if (metadata.channelId || metadata.channelName || metadata.channel) {
       const chParts: string[] = [];
       if (metadata.channelId) chParts.push(`slack_channel:${metadata.channelId}`);
-      if (metadata.channelName) chParts.push(`name:${metadata.channelName}`);
+      const chName = metadata.channelName || metadata.channel;
+      if (chName) chParts.push(`name:${chName}`);
       entities.push({ type: 'group', id: chParts.join('|'), role: 'group' });
     }
 

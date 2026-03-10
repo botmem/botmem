@@ -5,6 +5,7 @@ export type FilterState = {
   hideContacts: boolean;
   hideGroups: boolean;
   hideFiles: boolean;
+  hidePhotos: boolean;
   hideDevices: boolean;
   hiddenEdgeTypes: Set<string>;
 };
@@ -14,6 +15,7 @@ export type FilterAction =
   | { type: 'toggleContacts' }
   | { type: 'toggleGroups' }
   | { type: 'toggleFiles' }
+  | { type: 'togglePhotos' }
   | { type: 'toggleDevices' }
   | { type: 'toggleEdgeType'; edgeType: string };
 
@@ -27,6 +29,7 @@ export function filterReducer(state: FilterState, action: FilterAction): FilterS
     case 'toggleContacts': return { ...state, hideContacts: !state.hideContacts };
     case 'toggleGroups': return { ...state, hideGroups: !state.hideGroups };
     case 'toggleFiles': return { ...state, hideFiles: !state.hideFiles };
+    case 'togglePhotos': return { ...state, hidePhotos: !state.hidePhotos };
     case 'toggleDevices': return { ...state, hideDevices: !state.hideDevices };
     case 'toggleEdgeType': {
       const next = new Set(state.hiddenEdgeTypes);
@@ -46,21 +49,6 @@ export type SearchState = {
     resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[]; topicMatchCount: number };
   } | null;
 };
-
-export type SearchAction =
-  | { type: 'setTerm'; term: string }
-  | { type: 'startSearch' }
-  | { type: 'searchComplete'; results: SearchState['results'] }
-  | { type: 'clearSearch' };
-
-export function searchReducer(state: SearchState, action: SearchAction): SearchState {
-  switch (action.type) {
-    case 'setTerm': return { ...state, term: action.term };
-    case 'startSearch': return { ...state, pending: true };
-    case 'searchComplete': return { ...state, pending: false, results: action.results };
-    case 'clearSearch': return { ...state, pending: false, results: null };
-  }
-}
 
 export type UIState = {
   legendOpen: boolean;

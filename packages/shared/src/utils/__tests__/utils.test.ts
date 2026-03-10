@@ -128,6 +128,6 @@ describe('CONNECTOR_COLORS', () => {
   });
 
   it('has all color entries', () => {
-    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(11);
+    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(12);
   });
 });

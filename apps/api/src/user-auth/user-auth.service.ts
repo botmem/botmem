@@ -306,6 +306,7 @@ export class UserAuthService {
       email: user.email,
       name: user.name,
       onboarded: !!user.onboarded,
+      plan: ['active', 'trialing'].includes(user.subscriptionStatus) ? 'pro' : 'free',
       createdAt: user.createdAt,
     };
   }

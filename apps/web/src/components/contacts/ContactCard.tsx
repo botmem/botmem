@@ -1,5 +1,6 @@
 import { cn, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
+import { Avatar } from '../ui/Avatar';
 import { IDENTIFIER_COLORS } from './constants';
 
 const SELF_COLOR = '#C4F53A';
@@ -19,7 +20,6 @@ interface ContactCardProps {
 }
 
 export function ContactCard({ contact, selected, isSelf, onClick, compact }: ContactCardProps) {
-  const avatar = contact.avatars?.[0];
   const initials = contact.displayName
     .split(' ')
     .map((w) => w[0])
@@ -44,21 +44,7 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
     >
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
-          {avatar ? (
-            <img
-              src={avatar.url}
-              alt={contact.displayName}
-              className="border-3 w-10 h-10 object-cover"
-              style={{ borderColor: isSelf ? SELF_COLOR : undefined }}
-            />
-          ) : (
-            <div
-              className="border-3 border-nb-border w-10 h-10 flex items-center justify-center"
-              style={{ backgroundColor: isSelf ? SELF_COLOR : undefined, borderColor: isSelf ? SELF_COLOR : undefined }}
-            >
-              <span className="font-display text-sm font-bold text-black">{isSelf ? '\u2605' : initials}</span>
-            </div>
-          )}
+          <Avatar contactId={contact.id} fallbackInitials={initials} isSelf={isSelf} size="sm" />
           {/* Connector source badges */}
           {contact.connectorSources.length > 0 && (
             <div className="absolute -bottom-1 -right-1 flex gap-0.5">

@@ -167,6 +167,11 @@ export const contactIdentifiers = pgTable(
   (table) => [
     index('idx_contact_identifiers_contact_id').on(table.contactId),
     index('idx_contact_identifiers_value').on(table.identifierType, table.identifierValue),
+    uniqueIndex('idx_contact_identifiers_unique').on(
+      table.contactId,
+      table.identifierType,
+      table.identifierValue,
+    ),
   ],
 );
 
@@ -217,6 +222,10 @@ export const users = pgTable(
     keyVersion: integer('key_version').notNull().default(1),
     recoveryKeyHash: text('recovery_key_hash'), // SHA-256 hash of recovery key for verification
     firebaseUid: text('firebase_uid').unique(), // nullable — Firebase UID for firebase auth provider users
+    stripeCustomerId: text('stripe_customer_id').unique(),
+    subscriptionStatus: text('subscription_status').notNull().default('free'),
+    subscriptionId: text('subscription_id'),
+    subscriptionCurrentPeriodEnd: timestamp('subscription_current_period_end', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
@@ -289,4 +298,57 @@ export const apiKeys = pgTable(
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+});
+
+// --- LLM Cache table ---
+
+// --- OAuth 2.1 tables ---
+
+export const oauthClients = pgTable('oauth_clients', {
+  clientId: text('client_id').primaryKey(),
+  clientSecret: text('client_secret'),
+  clientName: text('client_name').notNull(),
+  redirectUris: text('redirect_uris').notNull(), // JSON array
+  grantTypes: text('grant_types').notNull(), // JSON array
+  tokenEndpointAuthMethod: text('token_endpoint_auth_method').default('none'),
+  scope: text('scope').default('read write'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const oauthCodes = pgTable('oauth_codes', {
+  code: text('code').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  clientId: text('client_id').notNull(),
+  redirectUri: text('redirect_uri').notNull(),
+  scope: text('scope').notNull(),
+  codeChallenge: text('code_challenge').notNull(),
+  codeChallengeMethod: text('code_challenge_method').default('S256'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+});
+
+export const oauthRefreshTokens = pgTable('oauth_refresh_tokens', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  userId: text('user_id').notNull().references(() => users.id),
+  clientId: text('client_id').notNull(),
+  scope: text('scope').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+});
+
+// --- LLM Cache table ---
+
+export const llmCache = pgTable('llm_cache', {
+  id: text('id').primaryKey(),
+  inputHash: text('input_hash').notNull(),
+  model: text('model').notNull(),
+  backend: text('backend').notNull(),
+  operation: text('operation').notNull(),
+  input: text('input').notNull(),
+  output: text('output').notNull(),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  latencyMs: integer('latency_ms'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });

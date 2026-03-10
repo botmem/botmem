@@ -51,7 +51,7 @@ export class GmailConnector extends BaseConnector {
           default: 'http://localhost:12412/api/auth/gmail/callback',
         },
       },
-      required: ['clientId', 'clientSecret'],
+      required: [],
     },
     entities: ['person', 'message', 'file'],
     pipeline: { clean: true, embed: true, enrich: true },
@@ -154,10 +154,19 @@ export class GmailConnector extends BaseConnector {
     if (metadata.type === 'contact') {
       const parts: string[] = [];
       if (metadata.name) parts.push(`name:${metadata.name}`);
+      for (const nick of (metadata.nicknames as string[]) || []) {
+        if (nick) parts.push(`name:${nick}`);
+      }
       for (const email of (metadata.emails as string[]) || []) parts.push(`email:${email}`);
       for (const phone of (metadata.phones as string[]) || [])
         parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
       if (parts.length) entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
+
+      // Extract organizations as separate entities
+      for (const org of (metadata.organizations as Array<{ name?: string; title?: string }>) || []) {
+        if (org.name) entities.push({ type: 'organization', id: `name:${org.name}`, role: 'affiliation' });
+      }
+
       return { text: cleanedText, entities, metadata: { isContact: true, ...metadata } };
     }
 
@@ -198,34 +207,34 @@ export class GmailConnector extends BaseConnector {
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {
-    // Sync emails
-    const emailResult = await syncGmail(
-      ctx,
-      (event) => this.emitData(event),
-      (progress) => this.emit('progress', progress),
-    );
-
-    // Sync contacts (only on first sync or when no cursor — contacts don't paginate the same way)
+    // Sync contacts first — lightweight and must not be cut off by debug limit
     let contactsProcessed = 0;
     try {
       const contactsResult = await syncContacts(
         ctx,
         (event) => this.emitData(event),
-        (progress) =>
-          this.emit('progress', {
-            processed: emailResult.processed + progress.processed,
-            total: emailResult.processed + (progress.total || 0),
-          }),
+        (progress) => this.emit('progress', progress),
       );
       contactsProcessed = contactsResult.processed;
     } catch (err: any) {
       ctx.logger.warn(`Contacts sync failed (non-fatal): ${err.message}`);
     }
 
+    // Sync emails
+    const emailResult = await syncGmail(
+      ctx,
+      (event) => this.emitData(event),
+      (progress) =>
+        this.emit('progress', {
+          processed: contactsProcessed + progress.processed,
+          total: contactsProcessed + (progress.total || 0),
+        }),
+    );
+
     return {
       cursor: emailResult.cursor,
       hasMore: emailResult.hasMore,
-      processed: emailResult.processed + contactsProcessed,
+      processed: contactsProcessed + emailResult.processed,
     };
   }
 }

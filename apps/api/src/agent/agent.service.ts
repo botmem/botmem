@@ -3,7 +3,7 @@ import { eq, sql, and, desc } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { DbService } from '../db/db.service';
 import { MemoryService } from '../memory/memory.service';
-import { OllamaService } from '../memory/ollama.service';
+import { AiService } from '../memory/ai.service';
 import { QdrantService } from '../memory/qdrant.service';
 import { ContactsService, ContactWithIdentifiers } from '../contacts/contacts.service';
 import { ConfigService } from '../config/config.service';
@@ -61,7 +61,7 @@ export class AgentService {
   constructor(
     private dbService: DbService,
     private memoryService: MemoryService,
-    private ollama: OllamaService,
+    private ai: AiService,
     private qdrant: QdrantService,
     private contactsService: ContactsService,
     private config: ConfigService,
@@ -74,21 +74,24 @@ export class AgentService {
     options?: {
       filters?: { sourceType?: string; connectorType?: string; contactId?: string };
       limit?: number;
+      userId?: string;
     },
-  ): Promise<{ results: EnrichedMemory[]; query: string }> {
+  ): Promise<{ results: EnrichedMemory[]; query: string; parsed?: { temporal: { from: string; to: string } | null; temporalFallback?: boolean; intent: string; cleanQuery: string } }> {
     const limit = options?.limit ?? 20;
-    const { items: searchResults } = await this.memoryService.search(
+    const searchResponse = await this.memoryService.search(
       query,
       options?.filters,
       limit,
+      false,
+      options?.userId,
     );
 
-    const enriched = await Promise.all(searchResults.map((r) => this.enrichMemory(r.id, r.score)));
+    const enriched = await Promise.all(searchResponse.items.map((r) => this.enrichMemory(r.id, r.score, options?.userId)));
 
     // Group by thread (same sourceId prefix for emails, or same sourceId for conversations)
     const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
 
-    return { results: grouped, query };
+    return { results: grouped, query, parsed: searchResponse.parsed };
   }
 
   // ── timeline ───────────────────────────────────────────────────────
@@ -175,7 +178,7 @@ export class AgentService {
 
     // Generate embedding immediately
     try {
-      const vector = await this.ollama.embed(text);
+      const vector = await this.ai.embed(text);
       await this.qdrant.ensureCollection(vector.length);
       await this.qdrant.upsert(id, vector, {
         memory_id: id,
@@ -325,12 +328,13 @@ export class AgentService {
   async summarize(
     query: string,
     maxResults = 10,
+    userId?: string,
   ): Promise<{ summary: string | null; memories: EnrichedMemory[]; sourceIds: string[] }> {
-    const { items: searchResults } = await this.memoryService.search(query, undefined, maxResults);
+    const { items: searchResults } = await this.memoryService.search(query, undefined, maxResults, false, userId);
 
     const enriched: EnrichedMemory[] = [];
     for (const r of searchResults) {
-      const e = await this.enrichMemory(r.id, r.score);
+      const e = await this.enrichMemory(r.id, r.score, userId);
       if (e) enriched.push(e);
     }
 
@@ -359,7 +363,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     // Try Ollama, fall back to returning just memories
     let summary: string | null = null;
     try {
-      summary = await this.ollama.generate(prompt);
+      summary = await this.ai.generate(prompt);
     } catch (err) {
       this.logger.warn(`Ollama summarize failed, returning memories only: ${err}`);
     }
@@ -376,7 +380,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
       bySource: Record<string, number>;
     };
     contacts: { total: number };
-    embedding: { model: string; baseUrl: string };
+    embedding: { backend: string; model: string };
   }> {
     const memStats = await this.memoryService.getStats();
 
@@ -394,20 +398,19 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
         total: contactCount[0]?.count || 0,
       },
       embedding: {
-        model: this.config.ollamaEmbedModel,
-        baseUrl: this.config.ollamaBaseUrl,
+        backend: this.config.aiBackend,
+        model: this.config.aiBackend === 'openrouter' ? this.config.openrouterEmbedModel : this.config.ollamaEmbedModel,
       },
     };
   }
 
   // ── Private helpers ────────────────────────────────────────────────
 
-  private async enrichMemory(memoryId: string, score?: number): Promise<EnrichedMemory | null> {
+  private async enrichMemory(memoryId: string, score?: number, userId?: string): Promise<EnrichedMemory | null> {
     const db = this.dbService.db;
 
-    const rows = await db.select().from(memories).where(eq(memories.id, memoryId));
-    if (!rows.length) return null;
-    const mem = rows[0];
+    const mem = await this.memoryService.getById(memoryId, userId);
+    if (!mem) return null;
 
     // Fetch linked contacts
     const mcRows = await db

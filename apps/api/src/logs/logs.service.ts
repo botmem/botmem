@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import { dirname } from 'path';
 import { ConfigService } from '../config/config.service';
 
 @Injectable()
 export class LogsService {
+  private readonly logger = new Logger(LogsService.name);
   constructor(private config: ConfigService) {}
 
   private get logsPath(): string {
@@ -46,9 +47,8 @@ export class LogsService {
     fs.mkdir(dirname(path), { recursive: true })
       .then(() => fs.appendFile(path, line, 'utf-8'))
       .catch((err) =>
-        console.warn(
-          '[LogsService] Failed to write log entry:',
-          err instanceof Error ? err.message : String(err),
+        this.logger.warn(
+          `Failed to write log entry: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
   }
@@ -75,9 +75,8 @@ export class LogsService {
       ) {
         return { logs: [], total: 0 };
       }
-      console.error(
-        '[LogsService] Failed to read logs file:',
-        err instanceof Error ? err.message : String(err),
+      this.logger.error(
+        `Failed to read logs file: ${err instanceof Error ? err.message : String(err)}`,
       );
       return { logs: [], total: 0 };
     }
@@ -103,8 +102,10 @@ export class LogsService {
       return tb.localeCompare(ta);
     });
 
-    results = results.slice(0, limit);
+    const total = results.length;
+    const offset = filters?.offset || 0;
+    results = results.slice(offset, offset + limit);
 
-    return { logs: results, total: results.length };
+    return { logs: results, total };
   }
 }

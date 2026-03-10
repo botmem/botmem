@@ -29,9 +29,12 @@ const STAGE_ICONS: Record<string, string> = {
 interface ConnectorLogFeedProps {
   logs: LogEntry[];
   onClear?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
-export function ConnectorLogFeed({ logs, onClear }: ConnectorLogFeedProps) {
+export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMore }: ConnectorLogFeedProps) {
   const [levelFilter, setLevelFilter] = useState<Set<string>>(new Set(LEVELS));
   const [connectorFilter, setConnectorFilter] = useState<Set<string>>(new Set());
   const [stageFilter, setStageFilter] = useState<Set<string>>(new Set([...STAGES, '__none__']));
@@ -205,16 +208,27 @@ export function ConnectorLogFeed({ logs, onClear }: ConnectorLogFeedProps) {
 
       <div
         ref={scrollRef}
-        className="p-3 max-h-[600px] overflow-y-auto bg-nb-surface-muted flex-1"
+        className="p-3 overflow-y-auto bg-nb-surface-muted flex-1"
+        style={{ maxHeight: 'calc(100vh - 20rem)' }}
         onScroll={() => {
           if (scrollRef.current) {
-            setAutoScroll(scrollRef.current.scrollTop < 10);
+            const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+            setAutoScroll(scrollTop < 10);
+            // Load more when scrolled near bottom
+            if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !loadingMore && onLoadMore) {
+              onLoadMore();
+            }
           }
         }}
       >
         {filtered.map((log, idx) => (
           <LogEntryRow key={`${log.id}-${idx}`} entry={log} />
         ))}
+        {(hasMore || loadingMore) && (
+          <div className="py-3 text-center">
+            <span className="font-mono text-xs text-nb-muted uppercase">Loading more...</span>
+          </div>
+        )}
         {filtered.length === 0 && (
           <div className="py-8 text-center">
             <span className="inline-block text-2xl mb-2 opacity-30">{'>'}_</span>

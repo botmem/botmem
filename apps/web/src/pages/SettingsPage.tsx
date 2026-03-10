@@ -8,11 +8,13 @@ import { Toggle } from '../components/ui/Toggle';
 import { Tabs } from '../components/ui/Tabs';
 import { ApiKeysTab } from '../components/settings/ApiKeysTab';
 import { MemoryBanksTab } from '../components/settings/MemoryBanksTab';
+import { BillingTab } from '../components/settings/BillingTab';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../lib/api';
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
+  { id: 'billing', label: 'Billing' },
   { id: 'api-keys', label: 'API Keys' },
   { id: 'memory-banks', label: 'Memory Banks' },
   { id: 'pipeline', label: 'Pipeline' },
@@ -122,6 +124,12 @@ export function SettingsPage() {
               <Input label="Name" value={user?.name || ''} disabled className="opacity-70" />
               <Input label="Email" value={user?.email || ''} disabled className="opacity-70" />
             </div>
+          </Card>
+        )}
+
+        {activeTab === 'billing' && (
+          <Card>
+            <BillingTab />
           </Card>
         )}
 

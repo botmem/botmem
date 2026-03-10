@@ -23,11 +23,15 @@ export interface Notification {
 interface JobState {
   jobs: Job[];
   logs: LogEntry[];
+  totalLogs: number;
+  hasMoreLogs: boolean;
+  loadingMoreLogs: boolean;
   queueStats: Record<string, QueueStats> | null;
   notifications: Notification[];
   retrying: boolean;
   fetchJobs: () => Promise<void>;
   fetchLogs: () => Promise<void>;
+  fetchMoreLogs: () => Promise<void>;
   fetchQueueStats: () => Promise<void>;
   cancelJob: (id: string) => Promise<void>;
   reprioritize: (id: string, direction: 'up' | 'down') => void;
@@ -47,6 +51,9 @@ let wsConnected = false;
 export const useJobStore = create<JobState>((set, get) => ({
   jobs: [],
   logs: [],
+  totalLogs: 0,
+  hasMoreLogs: true,
+  loadingMoreLogs: false,
   queueStats: null,
   notifications: [],
   retrying: false,
@@ -71,19 +78,48 @@ export const useJobStore = create<JobState>((set, get) => ({
 
   fetchLogs: async () => {
     try {
-      const { logs } = await api.listLogs({ limit: 100 });
+      const result = await api.listLogs({ limit: 200 });
+      const logs = result.logs.map((l: any) => ({
+        id: l.id,
+        timestamp: l.timestamp,
+        level: l.level,
+        connector: l.connectorType || l.connector,
+        stage: l.stage || undefined,
+        message: l.message,
+      }));
       set({
-        logs: logs.map((l: any) => ({
-          id: l.id,
-          timestamp: l.timestamp,
-          level: l.level,
-          connector: l.connectorType || l.connector,
-          stage: l.stage || undefined,
-          message: l.message,
-        })),
+        logs,
+        totalLogs: result.total,
+        hasMoreLogs: logs.length < result.total,
       });
     } catch {
       // API not available
+    }
+  },
+
+  fetchMoreLogs: async () => {
+    const { loadingMoreLogs, hasMoreLogs, logs } = get();
+    if (loadingMoreLogs || !hasMoreLogs) return;
+    set({ loadingMoreLogs: true });
+    try {
+      const result = await api.listLogs({ limit: 200, offset: logs.length });
+      const newLogs = result.logs.map((l: any) => ({
+        id: l.id,
+        timestamp: l.timestamp,
+        level: l.level,
+        connector: l.connectorType || l.connector,
+        stage: l.stage || undefined,
+        message: l.message,
+      }));
+      const merged = [...logs, ...newLogs];
+      set({
+        logs: merged,
+        totalLogs: result.total,
+        hasMoreLogs: merged.length < result.total,
+        loadingMoreLogs: false,
+      });
+    } catch {
+      set({ loadingMoreLogs: false });
     }
   },
 
@@ -116,6 +152,7 @@ export const useJobStore = create<JobState>((set, get) => ({
   addLog: (log) =>
     set((state) => ({
       logs: [log, ...state.logs].slice(0, 100),
+      totalLogs: state.totalLogs + 1,
     })),
 
   clearLogs: () => set({ logs: [] }),
@@ -194,6 +231,9 @@ export const useJobStore = create<JobState>((set, get) => ({
       }
       if (msg.event === 'job:complete' || msg.event === 'dashboard:jobs') {
         get().fetchJobs();
+        get().fetchQueueStats();
+      }
+      if (msg.event === 'dashboard:queue-stats-changed') {
         get().fetchQueueStats();
       }
       if (msg.event === 'job:complete') {

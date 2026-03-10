@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
@@ -10,6 +10,7 @@ import { MemoryGraph } from '../components/memory/MemoryGraph';
 import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
+import { useSearch } from '../hooks/useSearch';
 import { useJobStore } from '../store/jobStore';
 import { useMemoryBankStore } from '../store/memoryBankStore';
 
@@ -19,17 +20,27 @@ const dashTabs = [
 ];
 
 export function DashboardPage() {
-  const { jobs, logs, queueStats, cancelJob, reprioritize, clearLogs } = useJobs();
+  const { jobs, logs, queueStats, cancelJob, reprioritize, clearLogs, hasMoreLogs, loadingMoreLogs, fetchMoreLogs } = useJobs();
   const { accounts } = useConnectors();
-  const { graphData, loadGraph, memoryStats } = useMemories();
+  const { graphData, loadGraph, loadFullGraph, loadGraphForIds, graphPreview, graphLoading, memoryStats } = useMemories();
   const { retrying, retryAllFailed } = useJobStore();
   const activeMemoryBankId = useMemoryBankStore((s) => s.activeMemoryBankId);
   const [activeTab, setActiveTab] = useState('overview');
   const [reauthOpen, setReauthOpen] = useState(false);
 
+  const onSearchResults = useCallback(async (results: any) => {
+    if (loadGraphForIds) await loadGraphForIds([...results.memoryIds]);
+  }, [loadGraphForIds]);
+  const onSearchClear = useCallback(() => { loadGraph(); }, [loadGraph]);
+  const graphSearch = useSearch({
+    onResults: onSearchResults,
+    onClear: onSearchClear,
+  });
+
+  const statsLoaded = memoryStats != null;
   useEffect(() => {
-    loadGraph();
-  }, [activeMemoryBankId]);
+    if (statsLoaded) loadGraph();
+  }, [activeMemoryBankId, statsLoaded]);
 
   const totalMemories = memoryStats?.total ?? 0;
   const activeConnectors = accounts.filter(
@@ -94,7 +105,7 @@ export function DashboardPage() {
                   </button>
                 </div>
               )}
-              <MemoryGraph data={graphData} onReload={loadGraph} />
+              <MemoryGraph data={graphData} onReloadPreview={loadGraph} graphPreview={graphPreview} graphLoading={graphLoading} onLoadAll={loadFullGraph} onLoadGraphForIds={loadGraphForIds} search={graphSearch} />
             </div>
 
             {/* Metrics cards */}
@@ -137,7 +148,7 @@ export function DashboardPage() {
             <div className="overflow-x-auto">
               <JobTable jobs={jobs} onCancel={cancelJob} onMove={reprioritize} />
             </div>
-            <ConnectorLogFeed logs={logs} onClear={clearLogs} />
+            <ConnectorLogFeed logs={logs} onClear={clearLogs} hasMore={hasMoreLogs} loadingMore={loadingMoreLogs} onLoadMore={fetchMoreLogs} />
           </div>
         )}
       </div>

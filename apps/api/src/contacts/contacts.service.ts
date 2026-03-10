@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, eq, or, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
+import { AccountsService } from '../accounts/accounts.service';
 import {
   contacts,
   contactIdentifiers,
@@ -94,7 +97,12 @@ export interface ContactWithIdentifiers {
 @Injectable()
 export class ContactsService {
   private readonly logger = new Logger(ContactsService.name);
-  constructor(private dbService: DbService) {}
+  constructor(
+    private dbService: DbService,
+    private crypto: CryptoService,
+    private userKeyService: UserKeyService,
+    @Inject(forwardRef(() => AccountsService)) private accountsService: AccountsService,
+  ) {}
 
   async resolveContact(
     rawIdentifiers: IdentifierInput[],
@@ -202,6 +210,23 @@ export class ContactsService {
       }
     } else if (matchedIds.length === 1) {
       contactId = matchedIds[0];
+      // Update display name if we now have a better one (e.g. resolved from raw ID)
+      const nameIdent = identifiers.find((i) => i.type === 'name');
+      if (nameIdent?.value) {
+        const existing = await this.dbService.withCurrentUser((db) =>
+          db.select({ displayName: contacts.displayName }).from(contacts).where(eq(contacts.id, contactId)),
+        );
+        const currentName = existing[0]?.displayName || '';
+        const hasRawId = /\bU[A-Z0-9]{8,}\b/.test(currentName);
+        const newHasRawId = /\bU[A-Z0-9]{8,}\b/.test(nameIdent.value);
+        // Upgrade display name from phone/raw-id/unknown to a real name
+        const isPhoneNumber = /^\+?\d[\d\s-]{5,}$/.test(currentName.trim());
+        if ((hasRawId && !newHasRawId) || currentName === 'Unknown' || isPhoneNumber) {
+          await this.dbService.withCurrentUser((db) =>
+            db.update(contacts).set({ displayName: nameIdent.value, updatedAt: new Date() }).where(eq(contacts.id, contactId)),
+          );
+        }
+      }
     } else {
       // Multiple contacts matched — merge them into the first one
       contactId = matchedIds[0];
@@ -239,7 +264,7 @@ export class ContactsService {
                 identifierValue: ident.value,
                 connectorType: ident.connectorType || null,
                 createdAt: new Date(),
-              }),
+              }).onConflictDoNothing(),
             );
           }
         }
@@ -353,8 +378,8 @@ export class ContactsService {
       }
     } catch (err) {
       // Auto-merge is best-effort — don't fail the resolve
-      this.logger.warn(
-        `[resolveContact] auto-merge failed: ${err instanceof Error ? err.message : String(err)}`,
+      this.logger.debug(
+        `[resolveContact] auto-merge skipped: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
@@ -455,15 +480,28 @@ export class ContactsService {
     );
     const total = countResult[0].count;
 
-    // Get selfContactId to pin it first
-    const selfRow = await this.dbService.withCurrentUser((db) =>
-      db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'selfContactId'))
-        .limit(1),
-    );
-    const selfContactId = selfRow[0]?.value || '';
+    // Get selfContactId to pin it first (per-user key, then global fallback)
+    let selfContactId = '';
+    if (params.userId) {
+      const perUserRow = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ value: settings.value })
+          .from(settings)
+          .where(eq(settings.key, `selfContactId:${params.userId}`))
+          .limit(1),
+      );
+      selfContactId = perUserRow[0]?.value || '';
+    }
+    if (!selfContactId) {
+      const globalRow = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ value: settings.value })
+          .from(settings)
+          .where(eq(settings.key, 'selfContactId'))
+          .limit(1),
+      );
+      selfContactId = globalRow[0]?.value || '';
+    }
 
     // Paginate: self-contact first, then by linked memory count desc
     const paged = await this.dbService.withCurrentUser((db) =>
@@ -581,9 +619,14 @@ export class ContactsService {
   }
 
   /**
-   * Add an avatar URL to the contact's avatars array, skipping duplicates.
+   * Download avatar image and store as base64 data URI in the contact's avatars array.
+   * Falls back to storing the URL if download fails.
    */
-  async updateAvatar(contactId: string, avatar: { url: string; source: string }): Promise<void> {
+  async updateAvatar(
+    contactId: string,
+    avatar: { url: string; source: string },
+    fetchHeaders?: Record<string, string>,
+  ): Promise<void> {
     const rows = await this.dbService.withCurrentUser((db) =>
       db.select({ avatars: contacts.avatars }).from(contacts).where(eq(contacts.id, contactId)),
     );
@@ -592,9 +635,30 @@ export class ContactsService {
     const existing: Array<{ url: string; source: string }> =
       (rows[0].avatars as Array<{ url: string; source: string }>) || [];
 
-    if (existing.some((a) => a.url === avatar.url)) return;
+    // Skip if we already have an avatar from this source
+    if (existing.some((a) => a.source === avatar.source)) return;
 
-    const updated = [...existing, avatar];
+    // Download image and convert to data URI
+    let storedAvatar = avatar;
+    try {
+      const res = await fetch(avatar.url, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        const buffer = Buffer.from(await res.arrayBuffer());
+        const contentType = res.headers.get('content-type') || 'image/jpeg';
+        const dataUri = `data:${contentType};base64,${buffer.toString('base64')}`;
+        storedAvatar = { url: dataUri, source: avatar.source };
+      }
+    } catch {
+      // Fall back to storing the URL
+    }
+
+    // Immich face thumbnails get priority — prepend to front
+    const updated = avatar.source === 'immich'
+      ? [storedAvatar, ...existing]
+      : [...existing, storedAvatar];
 
     await this.dbService.withCurrentUser((db) =>
       db
@@ -602,6 +666,81 @@ export class ContactsService {
         .set({ avatars: updated, updatedAt: new Date() })
         .where(eq(contacts.id, contactId)),
     );
+  }
+
+  /**
+   * Backfill: download all URL-based avatars and convert to base64 data URIs in-place.
+   */
+  async backfillAvatarData(): Promise<{ converted: number; failed: number }> {
+    const db = this.dbService.db;
+    const allContacts = await db
+      .select({ id: contacts.id, avatars: contacts.avatars })
+      .from(contacts)
+      .where(sql`${contacts.avatars} IS NOT NULL AND ${contacts.avatars}::text != '[]'`);
+
+    // Build auth headers for Immich
+    let immichHeaders: Record<string, string> = {};
+    try {
+      const allAccounts = await this.accountsService.getAll();
+      const photosAccount = allAccounts.find((a: any) => a.connectorType === 'photos');
+      if (photosAccount?.authContext) {
+        const auth = typeof photosAccount.authContext === 'string'
+          ? JSON.parse(photosAccount.authContext)
+          : photosAccount.authContext;
+        if (auth?.accessToken) immichHeaders = { 'x-api-key': auth.accessToken };
+      }
+    } catch {
+      // No immich account
+    }
+
+    let converted = 0;
+    let failed = 0;
+
+    for (const contact of allContacts) {
+      const avatars = (contact.avatars as Array<{ url: string; source: string }>) || [];
+      if (!avatars.length) continue;
+
+      let changed = false;
+      const updated: Array<{ url: string; source: string }> = [];
+
+      for (const avatar of avatars) {
+        if (avatar.url.startsWith('data:')) {
+          updated.push(avatar);
+          continue;
+        }
+
+        // Download and convert
+        const headers: Record<string, string> = {};
+        if (avatar.source === 'immich') Object.assign(headers, immichHeaders);
+
+        try {
+          const res = await fetch(avatar.url, { headers, signal: AbortSignal.timeout(10_000) });
+          if (res.ok) {
+            const buffer = Buffer.from(await res.arrayBuffer());
+            const contentType = res.headers.get('content-type') || 'image/jpeg';
+            const dataUri = `data:${contentType};base64,${buffer.toString('base64')}`;
+            updated.push({ url: dataUri, source: avatar.source });
+            changed = true;
+            converted++;
+          } else {
+            updated.push(avatar); // Keep URL as fallback
+            failed++;
+          }
+        } catch {
+          updated.push(avatar);
+          failed++;
+        }
+      }
+
+      if (changed) {
+        await db
+          .update(contacts)
+          .set({ avatars: updated, updatedAt: new Date() })
+          .where(eq(contacts.id, contact.id));
+      }
+    }
+
+    return { converted, failed };
   }
 
   async linkMemory(memoryId: string, contactId: string, role: string): Promise<void> {
@@ -639,7 +778,29 @@ export class ContactsService {
         .limit(limit),
     );
 
-    return mems.map((r) => r.memory);
+    let userKey: Buffer | null = null;
+    if (userId) {
+      userKey = await this.userKeyService.getDek(userId);
+    }
+    return mems.map((r) => this.decryptMemory(r.memory, userId, userKey));
+  }
+
+  private decryptMemory<
+    T extends { text: string; entities: string; claims: string; metadata: string; keyVersion?: number },
+  >(mem: T, userId?: string, userKey?: Buffer | null): T {
+    const kv = (mem as any).keyVersion ?? 0;
+    if (kv >= 1 && userId) {
+      if (userKey) {
+        return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
+      }
+      return {
+        ...mem,
+        text: '[Encrypted — enter your recovery key to view]',
+        entities: '[]',
+        claims: '[]',
+      };
+    }
+    return this.crypto.decryptMemoryFields(mem);
   }
 
   async updateContact(
@@ -697,17 +858,45 @@ export class ContactsService {
                 }
               }
 
-              // Keep the longer displayName
-              const displayName =
-                source.displayName.length > target.displayName.length
+              // Prefer a real name over phone numbers / raw IDs
+              const isPhone = (s: string) => /^\+?\d[\d\s-]{5,}$/.test(s.trim());
+              const isRawId = (s: string) => /\bU[A-Z0-9]{8,}\b/.test(s);
+              const sourceIsName = !isPhone(source.displayName) && !isRawId(source.displayName) && source.displayName !== 'Unknown';
+              const targetIsName = !isPhone(target.displayName) && !isRawId(target.displayName) && target.displayName !== 'Unknown';
+              let displayName: string;
+              if (sourceIsName && !targetIsName) {
+                displayName = source.displayName;
+              } else if (targetIsName && !sourceIsName) {
+                displayName = target.displayName;
+              } else {
+                // Both are names or both aren't — keep the longer one
+                displayName = source.displayName.length > target.displayName.length
                   ? source.displayName
                   : target.displayName;
+              }
 
-              // Move all identifiers from source to target
-              await tx
-                .update(contactIdentifiers)
-                .set({ contactId: targetId })
+              // Move identifiers from source to target, skipping duplicates
+              const sourceIds = await tx
+                .select()
+                .from(contactIdentifiers)
                 .where(eq(contactIdentifiers.contactId, sourceId));
+              const targetIds = await tx
+                .select()
+                .from(contactIdentifiers)
+                .where(eq(contactIdentifiers.contactId, targetId));
+              const targetIdKeys = new Set(
+                targetIds.map((i: any) => `${i.identifierType}::${i.identifierValue}`),
+              );
+              for (const ident of sourceIds) {
+                if (targetIdKeys.has(`${ident.identifierType}::${ident.identifierValue}`)) {
+                  await tx.delete(contactIdentifiers).where(eq(contactIdentifiers.id, ident.id));
+                } else {
+                  await tx
+                    .update(contactIdentifiers)
+                    .set({ contactId: targetId })
+                    .where(eq(contactIdentifiers.id, ident.id));
+                }
+              }
 
               // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
               const sourceMemLinks = await tx
@@ -754,7 +943,11 @@ export class ContactsService {
                   )!,
                 );
 
-              // Delete source contact -- safe now since all children have been moved
+              // Delete any remaining children (race condition: concurrent workers may have added new ones)
+              await tx.delete(contactIdentifiers).where(eq(contactIdentifiers.contactId, sourceId));
+              await tx.delete(memoryContacts).where(eq(memoryContacts.contactId, sourceId));
+
+              // Delete source contact
               await tx.delete(contacts).where(eq(contacts.id, sourceId));
             }),
         );
@@ -762,8 +955,8 @@ export class ContactsService {
         return this.getById(targetId) as Promise<ContactWithIdentifiers>;
       } catch (err: any) {
         lastError = err;
-        // Deadlock error code in PostgreSQL is 40P01
-        if (err?.code === '40P01' && attempt < 3) {
+        // Deadlock (40P01) or FK violation (23503) from concurrent inserts — retry
+        if ((err?.code === '40P01' || err?.code === '23503') && attempt < 3) {
           // Wait a small amount before retrying
           await new Promise((r) => setTimeout(r, Math.random() * 100 + 50 * attempt));
           continue;
@@ -1384,7 +1577,7 @@ export class ContactsService {
       try {
         await this.mergeContacts(winner.id, loser.id);
         this.logger.log(
-          `[deduplicateByExactName] merged "${loser.displayName}" (${loser.id}) → ${winner.id}`,
+          `[deduplicateByExactName] merged ${loser.id} → ${winner.id}`,
         );
       } catch (err) {
         // Concurrent merge may have already handled this — ignore

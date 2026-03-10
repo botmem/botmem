@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { ContactCard } from '../components/contacts/ContactCard';
 import { ContactDetailPanel } from '../components/contacts/ContactDetailPanel';
@@ -6,6 +6,7 @@ import { MergeTinder } from '../components/contacts/MergeTinder';
 import { useContactStore } from '../store/contactStore';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
+import { InfiniteScrollList } from '../components/ui/InfiniteScrollList';
 import { api } from '../lib/api';
 
 export function ContactsPage() {
@@ -16,8 +17,11 @@ export function ContactsPage() {
     selectedId,
     searchQuery,
     loading,
+    loadingMore,
+    hasMore,
     entityFilter,
     loadContacts,
+    loadMoreContacts,
     setSearchQuery,
     setEntityFilter,
     loadSuggestions,
@@ -31,8 +35,6 @@ export function ContactsPage() {
   } = useContactStore();
 
   const [selfContactId, setSelfContactId] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(50);
-  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadContacts();
@@ -44,25 +46,6 @@ export function ContactsPage() {
   }, []);
 
   const selectedContact = contacts.find((c) => c.id === selectedId) || null;
-
-  useEffect(() => {
-    setVisibleCount(50);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && visibleCount < contacts.length) {
-          setVisibleCount((prev) => Math.min(prev + 50, contacts.length));
-        }
-      },
-      { threshold: 0.1 },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [visibleCount, contacts.length]);
 
   const filteredSuggestions = useMemo(() => {
     if (!searchQuery.trim()) return suggestions;
@@ -135,36 +118,32 @@ export function ContactsPage() {
 
       <div className="flex flex-col md:flex-row gap-4">
         {/* Contact list */}
-        <div
-          className="flex-1 flex flex-col gap-2 overflow-y-auto"
-          style={{ maxHeight: 'calc(100vh - 16rem)' }}
-        >
-          {loading && <Skeleton variant="avatar" count={5} className="mb-2" />}
-          {!loading &&
-            contacts
-              .slice(0, visibleCount)
-              .map((c) => (
-                <ContactCard
-                  key={c.id}
-                  contact={c}
-                  selected={selectedId === c.id}
-                  isSelf={selfContactId === c.id}
-                  onClick={() => selectContact(selectedId === c.id ? null : c.id)}
-                />
-              ))}
-          {!loading && visibleCount < contacts.length && (
-            <div ref={sentinelRef} className="py-4 text-center">
-              <span className="font-mono text-xs text-nb-muted uppercase">Loading more...</span>
-            </div>
+        <InfiniteScrollList
+          items={contacts}
+          renderItem={(c) => (
+            <ContactCard
+              contact={c}
+              selected={selectedId === c.id}
+              isSelf={selfContactId === c.id}
+              onClick={() => selectContact(selectedId === c.id ? null : c.id)}
+            />
           )}
-          {contacts.length === 0 && !loading && (
+          keyExtractor={(c) => c.id}
+          hasMore={hasMore}
+          loading={loading}
+          loadingMore={loadingMore}
+          onLoadMore={loadMoreContacts}
+          disabled={!!searchQuery.trim()}
+          className="flex-1 flex flex-col gap-2 overflow-y-auto"
+          loadingSkeleton={<Skeleton variant="avatar" count={5} className="mb-2" />}
+          emptyState={
             <EmptyState
-              icon="◎"
+              icon="\u25CE"
               title={entityFilter === 'group' ? 'No Groups Found' : 'No People Found'}
               subtitle="Try adjusting your search"
             />
-          )}
-        </div>
+          }
+        />
 
         {/* Desktop detail panel */}
         {selectedContact && (

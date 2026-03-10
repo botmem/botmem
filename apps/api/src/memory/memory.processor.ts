@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { OllamaService } from './ollama.service';
+import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { EnrichService } from './enrich.service';
 import { ConnectorsService } from '../connectors/connectors.service';
@@ -14,6 +14,7 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
+import { ConfigService } from '../config/config.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { rawEvents, memories, memoryLinks } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
@@ -87,7 +88,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
   constructor(
     private dbService: DbService,
-    private ollama: OllamaService,
+    private ai: AiService,
     private qdrant: QdrantService,
     private enrichService: EnrichService,
     private connectors: ConnectorsService,
@@ -98,18 +99,20 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private jobsService: JobsService,
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
+    private config: ConfigService,
   ) {
     super();
   }
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[memory worker] ${err.message}`));
-    const concurrency = parseInt(await this.settingsService.get('memory_concurrency'), 10) || 16;
+    const defaultC = this.config.aiConcurrency.memory;
+    const concurrency = parseInt(await this.settingsService.get('memory_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'memory_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 16;
+        this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
     });
   }
@@ -372,7 +375,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
     try {
       t0 = Date.now();
-      let vector = await this.ollama.embed(truncatedText);
+      let vector = await this.ai.embed(truncatedText);
       const embedMs = Date.now() - t0;
 
       t0 = Date.now();
@@ -414,7 +417,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             // Re-embed with enriched text
             const reEmbedText =
               currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
-            vector = await this.ollama.embed(reEmbedText);
+            vector = await this.ai.embed(reEmbedText);
             await this.qdrant.upsert(memoryId, vector, {
               source_type: event.sourceType,
               connector_type: rawEvent.connectorType,
@@ -527,7 +530,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         .where(eq(memories.id, memoryId));
       const buffer = await res.arrayBuffer();
       const base64 = Buffer.from(buffer).toString('base64');
-      const description = await this.ollama.generate(photoDescriptionPrompt(memory?.text || ''), [
+      const description = await this.ai.generate(photoDescriptionPrompt(memory?.text || ''), [
         base64,
       ]);
       return description.trim() || null;

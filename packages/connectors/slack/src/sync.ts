@@ -229,8 +229,8 @@ export async function syncSlack(
         });
         ctx.logger.info(`Resolved external user ${ch.user} → ${bestName}`);
       }
-    } catch {
-      ctx.logger.debug(`Could not resolve external user ${ch.user}`);
+    } catch (err: any) {
+      ctx.logger.warn(`Could not resolve external user ${ch.user}: ${err?.message || err}`);
     }
   }
   ctx.logger.info(`User map now has ${users.size} entries (including external)`);
@@ -283,10 +283,32 @@ export async function syncSlack(
       const convType = channelType(channel);
       const convLabel = channelLabel(channel, users);
 
-      // For DMs, identify the other party
+      // For DMs, identify the other party — retry resolution if still unknown
       const dmPartnerId = channel.is_im ? channel.user : undefined;
-      const dmPartnerName = dmPartnerId ? userName(users, dmPartnerId) : undefined;
-
+      if (dmPartnerId && !users.has(dmPartnerId)) {
+        try {
+          const info = await client.users.info({ user: dmPartnerId });
+          const p = (info.user as any)?.profile || {};
+          const realName = p.real_name_normalized || p.real_name || (info.user as any)?.real_name || '';
+          const displayName = p.display_name_normalized || p.display_name || '';
+          const name = (info.user as any)?.name || '';
+          const bestName = realName || displayName || name;
+          if (bestName) {
+            users.set(dmPartnerId, {
+              name: name || bestName,
+              realName: bestName,
+              email: p.email || undefined,
+              phone: p.phone || undefined,
+              title: p.title || undefined,
+              avatarUrl: p.image_72 || undefined,
+              slackId: dmPartnerId,
+            });
+            ctx.logger.info(`Late-resolved DM partner ${dmPartnerId} → ${bestName}`);
+          }
+        } catch {
+          ctx.logger.warn(`DM partner ${dmPartnerId} could not be resolved — will show as ID`);
+        }
+      }
       // Paginate through ALL messages in this channel
       let historyCursor: string | undefined;
       let latestTs = oldest;
@@ -390,18 +412,8 @@ export async function syncSlack(
             filesContext += (filesContext ? ' ' : '') + attachLines.join(' ');
           }
 
-          // Compose contextual text — mark sender perspective
-          const senderTag = isSelf ? '(you)' : '';
-          let fullText = `[${convLabel}] ${authorName}${senderTag}: ${normalizedText}`;
-
-          // Add DM context
-          if (channel.is_im && dmPartnerName) {
-            if (isSelf) {
-              fullText = `[DM → ${dmPartnerName}] You wrote: ${normalizedText}`;
-            } else {
-              fullText = `[DM ← ${dmPartnerName}] ${dmPartnerName} wrote to you: ${normalizedText}`;
-            }
-          }
+          // Prefix channel name for search/embedding context
+          let fullText = `[${convLabel}] ${normalizedText}`;
 
           if (filesContext) fullText += `\n${filesContext}`;
           if (reactionContext.length > 0) fullText += `\nReactions: ${reactionContext.join(', ')}`;
@@ -449,7 +461,7 @@ export async function syncSlack(
               sourceId: `${channel.id}:${msg.ts}:${file.id || file.name}`,
               timestamp: new Date(parseFloat(msg.ts) * 1000).toISOString(),
               content: {
-                text: `[${convLabel}] ${authorName}${senderTag} shared: ${file.name || 'untitled'}`,
+                text: `shared: ${file.name || 'untitled'}`,
                 participants,
                 metadata: {
                   channel: convLabel,

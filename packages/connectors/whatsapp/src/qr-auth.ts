@@ -123,7 +123,7 @@ export async function startQrAuth(
 
     if (sock.ws && typeof (sock.ws as any).on === 'function') {
       (sock.ws as any).on('error', (err: Error) => {
-        console.error('[WhatsApp] WebSocket error:', err.message);
+        console.debug('[WhatsApp] WebSocket error:', err.message);
       });
     }
 

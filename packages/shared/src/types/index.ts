@@ -9,7 +9,7 @@ export type ConnectorType = BuiltinConnectorType | (string & {});
 
 export type AuthType = 'oauth2' | 'qr-code' | 'api-key' | 'local-tool';
 
-export type SyncSchedule = '15min' | 'hourly' | 'daily' | 'manual';
+export type SyncSchedule = 'hourly' | 'every-6h' | 'daily' | 'manual';
 
 export type ConnectorStatus = 'connected' | 'syncing' | 'error' | 'disconnected';
 
@@ -129,6 +129,8 @@ export interface GraphNode {
   weights?: Record<string, number>;
   eventTime?: string;
   metadata?: Record<string, unknown>;
+  avatarUrl?: string;
+  thumbnailDataUrl?: string;
 }
 
 export interface GraphEdge {
@@ -143,10 +145,22 @@ export interface GraphData {
   links: GraphEdge[];
 }
 
+export type SubscriptionPlan = 'free' | 'pro';
+export type SubscriptionStatus = 'free' | 'active' | 'past_due' | 'canceled' | 'trialing';
+
+export interface BillingInfo {
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
   onboarded: boolean;
+  plan?: SubscriptionPlan;
+  subscriptionStatus?: SubscriptionStatus;
   createdAt?: string;
 }

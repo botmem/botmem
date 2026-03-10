@@ -1,6 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Res, HttpStatus, Logger } from '@nestjs/common';
+import type { Response } from 'express';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ContactsService } from './contacts.service';
+import { AccountsService } from '../accounts/accounts.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { Public } from '../user-auth/decorators/public.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { SplitContactDto } from './dto/split-contact.dto';
@@ -10,7 +14,11 @@ import { DismissSuggestionDto } from './dto/dismiss-suggestion.dto';
 
 @Controller('people')
 export class ContactsController {
-  constructor(private contactsService: ContactsService) {}
+  private readonly logger = new Logger(ContactsController.name);
+  constructor(
+    private contactsService: ContactsService,
+    private accountsService: AccountsService,
+  ) {}
 
   @Get()
   async list(
@@ -42,6 +50,94 @@ export class ContactsController {
   @Post('reclassify')
   async reclassify() {
     return this.contactsService.reclassifyEntityTypes();
+  }
+
+  @RequiresJwt()
+  @Post('backfill-avatars')
+  async backfillAvatars() {
+    return this.contactsService.backfillAvatarData();
+  }
+
+  @Public()
+  @SkipThrottle()
+  @Get(':id/avatar')
+  async getAvatar(@Param('id') id: string, @Query('index') indexStr: string | undefined, @Res() res: Response) {
+    let contact: any;
+    try {
+      contact = await this.contactsService.getById(id);
+    } catch {
+      return res.status(HttpStatus.NOT_FOUND).json({ error: 'contact not found' });
+    }
+
+    const allAvatars = (contact.avatars as Array<{ url: string; source: string }>) || [];
+    if (allAvatars.length === 0) {
+      return res.status(HttpStatus.NOT_FOUND).json({ error: 'no avatar' });
+    }
+
+    // If a specific index is requested, serve only that avatar
+    const requestedIndex = indexStr != null ? parseInt(indexStr, 10) : undefined;
+    const avatars = requestedIndex != null && allAvatars[requestedIndex]
+      ? [allAvatars[requestedIndex]]
+      : allAvatars;
+
+    // Cache Immich credentials once (lazy)
+    let immichApiKey: string | null = null;
+    const getImmichKey = async () => {
+      if (immichApiKey !== null) return immichApiKey;
+      try {
+        const allAccounts = await this.accountsService.getAll();
+        const photosAccount = allAccounts.find((a: any) => a.connectorType === 'photos');
+        if (photosAccount?.authContext) {
+          const auth = typeof photosAccount.authContext === 'string'
+            ? JSON.parse(photosAccount.authContext)
+            : photosAccount.authContext;
+          immichApiKey = auth?.accessToken || '';
+        } else {
+          immichApiKey = '';
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to get Immich credentials: ${err instanceof Error ? err.message : String(err)}`);
+        immichApiKey = '';
+      }
+      return immichApiKey;
+    };
+
+    // Try each avatar in order until one succeeds
+    for (const avatar of avatars) {
+      // Serve base64 data URIs directly from DB
+      if (avatar.url.startsWith('data:')) {
+        const match = avatar.url.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          res.setHeader('Content-Type', match[1]);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.send(Buffer.from(match[2], 'base64'));
+        }
+        continue;
+      }
+
+      // Fetch external URLs (legacy data)
+      const headers: Record<string, string> = {};
+      if (avatar.source === 'immich') {
+        const key = await getImmichKey();
+        if (key) headers['x-api-key'] = key;
+      }
+
+      try {
+        const upstream = await fetch(avatar.url, { headers, signal: AbortSignal.timeout(10_000) });
+        if (!upstream.ok) continue;
+
+        const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+
+        const buffer = Buffer.from(await upstream.arrayBuffer());
+        return res.send(buffer);
+      } catch {
+        continue;
+      }
+    }
+
+    return res.status(HttpStatus.NOT_FOUND).json({ error: 'all avatars failed' });
   }
 
   @Get(':id')
@@ -79,6 +175,7 @@ export class ContactsController {
     return this.contactsService.splitContact(id, dto.identifierIds);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(@Body() dto: SearchContactsDto) {
     return this.contactsService.search(dto.query);

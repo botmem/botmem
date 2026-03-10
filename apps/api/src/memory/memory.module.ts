@@ -9,6 +9,10 @@ import { SettingsModule } from '../settings/settings.module';
 import { CryptoModule } from '../crypto/crypto.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { OllamaService } from './ollama.service';
+import { OpenRouterService } from './openrouter.service';
+import { AiCacheService } from './ai-cache.service';
+import { AiService } from './ai.service';
+import { RerankService } from './rerank.service';
 import { QdrantService } from './qdrant.service';
 import { EnrichService } from './enrich.service';
 import { CleanProcessor } from './clean.processor';
@@ -46,6 +50,10 @@ import { MemoryController } from './memory.controller';
   controllers: [MemoryController],
   providers: [
     OllamaService,
+    OpenRouterService,
+    AiCacheService,
+    RerankService,
+    AiService,
     QdrantService,
     EnrichService,
     CleanProcessor,
@@ -56,6 +64,6 @@ import { MemoryController } from './memory.controller';
     DecayProcessor,
     MemoryService,
   ],
-  exports: [OllamaService, QdrantService, EnrichService, MemoryService],
+  exports: [OllamaService, AiService, RerankService, QdrantService, EnrichService, MemoryService],
 })
 export class MemoryModule {}

@@ -7,6 +7,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { DbService } from '../db/db.service';
 import { rawEvents, memories, memoryContacts, memoryLinks, accounts } from '../db/schema';
+import { Throttle } from '@nestjs/throttler';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import type { Job } from '@botmem/shared';
@@ -111,6 +112,7 @@ export class JobsController {
     return { job: toApiJob(row) };
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @RequiresJwt()
   @Post('retry-failed')
   async retryFailed() {

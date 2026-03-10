@@ -50,18 +50,21 @@ export function useGraphEffects({
     }
   }, [isFullscreen]);
 
-  // Auto-select top search result
+  // Auto-select top search result (highest score)
   useEffect(() => {
-    if (!search.results) return;
-    const firstMemId = search.results.memoryIds.values().next().value;
-    if (firstMemId) {
-      const node = filteredNodes.find((n) => n.id === firstMemId) as any;
+    if (!search.results || !search.results.scoreMap) return;
+    let topId: string | null = null;
+    let topScore = -1;
+    for (const [id, score] of search.results.scoreMap) {
+      if (score > topScore) { topScore = score; topId = id; }
+    }
+    if (topId) {
+      const node = filteredNodes.find((n: any) => n.id === topId) as any;
       if (node) {
         dispatchUI({ type: 'selectNode', node });
         if (graphRef.current && node.x !== undefined) {
           graphRef.current.centerAt(node.x, node.y, 400);
         }
-        return;
       }
     }
   }, [search.results, filteredNodes]);

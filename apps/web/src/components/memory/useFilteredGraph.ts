@@ -1,7 +1,6 @@
 import { useMemo, useEffect, useRef, useCallback } from 'react';
 import type { GraphData } from '@botmem/shared';
-import type { FilterState, SearchState, SearchAction } from './graphReducers';
-import { api } from '../../lib/api';
+import type { FilterState, SearchState } from './graphReducers';
 
 interface AdaptiveConfig {
   cooldownTicks: number;
@@ -15,12 +14,11 @@ interface UseFilteredGraphArgs {
   data: GraphData;
   filters: FilterState;
   search: SearchState;
-  dispatchSearch: React.Dispatch<SearchAction>;
   connectionCounts: Map<string, number>;
   selfNodeId: string | null;
   focusedNodeId: string | null;
   focusExpansion: number;
-  onReload?: () => void;
+  onReloadPreview?: () => void;
   graphRef: React.RefObject<any>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   dimensions: { width: number; height: number };
@@ -28,17 +26,11 @@ interface UseFilteredGraphArgs {
 }
 
 export function useFilteredGraph({
-  data, filters, search, dispatchSearch, connectionCounts, selfNodeId,
-  focusedNodeId, focusExpansion, onReload,
-  graphRef, containerRef, dimensions, adaptiveConfig,
+  data, filters, search, connectionCounts, selfNodeId,
+  focusedNodeId, focusExpansion, onReloadPreview: _onReloadPreview,
+  graphRef, containerRef: _containerRef, dimensions: _dimensions, adaptiveConfig,
 }: UseFilteredGraphArgs) {
-  const nodePositionsRef = useRef<Map<string, { x: number; y: number; vx: number; vy: number }>>(new Map());
   const isInitialRender = useRef(true);
-  const prevFilteredRef = useRef<{ nodes: any[]; links: any[] } | null>(null);
-  const prevDataRef = useRef(data);
-  const prevNodeIdsRef = useRef<Set<string>>(new Set());
-  const isDataRefresh = useRef(false);
-  const isIncremental = useRef(false);
 
   const searchMatchIds = useMemo(() => {
     if (search.pending && !search.results) return new Set<string>();
@@ -80,41 +72,34 @@ export function useFilteredGraph({
 
   const filteredData = useMemo(() => {
     const searchVisible = contactFilterIds ?? highlightedIds;
-    // Dynamic minConnections: when search is active, show all matched nodes (0)
-    // Otherwise, scale based on total node count to reduce clutter
     const searchActive = !!(contactFilterIds ?? highlightedIds);
     const nodeCount = data.nodes.length;
     const dynamicMin = searchActive ? 0 : (nodeCount > 800 ? 3 : nodeCount > 500 ? 2 : nodeCount > 200 ? 1 : 0);
     const effectiveMinConn = dynamicMin;
     const keepNodes = new Set<string>();
     for (const node of data.nodes) {
-      if (searchVisible && !searchVisible.has(node.id)) continue;
       if (node.nodeType === 'contact' && filters.hideContacts) continue;
       if (node.nodeType === 'group' && filters.hideGroups) continue;
       if (node.nodeType === 'file' && filters.hideFiles) continue;
+      if (node.nodeType === 'memory' && node.source === 'file' && filters.hideFiles) continue;
+      if (node.nodeType === 'memory' && node.source === 'photo' && filters.hidePhotos) continue;
       if (node.nodeType === 'device' && filters.hideDevices) continue;
       if (node.nodeType === 'connector') {
         if (!searchVisible) keepNodes.add(node.id);
         continue;
       }
       if (node.nodeType === 'memory' && filters.hiddenSourceTypes.has(node.source)) continue;
-      const isSearchMatch = searchVisible && searchVisible.has(node.id);
-      if (!isSearchMatch) {
+      // When search is active, only show matching nodes + their neighbors
+      if (searchVisible) {
+        if (!searchVisible.has(node.id)) continue;
+      } else {
         const count = connectionCounts.get(node.id) || 0;
-        if (count < effectiveMinConn) continue;
+        // Hide unconnected nodes — all node types must have at least 1 edge
+        if (count === 0) continue;
+        // Memory nodes must meet the dynamic minimum for large graphs
+        if (node.nodeType === 'memory' && count < effectiveMinConn) continue;
       }
       keepNodes.add(node.id);
-    }
-
-    if (graphRef.current) {
-      const currentNodes = graphRef.current.graphData?.()?.nodes;
-      if (currentNodes) {
-        for (const n of currentNodes) {
-          if (n.id && n.x !== undefined) {
-            nodePositionsRef.current.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
-          }
-        }
-      }
     }
 
     const links = data.links.filter((l) => {
@@ -123,32 +108,41 @@ export function useFilteredGraph({
       if (!keepNodes.has(src) || !keepNodes.has(tgt)) return false;
       const type = l.linkType || 'related';
       if (filters.hiddenEdgeTypes.has(type)) return false;
-      // Hide decorative link types in performance mode
       if (adaptiveConfig?.hideDecorativeLinks && (type === 'involves' || type === 'source')) return false;
       return true;
     });
 
-    const linkedNodes = new Set<string>();
+    // Build connection counts from filtered links only (not all links)
+    const filteredConnCounts = new Map<string, number>();
     for (const l of links) {
       const linkType = l.linkType || 'related';
       if (linkType === 'source') continue;
       const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
       const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
-      linkedNodes.add(src);
-      linkedNodes.add(tgt);
-    }
-    for (const node of data.nodes) {
-      if (keepNodes.has(node.id) && node.nodeType !== 'memory') linkedNodes.add(node.id);
+      filteredConnCounts.set(src, (filteredConnCounts.get(src) || 0) + 1);
+      filteredConnCounts.set(tgt, (filteredConnCounts.get(tgt) || 0) + 1);
     }
 
-    const neighborPos = new Map<string, { x: number; y: number }>();
+    // Only include nodes that have at least one visible (filtered) edge
+    const linkedNodes = new Set<string>();
     for (const l of links) {
       const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
       const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
-      const srcPos = nodePositionsRef.current.get(src);
-      const tgtPos = nodePositionsRef.current.get(tgt);
-      if (srcPos && !neighborPos.has(tgt)) neighborPos.set(tgt, srcPos);
-      if (tgtPos && !neighborPos.has(src)) neighborPos.set(src, tgtPos);
+      linkedNodes.add(src);
+      linkedNodes.add(tgt);
+    }
+    // Always show self node
+    if (selfNodeId && keepNodes.has(selfNodeId)) linkedNodes.add(selfNodeId);
+
+    // Preserve node identity: reuse existing simulation node objects to keep x/y/vx/vy
+    const simNodeMap = new Map<string, any>();
+    if (graphRef.current) {
+      const currentNodes = graphRef.current.graphData?.()?.nodes;
+      if (currentNodes) {
+        for (const n of currentNodes) {
+          if (n.id) simNodeMap.set(n.id, n);
+        }
+      }
     }
 
     const nodes = data.nodes
@@ -158,19 +152,36 @@ export function useFilteredGraph({
         if (n.id === selfNodeId && isInitialRender.current) {
           return { ...n, x: 0, y: 0, fx: 0, fy: 0 };
         }
-        const pos = nodePositionsRef.current.get(n.id);
-        if (pos) {
-          if (isDataRefresh.current && !isIncremental.current) {
-            // Full refresh: pin nodes to prevent layout reset
-            return { ...n, x: pos.x, y: pos.y, fx: pos.x, fy: pos.y, vx: 0, vy: 0 };
-          }
-          // Incremental or filter change: let simulation absorb gently
-          return { ...n, x: pos.x, y: pos.y, vx: pos.vx, vy: pos.vy };
+        // Reuse existing simulation node to preserve position
+        const existing = simNodeMap.get(n.id);
+        if (existing) {
+          // Update data fields on the existing object, preserve physics state
+          existing.label = n.label;
+          existing.source = n.source;
+          existing.sourceConnector = n.sourceConnector;
+          existing.importance = n.importance;
+          existing.factuality = n.factuality;
+          existing.nodeType = n.nodeType;
+          existing.entities = n.entities;
+          existing.connectors = n.connectors;
+          existing.text = n.text;
+          existing.weights = n.weights;
+          existing.eventTime = n.eventTime;
+          existing.metadata = n.metadata;
+          return existing;
         }
-        const nb = neighborPos.get(n.id);
-        if (nb) {
-          const jitter = () => (Math.random() - 0.5) * 30;
-          return { ...n, x: nb.x + jitter(), y: nb.y + jitter() };
+        // New node: place near a neighbor if possible
+        for (const l of links) {
+          const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
+          const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+          const neighborId = src === n.id ? tgt : tgt === n.id ? src : null;
+          if (neighborId) {
+            const nb = simNodeMap.get(neighborId);
+            if (nb && nb.x !== undefined) {
+              const jitter = () => (Math.random() - 0.5) * 30;
+              return { ...n, x: nb.x + jitter(), y: nb.y + jitter() };
+            }
+          }
         }
         return { ...n };
       });
@@ -183,86 +194,8 @@ export function useFilteredGraph({
     return { nodes, links };
   }, [data, connectionCounts, filters, contactFilterIds, highlightedIds, search.results, adaptiveConfig]);
 
-  // Track data vs filter changes — detect incremental vs full refresh
-  useEffect(() => {
-    if (data !== prevDataRef.current) {
-      isDataRefresh.current = true;
-      const currentIds = new Set(data.nodes.map((n) => n.id));
-      const prevIds = prevNodeIdsRef.current;
-      // Incremental: previous nodes are a subset of current nodes (additions only)
-      let allPrevExist = prevIds.size > 0;
-      if (allPrevExist) {
-        for (const id of prevIds) {
-          if (!currentIds.has(id)) { allPrevExist = false; break; }
-        }
-      }
-      isIncremental.current = allPrevExist && currentIds.size > prevIds.size;
-      prevNodeIdsRef.current = currentIds;
-      prevDataRef.current = data;
-    } else {
-      isDataRefresh.current = false;
-      isIncremental.current = false;
-    }
-  });
-
-  // Restore camera on data refreshes
-  useEffect(() => {
-    if (isInitialRender.current) {
-      prevFilteredRef.current = filteredData;
-      return;
-    }
-    if (!graphRef.current) {
-      prevFilteredRef.current = filteredData;
-      return;
-    }
-    if (isDataRefresh.current) {
-      const fg = graphRef.current;
-      const canvas = containerRef.current?.querySelector('canvas');
-      const d3Zoom = canvas && (canvas as any).__zoom;
-      const savedK = d3Zoom?.k;
-      const savedX = d3Zoom?.x;
-      const savedY = d3Zoom?.y;
-      requestAnimationFrame(() => {
-        if (!fg || savedK === undefined) return;
-        fg.zoom(savedK, 0);
-        const cx = (dimensions.width / 2 - savedX) / savedK;
-        const cy = (dimensions.height / 2 - savedY) / savedK;
-        fg.centerAt(cx, cy, 0);
-      });
-    }
-    prevFilteredRef.current = filteredData;
-  }, [filteredData, dimensions]);
-
-  // Debounced search effect
-  useEffect(() => {
-    const trimmed = search.term.trim();
-    if (!trimmed) {
-      dispatchSearch({ type: 'clearSearch' });
-      return;
-    }
-    if (trimmed.length < 3) return;
-    const timer = setTimeout(async () => {
-      dispatchSearch({ type: 'startSearch' });
-      try {
-        const res = await api.searchMemories(trimmed, undefined, 100);
-        const memoryIds = new Set(res.items.map((item: any) => item.id));
-        const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
-          (c: { id: string }) => `contact-${c.id}`,
-        );
-        const scoreMap = new Map<string, number>();
-        const total = res.items.length;
-        res.items.forEach((item: any, idx: number) => {
-          scoreMap.set(item.id, total > 1 ? 1 - idx / (total - 1) : 1);
-        });
-        for (const id of contactNodeIds) scoreMap.set(id, 1);
-        if (onReload) await onReload();
-        dispatchSearch({ type: 'searchComplete', results: { memoryIds, contactNodeIds, scoreMap, resolvedEntities: res.resolvedEntities ?? undefined } });
-      } catch {
-        dispatchSearch({ type: 'searchComplete', results: null });
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [search.term]);
+  // No data-tracking or camera-restore effects needed — node identity preservation
+  // keeps positions stable across updates.
 
   // Focus mode: show only focused node's connections
   const focusVisibleIds = useMemo(() => {

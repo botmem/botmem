@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ConnectorSetupModal } from '../connectors/ConnectorSetupModal';
 import { useConnectorStore } from '../../store/connectorStore';
@@ -12,6 +12,18 @@ vi.mock('../../lib/api', () => ({
     listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
   },
 }));
+
+// Allow tests to control isFirebaseMode
+let mockIsFirebaseMode = false;
+vi.mock('../../store/authStore', async () => {
+  const actual = await vi.importActual('../../store/authStore');
+  return {
+    ...actual,
+    get isFirebaseMode() {
+      return mockIsFirebaseMode;
+    },
+  };
+});
 
 describe('ConnectorSetupModal', () => {
   beforeEach(() => {
@@ -69,5 +81,47 @@ describe('ConnectorSetupModal', () => {
       <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
     );
     expect(await screen.findByText('CONNECT')).toBeInTheDocument();
+  });
+
+  describe('Firebase mode field hiding', () => {
+    beforeEach(() => {
+      mockIsFirebaseMode = true;
+    });
+
+    afterEach(() => {
+      mockIsFirebaseMode = false;
+    });
+
+    it('hides clientId and clientSecret fields in Firebase mode', async () => {
+      render(
+        <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      );
+      // Should still render the connect button
+      expect(await screen.findByText('CONNECT')).toBeInTheDocument();
+      // But should NOT show the OAuth fields
+      expect(screen.queryByText('Client ID')).not.toBeInTheDocument();
+      expect(screen.queryByText('Client Secret')).not.toBeInTheDocument();
+    });
+
+    it('still renders the modal title in Firebase mode', async () => {
+      render(
+        <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      );
+      expect(screen.getByText('Connect GMAIL')).toBeInTheDocument();
+    });
+  });
+
+  describe('Local mode field visibility', () => {
+    beforeEach(() => {
+      mockIsFirebaseMode = false;
+    });
+
+    it('shows clientId and clientSecret fields in local mode', async () => {
+      render(
+        <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      );
+      expect(await screen.findByText('Client ID')).toBeInTheDocument();
+      expect(await screen.findByText('Client Secret')).toBeInTheDocument();
+    });
   });
 });

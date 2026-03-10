@@ -52,6 +52,7 @@ function createMockDeps() {
 
   const events = {
     emitToChannel: vi.fn(),
+    emitDebounced: vi.fn(),
   } as unknown as EventsService;
 
   const dbService = {

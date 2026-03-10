@@ -4,7 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { OllamaService } from './ollama.service';
+import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { MemoryService } from './memory.service';
 import { ConnectorsService } from '../connectors/connectors.service';
@@ -16,6 +16,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { ConfigService } from '../config/config.service';
 import {
   rawEvents,
   memories,
@@ -30,6 +31,12 @@ import { normalizeEntities } from './entity-normalizer';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
 const MAX_CONTENT_LENGTH = 10_000;
+
+/** Strip PostgreSQL-incompatible null bytes from strings */
+function stripNullBytes(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x00/g, '');
+}
 const TRUNCATION_SUFFIX = '\n\n---\n*[Truncated]*';
 
 @Processor('embed')
@@ -37,7 +44,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(EmbedProcessor.name);
   constructor(
     private dbService: DbService,
-    private ollama: OllamaService,
+    private ai: AiService,
     private qdrant: QdrantService,
     private memoryService: MemoryService,
     private connectors: ConnectorsService,
@@ -49,6 +56,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
     private analytics: AnalyticsService,
+    private config: ConfigService,
     @InjectQueue('enrich') private enrichQueue: Queue,
   ) {
     super();
@@ -56,12 +64,13 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[embed worker] ${err.message}`));
-    const concurrency = parseInt(await this.settingsService.get('embed_concurrency'), 10) || 8;
+    const defaultC = this.config.aiConcurrency.embed;
+    const concurrency = parseInt(await this.settingsService.get('embed_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'embed_concurrency') {
-        this.worker.concurrency = parseInt(value, 10) || 8;
+        this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
     });
   }
@@ -279,6 +288,28 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
               }
             }
           }
+
+          // Update avatar for Immich — face thumbnails (highest priority)
+          if (rawEvent.connectorType === 'photos') {
+            const immichPeople = (metadata.people as Array<{ name?: string; thumbnailUrl?: string }>) || [];
+            const nameIdent = identifiers.find((i) => i.type === 'name');
+            const matchedPerson = nameIdent
+              ? immichPeople.find((p) => p.name && p.name.toLowerCase() === nameIdent.value.toLowerCase())
+              : undefined;
+            if (matchedPerson?.thumbnailUrl) {
+              try {
+                const immichHeaders = await this.buildAuthHeaders(rawEvent.accountId, 'photos');
+                await this.contactsService.updateAvatar(contact.id, {
+                  url: matchedPerson.thumbnailUrl,
+                  source: 'immich',
+                }, immichHeaders);
+              } catch (err) {
+                this.logger.warn(
+                  `[embed] Immich avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }
+          }
         }
       }
     } catch (err) {
@@ -296,7 +327,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
 
     t0 = Date.now();
-    let vector = await this.ollama.embed(truncatedText);
+    let vector = await this.ai.embed(truncatedText);
     const embedMs = Date.now() - t0;
 
     t0 = Date.now();
@@ -324,7 +355,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           currentText = fileContent + '\n\n' + currentText;
           const reEmbedText =
             currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
-          vector = await this.ollama.embed(reEmbedText);
+          vector = await this.ai.embed(reEmbedText);
           await this.qdrant.upsert(memoryId, vector, {
             source_type: event.sourceType,
             connector_type: rawEvent.connectorType,
@@ -344,7 +375,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
 
     // --- All external work succeeded — insert plaintext; enrich processor encrypts at end of pipeline ---
-    const metadataStr = JSON.stringify(mergedMetadata);
+    // Strip null bytes that PostgreSQL rejects in text columns
+    currentText = stripNullBytes(currentText);
+    const metadataStr = stripNullBytes(JSON.stringify(mergedMetadata));
 
     t0 = Date.now();
     if (ownerUserId) {
@@ -366,10 +399,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             embeddingStatus: 'pending',
             createdAt: now,
           })
-          .onConflictDoUpdate({
-            target: memories.id,
-            set: { text: currentText, metadata: metadataStr, embeddingStatus: 'pending' },
-          }),
+          .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] }),
       );
     } else {
       // No ownerUserId — unscoped insert (orphaned account, should rarely happen)
@@ -389,10 +419,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           embeddingStatus: 'pending',
           createdAt: now,
         })
-        .onConflictDoUpdate({
-          target: memories.id,
-          set: { text: currentText, metadata: metadataStr, embeddingStatus: 'pending' },
-        });
+        .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] });
     }
     const dbInsertMs = Date.now() - t0;
 
@@ -418,10 +445,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             ownerUserId ?? undefined,
           );
         } catch (err) {
-          this.logger.warn(
-            'Thread linking failed',
-            err instanceof Error ? err.message : String(err),
-          );
+          this.logger.debug(`Thread linking skipped: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -466,6 +490,15 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
     });
+
+    // Emit dashboard queue stats signal (debounced)
+    this.events.emitDebounced(
+      'dashboard:queue-stats',
+      'dashboard',
+      'dashboard:queue-stats-changed',
+      async () => ({ ts: Date.now() }),
+      2000,
+    );
 
     // Enqueue to enrich stage or finalize
     const pipelineEnrich = connector.manifest.pipeline?.enrich !== false;
@@ -543,8 +576,31 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         .select({ text: memories.text })
         .from(memories)
         .where(eq(memories.id, memoryId));
+
+      // Store thumbnail as base64 in metadata for offline graph rendering
+      let thumbnailBuffer: Buffer;
+      if (fileBase64) {
+        // For inline images (WhatsApp), use the image directly if small enough
+        thumbnailBuffer = fileBuffer.length <= 30_000 ? fileBuffer : fileBuffer;
+      } else {
+        // For Immich, the fetched URL already uses ?size=thumbnail (~250px)
+        thumbnailBuffer = fileBuffer;
+      }
+      // Cap at ~30KB — if larger, skip (the thumbnail endpoint is still available as fallback)
+      if (thumbnailBuffer.length <= 30_000) {
+        metadata.thumbnailBase64 = thumbnailBuffer.toString('base64');
+      }
+
+      // Inject people names into prompt context so the VL model uses real names
+      const people = (metadata.people as Array<{ name?: string }>) || [];
+      const peopleNames = people.map((p) => p.name).filter(Boolean);
+      let promptContext = memory?.text || '';
+      if (peopleNames.length > 0) {
+        promptContext = `People in this photo: ${peopleNames.join(', ')}. ${promptContext}`;
+      }
+
       const base64 = fileBuffer.toString('base64');
-      const description = await this.ollama.generate(photoDescriptionPrompt(memory?.text || ''), [
+      const description = await this.ai.generate(photoDescriptionPrompt(promptContext), [
         base64,
       ]);
       return description.trim() || null;
@@ -657,46 +713,37 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     memoryId: string,
     threadId: string,
     connectorType: string,
-    ownerUserId?: string,
+    _ownerUserId?: string,
   ) {
-    // Use withUserId scope if available so memory_links RLS policy is satisfied
-    const doLink = async (db: typeof this.dbService.db) => {
-      const threadSiblings = await db
-        .select({ id: memories.id })
-        .from(memories)
-        .where(
-          and(
-            eq(memories.connectorType, connectorType),
-            sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
-          ),
-        )
-        .limit(20);
-      const siblings = threadSiblings.filter((s) => s.id !== memoryId);
-      if (siblings.length) {
-        const now = new Date();
-        for (const sib of siblings) {
-          const existingLink = await db
-            .select({ id: memoryLinks.id })
-            .from(memoryLinks)
-            .where(and(eq(memoryLinks.srcMemoryId, sib.id), eq(memoryLinks.dstMemoryId, memoryId)))
-            .limit(1);
-          if (!existingLink.length) {
-            await db.insert(memoryLinks).values({
-              id: randomUUID(),
-              srcMemoryId: sib.id,
-              dstMemoryId: memoryId,
-              linkType: 'related',
-              strength: 0.8,
-              createdAt: now,
-            });
-          }
-        }
+    // Run unscoped — memory_links has no RLS, and using withUserId wraps in a
+    // transaction that gets poisoned if any single insert hits an FK violation.
+    const db = this.dbService.db;
+    const threadSiblings = await db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(
+        and(
+          eq(memories.connectorType, connectorType),
+          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
+        ),
+      )
+      .limit(20);
+    const siblings = threadSiblings.filter((s) => s.id !== memoryId);
+    if (!siblings.length) return;
+    const now = new Date();
+    for (const sib of siblings) {
+      try {
+        await db.insert(memoryLinks).values({
+          id: randomUUID(),
+          srcMemoryId: sib.id,
+          dstMemoryId: memoryId,
+          linkType: 'related',
+          strength: 0.8,
+          createdAt: now,
+        }).onConflictDoNothing();
+      } catch {
+        // FK violation — sibling or current memory not yet committed; skip
       }
-    };
-    if (ownerUserId) {
-      await this.dbService.withUserId(ownerUserId, doLink);
-    } else {
-      await doLink(this.dbService.db);
     }
   }
 

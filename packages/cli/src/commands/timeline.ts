@@ -62,12 +62,12 @@ export async function runTimeline(client: BotmemClient, args: string[], json: bo
 
   let currentDate = '';
   for (const m of result.items) {
-    const date = m.eventTime?.slice(0, 10) || 'unknown';
+    const date = m.eventTime ? new Date(m.eventTime).toLocaleDateString() : 'unknown';
     if (date !== currentDate) {
       currentDate = date;
       console.log(bold(`\n--- ${date} ---`));
     }
-    const time = m.eventTime?.slice(11, 16) || '';
+    const time = m.eventTime ? new Date(m.eventTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     console.log(
       `  ${dim(time)} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 100)}`,
     );
