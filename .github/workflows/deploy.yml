@@ -38,6 +38,8 @@ jobs:
 
       - name: Run tests with coverage
         run: pnpm test:coverage
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
 
   publish-cli:
     name: Publish @botmem/cli to npm
