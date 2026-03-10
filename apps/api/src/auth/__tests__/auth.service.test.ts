@@ -72,6 +72,7 @@ function createMockDeps() {
     authProvider: 'local',
     gmailClientId: '',
     gmailClientSecret: '',
+    baseUrl: 'http://localhost:12412',
   } as unknown as ConfigService;
 
   return {
@@ -261,6 +262,7 @@ describe('AuthService', () => {
       (deps.config as any).authProvider = 'firebase';
       (deps.config as any).gmailClientId = 'server-cid';
       (deps.config as any).gmailClientSecret = 'server-csec';
+      (deps.config as any).baseUrl = 'https://botmem.xyz';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -273,15 +275,17 @@ describe('AuthService', () => {
         expect.objectContaining({
           clientId: 'server-cid',
           clientSecret: 'server-csec',
+          redirectUri: 'https://botmem.xyz/api/auth/gmail/callback',
         }),
       );
     });
 
-    it('user-provided config overrides server-side creds in Firebase mode', async () => {
+    it('server-side creds override user-provided config in Firebase mode', async () => {
       const deps = createMockDeps();
       (deps.config as any).authProvider = 'firebase';
       (deps.config as any).gmailClientId = 'server-cid';
       (deps.config as any).gmailClientSecret = 'server-csec';
+      (deps.config as any).baseUrl = 'https://botmem.xyz';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -292,8 +296,9 @@ describe('AuthService', () => {
 
       expect(deps.mockConnector.initiateAuth).toHaveBeenCalledWith(
         expect.objectContaining({
-          clientId: 'user-cid',
-          clientSecret: 'user-csec',
+          clientId: 'server-cid',
+          clientSecret: 'server-csec',
+          redirectUri: 'https://botmem.xyz/api/auth/gmail/callback',
         }),
       );
     });
