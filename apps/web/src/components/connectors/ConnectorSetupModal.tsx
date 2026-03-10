@@ -285,7 +285,7 @@ function FormView({
       onClose();
     } catch (err: unknown) {
       let msg = 'Connection failed — check your configuration';
-      const raw = err?.message || '';
+      const raw = (err instanceof Error ? err.message : String(err)) || '';
       // Parse NestJS error body from "API 400: {json}"
       const jsonMatch = raw.match(/API \d+: (.+)/s);
       if (jsonMatch) {

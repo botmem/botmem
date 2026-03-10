@@ -35,7 +35,8 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[backfill worker] ${err.message}`));
     const defaultC = this.config.aiConcurrency.backfill;
-    const concurrency = parseInt(await this.settingsService.get('backfill_concurrency'), 10) || defaultC;
+    const concurrency =
+      parseInt(await this.settingsService.get('backfill_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -225,7 +226,8 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
         // Write updated metadata back (re-encrypt if needed)
         const metadataStr = JSON.stringify(metadata);
-        const writeUpdate = (db: typeof this.dbService.db) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const writeUpdate = (db: any) =>
           db.update(memories).set({ metadata: metadataStr }).where(eq(memories.id, memoryId));
 
         if (ownerUserId) {

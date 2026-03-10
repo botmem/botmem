@@ -1,4 +1,4 @@
-import type { BotmemClient } from '../client.js';
+import type { BotmemClient, SearchResult } from '../client.js';
 import { formatSearchResults } from '../format.js';
 
 export const searchHelp = `
@@ -71,7 +71,16 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     fallback,
     resolvedEntities,
     parsed,
-  } = response as Record<string, unknown>;
+  } = response as {
+    items: SearchResult[];
+    fallback: boolean;
+    resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+    parsed?: {
+      temporal?: { from: string; to: string };
+      temporalFallback?: boolean;
+      intent?: string;
+    };
+  };
 
   if (json) {
     console.log(JSON.stringify({ items: results, fallback, resolvedEntities, parsed }, null, 2));
