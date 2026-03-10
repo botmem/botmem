@@ -84,7 +84,6 @@ describe('IMessageConnector', () => {
     });
 
     it('has configSchema with imsgHost and imsgPort properties', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const schema = connector.manifest.configSchema as any;
       expect(schema.properties).toHaveProperty('imsgHost');
       expect(schema.properties).toHaveProperty('imsgPort');
