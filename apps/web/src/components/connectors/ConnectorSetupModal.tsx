@@ -283,7 +283,7 @@ function FormView({
       }
 
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       let msg = 'Connection failed — check your configuration';
       const raw = err?.message || '';
       // Parse NestJS error body from "API 400: {json}"

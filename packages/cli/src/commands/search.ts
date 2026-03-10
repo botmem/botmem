@@ -21,7 +21,9 @@ export const searchHelp = `
     botmem search "photos from dubai" --source photo --json
 `.trim();
 
-function bold(s: string) { return `\x1b[1m${s}\x1b[0m`; }
+function bold(s: string) {
+  return `\x1b[1m${s}\x1b[0m`;
+}
 
 export async function runSearch(client: BotmemClient, args: string[], json: boolean) {
   // Collect query words (everything that's not a flag or flag value)
@@ -34,7 +36,10 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     const a = args[i];
     if (a === '--source' || a === '--connector' || a === '--contact') {
       const val = args[++i];
-      if (!val) { console.error(`Missing value for ${a}`); process.exit(1); }
+      if (!val) {
+        console.error(`Missing value for ${a}`);
+        process.exit(1);
+      }
       const key = a.slice(2);
       if (key === 'source') filters['sourceType'] = val;
       else if (key === 'connector') filters['connectorType'] = val;
@@ -55,8 +60,18 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     process.exit(1);
   }
 
-  const response = await client.searchMemories(queryStr, Object.keys(filters).length ? filters : undefined, limit, memoryBankId);
-  const { items: results, fallback, resolvedEntities, parsed } = response as any;
+  const response = await client.searchMemories(
+    queryStr,
+    Object.keys(filters).length ? filters : undefined,
+    limit,
+    memoryBankId,
+  );
+  const {
+    items: results,
+    fallback,
+    resolvedEntities,
+    parsed,
+  } = response as Record<string, unknown>;
 
   if (json) {
     console.log(JSON.stringify({ items: results, fallback, resolvedEntities, parsed }, null, 2));
@@ -75,15 +90,21 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     }
 
     if (resolvedEntities) {
-      const names = resolvedEntities.contacts.map((c: any) => c.displayName).join(', ');
-      const topics = resolvedEntities.topicWords.length ? ` + "${resolvedEntities.topicWords.join(' ')}"` : '';
+      const names = (resolvedEntities as { contacts: { displayName: string }[] }).contacts
+        .map((c) => c.displayName)
+        .join(', ');
+      const topics = resolvedEntities.topicWords.length
+        ? ` + "${resolvedEntities.topicWords.join(' ')}"`
+        : '';
       if (results.length > 0) {
         console.log(`\x1b[36m→ Showing results for ${bold(names)}${topics}\x1b[0m\n`);
       } else {
         console.log(`\x1b[33m⚠ No memories found for ${bold(names)}${topics}\x1b[0m\n`);
       }
     } else if (fallback && results.length > 0) {
-      console.log('\x1b[33m⚠ No exact matches found. Showing semantically similar results:\x1b[0m\n');
+      console.log(
+        '\x1b[33m⚠ No exact matches found. Showing semantically similar results:\x1b[0m\n',
+      );
     }
     console.log(formatSearchResults(results));
   }

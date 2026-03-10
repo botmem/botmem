@@ -129,8 +129,14 @@ export class BotmemClient {
     this.token = token;
   }
 
-  async login(email: string, password: string): Promise<{ accessToken: string; user: { id: string; email: string; name: string } }> {
-    const result = await this.request<{ accessToken: string; user: { id: string; email: string; name: string } }>('/user-auth/login', {
+  async login(
+    email: string,
+    password: string,
+  ): Promise<{ accessToken: string; user: { id: string; email: string; name: string } }> {
+    const result = await this.request<{
+      accessToken: string;
+      user: { id: string; email: string; name: string };
+    }>('/user-auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -142,7 +148,7 @@ export class BotmemClient {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string> || {}),
+      ...((options.headers as Record<string, string>) || {}),
     };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -182,8 +188,16 @@ export class BotmemClient {
     filters?: Record<string, string>,
     limit?: number,
     memoryBankId?: string,
-  ): Promise<{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] } }> {
-    return this.request<{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] } }>('/memories/search', {
+  ): Promise<{
+    items: SearchResult[];
+    fallback: boolean;
+    resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+  }> {
+    return this.request<{
+      items: SearchResult[];
+      fallback: boolean;
+      resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+    }>('/memories/search', {
       method: 'POST',
       body: JSON.stringify({ query, filters, limit, memoryBankId }),
     });
@@ -293,7 +307,7 @@ export class BotmemClient {
 
   // --- Recovery Key ---
 
-  async submitRecoveryKey(recoveryKey: string): Promise<any> {
+  async submitRecoveryKey(recoveryKey: string): Promise<Record<string, unknown>> {
     return this.request('/user-auth/recovery-key', {
       method: 'POST',
       body: JSON.stringify({ recoveryKey }),
@@ -302,38 +316,42 @@ export class BotmemClient {
 
   // --- Agent ---
 
-  async agentAsk(query: string, filters?: Record<string, string>, limit?: number): Promise<any> {
+  async agentAsk(
+    query: string,
+    filters?: Record<string, string>,
+    limit?: number,
+  ): Promise<Record<string, unknown>> {
     return this.request('/agent/ask', {
       method: 'POST',
       body: JSON.stringify({ query, filters, limit }),
     });
   }
 
-  async agentSummarize(query: string, maxResults?: number): Promise<any> {
+  async agentSummarize(query: string, maxResults?: number): Promise<Record<string, unknown>> {
     return this.request('/agent/summarize', {
       method: 'POST',
       body: JSON.stringify({ query, maxResults }),
     });
   }
 
-  async agentContext(contactId: string): Promise<any> {
+  async agentContext(contactId: string): Promise<Record<string, unknown>> {
     return this.request(`/agent/context/${encodeURIComponent(contactId)}`);
   }
 
   // --- Memory Banks ---
 
-  async listMemoryBanks(): Promise<any> {
+  async listMemoryBanks(): Promise<Record<string, unknown>[]> {
     return this.request('/memory-banks');
   }
 
-  async createMemoryBank(name: string): Promise<any> {
+  async createMemoryBank(name: string): Promise<Record<string, unknown>> {
     return this.request('/memory-banks', {
       method: 'POST',
       body: JSON.stringify({ name }),
     });
   }
 
-  async renameMemoryBank(id: string, name: string): Promise<any> {
+  async renameMemoryBank(id: string, name: string): Promise<Record<string, unknown>> {
     return this.request(`/memory-banks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ name }),
@@ -364,24 +382,56 @@ export class BotmemClient {
     if (params.query) qs.set('query', params.query);
     if (params.limit) qs.set('limit', String(params.limit));
     const query = qs.toString();
-    return this.request<{ items: Memory[]; total: number }>(`/memories/timeline${query ? '?' + query : ''}`);
+    return this.request<{ items: Memory[]; total: number }>(
+      `/memories/timeline${query ? '?' + query : ''}`,
+    );
   }
 
-  async getRelated(memoryId: string, limit?: number): Promise<{ items: Array<{ id: string; text: string; sourceType: string; connectorType: string; eventTime: string; score: number; relationship: string }>; source: Memory | null }> {
+  async getRelated(
+    memoryId: string,
+    limit?: number,
+  ): Promise<{
+    items: Array<{
+      id: string;
+      text: string;
+      sourceType: string;
+      connectorType: string;
+      eventTime: string;
+      score: number;
+      relationship: string;
+    }>;
+    source: Memory | null;
+  }> {
     const qs = limit ? `?limit=${limit}` : '';
     return this.request(`/memories/${encodeURIComponent(memoryId)}/related${qs}`);
   }
 
   // --- Entities ---
 
-  async searchEntities(query: string, limit?: number, type?: string): Promise<{ entities: Array<{ value: string; type: string; memoryCount: number; connectors: string[] }>; total: number }> {
+  async searchEntities(
+    query: string,
+    limit?: number,
+    type?: string,
+  ): Promise<{
+    entities: Array<{ value: string; type: string; memoryCount: number; connectors: string[] }>;
+    total: number;
+  }> {
     const qs = new URLSearchParams({ q: query });
     if (limit) qs.set('limit', String(limit));
     if (type) qs.set('type', type);
     return this.request(`/memories/entities/search?${qs}`);
   }
 
-  async getEntityGraph(value: string, limit?: number): Promise<{ entity: string; memories: any[]; relatedEntities: any[]; contacts: any[]; memoryCount: number }> {
+  async getEntityGraph(
+    value: string,
+    limit?: number,
+  ): Promise<{
+    entity: string;
+    memories: Record<string, unknown>[];
+    relatedEntities: Record<string, unknown>[];
+    contacts: Record<string, unknown>[];
+    memoryCount: number;
+  }> {
     const qs = limit ? `?limit=${limit}` : '';
     return this.request(`/memories/entities/${encodeURIComponent(value)}/graph${qs}`);
   }

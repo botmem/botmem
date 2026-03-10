@@ -37,7 +37,9 @@ export class McpAuthGuard {
 
     // Reject API keys — MCP uses OAuth tokens only
     if (token.startsWith('bm_sk_')) {
-      throw new UnauthorizedException('API keys are not accepted for MCP. Use an OAuth access token.');
+      throw new UnauthorizedException(
+        'API keys are not accepted for MCP. Use an OAuth access token.',
+      );
     }
 
     try {
@@ -52,8 +54,10 @@ export class McpAuthGuard {
         scope: payload.scope || '',
         clientId: payload.client_id || '',
       };
-    } catch (err: any) {
-      throw new UnauthorizedException(`Invalid token: ${err.message}`);
+    } catch (err: unknown) {
+      throw new UnauthorizedException(
+        `Invalid token: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

@@ -39,7 +39,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[sync worker] ${err.message}`));
     const defaultSyncC = this.configService.aiBackend === 'openrouter' ? 8 : 2;
-    const concurrency = parseInt(await this.settingsService.get('sync_concurrency'), 10) || defaultSyncC;
+    const concurrency =
+      parseInt(await this.settingsService.get('sync_concurrency'), 10) || defaultSyncC;
     this.worker.concurrency = concurrency;
     // Settings-based sync_debug_limit takes priority over env var
     const settingsLimit = parseInt(await this.settingsService.get('sync_debug_limit'), 10);
@@ -229,7 +230,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         duration_ms: Date.now() - syncStartTime,
         item_count: totalProcessed,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If the error is from hitting the sync limit, treat as success
       if (connector.isLimitReached) {
         await this.accountsService.update(accountId, {

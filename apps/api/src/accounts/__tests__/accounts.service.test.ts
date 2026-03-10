@@ -4,21 +4,21 @@ import { NotFoundException } from '@nestjs/common';
 
 describe('AccountsService', () => {
   let service: AccountsService;
-  let mockDb: any;
-  let dbService: any;
-  let crypto: any;
-  let connectors: any;
+  let mockDb: ReturnType<typeof createChainDb>;
+  let dbService: Record<string, unknown>;
+  let crypto: Record<string, ReturnType<typeof vi.fn>>;
+  let connectors: Record<string, ReturnType<typeof vi.fn>>;
 
   // Chain-style mock that supports select/from/where/limit/delete/insert/update/set/values
-  function createChainDb(results: any[] = []) {
+  function createChainDb(results: unknown[] = []) {
     let callIdx = 0;
-    const chain: any = {
+    const chain = {
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       where: vi.fn(() => {
         const val = callIdx < results.length ? results[callIdx] : [];
         callIdx++;
-        const p: any = Promise.resolve(val);
+        const p = Promise.resolve(val) as Promise<unknown> & { limit: ReturnType<typeof vi.fn> };
         p.limit = vi.fn(() => Promise.resolve(val));
         return p;
       }),
@@ -35,11 +35,11 @@ describe('AccountsService', () => {
     mockDb = createChainDb();
     dbService = {
       db: mockDb,
-      withCurrentUser: vi.fn((fn: Function) => fn(mockDb)),
+      withCurrentUser: vi.fn((fn: (db: unknown) => unknown) => fn(mockDb)),
     };
     crypto = {
-      encrypt: vi.fn((v: string | null) => v ? `enc:${v}` : null),
-      decrypt: vi.fn((v: string | null) => v ? v.replace('enc:', '') : null),
+      encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
+      decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : null)),
     };
     connectors = {
       get: vi.fn().mockReturnValue({
@@ -63,7 +63,7 @@ describe('AccountsService', () => {
       mockDb = createChainDb([
         [account], // getById after create
       ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       const result = await service.create({
@@ -86,7 +86,7 @@ describe('AccountsService', () => {
       ];
       // getAll doesn't use where() when no userId, it returns from select().from()
       mockDb.from = vi.fn(() => Promise.resolve(rows));
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       const result = await service.getAll();
@@ -97,7 +97,7 @@ describe('AccountsService', () => {
     it('filters by userId when provided', async () => {
       const rows = [{ id: '1', authContext: 'enc:ctx1' }];
       mockDb.where = vi.fn(() => Promise.resolve(rows));
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       const result = await service.getAll('user-1');
@@ -109,7 +109,7 @@ describe('AccountsService', () => {
     it('returns decrypted account when found', async () => {
       const account = { id: 'a1', authContext: 'enc:ctx' };
       mockDb = createChainDb([[account]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       const result = await service.getById('a1');
@@ -119,7 +119,7 @@ describe('AccountsService', () => {
 
     it('throws NotFoundException when not found', async () => {
       mockDb = createChainDb([[]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await expect(service.getById('nonexistent')).rejects.toThrow(NotFoundException);
@@ -132,24 +132,20 @@ describe('AccountsService', () => {
       const updated = { id: 'a1', authContext: 'enc:new-ctx' };
       mockDb = createChainDb([
         [existing], // getById check
-        undefined,  // update().set().where()
-        [updated],  // getById return
+        undefined, // update().set().where()
+        [updated], // getById return
       ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
-      const result = await service.update('a1', { authContext: 'new-ctx' });
+      await service.update('a1', { authContext: 'new-ctx' });
       expect(crypto.encrypt).toHaveBeenCalledWith('new-ctx');
     });
 
     it('converts lastSyncAt string to Date', async () => {
       const existing = { id: 'a1', authContext: null };
-      mockDb = createChainDb([
-        [existing],
-        undefined,
-        [existing],
-      ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      mockDb = createChainDb([[existing], undefined, [existing]]);
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await service.update('a1', { lastSyncAt: '2025-01-01T00:00:00Z' });
@@ -160,19 +156,25 @@ describe('AccountsService', () => {
 
     it('throws if account not found', async () => {
       mockDb = createChainDb([[]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
-      await expect(service.update('nonexistent', { status: 'disconnected' }))
-        .rejects.toThrow(NotFoundException);
+      await expect(service.update('nonexistent', { status: 'disconnected' })).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('findByTypeAndIdentifier', () => {
     it('returns decrypted account when found', async () => {
-      const account = { id: 'a1', authContext: 'enc:ctx', connectorType: 'gmail', identifier: 'test@x.com' };
+      const account = {
+        id: 'a1',
+        authContext: 'enc:ctx',
+        connectorType: 'gmail',
+        identifier: 'test@x.com',
+      };
       mockDb = createChainDb([[account]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       const result = await service.findByTypeAndIdentifier('gmail', 'test@x.com');
@@ -181,7 +183,7 @@ describe('AccountsService', () => {
 
     it('returns null when not found', async () => {
       mockDb = createChainDb([[]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       const result = await service.findByTypeAndIdentifier('gmail', 'none@x.com');
@@ -190,7 +192,7 @@ describe('AccountsService', () => {
 
     it('adds userId condition when provided', async () => {
       mockDb = createChainDb([[]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await service.findByTypeAndIdentifier('gmail', 'test@x.com', 'user-1');
@@ -202,15 +204,17 @@ describe('AccountsService', () => {
     it('deletes account and related data', async () => {
       const account = { id: 'a1', connectorType: 'gmail', authContext: '{"token":"abc"}' };
       mockDb = createChainDb([
-        [account],               // getById
+        [account], // getById
         [{ id: 'mem-1' }, { id: 'mem-2' }], // select memory ids
-        undefined, undefined, undefined,     // delete memoryContacts, memoryLinks x2
-        undefined,               // delete memories
-        undefined,               // delete rawEvents
-        undefined,               // delete jobs
-        undefined,               // delete accounts
+        undefined,
+        undefined,
+        undefined, // delete memoryContacts, memoryLinks x2
+        undefined, // delete memories
+        undefined, // delete rawEvents
+        undefined, // delete jobs
+        undefined, // delete accounts
       ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await service.remove('a1');
@@ -224,10 +228,13 @@ describe('AccountsService', () => {
       });
       mockDb = createChainDb([
         [account],
-        [],         // no memories
-        undefined, undefined, undefined, undefined,
+        [], // no memories
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       // Should not throw
@@ -236,7 +243,7 @@ describe('AccountsService', () => {
 
     it('throws if account not found', async () => {
       mockDb = createChainDb([[]]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await expect(service.remove('nonexistent')).rejects.toThrow(NotFoundException);
@@ -246,10 +253,13 @@ describe('AccountsService', () => {
       const account = { id: 'a1', connectorType: 'gmail', authContext: null };
       mockDb = createChainDb([
         [account],
-        [],         // no memories
-        undefined, undefined, undefined, undefined,
+        [], // no memories
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await service.remove('a1');
@@ -258,12 +268,8 @@ describe('AccountsService', () => {
     it('handles null connector gracefully', async () => {
       const account = { id: 'a1', connectorType: 'unknown', authContext: null };
       connectors.get.mockReturnValue(null);
-      mockDb = createChainDb([
-        [account],
-        [],
-        undefined, undefined, undefined, undefined,
-      ]);
-      dbService.withCurrentUser = vi.fn((fn: Function) => fn(mockDb));
+      mockDb = createChainDb([[account], [], undefined, undefined, undefined, undefined]);
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors);
 
       await service.remove('a1');

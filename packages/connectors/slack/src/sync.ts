@@ -229,8 +229,10 @@ export async function syncSlack(
         });
         ctx.logger.info(`Resolved external user ${ch.user} → ${bestName}`);
       }
-    } catch (err: any) {
-      ctx.logger.warn(`Could not resolve external user ${ch.user}: ${err?.message || err}`);
+    } catch (err: unknown) {
+      ctx.logger.warn(
+        `Could not resolve external user ${ch.user}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   ctx.logger.info(`User map now has ${users.size} entries (including external)`);
@@ -289,7 +291,8 @@ export async function syncSlack(
         try {
           const info = await client.users.info({ user: dmPartnerId });
           const p = (info.user as any)?.profile || {};
-          const realName = p.real_name_normalized || p.real_name || (info.user as any)?.real_name || '';
+          const realName =
+            p.real_name_normalized || p.real_name || (info.user as any)?.real_name || '';
           const displayName = p.display_name_normalized || p.display_name || '';
           const name = (info.user as any)?.name || '';
           const bestName = realName || displayName || name;

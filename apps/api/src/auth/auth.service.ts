@@ -157,8 +157,10 @@ export class AuthService {
     let result;
     try {
       result = await connector.initiateAuth(mergedConfig);
-    } catch (err: any) {
-      throw new BadRequestException(err.message || 'Failed to connect -- check your configuration');
+    } catch (err: unknown) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'Failed to connect -- check your configuration',
+      );
     }
 
     if (result.type === 'complete') {
@@ -253,14 +255,14 @@ export class AuthService {
           accountId: account.id,
           identifier,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.logger.error(
-          `[Auth] QR completion error for ${connectorType}: ${err.message}`,
+          `[Auth] QR completion error for ${connectorType}: ${err instanceof Error ? err.message : String(err)}`,
           err instanceof Error ? err.stack : String(err),
         );
         this.events.emitToChannel(wsChannel, 'auth:status', {
           status: 'failed',
-          step: err.message || 'Failed to complete authentication',
+          step: err instanceof Error ? err.message : 'Failed to complete authentication',
         });
       }
     };
@@ -352,8 +354,10 @@ export class AuthService {
     let result;
     try {
       result = await connector.initiateAuth(mergedConfig);
-    } catch (err: any) {
-      throw new BadRequestException(err.message || 'Failed to connect — check your configuration');
+    } catch (err: unknown) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'Failed to connect — check your configuration',
+      );
     }
 
     if (result.type !== 'complete') {

@@ -67,9 +67,9 @@ export class OllamaService implements OnModuleInit {
           throw new Error(`Empty embeddings for ${input.length} chars`);
         }
         return data.embeddings[0];
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Also catch context length errors that come through as thrown errors
-        if (err?.message?.includes('context length')) {
+        if (err instanceof Error && err.message.includes('context length')) {
           input = input.slice(0, Math.floor(input.length * 0.5));
           continue;
         }

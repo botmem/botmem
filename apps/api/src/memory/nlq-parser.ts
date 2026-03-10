@@ -1,6 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const nlp = require('compromise/three');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const plg = require('compromise-dates');
 
 nlp.plugin(plg);
@@ -125,7 +123,10 @@ function detectSourceType(query: string): string | null {
 function buildCleanQuery(originalQuery: string, temporalText: string | null): string {
   if (!temporalText) return originalQuery;
 
-  let clean = originalQuery.replace(temporalText, ' ').replace(/\s{2,}/g, ' ').trim();
+  let clean = originalQuery
+    .replace(temporalText, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   clean = clean.replace(DANGLING, '').trim();
 
   return clean || originalQuery;

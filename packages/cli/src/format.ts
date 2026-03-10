@@ -23,7 +23,9 @@ function parseJsonStringsDeep(val: unknown): unknown {
     try {
       const parsed = JSON.parse(val);
       if (typeof parsed === 'object' && parsed !== null) return parseJsonStringsDeep(parsed);
-    } catch { /* not JSON */ }
+    } catch {
+      /* not JSON */
+    }
     return val;
   }
   if (Array.isArray(val)) return val.map(parseJsonStringsDeep);
@@ -152,7 +154,7 @@ export function formatMemory(m: {
       const ents = JSON.parse(m.entities);
       if (Array.isArray(ents) && ents.length) {
         lines.push(
-          `${dim('Entities:')} ${ents.map((e: any) => e.value || e.name || e.id || String(e)).join(', ')}`,
+          `${dim('Entities:')} ${ents.map((e: Record<string, unknown>) => e.value || e.name || e.id || String(e)).join(', ')}`,
         );
       }
     } catch {
@@ -329,7 +331,7 @@ export function formatVersion(v: { buildTime: string; gitHash: string; uptime: n
   return lines.join('\n');
 }
 
-export function formatAgentAnswer(data: any): string {
+export function formatAgentAnswer(data: Record<string, unknown>): string {
   const lines: string[] = [];
 
   // Show temporal fallback notice
@@ -355,14 +357,16 @@ export function formatAgentAnswer(data: any): string {
   if (results.length) {
     lines.push(dim(`Sources (${results.length}):`));
     for (const r of results.slice(0, 10)) {
-      lines.push(`  ${dim(`[${r.sourceType}/${r.connectorType}]`)} ${truncate(r.text, 100)}  ${dim(timeAgo(r.eventTime))}`);
+      lines.push(
+        `  ${dim(`[${r.sourceType}/${r.connectorType}]`)} ${truncate(r.text, 100)}  ${dim(timeAgo(r.eventTime))}`,
+      );
     }
   }
   if (!lines.length) return dim('No results.');
   return lines.join('\n');
 }
 
-export function formatAgentContext(data: any): string {
+export function formatAgentContext(data: Record<string, unknown>): string {
   const lines: string[] = [];
   if (data.contact) {
     lines.push(bold(data.contact.displayName || 'Unknown'));
@@ -390,7 +394,7 @@ export function formatAgentContext(data: any): string {
   return lines.join('\n');
 }
 
-export function formatMemoryBanks(banks: any[]): string {
+export function formatMemoryBanks(banks: Record<string, unknown>[]): string {
   if (!banks.length) return dim('No memory banks.');
   const lines = banks.map((b) => {
     return `${bold(b.name.padEnd(25))} ${dim(String(b.memoryCount ?? 0).padStart(5) + ' memories')}  ${dim(b.id)}`;

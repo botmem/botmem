@@ -214,7 +214,10 @@ export class ContactsService {
       const nameIdent = identifiers.find((i) => i.type === 'name');
       if (nameIdent?.value) {
         const existing = await this.dbService.withCurrentUser((db) =>
-          db.select({ displayName: contacts.displayName }).from(contacts).where(eq(contacts.id, contactId)),
+          db
+            .select({ displayName: contacts.displayName })
+            .from(contacts)
+            .where(eq(contacts.id, contactId)),
         );
         const currentName = existing[0]?.displayName || '';
         const hasRawId = /\bU[A-Z0-9]{8,}\b/.test(currentName);
@@ -223,7 +226,10 @@ export class ContactsService {
         const isPhoneNumber = /^\+?\d[\d\s-]{5,}$/.test(currentName.trim());
         if ((hasRawId && !newHasRawId) || currentName === 'Unknown' || isPhoneNumber) {
           await this.dbService.withCurrentUser((db) =>
-            db.update(contacts).set({ displayName: nameIdent.value, updatedAt: new Date() }).where(eq(contacts.id, contactId)),
+            db
+              .update(contacts)
+              .set({ displayName: nameIdent.value, updatedAt: new Date() })
+              .where(eq(contacts.id, contactId)),
           );
         }
       }
@@ -257,21 +263,24 @@ export class ContactsService {
           );
           if (!exists) {
             await this.dbService.withCurrentUser((db) =>
-              db.insert(contactIdentifiers).values({
-                id: randomUUID(),
-                contactId,
-                identifierType: ident.type,
-                identifierValue: ident.value,
-                connectorType: ident.connectorType || null,
-                createdAt: new Date(),
-              }).onConflictDoNothing(),
+              db
+                .insert(contactIdentifiers)
+                .values({
+                  id: randomUUID(),
+                  contactId,
+                  identifierType: ident.type,
+                  identifierValue: ident.value,
+                  connectorType: ident.connectorType || null,
+                  createdAt: new Date(),
+                })
+                .onConflictDoNothing(),
             );
           }
         }
         break; // Success
-      } catch (err: any) {
+      } catch (err: unknown) {
         identInsertAttempts++;
-        if (err?.code === '23503' && identInsertAttempts < 3) {
+        if ((err as { code?: string }).code === '23503' && identInsertAttempts < 3) {
           // Contact was merged/deleted concurrently — find where identifiers went
           const probe = identifiers.find((i) => i.type !== 'name') || identifiers[0];
           if (probe) {
@@ -656,9 +665,8 @@ export class ContactsService {
     }
 
     // Immich face thumbnails get priority — prepend to front
-    const updated = avatar.source === 'immich'
-      ? [storedAvatar, ...existing]
-      : [...existing, storedAvatar];
+    const updated =
+      avatar.source === 'immich' ? [storedAvatar, ...existing] : [...existing, storedAvatar];
 
     await this.dbService.withCurrentUser((db) =>
       db
@@ -684,9 +692,10 @@ export class ContactsService {
       const allAccounts = await this.accountsService.getAll();
       const photosAccount = allAccounts.find((a: any) => a.connectorType === 'photos');
       if (photosAccount?.authContext) {
-        const auth = typeof photosAccount.authContext === 'string'
-          ? JSON.parse(photosAccount.authContext)
-          : photosAccount.authContext;
+        const auth =
+          typeof photosAccount.authContext === 'string'
+            ? JSON.parse(photosAccount.authContext)
+            : photosAccount.authContext;
         if (auth?.accessToken) immichHeaders = { 'x-api-key': auth.accessToken };
       }
     } catch {
@@ -753,9 +762,9 @@ export class ContactsService {
           role,
         }),
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Contact may have been merged/deleted concurrently — skip silently
-      if (err?.code === '23503') return;
+      if ((err as { code?: string }).code === '23503') return;
       throw err;
     }
   }
@@ -786,7 +795,13 @@ export class ContactsService {
   }
 
   private decryptMemory<
-    T extends { text: string; entities: string; claims: string; metadata: string; keyVersion?: number },
+    T extends {
+      text: string;
+      entities: string;
+      claims: string;
+      metadata: string;
+      keyVersion?: number;
+    },
   >(mem: T, userId?: string, userKey?: Buffer | null): T {
     const kv = (mem as any).keyVersion ?? 0;
     if (kv >= 1 && userId) {
@@ -861,8 +876,14 @@ export class ContactsService {
               // Prefer a real name over phone numbers / raw IDs
               const isPhone = (s: string) => /^\+?\d[\d\s-]{5,}$/.test(s.trim());
               const isRawId = (s: string) => /\bU[A-Z0-9]{8,}\b/.test(s);
-              const sourceIsName = !isPhone(source.displayName) && !isRawId(source.displayName) && source.displayName !== 'Unknown';
-              const targetIsName = !isPhone(target.displayName) && !isRawId(target.displayName) && target.displayName !== 'Unknown';
+              const sourceIsName =
+                !isPhone(source.displayName) &&
+                !isRawId(source.displayName) &&
+                source.displayName !== 'Unknown';
+              const targetIsName =
+                !isPhone(target.displayName) &&
+                !isRawId(target.displayName) &&
+                target.displayName !== 'Unknown';
               let displayName: string;
               if (sourceIsName && !targetIsName) {
                 displayName = source.displayName;
@@ -870,9 +891,10 @@ export class ContactsService {
                 displayName = target.displayName;
               } else {
                 // Both are names or both aren't — keep the longer one
-                displayName = source.displayName.length > target.displayName.length
-                  ? source.displayName
-                  : target.displayName;
+                displayName =
+                  source.displayName.length > target.displayName.length
+                    ? source.displayName
+                    : target.displayName;
               }
 
               // Move identifiers from source to target, skipping duplicates
@@ -953,10 +975,14 @@ export class ContactsService {
         );
         // Success — return
         return this.getById(targetId) as Promise<ContactWithIdentifiers>;
-      } catch (err: any) {
+      } catch (err: unknown) {
         lastError = err;
         // Deadlock (40P01) or FK violation (23503) from concurrent inserts — retry
-        if ((err?.code === '40P01' || err?.code === '23503') && attempt < 3) {
+        if (
+          ((err as { code?: string }).code === '40P01' ||
+            (err as { code?: string }).code === '23503') &&
+          attempt < 3
+        ) {
           // Wait a small amount before retrying
           await new Promise((r) => setTimeout(r, Math.random() * 100 + 50 * attempt));
           continue;
@@ -1576,9 +1602,7 @@ export class ContactsService {
     for (const loser of losers) {
       try {
         await this.mergeContacts(winner.id, loser.id);
-        this.logger.log(
-          `[deduplicateByExactName] merged ${loser.id} → ${winner.id}`,
-        );
+        this.logger.log(`[deduplicateByExactName] merged ${loser.id} → ${winner.id}`);
       } catch (err) {
         // Concurrent merge may have already handled this — ignore
         this.logger.warn(

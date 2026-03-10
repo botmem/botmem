@@ -44,8 +44,8 @@ export class AuthController {
         ? `${this.config.frontendUrl}${returnTo}`
         : `${this.config.frontendUrl}/connectors`;
       res.redirect(`${target}?auth=success&type=${type}`);
-    } catch (err: any) {
-      const msg = encodeURIComponent(err?.message || 'Unknown error');
+    } catch (err: unknown) {
+      const msg = encodeURIComponent(err instanceof Error ? err.message : 'Unknown error');
       res.redirect(`${this.config.frontendUrl}/connectors?auth=error&type=${type}&error=${msg}`);
     }
   }

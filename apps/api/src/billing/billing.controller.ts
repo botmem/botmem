@@ -80,8 +80,10 @@ export class BillingController {
         signature,
         this.config.stripeWebhookSecret,
       );
-    } catch (err: any) {
-      this.logger.warn(`Webhook signature verification failed: ${err.message}`);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Webhook signature verification failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return res.status(400).json({ error: 'Invalid signature' });
     }
 

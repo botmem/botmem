@@ -88,7 +88,14 @@ export class MemoryController {
     const ml = Math.min(memoryLimit, 10000);
     const ll = Math.min(linkLimit, 100000);
     const memoryIds = memoryIdsParam ? memoryIdsParam.split(',').filter(Boolean) : undefined;
-    return this.memoryService.getGraphData(ml, ll, user.id, memoryBankId, user.memoryBankIds, memoryIds);
+    return this.memoryService.getGraphData(
+      ml,
+      ll,
+      user.id,
+      memoryBankId,
+      user.memoryBankIds,
+      memoryIds,
+    );
   }
 
   @Throttle({ default: { limit: 30, ttl: 60000 } })
@@ -159,9 +166,11 @@ export class MemoryController {
           { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
         );
         enqueued++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         errors++;
-        this.logger.error(`[retry-failed] ${mem.id}: ${err?.message}`);
+        this.logger.error(
+          `[retry-failed] ${mem.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -369,11 +378,11 @@ export class MemoryController {
           connector_type: mem.connectorType,
           event_time: mem.eventTime,
           account_id: mem.accountId,
-          memory_bank_id: (mem as any).memoryBankId || null,
+          memory_bank_id: (mem as unknown as { memoryBankId?: string }).memoryBankId || null,
         });
         reembedded++;
-      } catch (err: any) {
-        errors.push(`${mem.id.slice(0, 8)}: ${err?.message}`);
+      } catch (err: unknown) {
+        errors.push(`${mem.id.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 

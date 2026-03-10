@@ -24,8 +24,8 @@ export function SignupForm() {
     try {
       await signup(email, password, name);
       navigate('/onboarding');
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
       setLoading(false);
     }

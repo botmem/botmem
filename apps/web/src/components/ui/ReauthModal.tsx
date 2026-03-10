@@ -28,8 +28,8 @@ export function ReauthModal({ open, onClose }: ReauthModalProps) {
       memStore.loadGraph();
       setRecoveryKey('');
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Invalid recovery key');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Invalid recovery key');
     } finally {
       setLoading(false);
     }

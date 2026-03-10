@@ -163,8 +163,10 @@ export class GmailConnector extends BaseConnector {
       if (parts.length) entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
 
       // Extract organizations as separate entities
-      for (const org of (metadata.organizations as Array<{ name?: string; title?: string }>) || []) {
-        if (org.name) entities.push({ type: 'organization', id: `name:${org.name}`, role: 'affiliation' });
+      for (const org of (metadata.organizations as Array<{ name?: string; title?: string }>) ||
+        []) {
+        if (org.name)
+          entities.push({ type: 'organization', id: `name:${org.name}`, role: 'affiliation' });
       }
 
       return { text: cleanedText, entities, metadata: { isContact: true, ...metadata } };
@@ -216,8 +218,10 @@ export class GmailConnector extends BaseConnector {
         (progress) => this.emit('progress', progress),
       );
       contactsProcessed = contactsResult.processed;
-    } catch (err: any) {
-      ctx.logger.warn(`Contacts sync failed (non-fatal): ${err.message}`);
+    } catch (err: unknown) {
+      ctx.logger.warn(
+        `Contacts sync failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Sync emails
