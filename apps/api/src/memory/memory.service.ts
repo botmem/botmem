@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { eq, sql, and, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { OllamaService } from './ollama.service';
+import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
@@ -108,7 +108,7 @@ export class MemoryService {
 
   constructor(
     private dbService: DbService,
-    private ollama: OllamaService,
+    private ai: AiService,
     private qdrant: QdrantService,
     private connectors: ConnectorsService,
     private pluginRegistry: PluginRegistry,
@@ -333,7 +333,7 @@ export class MemoryService {
 
     // If filtering by contactId directly, skip hybrid and just fetch that contact's memories
     if (effectiveFilters.contactId) {
-      const vector = await this.ollama.embed(embeddingQuery);
+      const vector = await this.ai.embed(embeddingQuery);
       const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
       const qdrantResults = await this.qdrant.search(vector, effectiveLimit * 3, qdrantFilter);
       const linkedMemoryIds = new Set(
@@ -390,11 +390,11 @@ export class MemoryService {
     const hasTopics = topicWords.length > 0;
 
     // Phase 2: Vector search (use clean query for embeddings, apply effectiveFilters)
-    const vector = await this.ollama.embed(embeddingQuery);
+    const vector = await this.ai.embed(embeddingQuery);
     const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
     const qdrantResults = await this.qdrant.search(
       vector,
-      effectiveLimit * 2,
+      effectiveLimit * 5,
       Object.keys(qdrantFilter).length ? qdrantFilter : undefined,
     );
     const semanticScores = new Map<string, number>();
@@ -447,16 +447,25 @@ export class MemoryService {
       if (searchWords.length > 0) {
         try {
           // PostgreSQL tsquery: each word as prefix match with AND logic
-          const tsQuery = searchWords.map((w) => `${w}:*`).join(' & ');
-          const ftsResults = await this.dbService.withCurrentUser((db) =>
+          let tsQuery = searchWords.map((w) => `${w}:*`).join(' & ');
+          let ftsResults = await this.dbService.withCurrentUser((db) =>
             db.execute(
               sql`SELECT id FROM memories WHERE to_tsvector('english', text) @@ to_tsquery('english', ${tsQuery}) LIMIT ${limit * 2}`,
             ),
           );
+          // If AND returns nothing and multi-word, retry with OR
+          if (ftsResults.rows.length === 0 && searchWords.length > 1) {
+            tsQuery = searchWords.map((w) => `${w}:*`).join(' | ');
+            ftsResults = await this.dbService.withCurrentUser((db) =>
+              db.execute(
+                sql`SELECT id FROM memories WHERE to_tsvector('english', text) @@ to_tsquery('english', ${tsQuery}) LIMIT ${limit * 2}`,
+              ),
+            );
+          }
           for (const r of ftsResults.rows as { id: string }[]) textMatchIds.add(r.id);
         } catch {
           // Fallback to LIKE if full-text search fails
-          const textConditions: any[] = [eq(memories.embeddingStatus, 'done')];
+          const textConditions: any[] = [eq(memories.pipelineComplete, true)];
           for (const word of searchWords) {
             textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}` as any);
           }
@@ -486,15 +495,8 @@ export class MemoryService {
     const allCandidateIds = new Set<string>();
     for (const id of textMatchIds) allCandidateIds.add(id);
     for (const id of contactMatchIds) allCandidateIds.add(id);
-    if (!hasExactMatches) {
-      for (const point of qdrantResults) allCandidateIds.add(point.id);
-    } else {
-      for (const point of qdrantResults) {
-        if (textMatchIds.has(point.id) || contactMatchIds.has(point.id)) {
-          allCandidateIds.add(point.id);
-        }
-      }
-    }
+    // Always include all Qdrant results — FTS/contact boosts handle ranking
+    for (const point of qdrantResults) allCandidateIds.add(point.id);
 
     if (!allCandidateIds.size) {
       // If temporal filter caused zero results, fall through to temporal fallback below
@@ -542,7 +544,7 @@ export class MemoryService {
       const rerankCandidates = sortedCandidates.slice(0, 15);
       if (rerankCandidates.length > 0) {
         const rerankTexts = rerankCandidates.map((c) => c.row.memory.text);
-        const scores = await this.ollama.rerank(query, rerankTexts);
+        const scores = await this.ai.rerank(query, rerankTexts);
         for (let i = 0; i < rerankCandidates.length; i++) {
           rerankScores.set(rerankCandidates[i].id, scores[i]);
         }
@@ -554,8 +556,8 @@ export class MemoryService {
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
       const rerankScore = rerankScores.get(id) ?? 0;
-      const textBoost = textMatchIds.has(id) ? 0.45 : 0;
-      const contactBoost = contactMatchIds.has(id) ? 0.4 : 0;
+      const textMultiplier = textMatchIds.has(id) ? 1.3 : 1.0;
+      const contactMultiplier = contactMatchIds.has(id) ? 1.25 : 1.0;
 
       const { score, weights } = this.computeWeights(
         semanticScore,
@@ -563,7 +565,7 @@ export class MemoryService {
         row.memory,
         nlq.intent,
       );
-      const boostedScore = Math.min(score + textBoost + contactBoost, 1.0);
+      const boostedScore = Math.min(score * textMultiplier * contactMultiplier, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
       results.push(this.toSearchResult(row, boostedScore, boostedWeights, userId));
@@ -727,10 +729,7 @@ export class MemoryService {
     // User isolation
     const userAccountIds = await this.getUserAccountIds(params.userId);
 
-    const conditions: any[] = [
-      eq(memories.embeddingStatus, 'done'),
-      eq(memories.pipelineComplete, true),
-    ];
+    const conditions: any[] = [eq(memories.pipelineComplete, true)];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return { items: [], total: 0 };
       conditions.push(inArray(memories.accountId, userAccountIds));
@@ -822,10 +821,7 @@ export class MemoryService {
 
   async getStats(userId?: string, memoryBankIds?: string[]) {
     const userAccountIds = await this.getUserAccountIds(userId);
-    const conditions: any[] = [
-      eq(memories.embeddingStatus, 'done'),
-      eq(memories.pipelineComplete, true),
-    ];
+    const conditions: any[] = [eq(memories.pipelineComplete, true)];
     // User isolation
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0)
@@ -895,7 +891,7 @@ export class MemoryService {
     const userAccountIds = await this.getUserAccountIds(userId);
 
     // Build memory bank + user isolation filter conditions
-    const memoryBankConditions: any[] = [eq(memories.embeddingStatus, 'done')];
+    const memoryBankConditions: any[] = [eq(memories.pipelineComplete, true)];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return { nodes: [], links: [] };
       memoryBankConditions.push(inArray(memories.accountId, userAccountIds));
@@ -944,7 +940,7 @@ export class MemoryService {
       // Apply user isolation to linked memories too
       const linkedConditions: any[] = [
         inArray(memories.id, batch),
-        eq(memories.embeddingStatus, 'done'),
+        eq(memories.pipelineComplete, true),
       ];
       if (userAccountIds !== null && userAccountIds.length > 0) {
         linkedConditions.push(inArray(memories.accountId, userAccountIds));
@@ -1228,7 +1224,7 @@ export class MemoryService {
     const [rawMem] = await this.dbService.withCurrentUser((db) =>
       db.select().from(memories).where(eq(memories.id, memoryId)),
     );
-    if (!rawMem || rawMem.embeddingStatus !== 'done') return null;
+    if (!rawMem || !rawMem.pipelineComplete) return null;
     // buildGraphDelta is a WS fire-and-forget with no userId context; use auto-detect
     const mem = this.decryptMemoryAuto(rawMem);
 
@@ -1369,7 +1365,7 @@ export class MemoryService {
 
     const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
     // Pinned memories are exempt from recency decay
-    const recency = isPinned ? 1.0 : Math.exp(-0.015 * ageDays);
+    const recency = isPinned ? 1.0 : Math.exp(-0.005 * ageDays);
 
     let entityCount = 0;
     try {
@@ -1377,10 +1373,21 @@ export class MemoryService {
     } catch {
       /* empty */
     }
-    // Base importance + recall boost (capped at +0.2)
-    const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
-    const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
+    // Importance: base + entity boost + text length signal + recall boost
+    let importance = 0.3;
+    importance += Math.min(entityCount * 0.1, 0.3);
+    const textLen = (mem.text || '').length;
+    if (textLen > 500) importance += 0.15;
+    else if (textLen > 200) importance += 0.1;
+    else if (textLen > 50) importance += 0.05;
+    importance += Math.min(recallCount * 0.02, 0.2);
+    importance = Math.min(importance, 1.0);
     const trust = this.getTrustScore(mem.connectorType);
+
+    // Per-connector weight scaling (photos=lower semantic, locations=higher recency)
+    const connectorWeights = this.getWeights(mem.connectorType);
+    const semScale = connectorWeights.semantic / 0.4;
+    const recScale = connectorWeights.recency / 0.25;
 
     // When reranker is available, use the full 5-weight formula.
     // When unavailable (rerankScore === 0), redistribute rerank weight to semantic.
@@ -1389,21 +1396,27 @@ export class MemoryService {
     if (intent === 'browse') {
       final =
         rerankScore > 0
-          ? 0.25 * semanticScore +
+          ? Math.min(0.25 * semScale, 0.5) * semanticScore +
             0.2 * rerankScore +
-            0.4 * recency +
+            Math.min(0.4 * recScale, 0.6) * recency +
             0.1 * importance +
             0.05 * trust
-          : 0.4 * semanticScore + 0.4 * recency + 0.15 * importance + 0.05 * trust;
+          : Math.min(0.4 * semScale, 0.6) * semanticScore +
+            Math.min(0.4 * recScale, 0.6) * recency +
+            0.15 * importance +
+            0.05 * trust;
     } else {
       final =
         rerankScore > 0
-          ? 0.4 * semanticScore +
+          ? Math.min(0.4 * semScale, 0.7) * semanticScore +
             0.3 * rerankScore +
-            0.15 * recency +
+            Math.min(0.15 * recScale, 0.4) * recency +
             0.1 * importance +
             0.05 * trust
-          : 0.7 * semanticScore + 0.15 * recency + 0.1 * importance + 0.05 * trust;
+          : Math.min(0.7 * semScale, 0.85) * semanticScore +
+            Math.min(0.15 * recScale, 0.4) * recency +
+            0.1 * importance +
+            0.05 * trust;
     }
 
     // Scorer plugin bonus (clamped to +/-0.05, averaged across plugins)
@@ -1450,10 +1463,7 @@ export class MemoryService {
   }) {
     const limit = params.limit || 50;
     const userAccountIds = await this.getUserAccountIds(params.userId);
-    const conditions: any[] = [
-      eq(memories.embeddingStatus, 'done'),
-      eq(memories.pipelineComplete, true),
-    ];
+    const conditions: any[] = [eq(memories.pipelineComplete, true)];
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return [];
       conditions.push(inArray(memories.accountId, userAccountIds));
@@ -1616,7 +1626,7 @@ export class MemoryService {
         .from(memories)
         .where(
           and(
-            eq(memories.embeddingStatus, 'done'),
+            eq(memories.pipelineComplete, true),
             sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
           ),
         )
@@ -1698,7 +1708,7 @@ export class MemoryService {
         .from(memories)
         .where(
           and(
-            eq(memories.embeddingStatus, 'done'),
+            eq(memories.pipelineComplete, true),
             sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
           ),
         )

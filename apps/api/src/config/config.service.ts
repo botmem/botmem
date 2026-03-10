@@ -82,6 +82,23 @@ export class ConfigService implements OnModuleInit {
     return process.env.OLLAMA_RERANKER_MODEL || 'sam860/qwen3-reranker:0.6b-Q8_0';
   }
 
+  /** URL of a HuggingFace TEI /rerank endpoint (e.g. http://192.168.10.250:8081).
+   *  When set, reranking is active. When empty, reranking is skipped (scores = 0). */
+  get rerankerUrl(): string {
+    return process.env.RERANKER_URL || '';
+  }
+
+  /** Reranker backend: tei (auto if RERANKER_URL set) | ollama | jina | none */
+  get rerankerBackend(): 'ollama' | 'jina' | 'tei' | 'none' {
+    const val = process.env.RERANKER_BACKEND || (this.rerankerUrl ? 'tei' : 'ollama');
+    if (val === 'jina' || val === 'none' || val === 'tei') return val;
+    return 'ollama';
+  }
+
+  get jinaApiKey(): string {
+    return process.env.JINA_API_KEY || '';
+  }
+
   get ollamaUsername(): string {
     return process.env.OLLAMA_USERNAME || '';
   }
@@ -99,7 +116,7 @@ export class ConfigService implements OnModuleInit {
   }
 
   get syncDebugLimit(): number {
-    return Number.parseInt(process.env.SYNC_DEBUG_LIMIT || '500', 10);
+    return Number.parseInt(process.env.SYNC_DEBUG_LIMIT || '2000', 10);
   }
 
   get posthogApiKey(): string {
@@ -192,5 +209,43 @@ export class ConfigService implements OnModuleInit {
 
   get gmailClientSecret(): string {
     return process.env.GMAIL_CLIENT_SECRET || '';
+  }
+
+  // --- AI Backend ---
+
+  get aiBackend(): 'ollama' | 'openrouter' {
+    const val = process.env.AI_BACKEND || 'ollama';
+    return val === 'openrouter' ? 'openrouter' : 'ollama';
+  }
+
+  // --- OpenRouter ---
+
+  get openrouterApiKey(): string {
+    return process.env.OPENROUTER_API_KEY || '';
+  }
+
+  get openrouterEmbedModel(): string {
+    return process.env.OPENROUTER_EMBED_MODEL || 'google/gemini-embedding-001';
+  }
+
+  get openrouterTextModel(): string {
+    return process.env.OPENROUTER_TEXT_MODEL || 'mistralai/mistral-nemo';
+  }
+
+  get openrouterVlModel(): string {
+    return process.env.OPENROUTER_VL_MODEL || 'google/gemma-3-4b-it';
+  }
+
+  get embedDimension(): number {
+    return parseInt(process.env.EMBED_DIMENSION || '1024', 10);
+  }
+
+  /** Sensible concurrency defaults based on AI backend (local GPU vs cloud API) */
+  get aiConcurrency(): { embed: number; enrich: number; memory: number; backfill: number } {
+    if (this.aiBackend === 'openrouter') {
+      return { embed: 64, enrich: 64, memory: 64, backfill: 16 };
+    }
+    // Ollama: conservative — single GPU, one inference at a time is fastest
+    return { embed: 8, enrich: 8, memory: 16, backfill: 2 };
   }
 }
