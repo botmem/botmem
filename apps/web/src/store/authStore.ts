@@ -78,8 +78,8 @@ export const useAuthStore = create<AuthState>()(
             needsRecoveryKey: !!data.needsRecoveryKey,
             recoveryKey: data.recoveryKey ?? null,
           });
-        } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+        } catch (err: unknown) {
+          set({ error: err instanceof Error ? err.message : 'Login failed', isLoading: false });
           throw err;
         }
       },
@@ -127,14 +127,17 @@ export const useAuthStore = create<AuthState>()(
               recoveryKey: data.recoveryKey ?? null,
             });
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           // Map Firebase error codes to friendly messages
+          const fbErr = err as { code?: string; message?: string };
           const msg =
-            err?.code === 'auth/email-already-in-use'
+            fbErr.code === 'auth/email-already-in-use'
               ? 'This email is already registered'
-              : err?.code === 'auth/weak-password'
+              : fbErr.code === 'auth/weak-password'
                 ? 'Password must be at least 6 characters'
-                : err.message;
+                : err instanceof Error
+                  ? err.message
+                  : 'Signup failed';
           set({ error: msg, isLoading: false });
           throw err;
         }
@@ -302,16 +305,20 @@ export const useAuthStore = create<AuthState>()(
             recoveryKey: data.recoveryKey ?? null,
             needsRecoveryKey: !!data.needsRecoveryKey,
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           // Firebase popup closed by user is not an error
+          const fbErr = err as { code?: string; message?: string };
           if (
-            err.code === 'auth/popup-closed-by-user' ||
-            err.code === 'auth/cancelled-popup-request'
+            fbErr.code === 'auth/popup-closed-by-user' ||
+            fbErr.code === 'auth/cancelled-popup-request'
           ) {
             set({ isLoading: false });
             return;
           }
-          set({ error: err.message || 'Firebase login failed', isLoading: false });
+          set({
+            error: err instanceof Error ? err.message : 'Firebase login failed',
+            isLoading: false,
+          });
           throw err;
         }
       },

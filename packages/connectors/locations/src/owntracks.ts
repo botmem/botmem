@@ -8,7 +8,12 @@ export interface GeoAddress {
   local: string | null;
 }
 
-function buildAddress(data: any): string | null {
+interface NominatimResponse {
+  address?: Record<string, string>;
+  display_name?: string;
+}
+
+function buildAddress(data: NominatimResponse): string | null {
   if (!data.address) return null;
   const a = data.address;
   const parts: string[] = [];

@@ -80,7 +80,11 @@ async function main() {
         const qrPath = '/tmp/wa-media-test-qr.png';
         await qrcode.toFile(qrPath, update.qr, { scale: 8 });
         console.log(`QR code saved to ${qrPath} — opening...`);
-        try { execSync(`open ${qrPath}`); } catch { /* ignore */ }
+        try {
+          execSync(`open ${qrPath}`);
+        } catch {
+          /* ignore */
+        }
         console.log('Waiting for scan...\n');
       }
       if (update.connection === 'open') {
@@ -124,8 +128,14 @@ async function main() {
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('Reconnect timeout')), 30_000);
       sock2.ev.on('connection.update', (u: any) => {
-        if (u.connection === 'open') { clearTimeout(t); resolve(); }
-        if (u.connection === 'close') { clearTimeout(t); reject(new Error('Reconnect failed')); }
+        if (u.connection === 'open') {
+          clearTimeout(t);
+          resolve();
+        }
+        if (u.connection === 'close') {
+          clearTimeout(t);
+          reject(new Error('Reconnect failed'));
+        }
       });
     });
     console.log('Reconnected.\n');
@@ -315,9 +325,9 @@ async function runMediaTest(sock: ReturnType<typeof makeWASocket>) {
       console.log(
         `  [${i + 1}/${mediaMessages.length}] ${type} (${result.ageHours}h old) — OK: ${sizeStr} in ${result.downloadMs}ms${fileName ? ` [${fileName}]` : ''}`,
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       result.downloadMs = Date.now() - t0;
-      result.error = err.message || String(err);
+      result.error = err instanceof Error ? err.message : String(err);
 
       console.log(
         `  [${i + 1}/${mediaMessages.length}] ${type} (${result.ageHours}h old) — FAIL: ${result.error}${fileName ? ` [${fileName}]` : ''}`,

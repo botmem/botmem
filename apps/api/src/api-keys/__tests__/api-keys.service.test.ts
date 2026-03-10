@@ -3,8 +3,16 @@ import { ApiKeysService } from '../api-keys.service';
 import { createHash } from 'crypto';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 
-function createMockDb(overrides: Record<string, any> = {}) {
-  const chain: any = {
+type ChainablePromise<T> = Promise<T> & { limit: ReturnType<typeof vi.fn> };
+
+function withLimit<T>(p: Promise<T>, result?: unknown): ChainablePromise<T> {
+  const cp = p as ChainablePromise<T>;
+  cp.limit = vi.fn(() => Promise.resolve(result ?? p));
+  return cp;
+}
+
+function createMockDb(overrides: Record<string, unknown> = {}) {
+  const chain = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
@@ -19,13 +27,15 @@ function createMockDb(overrides: Record<string, any> = {}) {
 }
 
 function createService(db?: unknown) {
-  const dbService = { db: db ?? createMockDb() } as any;
+  const dbService = { db: db ?? createMockDb() } as unknown as ConstructorParameters<
+    typeof ApiKeysService
+  >[0];
   return new ApiKeysService(dbService);
 }
 
 describe('ApiKeysService', () => {
   let service: ApiKeysService;
-  let mockDb: any;
+  let mockDb: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
     mockDb = createMockDb();
@@ -68,13 +78,11 @@ describe('ApiKeysService', () => {
         callIdx++;
         if (callIdx === 1) {
           // count query
-          const p: any = Promise.resolve([{ count: 0 }]);
+          const p = Promise.resolve([{ count: 0 }]);
           return p;
         }
         // name uniqueness check
-        const p: any = Promise.resolve([]);
-        p.limit = vi.fn(() => Promise.resolve([]));
-        return p;
+        return withLimit(Promise.resolve([]), []);
       });
 
       const result = await service.create('user-1', 'My Key');
@@ -96,9 +104,7 @@ describe('ApiKeysService', () => {
       mockDb.where = vi.fn(() => {
         callIdx++;
         if (callIdx === 1) return Promise.resolve([{ count: 0 }]);
-        const p: any = Promise.resolve([{ id: 'existing' }]);
-        p.limit = vi.fn(() => Promise.resolve([{ id: 'existing' }]));
-        return p;
+        return withLimit(Promise.resolve([{ id: 'existing' }]), [{ id: 'existing' }]);
       });
 
       await expect(service.create('user-1', 'Existing Key')).rejects.toThrow(ConflictException);
@@ -110,7 +116,7 @@ describe('ApiKeysService', () => {
         callIdx++;
         if (callIdx === 1) return Promise.resolve([{ count: 0 }]);
         if (callIdx === 2) {
-          const p: any = Promise.resolve([]);
+          const p = Promise.resolve([]);
           p.limit = vi.fn(() => Promise.resolve([]));
           return p;
         }
@@ -118,8 +124,9 @@ describe('ApiKeysService', () => {
         return Promise.resolve([{ id: 'bank-1' }]);
       });
 
-      await expect(service.create('user-1', 'Key', undefined, ['bank-1', 'bank-2']))
-        .rejects.toThrow(BadRequestException);
+      await expect(
+        service.create('user-1', 'Key', undefined, ['bank-1', 'bank-2']),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('stores memoryBankIds as JSON when provided', async () => {
@@ -128,14 +135,14 @@ describe('ApiKeysService', () => {
         callIdx++;
         if (callIdx === 1) return Promise.resolve([{ count: 0 }]);
         if (callIdx === 2) {
-          const p: any = Promise.resolve([]);
+          const p = Promise.resolve([]);
           p.limit = vi.fn(() => Promise.resolve([]));
           return p;
         }
         return Promise.resolve([{ id: 'bank-1' }]);
       });
 
-      const result = await service.create('user-1', 'Key', undefined, ['bank-1']);
+      await service.create('user-1', 'Key', undefined, ['bank-1']);
       expect(mockDb.values).toHaveBeenCalled();
       const valuesArg = mockDb.values.mock.calls[0][0];
       expect(valuesArg.memoryBankIds).toBe(JSON.stringify(['bank-1']));
@@ -146,9 +153,7 @@ describe('ApiKeysService', () => {
       mockDb.where = vi.fn(() => {
         callIdx++;
         if (callIdx === 1) return Promise.resolve([{ count: 0 }]);
-        const p: any = Promise.resolve([]);
-        p.limit = vi.fn(() => Promise.resolve([]));
-        return p;
+        return withLimit(Promise.resolve([]), []);
       });
 
       await service.create('user-1', 'Key', '2026-12-31T00:00:00Z');
@@ -160,7 +165,14 @@ describe('ApiKeysService', () => {
   describe('listByUser', () => {
     it('returns keys for user', async () => {
       const rows = [
-        { id: 'k1', name: 'Key 1', lastFour: 'abcd', createdAt: new Date(), expiresAt: null, revokedAt: null },
+        {
+          id: 'k1',
+          name: 'Key 1',
+          lastFour: 'abcd',
+          createdAt: new Date(),
+          expiresAt: null,
+          revokedAt: null,
+        },
       ];
       mockDb.where = vi.fn(() => Promise.resolve(rows));
 
@@ -188,18 +200,14 @@ describe('ApiKeysService', () => {
         expiresAt: null,
         revokedAt: null,
       };
-      const p: any = Promise.resolve([keyRow]);
-      p.limit = vi.fn(() => Promise.resolve([keyRow]));
-      mockDb.where = vi.fn(() => p);
+      mockDb.where = vi.fn(() => withLimit(Promise.resolve([keyRow]), [keyRow]));
 
       const result = await service.validateKey('bm_sk_abc123');
       expect(result).toEqual(keyRow);
     });
 
     it('returns null when key not found', async () => {
-      const p: any = Promise.resolve([]);
-      p.limit = vi.fn(() => Promise.resolve([]));
-      mockDb.where = vi.fn(() => p);
+      mockDb.where = vi.fn(() => withLimit(Promise.resolve([]), []));
 
       const result = await service.validateKey('bm_sk_invalid');
       expect(result).toBeNull();
@@ -212,18 +220,14 @@ describe('ApiKeysService', () => {
         expiresAt: new Date('2020-01-01'),
         revokedAt: null,
       };
-      const p: any = Promise.resolve([keyRow]);
-      p.limit = vi.fn(() => Promise.resolve([keyRow]));
-      mockDb.where = vi.fn(() => p);
+      mockDb.where = vi.fn(() => withLimit(Promise.resolve([keyRow]), [keyRow]));
 
       const result = await service.validateKey('bm_sk_expired');
       expect(result).toBeNull();
     });
 
     it('hashes the raw key before lookup', async () => {
-      const p: any = Promise.resolve([]);
-      p.limit = vi.fn(() => Promise.resolve([]));
-      mockDb.where = vi.fn(() => p);
+      mockDb.where = vi.fn(() => withLimit(Promise.resolve([]), []));
 
       await service.validateKey('bm_sk_test1234');
       // The function should hash the key — verify by checking that where was called

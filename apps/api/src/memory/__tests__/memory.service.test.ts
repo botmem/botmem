@@ -57,7 +57,10 @@ describe('MemoryService', () => {
 
     connectorsService = {
       get: vi.fn().mockReturnValue({
-        manifest: { trustScore: 0.8, weights: { semantic: 0.4, recency: 0.25, importance: 0.2, trust: 0.15 } },
+        manifest: {
+          trustScore: 0.8,
+          weights: { semantic: 0.4, recency: 0.25, importance: 0.2, trust: 0.15 },
+        },
       }),
     };
 
@@ -131,9 +134,7 @@ describe('MemoryService', () => {
     });
 
     it('embeds the query and searches Qdrant', async () => {
-      qdrantService.search.mockResolvedValueOnce([
-        { id: 'mem-1', score: 0.9 },
-      ]);
+      qdrantService.search.mockResolvedValueOnce([{ id: 'mem-1', score: 0.9 }]);
       // fetchMemoryRowsBatch: batch select
       mockDb.where.mockResolvedValueOnce([
         { memory: fakeMemoryRow, accountIdentifier: 'test@gmail.com' },
@@ -141,7 +142,7 @@ describe('MemoryService', () => {
       // FTS: execute
       mockDb.execute.mockResolvedValueOnce({ rows: [] });
 
-      const response = await service.search('meeting with john');
+      await service.search('meeting with john');
       expect(aiService.embed).toHaveBeenCalled();
       expect(qdrantService.search).toHaveBeenCalled();
     });
@@ -185,7 +186,7 @@ describe('MemoryService', () => {
       mockDb.where.mockResolvedValueOnce([encryptedRow]);
       userKeyService.getDek.mockResolvedValueOnce(Buffer.from('userkey'));
 
-      const result = await service.getById('mem-1', 'user-1');
+      await service.getById('mem-1', 'user-1');
       expect(cryptoService.decryptMemoryFieldsWithKey).toHaveBeenCalled();
     });
 

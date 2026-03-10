@@ -25,8 +25,8 @@ export function ForgotPasswordPage() {
         throw new Error('Something went wrong. Please try again.');
       }
       setSubmitted(true);
-    } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }

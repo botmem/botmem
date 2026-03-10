@@ -132,11 +132,18 @@ export class McpService implements OnModuleDestroy {
   // ── Tool helpers ──────────────────────────────────────────────────
 
   /** Check if user's DEK is available; return error content if not */
-  private async checkDek(userId: string): Promise<{ content: Array<{ type: 'text'; text: string }>; isError: true } | null> {
+  private async checkDek(
+    userId: string,
+  ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError: true } | null> {
     const needsKey = await this.memoryService.needsRecoveryKey(userId);
     if (needsKey) {
       return {
-        content: [{ type: 'text' as const, text: 'Error: Recovery key required. Your encryption key is not cached. Please re-authorize via the web UI or POST /api/user-auth/recovery-key before using MCP tools that access encrypted data.' }],
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Error: Recovery key required. Your encryption key is not cached. Please re-authorize via the web UI or POST /api/user-auth/recovery-key before using MCP tools that access encrypted data.',
+          },
+        ],
         isError: true,
       };
     }
@@ -151,8 +158,14 @@ export class McpService implements OnModuleDestroy {
       'Search your personal memories using semantic search. Returns matching memories ranked by relevance.',
       {
         query: z.string().describe('Search query (natural language)'),
-        source_type: z.string().optional().describe('Filter by source type: email, message, photo, location'),
-        connector_type: z.string().optional().describe('Filter by connector: gmail, slack, whatsapp, imessage, photos'),
+        source_type: z
+          .string()
+          .optional()
+          .describe('Filter by source type: email, message, photo, location'),
+        connector_type: z
+          .string()
+          .optional()
+          .describe('Filter by connector: gmail, slack, whatsapp, imessage, photos'),
         contact_id: z.string().optional().describe('Filter by contact ID'),
         limit: z.number().optional().default(20).describe('Max results (default 20)'),
       },
@@ -175,8 +188,16 @@ export class McpService implements OnModuleDestroy {
             );
           });
           return { content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }] };
-        } catch (err: any) {
-          return { content: [{ type: 'text' as const, text: `Error: ${err.message}` }], isError: true as const };
+        } catch (err: unknown) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
+            isError: true as const,
+          };
         }
       },
     );
@@ -186,9 +207,19 @@ export class McpService implements OnModuleDestroy {
       'Ask a question about your memories. Returns an AI-generated answer grounded in your personal data (emails, messages, photos, etc.).',
       {
         query: z.string().describe('Your question in natural language'),
-        source_type: z.string().optional().describe('Filter by source type: email, message, photo, location'),
-        connector_type: z.string().optional().describe('Filter by connector: gmail, slack, whatsapp, imessage, photos'),
-        limit: z.number().optional().default(20).describe('Max context memories to consider (default 20)'),
+        source_type: z
+          .string()
+          .optional()
+          .describe('Filter by source type: email, message, photo, location'),
+        connector_type: z
+          .string()
+          .optional()
+          .describe('Filter by connector: gmail, slack, whatsapp, imessage, photos'),
+        limit: z
+          .number()
+          .optional()
+          .default(20)
+          .describe('Max context memories to consider (default 20)'),
       },
       async (params) => {
         try {
@@ -203,8 +234,16 @@ export class McpService implements OnModuleDestroy {
             });
           });
           return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
-        } catch (err: any) {
-          return { content: [{ type: 'text' as const, text: `Error: ${err.message}` }], isError: true as const };
+        } catch (err: unknown) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
+            isError: true as const,
+          };
         }
       },
     );

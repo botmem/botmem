@@ -955,8 +955,10 @@ export async function syncWhatsApp(
         const beforeCount = processed;
         try {
           await (sock as any).fetchMessageHistory(ON_DEMAND_MSGS_PER_FETCH, currentKey, currentTs);
-        } catch (err: any) {
-          ctx.logger.info(`fetchMessageHistory failed for ${chatJid}: ${err.message}`);
+        } catch (err: unknown) {
+          ctx.logger.info(
+            `fetchMessageHistory failed for ${chatJid}: ${err instanceof Error ? err.message : String(err)}`,
+          );
           break;
         }
 
@@ -1014,8 +1016,10 @@ export async function syncWhatsApp(
     ctx.logger.info(
       `Group metadata: ${Object.keys(groups).length} groups, ${totalParticipants} participants, ${allGroupLids.size} unique LIDs`,
     );
-  } catch (err: any) {
-    ctx.logger.info(`groupFetchAllParticipating failed: ${err.message}`);
+  } catch (err: unknown) {
+    ctx.logger.info(
+      `groupFetchAllParticipating failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // LID identity resolution status
@@ -1170,5 +1174,3 @@ function emitContactEvents(
     `Emitted ${emittedPhones.size} contact events and ${chatNames.size} group events`,
   );
 }
-
-

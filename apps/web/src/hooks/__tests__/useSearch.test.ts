@@ -1,14 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 
 // Stub localStorage for memoryBankStore
 const store: Record<string, string> = {};
 vi.stubGlobal('localStorage', {
   getItem: (key: string) => store[key] ?? null,
-  setItem: (key: string, value: string) => { store[key] = value; },
-  removeItem: (key: string) => { delete store[key]; },
-  clear: () => { Object.keys(store).forEach((k) => delete store[k]); },
-  get length() { return Object.keys(store).length; },
+  setItem: (key: string, value: string) => {
+    store[key] = value;
+  },
+  removeItem: (key: string) => {
+    delete store[key];
+  },
+  clear: () => {
+    Object.keys(store).forEach((k) => delete store[k]);
+  },
+  get length() {
+    return Object.keys(store).length;
+  },
   key: (i: number) => Object.keys(store)[i] ?? null,
 });
 
@@ -66,7 +74,9 @@ describe('useSearch', () => {
       result.current.setTerm('ab');
     });
 
-    act(() => { vi.advanceTimersByTime(600); });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
 
     expect(api.searchMemories).not.toHaveBeenCalled();
   });
@@ -118,14 +128,18 @@ describe('useSearch', () => {
     const { result } = renderHook(() => useSearch({ debounceMs: 100, onClear }));
 
     // Set search term and get results
-    act(() => { result.current.setTerm('test query'); });
+    act(() => {
+      result.current.setTerm('test query');
+    });
     await act(async () => {
       vi.advanceTimersByTime(100);
       await vi.runAllTimersAsync();
     });
 
     // Clear the term
-    act(() => { result.current.setTerm(''); });
+    act(() => {
+      result.current.setTerm('');
+    });
 
     expect(result.current.results).toBeNull();
   });
@@ -135,7 +149,9 @@ describe('useSearch', () => {
 
     const { result } = renderHook(() => useSearch({ debounceMs: 100 }));
 
-    act(() => { result.current.setTerm('test query'); });
+    act(() => {
+      result.current.setTerm('test query');
+    });
 
     await act(async () => {
       vi.advanceTimersByTime(100);

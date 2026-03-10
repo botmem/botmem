@@ -1,4 +1,4 @@
-type MessageHandler = (msg: { channel: string; event: string; data: any }) => void;
+type MessageHandler = (msg: { channel: string; event: string; data: unknown }) => void;
 
 const MAX_BACKOFF = 30_000;
 
@@ -19,10 +19,16 @@ class WsClient {
     // Don't connect without a token -- server will reject with 4401
     if (!this.token) return;
 
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    )
+      return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.ws = new WebSocket(`${protocol}//${window.location.host}/events?token=${encodeURIComponent(this.token)}`);
+    this.ws = new WebSocket(
+      `${protocol}//${window.location.host}/events?token=${encodeURIComponent(this.token)}`,
+    );
     this.intentionalClose = false;
 
     this.ws.onopen = () => {
@@ -37,7 +43,9 @@ class WsClient {
       try {
         const msg = JSON.parse(event.data);
         for (const handler of this.handlers) handler(msg);
-      } catch { /* empty */ }
+      } catch {
+        /* empty */
+      }
     };
 
     this.ws.onclose = () => {

@@ -29,8 +29,8 @@ export function MemoryBanksTab() {
     try {
       await createMemoryBank(newName.trim());
       setNewName('');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Operation failed');
     } finally {
       setCreating(false);
     }
@@ -43,8 +43,8 @@ export function MemoryBanksTab() {
       await renameMemoryBank(id, editName.trim());
       setEditingId(null);
       setEditName('');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Operation failed');
     }
   };
 
@@ -53,8 +53,8 @@ export function MemoryBanksTab() {
     try {
       await deleteMemoryBank(id);
       setConfirmDeleteId(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Operation failed');
     }
   };
 

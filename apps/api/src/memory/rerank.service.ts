@@ -58,8 +58,11 @@ export class RerankService implements OnModuleInit {
         default:
           return new Array(documents.length).fill(0);
       }
-    } catch (err: any) {
-      this.logger.error(`Reranker failed, using zero scores: ${err?.message}`, err?.stack);
+    } catch (err: unknown) {
+      this.logger.error(
+        `Reranker failed, using zero scores: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
       return new Array(documents.length).fill(0);
     }
   }

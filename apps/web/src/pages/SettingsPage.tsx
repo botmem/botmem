@@ -95,8 +95,8 @@ export function SettingsPage() {
       setSettings(updated);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setSaving(false);
     }

@@ -80,8 +80,10 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
       }
       await oldQueue.close();
       this.logger.log(`[clean] Migration complete`);
-    } catch (err: any) {
-      this.logger.warn(`[clean] Old queue migration skipped: ${err.message}`);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[clean] Old queue migration skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -120,8 +122,10 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
               event.content.text =
                 extracted + (event.content.text ? `\n\n${event.content.text}` : '');
             }
-          } catch (err: any) {
-            ctx.logger.warn(`[clean:file-extract] ${mid} failed: ${err?.message}`);
+          } catch (err: unknown) {
+            ctx.logger.warn(
+              `[clean:file-extract] ${mid} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }

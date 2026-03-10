@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { filterReducer, uiReducer } from '../graphReducers';
-import type { FilterState, FilterAction, UIState, UIAction } from '../graphReducers';
+import type { FilterState, UIState } from '../graphReducers';
 
 describe('filterReducer', () => {
   const initial: FilterState = {
@@ -26,7 +26,9 @@ describe('filterReducer', () => {
 
   it('toggles contacts', () => {
     expect(filterReducer(initial, { type: 'toggleContacts' }).hideContacts).toBe(true);
-    expect(filterReducer({ ...initial, hideContacts: true }, { type: 'toggleContacts' }).hideContacts).toBe(false);
+    expect(
+      filterReducer({ ...initial, hideContacts: true }, { type: 'toggleContacts' }).hideContacts,
+    ).toBe(false);
   });
 
   it('toggles groups', () => {
@@ -67,7 +69,9 @@ describe('uiReducer', () => {
 
   it('toggles legend', () => {
     expect(uiReducer(initial, { type: 'toggleLegend' }).legendOpen).toBe(true);
-    expect(uiReducer({ ...initial, legendOpen: true }, { type: 'toggleLegend' }).legendOpen).toBe(false);
+    expect(uiReducer({ ...initial, legendOpen: true }, { type: 'toggleLegend' }).legendOpen).toBe(
+      false,
+    );
   });
 
   it('enters fullscreen', () => {
@@ -77,7 +81,10 @@ describe('uiReducer', () => {
   });
 
   it('exits fullscreen', () => {
-    const next = uiReducer({ ...initial, isFullscreen: true, showHint: true }, { type: 'exitFullscreen' });
+    const next = uiReducer(
+      { ...initial, isFullscreen: true, showHint: true },
+      { type: 'exitFullscreen' },
+    );
     expect(next.isFullscreen).toBe(false);
     expect(next.showHint).toBe(false);
   });

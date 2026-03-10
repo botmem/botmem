@@ -10,12 +10,7 @@ import { accounts } from '../db/schema';
 import { PluginRegistry } from './plugin-registry';
 import type { PluginManifest, HookName } from './plugin.types';
 
-const VALID_HOOKS: HookName[] = [
-  'afterIngest',
-  'afterEmbed',
-  'afterEnrich',
-  'afterSearch',
-];
+const VALID_HOOKS: HookName[] = ['afterIngest', 'afterEmbed', 'afterEnrich', 'afterSearch'];
 
 @Injectable()
 export class PluginsService {
@@ -102,9 +97,7 @@ export class PluginsService {
           lifecycleCount++;
         } else if (manifest.type === 'scorer') {
           if (typeof plugin.score !== 'function') {
-            this.logger.warn(
-              `Scorer plugin "${manifest.name}" has no score function`,
-            );
+            this.logger.warn(`Scorer plugin "${manifest.name}" has no score function`);
             continue;
           }
           this.registry.registerScorer({
@@ -113,17 +106,15 @@ export class PluginsService {
           });
           scorerCount++;
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.logger.warn(
-          `Could not load plugin from ${entry.name}: ${err.message}`,
+          `Could not load plugin from ${entry.name}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
 
     if (lifecycleCount > 0 || scorerCount > 0) {
-      this.logger.log(
-        `Loaded ${lifecycleCount} lifecycle and ${scorerCount} scorer plugins`,
-      );
+      this.logger.log(`Loaded ${lifecycleCount} lifecycle and ${scorerCount} scorer plugins`);
     }
   }
 
@@ -194,8 +185,10 @@ export class PluginsService {
         this.connectors.register(factory);
         this.logger.log(`Registered ${packageName}`);
       }
-    } catch (err: any) {
-      this.logger.warn(`Could not load ${packageName}: ${err.message}`);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Could not load ${packageName}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

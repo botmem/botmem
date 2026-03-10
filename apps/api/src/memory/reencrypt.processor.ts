@@ -118,8 +118,10 @@ export class ReencryptProcessor extends WorkerHost implements OnModuleInit {
             .where(eq(memories.id, mem.id));
 
           processed++;
-        } catch (err: any) {
-          this.logger.warn(`[reencrypt] Failed to re-encrypt memory ${mem.id}: ${err.message}`);
+        } catch (err: unknown) {
+          this.logger.warn(
+            `[reencrypt] Failed to re-encrypt memory ${mem.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
           // Mark as processed to avoid infinite loop on persistently failing rows
           processed++;
           // Update keyVersion anyway to avoid re-processing

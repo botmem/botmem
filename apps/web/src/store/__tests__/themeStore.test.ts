@@ -4,10 +4,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const store: Record<string, string> = {};
 vi.stubGlobal('localStorage', {
   getItem: (key: string) => store[key] ?? null,
-  setItem: (key: string, value: string) => { store[key] = value; },
-  removeItem: (key: string) => { delete store[key]; },
-  clear: () => { Object.keys(store).forEach((k) => delete store[k]); },
-  get length() { return Object.keys(store).length; },
+  setItem: (key: string, value: string) => {
+    store[key] = value;
+  },
+  removeItem: (key: string) => {
+    delete store[key];
+  },
+  clear: () => {
+    Object.keys(store).forEach((k) => delete store[k]);
+  },
+  get length() {
+    return Object.keys(store).length;
+  },
   key: (i: number) => Object.keys(store)[i] ?? null,
 });
 
@@ -20,15 +28,18 @@ vi.stubGlobal('document', {
 });
 
 // Stub matchMedia
-const matchMediaListeners: Function[] = [];
-vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-  matches: query.includes('dark'),
-  media: query,
-  addEventListener: vi.fn((_event: string, fn: Function) => {
-    matchMediaListeners.push(fn);
-  }),
-  removeEventListener: vi.fn(),
-})));
+const matchMediaListeners: ((...args: unknown[]) => void)[] = [];
+vi.stubGlobal(
+  'matchMedia',
+  vi.fn((query: string) => ({
+    matches: query.includes('dark'),
+    media: query,
+    addEventListener: vi.fn((_event: string, fn: (...args: unknown[]) => void) => {
+      matchMediaListeners.push(fn);
+    }),
+    removeEventListener: vi.fn(),
+  })),
+);
 
 // Import store after stubs
 const { useThemeStore } = await import('../themeStore');
