@@ -305,6 +305,44 @@ export class BotmemClient {
     return this.request<{ buildTime: string; gitHash: string; uptime: number }>('/version');
   }
 
+  // --- CLI OAuth ---
+
+  async createCliSession(params: {
+    codeChallenge: string;
+    codeChallengeMethod: string;
+    redirectUri: string;
+    state: string;
+  }): Promise<{ sessionId: string; loginUrl: string }> {
+    return this.request<{ sessionId: string; loginUrl: string }>('/user-auth/cli/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        code_challenge: params.codeChallenge,
+        code_challenge_method: params.codeChallengeMethod,
+        redirect_uri: params.redirectUri,
+        state: params.state,
+      }),
+    });
+  }
+
+  async exchangeCliCode(params: {
+    code: string;
+    codeVerifier: string;
+    redirectUri: string;
+  }): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    user: { id: string; email: string; name: string };
+  }> {
+    return this.request('/user-auth/cli/token', {
+      method: 'POST',
+      body: JSON.stringify({
+        code: params.code,
+        code_verifier: params.codeVerifier,
+        redirect_uri: params.redirectUri,
+      }),
+    });
+  }
+
   // --- Recovery Key ---
 
   async submitRecoveryKey(recoveryKey: string): Promise<Record<string, unknown>> {
