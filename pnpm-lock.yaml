@@ -163,8 +163,8 @@ importers:
         specifier: ^1.11.0
         version: 1.11.0
       nodemailer:
-        specifier: ^6.10.1
-        version: 6.10.1
+        specifier: ^8.0.2
+        version: 8.0.2
       passport:
         specifier: ^0.7.0
         version: 0.7.0
@@ -3439,8 +3439,8 @@ packages:
       link-preview-js:
         optional: true
 
-  '@whiskeysockets/libsignal-node@https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67':
-    resolution: {tarball: https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67}
+  '@whiskeysockets/libsignal-node@git+https://git@github.com:whiskeysockets/libsignal-node.git#1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67':
+    resolution: {commit: 1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67, repo: git@github.com:whiskeysockets/libsignal-node.git, type: git}
     version: 2.0.1
 
   '@xhmikosr/archive-type@7.1.0':
@@ -5764,8 +5764,8 @@ packages:
     resolution: {integrity: sha512-M6Rm/bbG6De/gKGxOpeOobx/dnGuP0dz40adqx38boqHhlWssBJZgLCPBNtb9NkrmnKYiV04xELq+R6PFOnoLA==}
     engines: {node: '>=4.4.0'}
 
-  nodemailer@6.10.1:
-    resolution: {integrity: sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==}
+  nodemailer@8.0.2:
+    resolution: {integrity: sha512-zbj002pZAIkWQFxyAaqoxvn+zoIwRnS40hgjqTXudKOOJkiFFgBeNqjgD3/YCR12sZnrghWYBY+yP1ZucdDRpw==}
     engines: {node: '>=6.0.0'}
 
   nopt@5.0.0:
@@ -10235,7 +10235,7 @@ snapshots:
       '@hapi/boom': 9.1.4
       async-mutex: 0.5.0
       axios: 1.13.6
-      libsignal: '@whiskeysockets/libsignal-node@https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67'
+      libsignal: '@whiskeysockets/libsignal-node@git+https://git@github.com:whiskeysockets/libsignal-node.git#1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67'
       music-metadata: 11.12.1
       pino: 9.14.0
       protobufjs: 7.5.4
@@ -10249,7 +10249,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@whiskeysockets/libsignal-node@https://codeload.github.com/whiskeysockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67':
+  '@whiskeysockets/libsignal-node@git+https://git@github.com:whiskeysockets/libsignal-node.git#1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67':
     dependencies:
       curve25519-js: 0.0.4
       protobufjs: 6.8.8
@@ -12781,7 +12781,7 @@ snapshots:
   node-wav@0.0.2:
     optional: true
 
-  nodemailer@6.10.1: {}
+  nodemailer@8.0.2: {}
 
   nopt@5.0.0:
     dependencies:
