@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --filter @botmem/api add @qdrant/js-client-rest)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}

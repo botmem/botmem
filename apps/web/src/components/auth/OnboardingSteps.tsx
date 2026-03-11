@@ -157,7 +157,7 @@ export function OnboardingSteps() {
       {step === 0 && hasKeyStep && (
         <div className="text-center">
           <div className="inline-block mb-6">
-            <div className="w-16 h-16 border-3 border-nb-border bg-nb-surface mx-auto flex items-center justify-center shadow-nb">
+            <div className="size-16 border-3 border-nb-border bg-nb-surface mx-auto flex items-center justify-center shadow-nb">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
@@ -166,7 +166,7 @@ export function OnboardingSteps() {
                 strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="w-8 h-8 text-nb-lime"
+                className="size-8 text-nb-lime"
               >
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
               </svg>
@@ -206,7 +206,7 @@ export function OnboardingSteps() {
               type="checkbox"
               checked={confirmed}
               onChange={(e) => dispatch({ type: 'SET_CONFIRMED', confirmed: e.target.checked })}
-              className="w-5 h-5 accent-[#C4F53A] cursor-pointer"
+              className="size-5 accent-[#C4F53A] cursor-pointer"
             />
             <span className="font-mono text-sm text-nb-muted">
               I have saved my recovery key in a safe place
@@ -235,7 +235,7 @@ export function OnboardingSteps() {
               disabled={demoLoading}
               className="group border-3 border-nb-border bg-nb-surface p-6 shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer text-left disabled:opacity-60 disabled:cursor-wait"
             >
-              <div className="w-12 h-12 border-3 border-nb-border bg-nb-bg flex items-center justify-center mb-4 group-hover:border-nb-lime transition-colors">
+              <div className="size-12 border-3 border-nb-border bg-nb-bg flex items-center justify-center mb-4 group-hover:border-nb-lime transition-colors">
                 <svg
                   width="24"
                   height="24"
@@ -264,7 +264,7 @@ export function OnboardingSteps() {
               disabled={demoLoading}
               className="group border-3 border-nb-border bg-nb-surface p-6 shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer text-left disabled:opacity-60"
             >
-              <div className="w-12 h-12 border-3 border-nb-border bg-nb-bg flex items-center justify-center mb-4 group-hover:border-nb-lime transition-colors">
+              <div className="size-12 border-3 border-nb-border bg-nb-bg flex items-center justify-center mb-4 group-hover:border-nb-lime transition-colors">
                 <svg
                   width="24"
                   height="24"

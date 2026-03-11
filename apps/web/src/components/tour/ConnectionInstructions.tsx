@@ -109,7 +109,7 @@ export function ConnectionInstructions({ open, onClose }: Props) {
       <div className="flex justify-end">
         <button
           onClick={onClose}
-          className="px-6 py-2 border-3 border-nb-border bg-nb-lime font-display text-sm font-bold uppercase shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none cursor-pointer transition-all"
+          className="px-6 py-2 border-3 border-nb-border bg-nb-lime text-black font-display text-sm font-bold uppercase shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none cursor-pointer transition-all"
         >
           Done
         </button>

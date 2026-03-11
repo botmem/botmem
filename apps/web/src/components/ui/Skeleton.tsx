@@ -9,10 +9,7 @@ interface SkeletonProps {
 function SkeletonBlock({ className }: { className?: string }) {
   return (
     <div
-      className={cn(
-        'border-3 border-nb-border bg-nb-surface-muted',
-        className
-      )}
+      className={cn('border-3 border-nb-border bg-nb-surface-muted', className)}
       style={{ animation: 'pulse-bar 1.5s ease-in-out infinite' }}
     />
   );
@@ -38,7 +35,7 @@ export function Skeleton({ className, variant = 'line', count = 1 }: SkeletonPro
   if (variant === 'avatar') {
     return (
       <div className={cn('flex items-center gap-3', className)}>
-        <SkeletonBlock className="w-10 h-10 shrink-0" />
+        <SkeletonBlock className="size-10 shrink-0" />
         <div className="flex-1">
           <SkeletonBlock className="h-3 w-1/3 mb-2" />
           <SkeletonBlock className="h-2.5 w-1/2" />

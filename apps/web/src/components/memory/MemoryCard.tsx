@@ -1,5 +1,6 @@
 import type { Memory } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, truncate } from '@botmem/shared';
+import { cn } from '@/lib/utils';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { AuthedImage } from '../ui/AuthedImage';
@@ -44,15 +45,21 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
     <Card
       hoverable
       onClick={handleCardClick}
-      className={`group relative ${selected ? 'border-nb-pink border-4' : ''} ${topResult ? 'border-cyan-400 bg-cyan-500/5' : ''} ${memory.pinned ? 'bg-amber-500/5 border-amber-400' : ''}`}
+      className={cn(
+        'group relative',
+        selected && 'border-nb-pink border-4',
+        topResult && 'border-cyan-400 bg-cyan-500/5',
+        memory.pinned && 'bg-amber-500/5 border-amber-400',
+      )}
     >
       <button
         onClick={handlePinClick}
-        className={`absolute top-2 right-2 w-7 h-7 border-2 border-nb-border flex items-center justify-center text-sm cursor-pointer transition-all z-10 ${
+        className={cn(
+          'absolute top-2 right-2 size-7 border-2 border-nb-border flex items-center justify-center text-sm cursor-pointer transition-all z-10',
           memory.pinned
             ? 'bg-amber-400 text-black border-amber-500'
-            : 'bg-nb-surface-muted text-nb-muted opacity-0 group-hover:opacity-100 hover:bg-amber-200 hover:text-black'
-        }`}
+            : 'bg-nb-surface-muted text-nb-muted opacity-0 group-hover:opacity-100 hover:bg-amber-200 hover:text-black',
+        )}
         title={memory.pinned ? 'Unpin memory' : 'Pin memory'}
       >
         {memory.pinned ? '\u{1F4CC}' : '\u{1F4CC}'}
@@ -61,7 +68,7 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2">
           <span
-            className="w-8 h-8 border-2 border-nb-border flex items-center justify-center text-sm"
+            className="size-8 border-2 border-nb-border flex items-center justify-center text-sm"
             style={{ backgroundColor: CONNECTOR_COLORS[memory.sourceConnector] }}
           >
             {sourceIcons[memory.source]}

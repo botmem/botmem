@@ -40,28 +40,31 @@ export function MemorySearchBar({
         className="text-lg py-4"
       />
       <div className="flex items-center gap-2 flex-wrap">
-        {availableSources && availableSources.map((value) => (
-          <button
-            key={value}
-            onClick={() => onSourceChange(sourceFilter === value ? null : value)}
-            className={cn(
-              'border-2 border-nb-border px-3 py-1 font-mono text-xs font-bold uppercase cursor-pointer transition-all',
-              sourceFilter === value
-                ? 'bg-nb-text text-nb-bg'
-                : 'bg-nb-surface hover:bg-nb-surface-hover text-nb-text'
-            )}
-          >
-            {sourceLabels[value] || value.toUpperCase()}
-          </button>
-        ))}
+        {availableSources &&
+          availableSources.map((value) => (
+            <button
+              key={value}
+              onClick={() => onSourceChange(sourceFilter === value ? null : value)}
+              className={cn(
+                'border-2 border-nb-border px-3 py-1 font-mono text-xs font-bold uppercase cursor-pointer transition-all',
+                sourceFilter === value
+                  ? 'bg-nb-text text-nb-bg'
+                  : 'bg-nb-surface hover:bg-nb-surface-hover text-nb-text',
+              )}
+            >
+              {sourceLabels[value] || value.toUpperCase()}
+            </button>
+          ))}
         {resultCount !== undefined && (
           <span className="ml-auto font-mono text-xs text-nb-muted uppercase">
-            {(loading || pending) ? (
+            {loading || pending ? (
               <span className="flex items-center gap-2">
-                <span className="w-3 h-3 border-2 border-nb-text border-t-transparent rounded-full animate-spin" />
+                <span className="size-3 border-2 border-nb-text border-t-transparent rounded-full animate-spin" />
                 SEARCHING...
               </span>
-            ) : `${resultCount} memories found`}
+            ) : (
+              `${resultCount} memories found`
+            )}
           </span>
         )}
       </div>

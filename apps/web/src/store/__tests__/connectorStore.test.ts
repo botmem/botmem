@@ -22,7 +22,7 @@ describe('connectorStore', () => {
 
   describe('fetchManifests', () => {
     it('fetches and sets manifests', async () => {
-      (api.listConnectors as any).mockResolvedValue({
+      (api.listConnectors as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         connectors: [{ id: 'gmail', name: 'Gmail' }],
       });
       await useConnectorStore.getState().fetchManifests();
@@ -30,7 +30,7 @@ describe('connectorStore', () => {
     });
 
     it('handles API error gracefully', async () => {
-      (api.listConnectors as any).mockRejectedValue(new Error('fail'));
+      (api.listConnectors as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().fetchManifests();
       expect(useConnectorStore.getState().manifests).toEqual([]);
     });
@@ -38,13 +38,13 @@ describe('connectorStore', () => {
 
   describe('fetchAccounts', () => {
     it('fetches and sets accounts', async () => {
-      (api.listAccounts as any).mockResolvedValue({ accounts: [{ id: 'a1' }] });
+      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ accounts: [{ id: 'a1' }] });
       await useConnectorStore.getState().fetchAccounts();
       expect(useConnectorStore.getState().accounts).toHaveLength(1);
     });
 
     it('handles API error gracefully', async () => {
-      (api.listAccounts as any).mockRejectedValue(new Error('fail'));
+      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().fetchAccounts();
       expect(useConnectorStore.getState().accounts).toEqual([]);
     });
@@ -53,14 +53,14 @@ describe('connectorStore', () => {
   describe('addAccount', () => {
     it('adds account from API response', async () => {
       const account = { id: 'a1', type: 'gmail', identifier: 'test', status: 'connected' };
-      (api.createAccount as any).mockResolvedValue(account);
+      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(account);
       await useConnectorStore.getState().addAccount('gmail', 'test');
       expect(useConnectorStore.getState().accounts).toHaveLength(1);
       expect(useConnectorStore.getState().accounts[0].id).toBe('a1');
     });
 
     it('creates local account on API failure', async () => {
-      (api.createAccount as any).mockRejectedValue(new Error('fail'));
+      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().addAccount('gmail', 'test');
       const accounts = useConnectorStore.getState().accounts;
       expect(accounts).toHaveLength(1);
@@ -87,7 +87,7 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.deleteAccount as any).mockResolvedValue({});
+      (api.deleteAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useConnectorStore.getState().removeAccount('a1');
       expect(useConnectorStore.getState().accounts).toHaveLength(0);
     });
@@ -109,7 +109,7 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.deleteAccount as any).mockRejectedValue(new Error('fail'));
+      (api.deleteAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().removeAccount('a1');
       expect(useConnectorStore.getState().accounts).toHaveLength(0);
     });
@@ -133,7 +133,7 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.updateAccount as any).mockResolvedValue({});
+      (api.updateAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useConnectorStore.getState().updateSchedule('a1', 'hourly');
       expect(useConnectorStore.getState().accounts[0].schedule).toBe('hourly');
     });
@@ -157,7 +157,7 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.triggerSync as any).mockResolvedValue({ job: { id: 'j1' } });
+      (api.triggerSync as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ job: { id: 'j1' } });
 
       await useConnectorStore.getState().syncNow('a1');
       expect(api.triggerSync).toHaveBeenCalledWith('a1', undefined);
@@ -180,7 +180,7 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.triggerSync as any).mockRejectedValue(new Error('fail'));
+      (api.triggerSync as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useConnectorStore.getState().syncNow('a1');
       expect(useConnectorStore.getState().accounts[0].status).toBe('connected');
     });

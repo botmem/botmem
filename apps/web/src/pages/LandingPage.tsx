@@ -189,12 +189,12 @@ function TerminalBlock() {
       aria-label="Terminal showing a Botmem search query with scored results"
     >
       <div className="flex items-center gap-2 px-4 py-2 border-b-3 border-nb-border bg-nb-bg">
-        <span className="w-3 h-3 bg-nb-red border border-nb-border" />
-        <span className="w-3 h-3 bg-nb-yellow border border-nb-border" />
-        <span className="w-3 h-3 bg-nb-green border border-nb-border" />
+        <span className="size-3 bg-nb-red border border-nb-border" />
+        <span className="size-3 bg-nb-yellow border border-nb-border" />
+        <span className="size-3 bg-nb-green border border-nb-border" />
         <span className="ml-2 text-nb-muted text-xs">botmem</span>
       </div>
-      <div className="p-4 sm:p-5 space-y-3 text-[13px] leading-relaxed">
+      <div className="p-4 sm:p-5 flex flex-col gap-3 text-[13px] leading-relaxed">
         <div>
           <span className="text-nb-lime">$</span>{' '}
           <span className="text-nb-text">
@@ -202,7 +202,7 @@ function TerminalBlock() {
           </span>
         </div>
         <div className="text-nb-muted">Searching 12,847 memories...</div>
-        <div className="border-t border-nb-border/30 pt-3 space-y-3">
+        <div className="border-t border-nb-border/30 pt-3 flex flex-col gap-3">
           <ResultLine
             score="0.94"
             source="gmail"
@@ -643,12 +643,12 @@ function HowItWorks() {
           className="mt-0 sm:-mt-[3px] bg-nb-surface border-3 border-nb-border shadow-nb-lg font-mono text-sm overflow-hidden max-w-2xl mx-auto"
         >
           <div className="flex items-center gap-2 px-4 py-2 border-b-3 border-nb-border bg-nb-bg">
-            <span className="w-3 h-3 bg-nb-red border border-nb-border" />
-            <span className="w-3 h-3 bg-nb-yellow border border-nb-border" />
-            <span className="w-3 h-3 bg-nb-green border border-nb-border" />
+            <span className="size-3 bg-nb-red border border-nb-border" />
+            <span className="size-3 bg-nb-yellow border border-nb-border" />
+            <span className="size-3 bg-nb-green border border-nb-border" />
             <span className="ml-2 text-nb-muted text-xs">{tab.titleBar}</span>
           </div>
-          <div className="p-4 sm:p-5 space-y-1 text-[13px] leading-relaxed min-h-[260px]">
+          <div className="p-4 sm:p-5 flex flex-col gap-1 text-[13px] leading-relaxed min-h-[260px]">
             {tab.lines.map((line, i) => {
               const lineKey = `${line.type}-${i}`;
               if (line.type === 'cmd')
@@ -727,7 +727,7 @@ function HowItWorks() {
               key={t.id}
               onClick={() => setActiveTab(i)}
               className={cn(
-                'w-2 h-2 border border-nb-border transition-all duration-200 cursor-pointer',
+                'size-2 border border-nb-border transition-all duration-200 cursor-pointer',
                 activeTab === i ? 'bg-nb-lime scale-125' : 'bg-nb-surface hover:bg-nb-muted',
               )}
               aria-label={`Show ${t.label}`}
@@ -810,7 +810,7 @@ function PricingSection() {
                 Self-hosted on your hardware. Full control.
               </p>
             </div>
-            <ul className="space-y-3 flex-1" aria-label="Free tier features">
+            <ul className="flex flex-col gap-3 flex-1" aria-label="Free tier features">
               {FREE_FEATURES.map((f) => (
                 <li key={f} className="flex items-start gap-2 font-mono text-sm text-nb-text">
                   <CheckIcon />
@@ -844,7 +844,7 @@ function PricingSection() {
                 We handle the infrastructure. You keep the memories.
               </p>
             </div>
-            <ul className="space-y-3 flex-1" aria-label="Pro tier features">
+            <ul className="flex flex-col gap-3 flex-1" aria-label="Pro tier features">
               {PRO_FEATURES.map((f) => (
                 <li key={f} className="flex items-start gap-2 font-mono text-sm text-nb-text">
                   <CheckIcon />

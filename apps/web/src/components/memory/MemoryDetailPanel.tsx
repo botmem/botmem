@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Memory } from '@botmem/shared';
+import { cn } from '@/lib/utils';
 import { Card } from '../ui/Card';
 import { ImageLightbox } from '../ui/ImageLightbox';
 import { MemoryDetailCore } from './MemoryDetailCore';
@@ -29,11 +30,12 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
           <h3 className="font-display text-lg font-bold uppercase text-nb-text">Memory Detail</h3>
           <button
             onClick={handlePinClick}
-            className={`border-2 border-nb-border w-8 h-8 flex items-center justify-center text-sm cursor-pointer transition-all ${
+            className={cn(
+              'border-2 border-nb-border size-8 flex items-center justify-center text-sm cursor-pointer transition-all',
               memory.pinned
                 ? 'bg-amber-400 text-black border-amber-500'
-                : 'bg-nb-surface-muted text-nb-muted hover:bg-amber-200 hover:text-black'
-            }`}
+                : 'bg-nb-surface-muted text-nb-muted hover:bg-amber-200 hover:text-black',
+            )}
             title={memory.pinned ? 'Unpin memory' : 'Pin memory'}
           >
             {'\u{1F4CC}'}
@@ -41,7 +43,7 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
         </div>
         <button
           onClick={onClose}
-          className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text"
+          className="border-2 border-nb-border size-8 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text"
         >
           X
         </button>

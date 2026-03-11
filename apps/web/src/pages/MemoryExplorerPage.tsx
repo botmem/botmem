@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { cn } from '@/lib/utils';
 import type { Memory, SourceType } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
 import { MemorySearchBar } from '../components/memory/MemorySearchBar';
@@ -147,12 +148,15 @@ export function MemoryExplorerPage() {
 
               {/* Mobile full-screen detail overlay */}
               <div
-                className={`fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden ${selectedMemory ? 'block' : 'hidden'}`}
+                className={cn(
+                  'fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden',
+                  selectedMemory ? 'block' : 'hidden',
+                )}
               >
                 <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
                   <button
                     onClick={() => setSelectedMemory(null)}
-                    className="border-2 border-nb-border w-11 h-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+                    className="border-2 border-nb-border size-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
                   >
                     <svg
                       width="16"

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { cn } from '@/lib/utils';
 import { PageContainer } from '../components/layout/PageContainer';
 import { ContactCard } from '../components/contacts/ContactCard';
 import { ContactDetailPanel } from '../components/contacts/ContactDetailPanel';
@@ -76,11 +77,12 @@ export function ContactsPage() {
           <button
             key={value}
             onClick={() => setEntityFilter(value)}
-            className={`font-mono text-xs font-bold uppercase px-4 py-3 min-h-[44px] cursor-pointer transition-colors ${
+            className={cn(
+              'font-mono text-xs font-bold uppercase px-4 py-2 cursor-pointer transition-colors',
               entityFilter === value
                 ? 'bg-nb-lime text-black'
-                : 'bg-nb-surface text-nb-muted hover:text-nb-text'
-            }`}
+                : 'bg-nb-surface text-nb-muted hover:text-nb-text',
+            )}
           >
             {label}
           </button>
@@ -160,12 +162,15 @@ export function ContactsPage() {
 
         {/* Mobile full-screen detail overlay */}
         <div
-          className={`fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden ${selectedContact ? 'block' : 'hidden'}`}
+          className={cn(
+            'fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden',
+            selectedContact ? 'block' : 'hidden',
+          )}
         >
           <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
             <button
               onClick={() => selectContact(null)}
-              className="border-2 border-nb-border w-11 h-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+              className="border-2 border-nb-border size-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
             >
               <svg
                 width="16"

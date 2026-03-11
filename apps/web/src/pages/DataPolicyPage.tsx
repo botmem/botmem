@@ -30,7 +30,7 @@ function SectionCard({
           >
             {title}
           </h2>
-          <div className="mt-4 font-mono text-sm text-nb-muted leading-relaxed space-y-3">
+          <div className="mt-4 font-mono text-sm text-nb-muted leading-relaxed flex flex-col gap-3">
             {children}
           </div>
         </div>
@@ -51,7 +51,7 @@ function PipelineStep({
   return (
     <div className="flex items-start gap-3">
       <div className="flex flex-col items-center shrink-0">
-        <div className="w-3 h-3 bg-nb-lime border-2 border-nb-border mt-1" />
+        <div className="size-3 bg-nb-lime border-2 border-nb-border mt-1" />
         {!isLast && <div className="w-0.5 h-8 bg-nb-border" />}
       </div>
       <div>
@@ -116,7 +116,7 @@ export function DataPolicyPage() {
         </section>
 
         {/* Sections */}
-        <div className="px-4 sm:px-6 pb-20 max-w-4xl mx-auto space-y-6">
+        <div className="px-4 sm:px-6 pb-20 max-w-4xl mx-auto flex flex-col gap-6">
           {/* 01 - Philosophy */}
           <SectionCard id="philosophy" number="01" title="OUR PHILOSOPHY">
             <p>
@@ -140,7 +140,7 @@ export function DataPolicyPage() {
             <p>
               Every piece of data follows the same pipeline from connector to searchable memory:
             </p>
-            <div className="mt-4 space-y-0">
+            <div className="mt-4 flex flex-col gap-0">
               <PipelineStep
                 label="CONNECTOR SYNC"
                 description="Data pulled from source (Gmail, Slack, WhatsApp, iMessage, Photos, Locations) via authenticated connector."
@@ -172,11 +172,11 @@ export function DataPolicyPage() {
               <strong className="text-nb-text">AES-256-GCM</strong>, the same standard used in
               banking and government systems.
             </p>
-            <div className="mt-4 bg-nb-bg border-3 border-nb-border p-4 space-y-2">
+            <div className="mt-4 bg-nb-bg border-3 border-nb-border p-4 flex flex-col gap-2">
               <p className="font-display text-sm font-bold text-nb-text tracking-wide">
                 RECOVERY KEY SYSTEM
               </p>
-              <ul className="list-none space-y-2">
+              <ul className="list-none flex flex-col gap-2">
                 <li>
                   On signup, a random{' '}
                   <strong className="text-nb-text">32-byte encryption key</strong> is generated and
@@ -213,7 +213,7 @@ export function DataPolicyPage() {
                 <p className="font-display text-sm font-bold text-nb-lime tracking-wide mb-2">
                   ENCRYPTED
                 </p>
-                <ul className="space-y-1.5">
+                <ul className="flex flex-col gap-1.5">
                   <li>Connector OAuth tokens &amp; refresh tokens</li>
                   <li>API keys &amp; credentials</li>
                   <li>Authentication context per account</li>
@@ -224,7 +224,7 @@ export function DataPolicyPage() {
                 <p className="font-display text-sm font-bold text-nb-text tracking-wide mb-2">
                   NOT ENCRYPTED (BY DESIGN)
                 </p>
-                <ul className="space-y-1.5">
+                <ul className="flex flex-col gap-1.5">
                   <li>Memory text content (needed for search)</li>
                   <li>Contact names &amp; identifiers</li>
                   <li>Vector embeddings (needed for similarity)</li>
@@ -242,7 +242,7 @@ export function DataPolicyPage() {
           {/* 05 - Self-Hosted */}
           <SectionCard id="self-hosted" number="05" title="SELF-HOSTED DATA ISOLATION">
             <p>When you self-host Botmem, your data never leaves your hardware:</p>
-            <ul className="list-none space-y-2 mt-2">
+            <ul className="list-none flex flex-col gap-2 mt-2">
               <li>
                 <strong className="text-nb-text">All data stays local.</strong> PostgreSQL, Qdrant,
                 and Redis run on your infrastructure.
@@ -269,7 +269,7 @@ export function DataPolicyPage() {
               On the Pro cloud tier, your data is hosted on managed infrastructure with the
               following guarantees:
             </p>
-            <ul className="list-none space-y-2 mt-2">
+            <ul className="list-none flex flex-col gap-2 mt-2">
               <li>
                 <strong className="text-nb-text">Encrypted at rest</strong> &mdash; all databases
                 and storage volumes use disk-level encryption in addition to application-level
@@ -301,7 +301,7 @@ export function DataPolicyPage() {
                 <p className="font-display text-sm font-bold text-nb-lime tracking-wide mb-2">
                   SELF-HOSTED (OLLAMA)
                 </p>
-                <ul className="space-y-1.5">
+                <ul className="flex flex-col gap-1.5">
                   <li>
                     <strong className="text-nb-text">Embedding:</strong> mxbai-embed-large (1024d)
                   </li>
@@ -320,7 +320,7 @@ export function DataPolicyPage() {
                 <p className="font-display text-sm font-bold text-nb-text tracking-wide mb-2">
                   PRO (CLOUD MODELS)
                 </p>
-                <ul className="space-y-1.5">
+                <ul className="flex flex-col gap-1.5">
                   <li>Optimized cloud models for faster enrichment.</li>
                   <li>
                     Only text content is sent for processing &mdash; never credentials, tokens, or
@@ -338,7 +338,7 @@ export function DataPolicyPage() {
               When you delete your account,{' '}
               <strong className="text-nb-text">all data is permanently purged</strong>:
             </p>
-            <ul className="list-none space-y-1.5 mt-2">
+            <ul className="list-none flex flex-col gap-1.5 mt-2">
               <li>PostgreSQL records (memories, contacts, raw events, jobs, accounts)</li>
               <li>Qdrant vector embeddings</li>
               <li>Redis cache (sessions, encryption key cache)</li>

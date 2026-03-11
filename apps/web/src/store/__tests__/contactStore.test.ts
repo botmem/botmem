@@ -49,7 +49,7 @@ describe('contactStore', () => {
 
   describe('loadContacts', () => {
     it('fetches and sets contacts', async () => {
-      (api.listContacts as any).mockResolvedValue({
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [rawContact('c1', 'Alice'), rawContact('c2', 'Bob')],
         total: 2,
       });
@@ -63,20 +63,20 @@ describe('contactStore', () => {
     });
 
     it('handles API error', async () => {
-      (api.listContacts as any).mockRejectedValue(new Error('fail'));
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().loadContacts();
       expect(useContactStore.getState().contacts).toEqual([]);
       expect(useContactStore.getState().loading).toBe(false);
     });
 
     it('passes entityType parameter', async () => {
-      (api.listContacts as any).mockResolvedValue({ items: [], total: 0 });
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0 });
       await useContactStore.getState().loadContacts('organization');
       expect(api.listContacts).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'organization' }));
     });
 
     it('parses identifiers correctly', async () => {
-      (api.listContacts as any).mockResolvedValue({
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [rawContact('c1', 'Alice')],
         total: 1,
       });
@@ -88,7 +88,7 @@ describe('contactStore', () => {
     });
 
     it('sets hasMore when more contacts available', async () => {
-      (api.listContacts as any).mockResolvedValue({
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [rawContact('c1', 'Alice')],
         total: 200,
       });
@@ -104,7 +104,7 @@ describe('contactStore', () => {
         total: 2,
         hasMore: true,
       });
-      (api.listContacts as any).mockResolvedValue({
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [rawContact('c2', 'Bob')],
         total: 2,
       });
@@ -133,7 +133,7 @@ describe('contactStore', () => {
 
     it('handles API error', async () => {
       useContactStore.setState({ hasMore: true, contacts: [] });
-      (api.listContacts as any).mockRejectedValue(new Error('fail'));
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().loadMoreContacts();
       expect(useContactStore.getState().loadingMore).toBe(false);
     });
@@ -141,7 +141,7 @@ describe('contactStore', () => {
 
   describe('searchContacts', () => {
     it('searches and sets results', async () => {
-      (api.searchContacts as any).mockResolvedValue([rawContact('c1', 'Alice')]);
+      (api.searchContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([rawContact('c1', 'Alice')]);
       await useContactStore.getState().searchContacts('alice');
       const state = useContactStore.getState();
       expect(state.contacts).toHaveLength(1);
@@ -150,7 +150,7 @@ describe('contactStore', () => {
     });
 
     it('handles search error', async () => {
-      (api.searchContacts as any).mockRejectedValue(new Error('fail'));
+      (api.searchContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().searchContacts('alice');
       expect(useContactStore.getState().loading).toBe(false);
     });
@@ -171,7 +171,7 @@ describe('contactStore', () => {
 
   describe('setEntityFilter', () => {
     it('sets filter and triggers load', async () => {
-      (api.listContacts as any).mockResolvedValue({ items: [], total: 0 });
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0 });
       useContactStore.getState().setEntityFilter('organization');
       expect(useContactStore.getState().entityFilter).toBe('organization');
       expect(useContactStore.getState().selectedId).toBeNull();
@@ -183,7 +183,7 @@ describe('contactStore', () => {
       useContactStore.setState({
         contacts: [{ id: 'c1', displayName: 'Old Name', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' }],
       });
-      (api.updateContact as any).mockResolvedValue({ id: 'c1', displayName: 'New Name', entityType: 'person', avatars: [], identifiers: [] });
+      (api.updateContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'c1', displayName: 'New Name', entityType: 'person', avatars: [], identifiers: [] });
       await useContactStore.getState().updateContact('c1', { displayName: 'New Name' });
       expect(useContactStore.getState().contacts[0].displayName).toBe('New Name');
     });
@@ -199,7 +199,7 @@ describe('contactStore', () => {
         total: 2,
         selectedId: 'c1',
       });
-      (api.deleteContact as any).mockResolvedValue({});
+      (api.deleteContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useContactStore.getState().deleteContact('c1');
       const state = useContactStore.getState();
       expect(state.contacts).toHaveLength(1);
@@ -216,7 +216,7 @@ describe('contactStore', () => {
         total: 2,
         selectedId: 'c2',
       });
-      (api.deleteContact as any).mockResolvedValue({});
+      (api.deleteContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useContactStore.getState().deleteContact('c1');
       expect(useContactStore.getState().selectedId).toBe('c2');
     });
@@ -224,7 +224,7 @@ describe('contactStore', () => {
 
   describe('loadSuggestions', () => {
     it('loads merge suggestions', async () => {
-      (api.getMergeSuggestions as any).mockResolvedValue([
+      (api.getMergeSuggestions as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
         { contact1: rawContact('c1', 'Alice'), contact2: rawContact('c2', 'Alice K'), reason: 'Similar names' },
       ]);
       await useContactStore.getState().loadSuggestions();
@@ -240,7 +240,7 @@ describe('contactStore', () => {
           { contact1: { id: 'c1', displayName: 'A', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 0, createdAt: '', updatedAt: '' }, contact2: { id: 'c2', displayName: 'B', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 0, createdAt: '', updatedAt: '' }, reason: 'test' },
         ],
       });
-      (api.dismissSuggestion as any).mockResolvedValue({});
+      (api.dismissSuggestion as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useContactStore.getState().dismissSuggestion('c1', 'c2');
       expect(useContactStore.getState().suggestions).toHaveLength(0);
     });
@@ -256,13 +256,13 @@ describe('contactStore', () => {
 
   describe('undismissSuggestion', () => {
     it('calls API to undismiss', async () => {
-      (api.undismissSuggestion as any).mockResolvedValue({});
+      (api.undismissSuggestion as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useContactStore.getState().undismissSuggestion('c1', 'c2');
       expect(api.undismissSuggestion).toHaveBeenCalledWith('c1', 'c2');
     });
 
     it('handles error gracefully', async () => {
-      (api.undismissSuggestion as any).mockRejectedValue(new Error('fail'));
+      (api.undismissSuggestion as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().undismissSuggestion('c1', 'c2');
     });
   });
@@ -270,15 +270,15 @@ describe('contactStore', () => {
   describe('mergeContacts', () => {
     it('merges contacts and reloads', async () => {
       useContactStore.setState({ selectedId: 'c2' });
-      (api.mergeContacts as any).mockResolvedValue({});
-      (api.listContacts as any).mockResolvedValue({ items: [rawContact('c1', 'Alice')], total: 1 });
-      (api.getMergeSuggestions as any).mockResolvedValue([]);
+      (api.mergeContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [rawContact('c1', 'Alice')], total: 1 });
+      (api.getMergeSuggestions as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       await useContactStore.getState().mergeContacts('c1', 'c2');
       expect(useContactStore.getState().selectedId).toBe('c1');
     });
 
     it('handles merge error', async () => {
-      (api.mergeContacts as any).mockRejectedValue(new Error('fail'));
+      (api.mergeContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().mergeContacts('c1', 'c2');
     });
   });
@@ -288,27 +288,27 @@ describe('contactStore', () => {
       useContactStore.setState({
         contacts: [{ id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [{ id: 'id-1', type: 'email', value: 'a@test.com', isPrimary: true }], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' }],
       });
-      (api.removeIdentifier as any).mockResolvedValue({ id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [] });
+      (api.removeIdentifier as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [] });
       await useContactStore.getState().removeIdentifier('c1', 'id-1');
       expect(useContactStore.getState().contacts[0].identifiers).toEqual([]);
     });
 
     it('handles error gracefully', async () => {
-      (api.removeIdentifier as any).mockRejectedValue(new Error('fail'));
+      (api.removeIdentifier as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().removeIdentifier('c1', 'id-1');
     });
   });
 
   describe('splitContact', () => {
     it('splits contact and reloads', async () => {
-      (api.splitContact as any).mockResolvedValue({});
-      (api.listContacts as any).mockResolvedValue({ items: [], total: 0 });
+      (api.splitContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0 });
       await useContactStore.getState().splitContact('c1', ['id-1']);
       expect(api.splitContact).toHaveBeenCalledWith('c1', ['id-1']);
     });
 
     it('handles error gracefully', async () => {
-      (api.splitContact as any).mockRejectedValue(new Error('fail'));
+      (api.splitContact as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useContactStore.getState().splitContact('c1', ['id-1']);
     });
   });

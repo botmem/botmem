@@ -191,18 +191,18 @@ function IdentityHeader({
   return (
     <Card className="p-0 overflow-hidden mb-6" data-tour="me-identity">
       <div className="bg-nb-lime h-2" />
-      <div className="p-4 sm:p-6 flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6">
+      <div className="p-6 flex items-center gap-6">
         <Avatar
           contactId={identity.contactId ?? undefined}
           src={selectedAvatar?.url}
           fallbackInitials={(identity.name ?? '?')[0]?.toUpperCase() ?? '?'}
           isSelf
           size="lg"
-          className="w-20 h-20 sm:w-24 sm:h-24 shrink-0"
+          className="size-24 shrink-0"
         />
 
-        <div className="flex-1 min-w-0 text-center sm:text-left">
-          <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-nb-text truncate">
+        <div className="flex-1 min-w-0">
+          <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text truncate">
             {identity.name ?? 'Unknown'}
           </h1>
           <div className="mt-2 flex flex-wrap gap-3">
@@ -221,7 +221,7 @@ function IdentityHeader({
                   title={`Use ${a.source} avatar`}
                   onClick={() => onAvatarSelect(identity.avatars.indexOf(a))}
                   className={[
-                    'w-12 h-12 border-3 overflow-hidden p-0 cursor-pointer transition-all',
+                    'size-12 border-3 overflow-hidden p-0 cursor-pointer transition-all',
                     identity.avatars.indexOf(a) === selectedAvatarIndex
                       ? 'border-nb-lime ring-2 ring-nb-lime'
                       : 'border-nb-border hover:border-nb-text',
@@ -292,7 +292,7 @@ function MemoriesByConnector({
           return (
             <div key={type} className="border-3 border-nb-border p-3 flex items-center gap-3">
               <div
-                className="w-10 h-10 border-3 border-nb-border flex items-center justify-center font-display text-lg font-bold text-black shrink-0"
+                className="size-10 border-3 border-nb-border flex items-center justify-center font-display text-lg font-bold text-black shrink-0"
                 style={{ backgroundColor: meta.color }}
               >
                 {meta.icon}
@@ -327,7 +327,7 @@ function ConnectedAccountsList({ accounts }: { accounts: MeData['accounts'] }) {
           return (
             <div key={acct.id} className="border-2 border-nb-border p-3 flex items-center gap-3">
               <div
-                className="w-8 h-8 border-2 border-nb-border flex items-center justify-center font-display text-sm font-bold text-black shrink-0"
+                className="size-8 border-2 border-nb-border flex items-center justify-center font-display text-sm font-bold text-black shrink-0"
                 style={{ backgroundColor: meta.color }}
               >
                 {meta.icon}
@@ -366,7 +366,7 @@ function TopEntitiesCloud({ topEntities }: { topEntities: MeData['topEntities'] 
             {topEntities.map((e) => {
               const maxCount = topEntities[0]?.count ?? 1;
               const ratio = Math.max(0.5, e.count / maxCount);
-              const fontSize = 12 + Math.round(ratio * 8);
+              const fontSize = 10 + Math.round(ratio * 10);
               return (
                 <span
                   key={e.name}
@@ -406,7 +406,7 @@ function RecentActivity({ recentMemories }: { recentMemories: MeData['recentMemo
               className="px-4 py-3 flex items-start gap-3 hover:bg-nb-surface-hover transition-colors"
             >
               <div
-                className="w-7 h-7 border-2 border-nb-border flex items-center justify-center font-display text-xs font-bold text-black shrink-0 mt-0.5"
+                className="size-7 border-2 border-nb-border flex items-center justify-center font-display text-xs font-bold text-black shrink-0 mt-0.5"
                 style={{ backgroundColor: meta.color }}
               >
                 {meta.icon}

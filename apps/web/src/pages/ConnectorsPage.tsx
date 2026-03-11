@@ -48,7 +48,7 @@ function ConnectorStatusDot({ type }: { type: string }) {
 
   return (
     <span className="inline-flex items-center gap-1 ml-2">
-      <span className={cn('w-2 h-2 rounded-full', color)} />
+      <span className={cn('size-2 rounded-full', color)} />
       <span className="font-mono text-[10px] text-nb-muted uppercase">{label}</span>
     </span>
   );
@@ -129,7 +129,7 @@ export function ConnectorsPage() {
               >
                 <div className="flex items-center gap-3">
                   <div
-                    className="w-10 h-10 border-3 border-nb-border flex items-center justify-center text-lg font-bold"
+                    className="size-10 border-3 border-nb-border flex items-center justify-center text-lg font-bold"
                     style={{ backgroundColor: cfg.color || CONNECTOR_COLORS[cfg.type] }}
                   >
                     {getConnectorIcon(cfg.type)}
