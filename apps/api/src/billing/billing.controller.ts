@@ -8,6 +8,7 @@ import {
   Logger,
   Headers,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
@@ -16,6 +17,8 @@ import { ConfigService } from '../config/config.service';
 import Stripe from 'stripe';
 import type { Request, Response } from 'express';
 
+@ApiTags('Billing')
+@ApiBearerAuth()
 @Controller('billing')
 export class BillingController {
   private readonly logger = new Logger(BillingController.name);

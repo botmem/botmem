@@ -1,10 +1,13 @@
 import { Controller, Post, Get, Param, Body, Query, Res } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { ConfigService } from '../config/config.service';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 
+@ApiTags('Auth')
+@ApiBearerAuth()
 @Controller('auth')
 export class AuthController {
   constructor(

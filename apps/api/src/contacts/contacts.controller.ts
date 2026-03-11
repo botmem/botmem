@@ -12,6 +12,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { ContactsService } from './contacts.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -23,6 +24,8 @@ import { MergeContactDto } from './dto/merge-contact.dto';
 import { SearchContactsDto } from './dto/search-contacts.dto';
 import { DismissSuggestionDto } from './dto/dismiss-suggestion.dto';
 
+@ApiTags('Contacts')
+@ApiBearerAuth()
 @Controller('people')
 export class ContactsController {
   private readonly logger = new Logger(ContactsController.name);

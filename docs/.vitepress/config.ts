@@ -101,6 +101,7 @@ export default defineConfig({
           { text: 'Connectors', link: '/api/connectors' },
           { text: 'Jobs', link: '/api/jobs' },
           { text: 'WebSocket', link: '/api/websocket' },
+          { text: 'OpenAPI Schema', link: '/api/openapi' },
         ],
       },
       {

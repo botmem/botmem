@@ -1,8 +1,10 @@
 import { Controller, Post, Body, HttpCode, UnauthorizedException } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Public } from './decorators/public.decorator';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { UsersService } from './users.service';
 
+@ApiTags('User Auth')
 @Controller('firebase-auth')
 export class FirebaseAuthController {
   constructor(

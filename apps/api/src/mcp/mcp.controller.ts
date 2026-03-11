@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Delete, Req, Res } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { McpService } from './mcp.service';
 import { McpAuthGuard } from './mcp-auth.guard';
 import type { Request, Response } from 'express';
 
+@ApiTags('MCP')
 @Controller('mcp')
 @Public() // Handles its own auth via McpAuthGuard
 @SkipThrottle()
@@ -47,10 +49,7 @@ export class McpController {
       const resourceUrl = `${origin}/.well-known/oauth-protected-resource`;
       res
         .status(401)
-        .setHeader(
-          'WWW-Authenticate',
-          `Bearer resource_metadata="${resourceUrl}"`,
-        )
+        .setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceUrl}"`)
         .json({ error: 'unauthorized' });
       return null;
     }

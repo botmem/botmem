@@ -12,6 +12,7 @@ import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
 import { memories, memoryContacts, contacts } from '../db/schema';
 import { sql, eq, inArray } from 'drizzle-orm';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -38,6 +39,8 @@ function toApiAccount(
   };
 }
 
+@ApiTags('Accounts')
+@ApiBearerAuth()
 @Controller('accounts')
 export class AccountsController {
   constructor(

@@ -7,6 +7,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { DbService } from '../db/db.service';
 import { rawEvents, memories, memoryContacts, memoryLinks, accounts } from '../db/schema';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Throttle } from '@nestjs/throttler';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
@@ -29,6 +31,8 @@ function toApiJob(row: any): Job & { memoryBankId?: string | null } {
   };
 }
 
+@ApiTags('Jobs')
+@ApiBearerAuth()
 @Controller('jobs')
 export class JobsController {
   private readonly logger = new Logger(JobsController.name);
@@ -188,7 +192,7 @@ export class JobsController {
 
             await this.cleanQueue.add(
               'clean',
-              { rawEventId },
+              { rawEventId, _trace: { traceId: generateTraceId(), spanId: generateSpanId() } },
               {
                 attempts: 3,
                 backoff: { type: 'exponential', delay: 5000 },
@@ -213,10 +217,14 @@ export class JobsController {
         try {
           const { name, data } = fjob;
           await fjob.remove();
-          await this.enrichQueue.add(name, data, {
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5000 },
-          });
+          await this.enrichQueue.add(
+            name,
+            { ...data, _trace: { traceId: generateTraceId(), spanId: generateSpanId() } },
+            {
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 5000 },
+            },
+          );
           retried++;
         } catch (err) {
           this.logger.warn(

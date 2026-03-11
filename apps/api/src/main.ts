@@ -13,6 +13,8 @@ import { readFileSync } from 'fs';
 import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
 import { AnalyticsService } from './analytics/analytics.service';
+import { PostHogLoggerService } from './analytics/posthog-logger.service';
+import { TraceContext } from './tracing/trace.context';
 import { HttpAdapterHost } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { createCorsOriginChecker } from './cors.util';
@@ -72,6 +74,21 @@ async function bootstrap() {
   });
 
   const config = app.get(ConfigService);
+
+  // Replace default logger with PostHog-forwarding logger
+  const phLogger = new PostHogLoggerService();
+  phLogger.init({
+    apiKey: config.posthogApiKey,
+    host: config.posthogHost,
+    serviceName: config.posthogLogServiceName,
+    minLevel: config.posthogLogMinLevel,
+  });
+  app.useLogger(phLogger);
+
+  // Wire trace context into logger (logger is created before DI, so we bridge manually)
+  const traceContext = app.get(TraceContext);
+  phLogger.setTraceContext(traceContext);
+
   app.enableCors({
     origin: createCorsOriginChecker(config.frontendUrl),
     credentials: true,
@@ -100,7 +117,9 @@ async function bootstrap() {
   const shutdown = () => {
     logger.log('Shutting down...');
     httpServer.close();
-    setTimeout(() => process.exit(0), 3000).unref();
+    phLogger.shutdown().finally(() => {
+      setTimeout(() => process.exit(0), 3000).unref();
+    });
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

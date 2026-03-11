@@ -5,6 +5,10 @@
   "compilerOptions": {
     "builder": "swc",
     "deleteOutDir": true,
-    "assets": [{ "include": "db/migrations/**", "watchAssets": true }]
+    "assets": [
+      { "include": "db/migrations/**", "watchAssets": true },
+      { "include": "swagger-theme.css", "watchAssets": true }
+    ],
+    "plugins": ["@nestjs/swagger"]
   }
 }
