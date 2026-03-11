@@ -9,6 +9,7 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
+import { DemoService } from '../demo/demo.service';
 import { OAuthStateService } from './oauth-state.service';
 import { connectorCredentials } from '../db/schema';
 
@@ -25,6 +26,7 @@ export class AuthService {
     private crypto: CryptoService,
     private analytics: AnalyticsService,
     private config: ConfigService,
+    private demoService: DemoService,
     private oauthState: OAuthStateService,
   ) {}
 
@@ -117,6 +119,13 @@ export class AuthService {
         authContext: JSON.stringify(auth),
         userId,
       });
+
+      // Auto-clean demo data when a real connector is connected
+      if (userId) {
+        this.demoService.cleanup(userId).catch((err) => {
+          this.logger.warn(`Failed to cleanup demo data: ${err.message}`);
+        });
+      }
 
       this.analytics.capture('connector_setup', {
         connector: connectorType,

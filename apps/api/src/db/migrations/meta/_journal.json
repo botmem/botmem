@@ -57,6 +57,13 @@
       "when": 1773400000000,
       "tag": "0007_add_oauth_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773500000000,
+      "tag": "0008_add_pipeline_complete",
+      "breakpoints": true
     }
   ]
 }

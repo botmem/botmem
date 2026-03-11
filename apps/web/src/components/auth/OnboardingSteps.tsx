@@ -74,10 +74,11 @@ export function OnboardingSteps() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Handle OAuth callback redirect
+  // Handle OAuth callback redirect — return user to the connect-sources step
   useEffect(() => {
     if (searchParams.get('auth') === 'success') {
       fetchAccounts();
+      dispatch({ type: 'SET_STEP', step: 2 });
       setSearchParams({}, { replace: true });
     }
   }, []);
