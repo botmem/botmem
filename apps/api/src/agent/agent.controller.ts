@@ -130,6 +130,7 @@ export class AgentController {
   }
 
   /** Search + LLM summarization of matching memories. */
+  @ReadOnly()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('summarize')
   @HttpCode(200)
