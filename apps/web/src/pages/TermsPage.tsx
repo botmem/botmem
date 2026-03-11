@@ -1,88 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
-import { Logo } from '../components/ui/Logo';
-import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { PublicNavbar } from '../components/layout/PublicNavbar';
+import { PublicFooter } from '../components/layout/PublicFooter';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
-
-function Navbar() {
-  return (
-    <nav
-      className="sticky top-0 z-40 bg-nb-bg/95 backdrop-blur-sm border-b-4 border-nb-border"
-      aria-label="Main navigation"
-    >
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-        <Link to="/" aria-label="Botmem home" className="cursor-pointer">
-          <Logo variant="full" height={28} />
-        </Link>
-        <div className="hidden sm:flex items-center gap-6 font-display text-sm tracking-wide">
-          <Link
-            to="/#features"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            FEATURES
-          </Link>
-          <Link
-            to="/pricing"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            PRICING
-          </Link>
-          <Link
-            to="/#open-source"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            OPEN SOURCE
-          </Link>
-        </div>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          <Link
-            to="/signup"
-            className="font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
-          >
-            GET STARTED
-          </Link>
-        </div>
-      </div>
-    </nav>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="border-t-4 border-nb-border py-8 px-4 sm:px-6">
-      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-sm text-nb-muted">
-        <Logo variant="full" height={24} />
-        <div className="flex gap-6">
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            GitHub
-          </a>
-          <a
-            href={`${GITHUB_URL}#readme`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            Docs
-          </a>
-          <Link
-            to="/pricing"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            Pricing
-          </Link>
-          <span className="text-nb-text cursor-default">Terms</span>
-        </div>
-      </div>
-    </footer>
-  );
-}
 
 interface SectionProps {
   id: string;
@@ -144,7 +64,7 @@ export function TermsPage() {
       >
         Skip to content
       </a>
-      <Navbar />
+      <PublicNavbar />
       <main id="main-content">
         {/* Hero */}
         <section
@@ -454,7 +374,7 @@ export function TermsPage() {
           </Section>
         </div>
       </main>
-      <Footer />
+      <PublicFooter />
     </div>
   );
 }
