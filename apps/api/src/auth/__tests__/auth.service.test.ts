@@ -9,6 +9,7 @@ import { AnalyticsService } from '../../analytics/analytics.service';
 import { CryptoService } from '../../crypto/crypto.service';
 import { ConfigService } from '../../config/config.service';
 import { OAuthStateService } from '../oauth-state.service';
+import { DemoService } from '../../demo/demo.service';
 
 function createMockDeps() {
   const { EventEmitter } = require('events');
@@ -84,6 +85,10 @@ function createMockDeps() {
     releaseCreateLock: vi.fn().mockResolvedValue(undefined),
   } as unknown as OAuthStateService;
 
+  const demoService = {
+    cleanup: vi.fn().mockResolvedValue({ deleted: 0 }),
+  } as unknown as DemoService;
+
   return {
     connectors,
     accountsService,
@@ -93,6 +98,7 @@ function createMockDeps() {
     crypto,
     analytics,
     config,
+    demoService,
     oauthState,
     mockConnector,
   };
@@ -108,6 +114,7 @@ function makeService(deps: ReturnType<typeof createMockDeps>) {
     crypto,
     analytics,
     config,
+    demoService,
     oauthState,
   } = deps;
   return new AuthService(
@@ -119,6 +126,7 @@ function makeService(deps: ReturnType<typeof createMockDeps>) {
     crypto,
     analytics,
     config,
+    demoService,
     oauthState,
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 const API_URL = 'https://botmem.xyz';
+const MCP_URL = `${API_URL}/mcp`;
 
 function mcpConfig() {
   return JSON.stringify(
@@ -73,6 +74,26 @@ export function IntegrationsTab() {
             {copied === 'url' ? 'Copied!' : 'Copy'}
           </button>
         </div>
+      </div>
+
+      {/* MCP Endpoint */}
+      <div className="mb-6">
+        <label className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2">
+          MCP Endpoint
+        </label>
+        <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3">
+          <code className="font-mono text-base text-nb-lime flex-1 select-all">{MCP_URL}</code>
+          <button
+            onClick={() => copy(MCP_URL, 'mcp-url')}
+            className="px-3 py-1 border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-muted hover:text-nb-text cursor-pointer shrink-0"
+          >
+            {copied === 'mcp-url' ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="font-mono text-[10px] text-nb-muted mt-1">
+          Use this URL for remote MCP connections (Streamable HTTP transport). Requires OAuth or API
+          key auth.
+        </p>
       </div>
 
       {/* MCP Config for agents */}
