@@ -88,7 +88,12 @@ export class UserAuthService {
     const user = await this.usersService.findByEmail(email);
 
     const hashToCompare = user?.passwordHash ?? DUMMY_HASH;
-    const valid = await bcrypt.compare(password, hashToCompare);
+
+    // Firebase sentinel hashes (e.g. "firebase:<uid>") are not valid bcrypt —
+    // bcrypt.compare would throw, leaking that the account exists via a 500.
+    // Treat them the same as a failed password check.
+    const isFirebaseHash = hashToCompare.startsWith('firebase:');
+    const valid = isFirebaseHash ? false : await bcrypt.compare(password, hashToCompare);
 
     if (!user || !valid) {
       throw new UnauthorizedException('Invalid credentials');
@@ -186,6 +191,7 @@ export class UserAuthService {
     }
 
     if (stored.revokedAt) {
+      await this.usersService.revokeTokenFamily(stored.family);
       throw new UnauthorizedException('Refresh token already used');
     }
 

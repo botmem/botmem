@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createWsConnection, subscribeToChannel } from '../../lib/api';
+import { createWsConnection, waitForAuth, subscribeToChannel } from '../../lib/api';
 import { Modal } from '../ui/Modal';
 
 interface QrCodeAuthProps {
@@ -21,7 +21,11 @@ export function QrCodeAuth({ open, onClose, qrData, wsChannel, onSuccess }: QrCo
     const ws = createWsConnection();
 
     ws.onopen = () => {
-      subscribeToChannel(ws, wsChannel);
+      // Auth is sent automatically by createWsConnection;
+      // wait for confirmation before subscribing
+      waitForAuth(ws)
+        .then(() => subscribeToChannel(ws, wsChannel))
+        .catch(() => ws.close());
     };
 
     ws.onmessage = (event) => {

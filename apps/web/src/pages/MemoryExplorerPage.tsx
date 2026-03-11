@@ -81,7 +81,7 @@ export function MemoryExplorerPage() {
       {!needsRecoveryKey && (
         <div className="mt-4 flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
           <div className="flex flex-col min-h-0 h-full">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3" data-tour="memory-search">
               <div className="flex-1">
                 <MemorySearchBar
                   query={query}

@@ -3,7 +3,7 @@ import type { ConnectorType } from '@botmem/shared';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
-import { api, createWsConnection, subscribeToChannel } from '../../lib/api';
+import { api, createWsConnection, waitForAuth, subscribeToChannel } from '../../lib/api';
 import { useConnectorStore } from '../../store/connectorStore';
 import { isFirebaseMode } from '../../store/authStore';
 
@@ -165,10 +165,15 @@ function QrAuthView({
           dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
           const ws = createWsConnection();
           wsRef.current = ws;
-          ws.onopen = () => subscribeToChannel(ws, result.wsChannel);
+          ws.onopen = () => {
+            waitForAuth(ws)
+              .then(() => subscribeToChannel(ws, result.wsChannel))
+              .catch(() => ws.close());
+          };
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
+              if (msg.event === 'auth') return; // handled by waitForAuth
               if (msg.event === 'auth:status' && msg.data?.status === 'success') {
                 cleanupWs();
                 // Backend already created the account — just refresh the list
@@ -405,10 +410,15 @@ export function ConnectorSetupModal({
           dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
           const ws = createWsConnection();
           wsRef.current = ws;
-          ws.onopen = () => subscribeToChannel(ws, result.wsChannel);
+          ws.onopen = () => {
+            waitForAuth(ws)
+              .then(() => subscribeToChannel(ws, result.wsChannel))
+              .catch(() => ws.close());
+          };
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
+              if (msg.event === 'auth') return; // handled by waitForAuth
               if (msg.event === 'auth:status' && msg.data?.status === 'success') {
                 cleanupWs();
                 // Backend already created the account — just refresh the list

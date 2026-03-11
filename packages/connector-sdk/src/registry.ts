@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { BaseConnector } from './base.js';
 import type { ConnectorManifest } from './types.js';
 
@@ -41,7 +41,12 @@ export class ConnectorRegistry {
         const pkg = JSON.parse(pkgJson);
         if (!pkg.botmem?.connector) continue;
 
-        const mod = await import(join(dir, entry.name));
+        const connectorDir = join(dir, entry.name);
+        // Guard against path traversal in connector directory
+        if (!resolve(connectorDir).startsWith(resolve(dir))) {
+          continue;
+        }
+        const mod = await import(connectorDir);
         const factory = mod.default || mod.createConnector;
         if (typeof factory === 'function') {
           this.register(factory);

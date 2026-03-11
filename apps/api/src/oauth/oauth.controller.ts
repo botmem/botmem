@@ -44,7 +44,6 @@ export class OAuthController {
   }
 
   @Post('register')
-  @Public()
   async register(
     @Body() body: { client_name: string; redirect_uris: string[]; grant_types?: string[] },
   ) {
@@ -52,11 +51,7 @@ export class OAuthController {
       throw new BadRequestException('client_name and redirect_uris are required');
     }
 
-    return this.oauthService.registerClient(
-      body.client_name,
-      body.redirect_uris,
-      body.grant_types,
-    );
+    return this.oauthService.registerClient(body.client_name, body.redirect_uris, body.grant_types);
   }
 
   @Get('authorize')
@@ -121,7 +116,17 @@ export class OAuthController {
       redirectUri: string;
     },
   ) {
-    const { email, password, recoveryKey, clientId, scope, state, codeChallenge, codeChallengeMethod, redirectUri } = body;
+    const {
+      email,
+      password,
+      recoveryKey,
+      clientId,
+      scope,
+      state,
+      codeChallenge,
+      codeChallengeMethod,
+      redirectUri,
+    } = body;
 
     // Validate client
     const client = await this.oauthService.getClient(clientId);

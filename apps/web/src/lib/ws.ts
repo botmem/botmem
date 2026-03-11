@@ -27,22 +27,25 @@ class WsClient {
       return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.ws = new WebSocket(
-      `${protocol}//${window.location.host}/events?token=${encodeURIComponent(this.token)}`,
-    );
+    this.ws = new WebSocket(`${protocol}//${window.location.host}/events`);
     this.intentionalClose = false;
 
     this.ws.onopen = () => {
       this.backoff = 1000;
-      // Re-subscribe all channels
-      for (const channel of this.channelRefs.keys()) {
-        this.ws!.send(JSON.stringify({ event: 'subscribe', data: { channel } }));
-      }
+      // Authenticate first, then re-subscribe all channels
+      this.ws!.send(JSON.stringify({ event: 'auth', data: { token: this.token } }));
     };
 
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        // When auth is confirmed, re-subscribe all channels
+        if (msg.event === 'auth' && msg.data?.ok) {
+          for (const channel of this.channelRefs.keys()) {
+            this.ws!.send(JSON.stringify({ event: 'subscribe', data: { channel } }));
+          }
+          return;
+        }
         for (const handler of this.handlers) handler(msg);
       } catch {
         /* empty */

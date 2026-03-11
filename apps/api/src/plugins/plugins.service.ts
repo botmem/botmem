@@ -79,6 +79,14 @@ export class PluginsService {
         const entryPoint = manifest.entryPoint || 'index.js';
         const entryPath = join(pluginDir, entryPoint);
 
+        // Guard against path traversal in entryPoint (e.g. "../../etc/malicious")
+        if (!resolve(entryPath).startsWith(resolve(pluginDir))) {
+          this.logger.warn(
+            `Plugin "${entry.name}" has an entryPoint that escapes its directory — skipping`,
+          );
+          continue;
+        }
+
         const mod = await this._importPlugin(entryPath);
         const plugin = mod.default || mod;
 

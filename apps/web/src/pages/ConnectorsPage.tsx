@@ -113,7 +113,7 @@ export function ConnectorsPage() {
         All Connectors
       </h2>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3" data-tour="connectors-grid">
         {displayConfigs.map((cfg) => {
           const typeAccounts = accounts.filter((a) => a.type === cfg.type);
           const isExpanded = expanded.has(cfg.type);
@@ -149,7 +149,10 @@ export function ConnectorsPage() {
                 <span className="font-bold text-lg">{isExpanded ? '−' : '+'}</span>
               </button>
               {isExpanded && (
-                <div className="border-t-3 border-nb-border p-3 flex flex-col gap-2 bg-nb-surface-muted">
+                <div
+                  className="border-t-3 border-nb-border p-3 flex flex-col gap-2 bg-nb-surface-muted"
+                  data-tour="sync-trigger"
+                >
                   {typeAccounts.map((acc) => (
                     <ConnectorAccountRow
                       key={acc.id}

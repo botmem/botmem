@@ -15,6 +15,53 @@ function normalizeHost(raw: string): string {
   return raw.replace(/\/+$/, '').replace(/\/api\/?$/, '');
 }
 
+/** Validate a URL to prevent SSRF — rejects private/link-local IPs and non-http(s) protocols. */
+function validateHostUrl(raw: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('Invalid Immich server URL');
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`Unsupported protocol: ${protocol} — only http and https are allowed`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Strip IPv6 brackets
+  const bare =
+    hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+
+  // Block IPv6 private/link-local
+  if (bare === '::1' || bare.startsWith('fc') || bare.startsWith('fd') || bare.startsWith('fe80')) {
+    throw new Error('Private or link-local IP addresses are not allowed');
+  }
+
+  // Block IPv4 private/link-local/loopback
+  const ipv4Match = bare.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [, a, b] = ipv4Match.map(Number);
+    if (
+      a === 127 || // loopback
+      a === 10 || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) || // 192.168.0.0/16
+      (a === 169 && b === 254) || // link-local
+      a === 0 // 0.0.0.0/8
+    ) {
+      throw new Error('Private or link-local IP addresses are not allowed');
+    }
+  }
+
+  // Block localhost by name
+  if (bare === 'localhost' || bare.endsWith('.localhost')) {
+    throw new Error('Private or link-local IP addresses are not allowed');
+  }
+}
+
 interface ImmichAsset {
   id: string;
   type: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'OTHER';
@@ -121,6 +168,7 @@ export class ImmichConnector extends BaseConnector {
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
     const host = normalizeHost(config.host as string);
+    validateHostUrl(host);
     const apiKey = config.apiKey as string;
 
     const res = await fetch(`${host}/api/server/ping`, {

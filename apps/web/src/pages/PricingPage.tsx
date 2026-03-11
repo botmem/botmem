@@ -36,10 +36,7 @@ function ChevronIcon({ open }: { open: boolean }) {
       strokeWidth="2.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn(
-        'shrink-0 transition-transform duration-200',
-        open && 'rotate-180',
-      )}
+      className={cn('shrink-0 transition-transform duration-200', open && 'rotate-180')}
       aria-hidden="true"
     >
       <polyline points="6 9 12 15 18 9" />
@@ -192,6 +189,24 @@ function Footer() {
             Docs
           </a>
           <span className="text-nb-text cursor-default">Pricing</span>
+          <Link
+            to="/privacy"
+            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            Privacy
+          </Link>
+          <Link
+            to="/terms"
+            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            Terms
+          </Link>
+          <Link
+            to="/data-policy"
+            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            Data Policy
+          </Link>
         </div>
       </div>
     </footer>
@@ -234,7 +249,10 @@ export function PricingPage() {
       <Navbar />
       <main id="main-content">
         {/* Hero */}
-        <section className="px-4 sm:px-6 pt-20 pb-12 max-w-6xl mx-auto text-center" aria-labelledby="pricing-hero-heading">
+        <section
+          className="px-4 sm:px-6 pt-20 pb-12 max-w-6xl mx-auto text-center"
+          aria-labelledby="pricing-hero-heading"
+        >
           <h1
             id="pricing-hero-heading"
             className="font-display text-4xl sm:text-5xl font-bold uppercase leading-[1.1] tracking-tight"

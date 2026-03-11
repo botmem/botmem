@@ -10,8 +10,12 @@ function getAvatarImage(url: string): HTMLImageElement | null {
   if (cached) return cached;
   imageCache.set(url, 'loading');
   const img = new Image();
-  img.onload = () => { imageCache.set(url, img); };
-  img.onerror = () => { imageCache.set(url, 'failed'); };
+  img.onload = () => {
+    imageCache.set(url, img);
+  };
+  img.onerror = () => {
+    imageCache.set(url, 'failed');
+  };
   img.src = url;
   return null;
 }
@@ -31,11 +35,17 @@ function getAuthedImage(url: string, token: string | null): HTMLImageElement | n
     })
     .then((blob) => {
       const img = new Image();
-      img.onload = () => { imageCache.set(url, img); };
-      img.onerror = () => { imageCache.set(url, 'failed'); };
+      img.onload = () => {
+        imageCache.set(url, img);
+      };
+      img.onerror = () => {
+        imageCache.set(url, 'failed');
+      };
       img.src = URL.createObjectURL(blob);
     })
-    .catch(() => { imageCache.set(url, 'failed'); });
+    .catch(() => {
+      imageCache.set(url, 'failed');
+    });
   return null;
 }
 
@@ -58,6 +68,108 @@ export {
   HIGHLIGHT_COLOR,
   DIM_OPACITY,
 };
+
+// ── Source-type glyph cache ─────────────────────────────────
+// Pre-renders glyphs to offscreen canvases keyed by "source:size".
+// drawImage() per frame is much faster than re-pathing every node.
+
+const glyphCache = new Map<string, OffscreenCanvas | HTMLCanvasElement>();
+
+function getGlyphCanvas(
+  source: string,
+  size: number,
+  color: string,
+): OffscreenCanvas | HTMLCanvasElement | null {
+  const key = `${source}:${Math.round(size)}`;
+  const cached = glyphCache.get(key);
+  if (cached) return cached;
+
+  const s = Math.round(size);
+  if (s < 4) return null;
+  const canvas =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(s, s)
+      : (() => {
+          const c = document.createElement('canvas');
+          c.width = s;
+          c.height = s;
+          return c;
+        })();
+  const ctx = canvas.getContext('2d') as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D;
+  if (!ctx) return null;
+
+  const cx = s / 2;
+  const cy = s / 2;
+  const bg = '#1A1A2E';
+
+  if (source === 'email') {
+    const ew = s * 0.55;
+    const eh = s * 0.38;
+    ctx.fillStyle = bg;
+    ctx.fillRect(cx - ew / 2, cy - eh / 2, ew, eh);
+    ctx.beginPath();
+    ctx.moveTo(cx - ew / 2, cy - eh / 2);
+    ctx.lineTo(cx, cy + eh * 0.1);
+    ctx.lineTo(cx + ew / 2, cy - eh / 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, s * 0.07);
+    ctx.stroke();
+  } else if (source === 'message') {
+    const bw = s * 0.55;
+    const bh = s * 0.38;
+    const br = s * 0.08;
+    // Bubble body
+    const left = cx - bw / 2;
+    const top = cy - s * 0.05 - bh / 2;
+    ctx.beginPath();
+    ctx.moveTo(left + br, top);
+    ctx.lineTo(left + bw - br, top);
+    ctx.arcTo(left + bw, top, left + bw, top + br, br);
+    ctx.lineTo(left + bw, top + bh - br);
+    ctx.arcTo(left + bw, top + bh, left + bw - br, top + bh, br);
+    ctx.lineTo(left + br, top + bh);
+    ctx.arcTo(left, top + bh, left, top + bh - br, br);
+    ctx.lineTo(left, top + br);
+    ctx.arcTo(left, top, left + br, top, br);
+    ctx.closePath();
+    ctx.fillStyle = bg;
+    ctx.fill();
+    // Tail
+    ctx.beginPath();
+    ctx.moveTo(cx - bw * 0.25, top + bh);
+    ctx.lineTo(cx - bw * 0.35, top + bh + s * 0.12);
+    ctx.lineTo(cx - bw * 0.05, top + bh);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    // Dots
+    const dotR = Math.max(0.8, s * 0.05);
+    ctx.fillStyle = color;
+    for (const dx of [-s * 0.1, 0, s * 0.1]) {
+      ctx.beginPath();
+      ctx.arc(cx + dx, cy - s * 0.05, dotR, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  } else if (source === 'location') {
+    const pr = s * 0.2;
+    ctx.beginPath();
+    ctx.arc(cx, cy - s * 0.05, pr, Math.PI, 0);
+    ctx.lineTo(cx, cy + s * 0.25);
+    ctx.closePath();
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy - s * 0.05, pr * 0.4, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
+  } else {
+    return null; // No glyph for this source type
+  }
+
+  glyphCache.set(key, canvas);
+  return canvas;
+}
 
 export function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
   ctx.beginPath();
@@ -135,7 +247,7 @@ export function renderNode(
   const isTopResult = rankScore === 1;
 
   // No opacity changes — focus mode is the only exception
-  ctx.globalAlpha = (isFocusActive && !isFocusVisible) ? DIM_OPACITY : 1;
+  ctx.globalAlpha = isFocusActive && !isFocusVisible ? DIM_OPACITY : 1;
 
   if (isConnector) {
     const color = CONNECTOR_COLORS[node.source] || '#999';
@@ -406,14 +518,17 @@ export function renderNode(
       ctx.shadowColor = HIGHLIGHT_COLOR;
       ctx.shadowBlur = 8 + rankScore * 12;
     }
+    // Shadow
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.fillRect(x - size / 2 + 2, y - size / 2 + 2, size, size);
+    // Fill
     ctx.fillStyle = color;
     ctx.fillRect(x - size / 2, y - size / 2, size, size);
     if (isTopResult) {
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
     }
+    // Border
     if (isTopResult) {
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 4;
@@ -422,6 +537,12 @@ export function renderNode(
       ctx.lineWidth = 1.5;
     }
     ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+    // Inner glyph — drawn from pre-rendered offscreen canvas
+    const glyph = getGlyphCanvas(node.source, size, color);
+    if (glyph) {
+      ctx.drawImage(glyph as any, x - size / 2, y - size / 2, size, size);
+    }
+    // Label
     if (globalScale > 1.5 || isDirectMatch) {
       ctx.font = `bold ${(isTopResult ? 12 : 10) / globalScale}px IBM Plex Mono`;
       ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : '#F0F0F0';

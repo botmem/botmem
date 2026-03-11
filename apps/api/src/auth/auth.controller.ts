@@ -40,9 +40,11 @@ export class AuthController {
   ) {
     try {
       const { returnTo } = await this.authService.handleCallback(type, query);
-      const target = returnTo
-        ? `${this.config.frontendUrl}${returnTo}`
-        : `${this.config.frontendUrl}/connectors`;
+      const safeReturnTo =
+        returnTo && returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.includes('@')
+          ? returnTo
+          : '/connectors';
+      const target = `${this.config.frontendUrl}${safeReturnTo}`;
       res.redirect(`${target}?auth=success&type=${type}`);
     } catch (err: unknown) {
       const msg = encodeURIComponent(err instanceof Error ? err.message : 'Unknown error');

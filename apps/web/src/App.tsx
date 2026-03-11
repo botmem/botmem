@@ -14,6 +14,9 @@ import { SettingsPage } from './pages/SettingsPage';
 import { MePage } from './pages/MePage';
 import { LandingPage } from './pages/LandingPage';
 import { PricingPage } from './pages/PricingPage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { TermsPage } from './pages/TermsPage';
+import { DataPolicyPage } from './pages/DataPolicyPage';
 import OAuthConsentPage from './pages/OAuthConsentPage';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
@@ -100,6 +103,9 @@ export function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/data-policy" element={<DataPolicyPage />} />
         <Route path="/oauth/consent" element={<OAuthConsentPage />} />
         <Route
           path="/onboarding"

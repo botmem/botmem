@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
 import { ConfigService } from '../config/config.service';
 
@@ -6,12 +6,19 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const SALT = 'botmem-enc-v1'; // static salt — key uniqueness comes from APP_SECRET
+const DEFAULT_APP_SECRET = 'dev-app-secret-change-in-production';
 
 @Injectable()
 export class CryptoService {
+  private readonly logger = new Logger(CryptoService.name);
   private key: Buffer;
 
   constructor(private config: ConfigService) {
+    if (this.config.appSecret === DEFAULT_APP_SECRET) {
+      this.logger.warn(
+        'APP_SECRET is set to the default value. This is insecure — set a unique APP_SECRET for this deployment.',
+      );
+    }
     this.key = scryptSync(this.config.appSecret, SALT, 32);
   }
 

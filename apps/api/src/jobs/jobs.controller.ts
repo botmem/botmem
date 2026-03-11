@@ -145,7 +145,6 @@ export class JobsController {
     const BATCH = 500;
 
     // Embed/clean failures: delete stale memory, then re-enqueue through clean
-    const db = this.dbService.db;
     for (const queue of [this.cleanQueue, this.embedQueue]) {
       let failed = await queue.getFailed(0, BATCH);
       while (failed.length > 0) {
@@ -155,33 +154,37 @@ export class JobsController {
             await fjob.remove();
             if (!rawEventId) continue;
 
-            // Find the raw event to get source_id + connector_type
-            const raw = await db
-              .select({ sourceId: rawEvents.sourceId, connectorType: rawEvents.connectorType })
-              .from(rawEvents)
-              .where(eq(rawEvents.id, rawEventId))
-              .limit(1);
-            if (!raw.length) continue;
+            await this.dbService.withCurrentUser(async (db) => {
+              // Find the raw event to get source_id + connector_type
+              const raw = await db
+                .select({ sourceId: rawEvents.sourceId, connectorType: rawEvents.connectorType })
+                .from(rawEvents)
+                .where(eq(rawEvents.id, rawEventId))
+                .limit(1);
+              if (!raw.length) return;
 
-            // Delete existing stale memory (if any) so clean processor won't skip as dedup
-            const existing = await db
-              .select({ id: memories.id })
-              .from(memories)
-              .where(
-                and(
-                  eq(memories.sourceId, raw[0].sourceId),
-                  eq(memories.connectorType, raw[0].connectorType),
-                ),
-              )
-              .limit(1);
-            if (existing.length) {
-              const memId = existing[0].id;
-              await db
-                .delete(memoryLinks)
-                .where(or(eq(memoryLinks.srcMemoryId, memId), eq(memoryLinks.dstMemoryId, memId)));
-              await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memId));
-              await db.delete(memories).where(eq(memories.id, memId));
-            }
+              // Delete existing stale memory (if any) so clean processor won't skip as dedup
+              const existing = await db
+                .select({ id: memories.id })
+                .from(memories)
+                .where(
+                  and(
+                    eq(memories.sourceId, raw[0].sourceId),
+                    eq(memories.connectorType, raw[0].connectorType),
+                  ),
+                )
+                .limit(1);
+              if (existing.length) {
+                const memId = existing[0].id;
+                await db
+                  .delete(memoryLinks)
+                  .where(
+                    or(eq(memoryLinks.srcMemoryId, memId), eq(memoryLinks.dstMemoryId, memId)),
+                  );
+                await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memId));
+                await db.delete(memories).where(eq(memories.id, memId));
+              }
+            });
 
             await this.cleanQueue.add(
               'clean',

@@ -124,275 +124,277 @@ export class MemoryController {
   @RequiresJwt()
   @Post('retry-failed')
   async retryFailed(@Query('limit') limitParam?: string) {
-    const db = this.dbService.db;
-    const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 200, 2000) : 200;
+    return this.dbService.withCurrentUser(async (db) => {
+      const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 200, 2000) : 200;
 
-    // Find failed and stuck pending memories
-    const failed = await db
-      .select({
-        id: memories.id,
-        sourceId: memories.sourceId,
-        connectorType: memories.connectorType,
-      })
-      .from(memories)
-      .where(sql`${memories.embeddingStatus} IN ('failed', 'pending')`)
-      .limit(batchLimit);
+      // Find failed and stuck pending memories
+      const failed = await db
+        .select({
+          id: memories.id,
+          sourceId: memories.sourceId,
+          connectorType: memories.connectorType,
+        })
+        .from(memories)
+        .where(sql`${memories.embeddingStatus} IN ('failed', 'pending')`)
+        .limit(batchLimit);
 
-    if (!failed.length) return { enqueued: 0, message: 'No failed memories to retry' };
+      if (!failed.length) return { enqueued: 0, message: 'No failed memories to retry' };
 
-    let enqueued = 0;
-    let errors = 0;
-    for (const mem of failed) {
-      try {
-        // Find the raw event by source_id
-        const rawRows = await db
-          .select({ id: rawEvents.id })
-          .from(rawEvents)
-          .where(eq(rawEvents.sourceId, mem.sourceId))
-          .limit(1);
+      let enqueued = 0;
+      let errors = 0;
+      for (const mem of failed) {
+        try {
+          // Find the raw event by source_id
+          const rawRows = await db
+            .select({ id: rawEvents.id })
+            .from(rawEvents)
+            .where(eq(rawEvents.sourceId, mem.sourceId))
+            .limit(1);
 
-        if (!rawRows.length) continue;
+          if (!rawRows.length) continue;
 
-        // Delete the failed memory (and its contact links) atomically
-        await this.dbService.db.transaction(async (tx) => {
-          await tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
-          await tx.delete(memories).where(eq(memories.id, mem.id));
-        });
+          // Delete the failed memory (and its contact links) atomically
+          await db.transaction(async (tx) => {
+            await tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
+            await tx.delete(memories).where(eq(memories.id, mem.id));
+          });
 
-        // Re-enqueue through pipeline with generous retries
-        await this.cleanQueue.add(
-          'clean',
-          { rawEventId: rawRows[0].id },
-          { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
-        );
-        enqueued++;
-      } catch (err: unknown) {
-        errors++;
-        this.logger.error(
-          `[retry-failed] ${mem.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+          // Re-enqueue through pipeline with generous retries
+          await this.cleanQueue.add(
+            'clean',
+            { rawEventId: rawRows[0].id },
+            { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
+          );
+          enqueued++;
+        } catch (err: unknown) {
+          errors++;
+          this.logger.error(
+            `[retry-failed] ${mem.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
-    }
 
-    return { enqueued, errors, total: failed.length };
+      return { enqueued, errors, total: failed.length };
+    });
   }
 
   @RequiresJwt()
   @Post('backfill-contacts')
   async backfillContacts() {
-    const db = this.dbService.db;
+    return this.dbService.withCurrentUser(async (db) => {
+      // Get memory IDs that don't yet have contact links, in batches
+      const unlinked = await db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(
+          sql`${memories.id} NOT IN (SELECT DISTINCT ${memoryContacts.memoryId} FROM ${memoryContacts})`,
+        );
 
-    // Get memory IDs that don't yet have contact links, in batches
-    const unlinked = await db
-      .select({ id: memories.id })
-      .from(memories)
-      .where(
-        sql`${memories.id} NOT IN (SELECT DISTINCT ${memoryContacts.memoryId} FROM ${memoryContacts})`,
-      );
+      // Enqueue each as an individual job
+      let enqueued = 0;
+      for (const { id } of unlinked) {
+        await this.backfillQueue.add(
+          'backfill-contact',
+          { memoryId: id },
+          { attempts: 2, backoff: { type: 'exponential', delay: 500 } },
+        );
+        enqueued++;
+      }
 
-    // Enqueue each as an individual job
-    let enqueued = 0;
-    for (const { id } of unlinked) {
-      await this.backfillQueue.add(
-        'backfill-contact',
-        { memoryId: id },
-        { attempts: 2, backoff: { type: 'exponential', delay: 500 } },
-      );
-      enqueued++;
-    }
-
-    return { enqueued, total: unlinked.length };
+      return { enqueued, total: unlinked.length };
+    });
   }
 
   @RequiresJwt()
   @Post('backfill-enrich')
   async backfillEnrich(@CurrentUser() user: { id: string }, @Body() dto: BackfillEnrichDto) {
-    const db = this.dbService.db;
+    return this.dbService.withCurrentUser(async (db) => {
+      // Build WHERE conditions: embeddingStatus=done AND enrichedAt IS NULL
+      const conditions = [eq(memories.embeddingStatus, 'done'), isNull(memories.enrichedAt)];
+      if (dto.connectorType) {
+        conditions.push(eq(memories.connectorType, dto.connectorType));
+      }
 
-    // Build WHERE conditions: embeddingStatus=done AND enrichedAt IS NULL
-    const conditions = [eq(memories.embeddingStatus, 'done'), isNull(memories.enrichedAt)];
-    if (dto.connectorType) {
-      conditions.push(eq(memories.connectorType, dto.connectorType));
-    }
+      const targets = await db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(and(...conditions));
 
-    const targets = await db
-      .select({ id: memories.id })
-      .from(memories)
-      .where(and(...conditions));
+      if (targets.length === 0) {
+        return { jobId: null, enqueued: 0, total: 0, message: 'No memories need re-enrichment' };
+      }
 
-    if (targets.length === 0) {
-      return { jobId: null, enqueued: 0, total: 0, message: 'No memories need re-enrichment' };
-    }
+      // Get user's first account for jobs FK
+      const userAccounts = await db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(eq(accounts.userId, user.id))
+        .limit(1);
 
-    // Get user's first account for jobs FK
-    const userAccounts = await db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(eq(accounts.userId, user.id))
-      .limit(1);
+      if (!userAccounts.length) {
+        return { error: 'No account found -- sync a connector first' };
+      }
 
-    if (!userAccounts.length) {
-      return { error: 'No account found -- sync a connector first' };
-    }
+      const now = new Date();
+      const jobId = randomUUID();
 
-    const now = new Date();
-    const jobId = randomUUID();
+      // Create tracked job row
+      await db.insert(jobs).values({
+        id: jobId,
+        accountId: userAccounts[0].id,
+        connectorType: dto.connectorType || 'backfill',
+        status: 'running',
+        progress: 0,
+        total: targets.length,
+        startedAt: now,
+        createdAt: now,
+      });
 
-    // Create tracked job row
-    await db.insert(jobs).values({
-      id: jobId,
-      accountId: userAccounts[0].id,
-      connectorType: dto.connectorType || 'backfill',
-      status: 'running',
-      progress: 0,
-      total: targets.length,
-      startedAt: now,
-      createdAt: now,
+      // Enqueue individual BullMQ jobs
+      for (const t of targets) {
+        await this.backfillQueue.add(
+          'backfill-enrich',
+          { memoryId: t.id, jobId },
+          {
+            jobId: t.id,
+            attempts: 2,
+            backoff: { type: 'exponential', delay: 1000 },
+          },
+        );
+      }
+
+      // Emit initial progress
+      this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
+        jobId,
+        processed: 0,
+        total: targets.length,
+      });
+
+      return { jobId, enqueued: targets.length, total: targets.length };
     });
-
-    // Enqueue individual BullMQ jobs
-    for (const t of targets) {
-      await this.backfillQueue.add(
-        'backfill-enrich',
-        { memoryId: t.id, jobId },
-        {
-          jobId: t.id,
-          attempts: 2,
-          backoff: { type: 'exponential', delay: 1000 },
-        },
-      );
-    }
-
-    // Emit initial progress
-    this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
-      jobId,
-      processed: 0,
-      total: targets.length,
-    });
-
-    return { jobId, enqueued: targets.length, total: targets.length };
   }
 
   @RequiresJwt()
   @Post('backfill-thumbnails')
   async backfillThumbnails(@CurrentUser() user: { id: string }) {
-    const db = this.dbService.db;
+    return this.dbService.withCurrentUser(async (db) => {
+      // Find photo memories without thumbnailBase64 in metadata
+      const photoMemories = await db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(
+          and(
+            eq(memories.sourceType, 'photo'),
+            eq(memories.pipelineComplete, true),
+            sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'thumbnailBase64') IS NULL AND (metadata::jsonb->>'fileUrl') IS NOT NULL`,
+          ),
+        );
 
-    // Find photo memories without thumbnailBase64 in metadata
-    const photoMemories = await db
-      .select({ id: memories.id })
-      .from(memories)
-      .where(
-        and(
-          eq(memories.sourceType, 'photo'),
-          eq(memories.pipelineComplete, true),
-          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'thumbnailBase64') IS NULL AND (metadata::jsonb->>'fileUrl') IS NOT NULL`,
-        ),
-      );
+      if (!photoMemories.length) {
+        return { jobId: null, enqueued: 0, message: 'All photos already have thumbnails' };
+      }
 
-    if (!photoMemories.length) {
-      return { jobId: null, enqueued: 0, message: 'All photos already have thumbnails' };
-    }
+      const userAccounts = await db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(eq(accounts.userId, user.id))
+        .limit(1);
 
-    const userAccounts = await db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(eq(accounts.userId, user.id))
-      .limit(1);
+      if (!userAccounts.length) {
+        return { error: 'No account found -- sync a connector first' };
+      }
 
-    if (!userAccounts.length) {
-      return { error: 'No account found -- sync a connector first' };
-    }
+      const now = new Date();
+      const jobId = randomUUID();
 
-    const now = new Date();
-    const jobId = randomUUID();
+      await db.insert(jobs).values({
+        id: jobId,
+        accountId: userAccounts[0].id,
+        connectorType: 'backfill',
+        status: 'running',
+        progress: 0,
+        total: photoMemories.length,
+        startedAt: now,
+        createdAt: now,
+      });
 
-    await db.insert(jobs).values({
-      id: jobId,
-      accountId: userAccounts[0].id,
-      connectorType: 'backfill',
-      status: 'running',
-      progress: 0,
-      total: photoMemories.length,
-      startedAt: now,
-      createdAt: now,
+      for (const m of photoMemories) {
+        await this.backfillQueue.add(
+          'backfill-thumbnails',
+          { memoryId: m.id, jobId },
+          { attempts: 2, backoff: { type: 'exponential', delay: 1000 } },
+        );
+      }
+
+      this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
+        jobId,
+        processed: 0,
+        total: photoMemories.length,
+      });
+
+      return { jobId, enqueued: photoMemories.length, total: photoMemories.length };
     });
-
-    for (const m of photoMemories) {
-      await this.backfillQueue.add(
-        'backfill-thumbnails',
-        { memoryId: m.id, jobId },
-        { attempts: 2, backoff: { type: 'exponential', delay: 1000 } },
-      );
-    }
-
-    this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
-      jobId,
-      processed: 0,
-      total: photoMemories.length,
-    });
-
-    return { jobId, enqueued: photoMemories.length, total: photoMemories.length };
   }
 
   @RequiresJwt()
   @Post('backfill-embeddings')
   async backfillEmbeddings(@Query('limit') limitParam?: string) {
-    const db = this.dbService.db;
-    const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 500, 5000) : 500;
+    return this.dbService.withCurrentUser(async (db) => {
+      const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 500, 5000) : 500;
 
-    // Find memories marked done in Postgres that might be missing from Qdrant
-    const doneMemories = await db
-      .select({
-        id: memories.id,
-        text: memories.text,
-        sourceType: memories.sourceType,
-        connectorType: memories.connectorType,
-        eventTime: memories.eventTime,
-        accountId: memories.accountId,
-        memoryBankId: memories.memoryBankId,
-      })
-      .from(memories)
-      .where(eq(memories.embeddingStatus, 'done'))
-      .limit(batchLimit);
+      // Find memories marked done in Postgres that might be missing from Qdrant
+      const doneMemories = await db
+        .select({
+          id: memories.id,
+          text: memories.text,
+          sourceType: memories.sourceType,
+          connectorType: memories.connectorType,
+          eventTime: memories.eventTime,
+          accountId: memories.accountId,
+          memoryBankId: memories.memoryBankId,
+        })
+        .from(memories)
+        .where(eq(memories.embeddingStatus, 'done'))
+        .limit(batchLimit);
 
-    // Check which are missing from Qdrant by scrolling through points
-    const qdrantInfo = await this.qdrant.getCollectionInfo();
-    let reembedded = 0;
-    let skipped = 0;
-    const errors: string[] = [];
+      // Check which are missing from Qdrant by scrolling through points
+      const qdrantInfo = await this.qdrant.getCollectionInfo();
+      let reembedded = 0;
+      let skipped = 0;
+      const errors: string[] = [];
 
-    for (const mem of doneMemories) {
-      try {
-        const exists = await this.qdrant.pointExists(mem.id);
-        if (exists) {
-          skipped++;
-          continue;
+      for (const mem of doneMemories) {
+        try {
+          const exists = await this.qdrant.pointExists(mem.id);
+          if (exists) {
+            skipped++;
+            continue;
+          }
+
+          const maxChars = 6000;
+          const text = mem.text.length > maxChars ? mem.text.slice(0, maxChars) : mem.text;
+          const vector = await this.ai.embed(text);
+          await this.qdrant.upsert(mem.id, vector, {
+            source_type: mem.sourceType,
+            connector_type: mem.connectorType,
+            event_time: mem.eventTime,
+            account_id: mem.accountId,
+            memory_bank_id: (mem as unknown as { memoryBankId?: string }).memoryBankId || null,
+          });
+          reembedded++;
+        } catch (err: unknown) {
+          errors.push(`${mem.id.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
         }
-
-        const maxChars = 6000;
-        const text = mem.text.length > maxChars ? mem.text.slice(0, maxChars) : mem.text;
-        const vector = await this.ai.embed(text);
-        await this.qdrant.upsert(mem.id, vector, {
-          source_type: mem.sourceType,
-          connector_type: mem.connectorType,
-          event_time: mem.eventTime,
-          account_id: mem.accountId,
-          memory_bank_id: (mem as unknown as { memoryBankId?: string }).memoryBankId || null,
-        });
-        reembedded++;
-      } catch (err: unknown) {
-        errors.push(`${mem.id.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
 
-    return {
-      checked: doneMemories.length,
-      reembedded,
-      skipped,
-      errors: errors.slice(0, 10),
-      qdrant: qdrantInfo,
-    };
+      return {
+        checked: doneMemories.length,
+        reembedded,
+        skipped,
+        errors: errors.slice(0, 10),
+        qdrant: qdrantInfo,
+      };
+    });
   }
 
   @RequiresJwt()
@@ -556,50 +558,56 @@ export class MemoryController {
   @RequiresJwt()
   @Post('relabel-unknown')
   async relabelUnknown() {
-    const db = this.dbService.db;
+    return this.dbService.withCurrentUser(async (db) => {
+      // Replace "Unknown:" with "A member:" and "Unknown sent" with "A member sent" in WhatsApp memories
+      const result1 = await db.execute(sql`
+        UPDATE ${memories} SET text = REPLACE(text, 'Unknown:', 'A member:')
+        WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown:%'
+      `);
+      const result2 = await db.execute(sql`
+        UPDATE ${memories} SET text = REPLACE(text, 'Unknown sent', 'A member sent')
+        WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown sent%'
+      `);
+      const result3 = await db.execute(sql`
+        UPDATE ${memories} SET text = REPLACE(text, 'Unknown shared', 'A member shared')
+        WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown shared%'
+      `);
 
-    // Replace "Unknown:" with "A member:" and "Unknown sent" with "A member sent" in WhatsApp memories
-    const result1 = await db.execute(sql`
-      UPDATE ${memories} SET text = REPLACE(text, 'Unknown:', 'A member:')
-      WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown:%'
-    `);
-    const result2 = await db.execute(sql`
-      UPDATE ${memories} SET text = REPLACE(text, 'Unknown sent', 'A member sent')
-      WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown sent%'
-    `);
-    const result3 = await db.execute(sql`
-      UPDATE ${memories} SET text = REPLACE(text, 'Unknown shared', 'A member shared')
-      WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown shared%'
-    `);
-
-    return {
-      updated: (result1 as any).changes + (result2 as any).changes + (result3 as any).changes,
-      message: 'Replaced "Unknown" sender labels with "A member" in WhatsApp memories',
-    };
+      return {
+        updated: (result1 as any).changes + (result2 as any).changes + (result3 as any).changes,
+        message: 'Replaced "Unknown" sender labels with "A member" in WhatsApp memories',
+      };
+    });
   }
 
   @RequiresJwt()
   @Post(':id/pin')
   async pin(@Param('id') id: string) {
-    await this.dbService.db.update(memories).set({ pinned: true }).where(eq(memories.id, id));
-    return { ok: true };
+    return this.dbService.withCurrentUser(async (db) => {
+      await db.update(memories).set({ pinned: true }).where(eq(memories.id, id));
+      return { ok: true };
+    });
   }
 
   @RequiresJwt()
   @Delete(':id/pin')
   async unpin(@Param('id') id: string) {
-    await this.dbService.db.update(memories).set({ pinned: false }).where(eq(memories.id, id));
-    return { ok: true };
+    return this.dbService.withCurrentUser(async (db) => {
+      await db.update(memories).set({ pinned: false }).where(eq(memories.id, id));
+      return { ok: true };
+    });
   }
 
   @RequiresJwt()
   @Post(':id/recall')
   async recall(@Param('id') id: string) {
-    await this.dbService.db
-      .update(memories)
-      .set({ recallCount: sql`recall_count + 1` })
-      .where(eq(memories.id, id));
-    return { ok: true };
+    return this.dbService.withCurrentUser(async (db) => {
+      await db
+        .update(memories)
+        .set({ recallCount: sql`recall_count + 1` })
+        .where(eq(memories.id, id));
+      return { ok: true };
+    });
   }
 
   @RequiresJwt()

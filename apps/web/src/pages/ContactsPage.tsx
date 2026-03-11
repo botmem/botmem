@@ -116,7 +116,7 @@ export function ContactsPage() {
         {loading ? 'LOADING...' : `${total} ${entityFilter === 'group' ? 'groups' : 'people'}`}
       </p>
 
-      <div className="flex flex-col md:flex-row gap-4">
+      <div className="flex flex-col md:flex-row gap-4" data-tour="people-grid">
         {/* Contact list */}
         <InfiniteScrollList
           items={contacts}

@@ -9,16 +9,21 @@ import { Tabs } from '../components/ui/Tabs';
 import { ApiKeysTab } from '../components/settings/ApiKeysTab';
 import { MemoryBanksTab } from '../components/settings/MemoryBanksTab';
 import { BillingTab } from '../components/settings/BillingTab';
+import { IntegrationsTab } from '../components/settings/IntegrationsTab';
 import { useAuth } from '../hooks/useAuth';
+import { isFirebaseMode } from '../store/authStore';
 import { api } from '../lib/api';
 
-const TABS = [
+const BASE_TABS = [
   { id: 'profile', label: 'Profile' },
+  { id: 'integrations', label: 'Integrations' },
   { id: 'billing', label: 'Billing' },
-  { id: 'api-keys', label: 'API Keys' },
   { id: 'memory-banks', label: 'Memory Banks' },
-  { id: 'pipeline', label: 'Pipeline' },
 ];
+
+const SELF_HOSTED_TABS = [...BASE_TABS, { id: 'pipeline', label: 'Pipeline' }];
+
+const TABS = isFirebaseMode ? BASE_TABS : SELF_HOSTED_TABS;
 
 const CONCURRENCY_SETTINGS = [
   {
@@ -50,7 +55,8 @@ const CONCURRENCY_SETTINGS = [
 export function SettingsPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'profile';
+  const rawTab = searchParams.get('tab') || 'profile';
+  const activeTab = rawTab === 'api-keys' ? 'integrations' : rawTab;
 
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -127,15 +133,20 @@ export function SettingsPage() {
           </Card>
         )}
 
+        {activeTab === 'integrations' && (
+          <>
+            <Card>
+              <IntegrationsTab />
+            </Card>
+            <Card>
+              <ApiKeysTab />
+            </Card>
+          </>
+        )}
+
         {activeTab === 'billing' && (
           <Card>
             <BillingTab />
-          </Card>
-        )}
-
-        {activeTab === 'api-keys' && (
-          <Card>
-            <ApiKeysTab />
           </Card>
         )}
 

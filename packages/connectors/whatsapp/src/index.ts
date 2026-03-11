@@ -1,3 +1,4 @@
+import path from 'path';
 import { BaseConnector } from '@botmem/connector-sdk';
 import type {
   ConnectorManifest,
@@ -19,6 +20,18 @@ interface WarmSession {
   sessionDir: string;
   qrData: string | null;
   qrWaiters: Array<(qr: string) => void>;
+}
+
+const WHATSAPP_DATA_DIR = path.resolve('./data/whatsapp');
+
+function assertSafeSessionDir(sessionDir: string): string {
+  const resolved = path.resolve(sessionDir);
+  if (!resolved.startsWith(WHATSAPP_DATA_DIR + path.sep) && resolved !== WHATSAPP_DATA_DIR) {
+    throw new Error(
+      `Invalid session directory: path "${sessionDir}" resolves outside the allowed data directory`,
+    );
+  }
+  return resolved;
 }
 
 export class WhatsAppConnector extends BaseConnector {
@@ -186,9 +199,13 @@ export class WhatsAppConnector extends BaseConnector {
   }
 
   async completeAuth(params: Record<string, unknown>): Promise<AuthContext> {
+    const sessionDir = params.sessionDir as string;
+    if (sessionDir) {
+      assertSafeSessionDir(sessionDir);
+    }
     return {
       raw: {
-        sessionDir: params.sessionDir as string,
+        sessionDir,
         jid: params.jid as string,
       },
     };
@@ -201,6 +218,9 @@ export class WhatsAppConnector extends BaseConnector {
   async revokeAuth(auth: AuthContext): Promise<void> {
     const sessionDir = auth.raw?.sessionDir as string;
     if (!sessionDir) return;
+
+    // Validate the session directory is within the expected data directory
+    const safeDir = assertSafeSessionDir(sessionDir);
 
     // Close any lingering auth socket for this session
     const sock = this.authSockets.get(sessionDir);
@@ -216,10 +236,10 @@ export class WhatsAppConnector extends BaseConnector {
     // Delete session files from disk
     const { rm } = await import('fs/promises');
     try {
-      await rm(sessionDir, { recursive: true, force: true });
-      console.debug(`[WhatsApp] Deleted session directory: ${sessionDir}`);
+      await rm(safeDir, { recursive: true, force: true });
+      console.debug(`[WhatsApp] Deleted session directory: ${safeDir}`);
     } catch (err) {
-      console.debug(`[WhatsApp] Failed to delete session ${sessionDir}:`, err);
+      console.debug(`[WhatsApp] Failed to delete session ${safeDir}:`, err);
     }
   }
 

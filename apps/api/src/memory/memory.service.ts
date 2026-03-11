@@ -20,12 +20,56 @@ import {
 import { parseNlq } from './nlq-parser';
 
 const MINIMAL_STOPS = new Set([
-  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
-  'am', 'do', 'does', 'did', 'has', 'have', 'had', 'i', 'me',
-  'my', 'we', 'our', 'you', 'your', 'it', 'its', 'he', 'she',
-  'his', 'her', 'they', 'them', 'their', 'this', 'that',
-  'of', 'in', 'to', 'for', 'on', 'at', 'by', 'with',
-  'and', 'or', 'but', 'if', 'so', 'as', 'not', 'no',
+  'a',
+  'an',
+  'the',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'am',
+  'do',
+  'does',
+  'did',
+  'has',
+  'have',
+  'had',
+  'i',
+  'me',
+  'my',
+  'we',
+  'our',
+  'you',
+  'your',
+  'it',
+  'its',
+  'he',
+  'she',
+  'his',
+  'her',
+  'they',
+  'them',
+  'their',
+  'this',
+  'that',
+  'of',
+  'in',
+  'to',
+  'for',
+  'on',
+  'at',
+  'by',
+  'with',
+  'and',
+  'or',
+  'but',
+  'if',
+  'so',
+  'as',
+  'not',
+  'no',
 ]);
 
 const TITLE_PREFIXES = new Set(['dr.', 'dr', 'mr.', 'mr', 'mrs.', 'mrs', 'ms.', 'ms']);
@@ -111,8 +155,10 @@ function nameWordsMatch(contactName: string, candidateWords: string[]): boolean 
 
 @Injectable()
 export class MemoryService {
-  private contactsCache: { data: { id: string; displayName: string; entityType: string }[]; expires: number } | null =
-    null;
+  private contactsCache: Map<
+    string,
+    { data: { id: string; displayName: string; entityType: string }[]; expires: number }
+  > = new Map();
   private static CONTACTS_CACHE_TTL = 60_000; // 60s
 
   constructor(
@@ -188,8 +234,12 @@ export class MemoryService {
   }
 
   /** Invalidate contacts cache (call after contact writes) */
-  invalidateContactsCache() {
-    this.contactsCache = null;
+  invalidateContactsCache(userId?: string) {
+    if (userId) {
+      this.contactsCache.delete(userId);
+    } else {
+      this.contactsCache.clear();
+    }
   }
 
   /** Get account IDs belonging to a user — used for data isolation */
@@ -205,14 +255,27 @@ export class MemoryService {
     return rows.map((r) => r.id);
   }
 
-  private async getCachedContacts(): Promise<{ id: string; displayName: string; entityType: string }[]> {
-    if (this.contactsCache && Date.now() < this.contactsCache.expires) {
-      return this.contactsCache.data;
+  private async getCachedContacts(
+    userId?: string,
+  ): Promise<{ id: string; displayName: string; entityType: string }[]> {
+    const cacheKey = userId || '__none__';
+    const cached = this.contactsCache.get(cacheKey);
+    if (cached && Date.now() < cached.expires) {
+      return cached.data;
     }
     const data = await this.dbService.withCurrentUser((db) =>
-      db.select({ id: contacts.id, displayName: contacts.displayName, entityType: contacts.entityType }).from(contacts),
+      db
+        .select({
+          id: contacts.id,
+          displayName: contacts.displayName,
+          entityType: contacts.entityType,
+        })
+        .from(contacts),
     );
-    this.contactsCache = { data, expires: Date.now() + MemoryService.CONTACTS_CACHE_TTL };
+    this.contactsCache.set(cacheKey, {
+      data,
+      expires: Date.now() + MemoryService.CONTACTS_CACHE_TTL,
+    });
     return data;
   }
 
@@ -249,12 +312,15 @@ export class MemoryService {
    * "assad mansoor car" → contacts: [Assad Mansoor], topicWords: ["car"]
    * Uses word-boundary matching so "car" does NOT match "Ricardo".
    */
-  private async resolveEntities(queryWords: string[]): Promise<{
+  private async resolveEntities(
+    queryWords: string[],
+    userId?: string,
+  ): Promise<{
     contacts: { id: string; displayName: string }[];
     topicWords: string[];
     contactIds: string[];
   }> {
-    const allContacts = (await this.getCachedContacts()).filter(
+    const allContacts = (await this.getCachedContacts(userId)).filter(
       (c) => c.entityType !== 'group',
     );
 
@@ -277,12 +343,14 @@ export class MemoryService {
           const nameWordCount = nameWordsRaw.length;
           if (candidateWords.length === 1 && nameWordCount > 1) {
             // Only match first real word of multi-word names (prevents "insurance" → "Osama Insurance")
-            const nameWordsClean = nameWordsRaw.filter(w => !TITLE_PREFIXES.has(w));
+            const nameWordsClean = nameWordsRaw.filter((w) => !TITLE_PREFIXES.has(w));
             const firstNameWord = nameWordsClean[0] || nameWordsRaw[0];
             const cw = candidateWords[0];
             const matchesFirst =
               firstNameWord === cw ||
-              (cw.length >= 5 && firstNameWord.startsWith(cw) && cw.length / firstNameWord.length >= 0.8);
+              (cw.length >= 5 &&
+                firstNameWord.startsWith(cw) &&
+                cw.length / firstNameWord.length >= 0.8);
             if (!matchesFirst) continue;
           }
           if (!resolved.some((r) => r.id === c.id)) {
@@ -410,7 +478,7 @@ export class MemoryService {
       .filter((w) => w.length >= 2);
 
     // Phase 1: Entity resolution (greedy multi-word span matching)
-    const entityResult = await this.resolveEntities(queryWords);
+    const entityResult = await this.resolveEntities(queryWords, userId);
     const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
     const hasContacts = resolvedContacts.length > 0;
     const hasTopics = topicWords.length > 0;
@@ -475,7 +543,9 @@ export class MemoryService {
         // Add capped recent contact memories for browse feel (respect temporal bounds)
         const contactBrowseConditions: any[] = [inArray(memoryContacts.contactId, contactIds)];
         if (effectiveFilters.from)
-          contactBrowseConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}` as any);
+          contactBrowseConditions.push(
+            sql`${memories.eventTime} >= ${effectiveFilters.from}` as any,
+          );
         if (effectiveFilters.to)
           contactBrowseConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}` as any);
         const recentContactMems = await this.dbService.withCurrentUser((db) =>
@@ -497,8 +567,12 @@ export class MemoryService {
       if (searchWords.length > 0) {
         try {
           // Build temporal suffix for FTS queries
-          const temporalFrom = effectiveFilters.from ? sql` AND event_time >= ${effectiveFilters.from}` : sql``;
-          const temporalTo = effectiveFilters.to ? sql` AND event_time <= ${effectiveFilters.to}` : sql``;
+          const temporalFrom = effectiveFilters.from
+            ? sql` AND event_time >= ${effectiveFilters.from}`
+            : sql``;
+          const temporalTo = effectiveFilters.to
+            ? sql` AND event_time <= ${effectiveFilters.to}`
+            : sql``;
 
           // PostgreSQL tsquery: each word as prefix match with AND logic
           let tsQuery = searchWords.map((w) => `${w}:*`).join(' & ');
@@ -872,9 +946,9 @@ export class MemoryService {
     await this.dbService.withCurrentUser(async (db) => {
       await db.transaction(async (tx) => {
         await tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, id));
-        await tx.delete(memoryLinks).where(
-          or(eq(memoryLinks.srcMemoryId, id), eq(memoryLinks.dstMemoryId, id)),
-        );
+        await tx
+          .delete(memoryLinks)
+          .where(or(eq(memoryLinks.srcMemoryId, id), eq(memoryLinks.dstMemoryId, id)));
         await tx.delete(memories).where(eq(memories.id, id));
       });
     });
@@ -978,9 +1052,10 @@ export class MemoryService {
           for (let i = 0; i < filterMemoryIds.length; i += 500) {
             const batch = filterMemoryIds.slice(i, i + 500);
             const r = await this.dbService.withCurrentUser((db) =>
-              db.select().from(memories).where(
-                and(memoryBankFilter, inArray(memories.id, batch)),
-              ),
+              db
+                .select()
+                .from(memories)
+                .where(and(memoryBankFilter, inArray(memories.id, batch))),
             );
             rows.push(...r);
           }
@@ -1196,7 +1271,9 @@ export class MemoryService {
       const preferred = avatars[preferredIdx] ?? avatars[0];
       // Use data URI directly if available, fall back to proxy for legacy URL-based avatars
       const avatarUrl = preferred
-        ? preferred.url.startsWith('data:') ? preferred.url : `/api/people/${c.id}/avatar`
+        ? preferred.url.startsWith('data:')
+          ? preferred.url
+          : `/api/people/${c.id}/avatar`
         : undefined;
 
       return {

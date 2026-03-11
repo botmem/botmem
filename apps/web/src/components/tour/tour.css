@@ -1,0 +1,76 @@
+/* Override driver.js styles to match Botmem's neobrutalist design */
+.botmem-tour-popover {
+  background: var(--color-nb-surface, #1a1a2e) !important;
+  border: 3px solid var(--color-nb-lime, #C4F53A) !important;
+  box-shadow: 4px 4px 0 var(--color-nb-border, #333) !important;
+  color: var(--color-nb-text, #eee) !important;
+  border-radius: 0 !important;
+  max-width: 360px !important;
+}
+
+/* Green highlight border around the active/targeted element */
+.driver-active-element {
+  outline: 3px solid var(--color-nb-lime, #C4F53A) !important;
+  outline-offset: 4px !important;
+}
+
+.botmem-tour-popover .driver-popover-title {
+  font-family: var(--font-display, 'Space Grotesk', sans-serif) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 16px !important;
+  color: var(--color-nb-text, #eee) !important;
+}
+
+.botmem-tour-popover .driver-popover-description {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 13px !important;
+  color: var(--color-nb-muted, #999) !important;
+  line-height: 1.5 !important;
+}
+
+.botmem-tour-popover .driver-popover-progress-text {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 11px !important;
+  color: var(--color-nb-muted, #999) !important;
+}
+
+.botmem-tour-popover .driver-popover-navigation-btns button {
+  font-family: var(--font-display, 'Space Grotesk', sans-serif) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 12px !important;
+  border: 2px solid var(--color-nb-border, #333) !important;
+  border-radius: 0 !important;
+  padding: 6px 16px !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
+}
+
+.botmem-tour-popover .driver-popover-navigation-btns .driver-popover-next-btn {
+  background: var(--color-nb-lime, #C4F53A) !important;
+  color: #000 !important;
+  box-shadow: 2px 2px 0 var(--color-nb-border, #333) !important;
+}
+
+.botmem-tour-popover .driver-popover-navigation-btns .driver-popover-next-btn:hover {
+  transform: translate(1px, 1px) !important;
+  box-shadow: 1px 1px 0 var(--color-nb-border, #333) !important;
+}
+
+.botmem-tour-popover .driver-popover-navigation-btns .driver-popover-prev-btn {
+  background: var(--color-nb-surface, #1a1a2e) !important;
+  color: var(--color-nb-muted, #999) !important;
+}
+
+.botmem-tour-popover .driver-popover-close-btn {
+  color: var(--color-nb-muted, #999) !important;
+}
+
+.botmem-tour-popover .driver-popover-close-btn:hover {
+  color: var(--color-nb-text, #eee) !important;
+}
+
+.driver-overlay {
+  background: rgba(0, 0, 0, 0.7) !important;
+}

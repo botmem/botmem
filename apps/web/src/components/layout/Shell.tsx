@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
-import { IdentityPrompt } from '../identity/IdentityPrompt';
+
 import { RecoveryKeyModal } from '../ui/RecoveryKeyModal';
+import { TourManager } from '../tour/TourManager';
 
 export function Shell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -19,7 +20,12 @@ export function Shell() {
       {mobileNavOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          role="button"
+          tabIndex={0}
           onClick={() => setMobileNavOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setMobileNavOpen(false);
+          }}
         />
       )}
 
@@ -38,8 +44,8 @@ export function Shell() {
           <Outlet />
         </main>
       </div>
-      <IdentityPrompt />
       <RecoveryKeyModal />
+      <TourManager />
     </div>
   );
 }

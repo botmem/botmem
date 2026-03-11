@@ -325,7 +325,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'botmem-auth',
-      partialize: (state) => ({ user: state.user, accessToken: state.accessToken }),
+      partialize: (state) => ({ user: state.user }),
     },
   ),
 );
@@ -337,8 +337,8 @@ if (typeof window !== 'undefined') {
     if (e.key === 'botmem-auth' && e.newValue) {
       try {
         const parsed = JSON.parse(e.newValue);
-        const { user, accessToken } = parsed.state || {};
-        useAuthStore.setState({ user: user ?? null, accessToken: accessToken ?? null });
+        const { user } = parsed.state || {};
+        useAuthStore.setState({ user: user ?? null });
       } catch {
         // Ignore malformed storage
       }

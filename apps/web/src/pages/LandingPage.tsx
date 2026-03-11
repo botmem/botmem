@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { Logo } from '../components/ui/Logo';
@@ -64,6 +64,12 @@ function Navbar() {
             className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
           >
             OPEN SOURCE
+          </a>
+          <a
+            href="#security"
+            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            SECURITY
           </a>
           <a
             href="#pricing"
@@ -407,12 +413,126 @@ function FeaturesSection() {
   );
 }
 
+const HOW_IT_WORKS_TABS = [
+  {
+    id: 'mcp',
+    label: 'MCP SERVER',
+    audience: 'For AI Agents',
+    titleBar: 'claude / cursor / windsurf',
+    lines: [
+      {
+        type: 'comment' as const,
+        text: '# Your AI agent connects to Botmem automatically',
+      },
+      {
+        type: 'prompt' as const,
+        text: '"What did Sarah say about the project deadline?"',
+      },
+      {
+        type: 'result' as const,
+        text: 'Searching 12,847 memories via MCP...',
+      },
+      {
+        type: 'result' as const,
+        text: '[0.94] slack — Sarah: "Deadline moved to March 20th"',
+      },
+      {
+        type: 'result' as const,
+        text: '[0.87] gmail — Re: Project Timeline — confirmed March 20',
+      },
+      {
+        type: 'comment' as const,
+        text: '# Works with Claude, Cursor, Windsurf, any MCP client',
+      },
+    ],
+  },
+  {
+    id: 'cli',
+    label: 'CLI',
+    audience: 'For Developers',
+    titleBar: 'terminal',
+    lines: [
+      {
+        type: 'cmd' as const,
+        text: 'npx botmem search "dinner with sarah last month"',
+      },
+      { type: 'result' as const, text: 'Searching 12,847 memories...' },
+      { type: 'divider' as const, text: '' },
+      {
+        type: 'hit' as const,
+        score: '0.94',
+        source: 'gmail',
+        text: 'Re: Dinner reservation at Nobu — confirmed for Feb 14',
+        time: '2026-02-12',
+      },
+      {
+        type: 'hit' as const,
+        score: '0.87',
+        source: 'whatsapp',
+        text: "Sarah: 'Can't wait for dinner tomorrow!'",
+        time: '2026-02-13',
+      },
+      {
+        type: 'hit' as const,
+        score: '0.71',
+        source: 'photos',
+        text: 'IMG_4021.jpg — 2 people, restaurant, evening',
+        time: '2026-02-14',
+      },
+      {
+        type: 'meta' as const,
+        text: '3 results · 48ms · scored by semantic + recency + trust',
+      },
+    ],
+  },
+  {
+    id: 'api',
+    label: 'REST API',
+    audience: 'For Integrations',
+    titleBar: 'http',
+    lines: [
+      {
+        type: 'cmd' as const,
+        text: 'curl -X POST https://botmem.xyz/api/memory/search \\',
+      },
+      {
+        type: 'continued' as const,
+        text: '  -H "Authorization: Bearer $TOKEN" \\',
+      },
+      {
+        type: 'continued' as const,
+        text: '  -d \'{"query": "dinner with sarah", "limit": 5}\'',
+      },
+      { type: 'divider' as const, text: '' },
+      { type: 'result' as const, text: '{' },
+      { type: 'result' as const, text: '  "results": [' },
+      {
+        type: 'result' as const,
+        text: '    { "score": 0.94, "source": "gmail",',
+      },
+      {
+        type: 'result' as const,
+        text: '      "text": "Dinner reservation at Nobu..." },',
+      },
+      { type: 'result' as const, text: '    ...' },
+      { type: 'result' as const, text: '  ],' },
+      { type: 'result' as const, text: '  "count": 3, "took_ms": 48' },
+      { type: 'result' as const, text: '}' },
+    ],
+  },
+];
+
 function HowItWorks() {
-  const steps = [
-    { cmd: 'docker compose up -d', result: 'Redis, Qdrant, Ollama running' },
-    { cmd: 'Connect Gmail, Slack, ...', result: 'Data syncing → embedding → enriching' },
-    { cmd: 'botmem search "dinner"', result: 'Ranked results in 48ms' },
-  ];
+  const [activeTab, setActiveTab] = useState(0);
+  const tab = HOW_IT_WORKS_TABS[activeTab];
+
+  const sourceColor: Record<string, string> = {
+    gmail: 'text-nb-blue',
+    whatsapp: 'text-nb-green',
+    photos: 'text-nb-purple',
+    slack: 'text-nb-orange',
+  };
+
   return (
     <section
       id="how-it-works"
@@ -424,27 +544,146 @@ function HowItWorks() {
           id="how-heading"
           className="font-display text-3xl sm:text-4xl font-bold uppercase text-center"
         >
-          HOW IT WORKS
+          HOW IT <span className="text-nb-lime">WORKS</span>
         </h2>
-        <div className="mt-12 bg-nb-surface border-3 border-nb-border shadow-nb-lg font-mono text-sm overflow-hidden max-w-2xl mx-auto">
+        <p className="font-mono text-sm text-nb-muted mt-4 text-center max-w-xl mx-auto leading-relaxed">
+          Three ways to query your memories. Pick what fits your workflow.
+        </p>
+
+        {/* Tab buttons */}
+        <div
+          className="mt-12 flex flex-col sm:flex-row gap-3 sm:gap-0 max-w-2xl mx-auto"
+          role="tablist"
+          aria-label="Integration methods"
+        >
+          {HOW_IT_WORKS_TABS.map((t, i) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={activeTab === i}
+              aria-controls={`panel-${t.id}`}
+              id={`tab-${t.id}`}
+              onClick={() => setActiveTab(i)}
+              className={cn(
+                'flex-1 font-display text-sm font-bold tracking-wide px-4 py-3 border-3 border-nb-border transition-all duration-150 cursor-pointer',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-nb-lime focus-visible:ring-offset-2 focus-visible:ring-offset-nb-bg',
+                activeTab === i
+                  ? 'bg-nb-lime text-black shadow-nb -translate-x-[1px] -translate-y-[1px]'
+                  : 'bg-nb-surface text-nb-muted hover:bg-nb-bg hover:text-nb-text',
+                i > 0 && 'sm:-ml-[3px]',
+              )}
+            >
+              <div>{t.label}</div>
+              <div
+                className={cn(
+                  'text-[10px] font-mono font-normal tracking-normal mt-0.5',
+                  activeTab === i ? 'text-black/60' : 'text-nb-muted',
+                )}
+              >
+                {t.audience}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Terminal panel */}
+        <div
+          id={`panel-${tab.id}`}
+          role="tabpanel"
+          aria-labelledby={`tab-${tab.id}`}
+          className="mt-0 sm:-mt-[3px] bg-nb-surface border-3 border-nb-border shadow-nb-lg font-mono text-sm overflow-hidden max-w-2xl mx-auto"
+        >
           <div className="flex items-center gap-2 px-4 py-2 border-b-3 border-nb-border bg-nb-bg">
             <span className="w-3 h-3 bg-nb-red border border-nb-border" />
             <span className="w-3 h-3 bg-nb-yellow border border-nb-border" />
             <span className="w-3 h-3 bg-nb-green border border-nb-border" />
-            <span className="ml-2 text-nb-muted text-xs">terminal</span>
+            <span className="ml-2 text-nb-muted text-xs">{tab.titleBar}</span>
           </div>
-          <div className="p-5 space-y-5">
-            {steps.map((s, i) => (
-              <div key={i}>
-                <div>
-                  <span className="text-nb-muted font-bold">{i + 1}.</span>{' '}
-                  <span className="text-nb-lime">$</span>{' '}
-                  <span className="text-nb-text">{s.cmd}</span>
+          <div className="p-4 sm:p-5 space-y-1 text-[13px] leading-relaxed min-h-[260px]">
+            {tab.lines.map((line, i) => {
+              const lineKey = `${line.type}-${i}`;
+              if (line.type === 'cmd')
+                return (
+                  <div key={lineKey}>
+                    <span className="text-nb-lime">$</span>{' '}
+                    <span className="text-nb-text">{line.text}</span>
+                  </div>
+                );
+              if (line.type === 'continued')
+                return (
+                  <div key={lineKey} className="text-nb-text">
+                    {line.text}
+                  </div>
+                );
+              if (line.type === 'comment')
+                return (
+                  <div key={lineKey} className="text-nb-muted/60">
+                    {line.text}
+                  </div>
+                );
+              if (line.type === 'prompt')
+                return (
+                  <div key={lineKey}>
+                    <span className="text-nb-lime">{'>'}</span>{' '}
+                    <span className="text-nb-text italic">{line.text}</span>
+                  </div>
+                );
+              if (line.type === 'divider')
+                return (
+                  <div
+                    key={lineKey}
+                    className="border-t border-nb-border/30 my-2"
+                    aria-hidden="true"
+                  />
+                );
+              if (line.type === 'meta')
+                return (
+                  <div key={lineKey} className="text-nb-muted pt-2">
+                    {line.text}
+                  </div>
+                );
+              if (line.type === 'hit' && 'score' in line)
+                return (
+                  <div
+                    key={lineKey}
+                    className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3"
+                  >
+                    <span className="text-nb-lime font-bold shrink-0">[{line.score}]</span>
+                    <span
+                      className={cn(
+                        'uppercase font-bold shrink-0',
+                        sourceColor[line.source ?? ''] ?? 'text-nb-muted',
+                      )}
+                    >
+                      {line.source}
+                    </span>
+                    <span className="text-nb-text flex-1 break-words">{line.text}</span>
+                    <span className="text-nb-muted shrink-0">{line.time}</span>
+                  </div>
+                );
+              // result
+              return (
+                <div key={lineKey} className="text-nb-muted">
+                  {line.text}
                 </div>
-                <div className="text-nb-muted ml-5 mt-1">→ {s.result}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+        </div>
+
+        {/* Step indicators below */}
+        <div className="mt-6 flex justify-center gap-2" aria-hidden="true">
+          {HOW_IT_WORKS_TABS.map((t, i) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(i)}
+              className={cn(
+                'w-2 h-2 border border-nb-border transition-all duration-200 cursor-pointer',
+                activeTab === i ? 'bg-nb-lime scale-125' : 'bg-nb-surface hover:bg-nb-muted',
+              )}
+              aria-label={`Show ${t.label}`}
+            />
+          ))}
         </div>
       </div>
     </section>
@@ -580,6 +819,128 @@ function PricingSection() {
   );
 }
 
+function SecuritySection() {
+  const items = [
+    {
+      icon: (
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      ),
+      title: 'AES-256-GCM',
+      desc: 'All credentials and sensitive data encrypted at rest with AES-256-GCM. Authenticated encryption that prevents tampering.',
+    },
+    {
+      icon: (
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+        </svg>
+      ),
+      title: 'RECOVERY KEY',
+      desc: "Your encryption key is generated once and shown only to you. We store a hash — never the key itself. Password changes don't affect encryption.",
+    },
+    {
+      icon: (
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      ),
+      title: 'ZERO KNOWLEDGE',
+      desc: 'Self-hosted: data never leaves your hardware. Pro: we cannot read your encrypted credentials. Your recovery key stays with you.',
+    },
+    {
+      icon: (
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <polyline points="10 9 9 9 8 9" />
+        </svg>
+      ),
+      title: 'AUDITABLE',
+      desc: "Every line of encryption code is open-source and auditable on GitHub. Don't trust us — read the code.",
+    },
+  ];
+
+  return (
+    <section
+      id="security"
+      className="px-4 sm:px-6 py-20 border-t-4 border-nb-border"
+      aria-labelledby="security-heading"
+    >
+      <div className="max-w-6xl mx-auto">
+        <h2
+          id="security-heading"
+          className="font-display text-3xl sm:text-4xl font-bold uppercase text-center"
+        >
+          SECURITY <span className="text-nb-lime">BY DEFAULT</span>
+        </h2>
+        <p className="font-mono text-sm text-nb-muted mt-4 text-center max-w-xl mx-auto leading-relaxed">
+          Your memories are personal. Our encryption ensures they stay that way — whether you
+          self-host or use Pro.
+        </p>
+        <div className="mt-12 grid sm:grid-cols-2 gap-6">
+          {items.map((item) => (
+            <div key={item.title} className="bg-nb-surface border-3 border-nb-border p-6 shadow-nb">
+              <div className="text-nb-lime mb-3" aria-hidden="true">
+                {item.icon}
+              </div>
+              <h3 className="font-display text-base font-bold tracking-wide">{item.title}</h3>
+              <p className="font-mono text-sm text-nb-muted mt-2 leading-relaxed">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-8 text-center">
+          <Link
+            to="/data-policy"
+            className="font-mono text-sm text-nb-lime hover:underline cursor-pointer transition-colors duration-200"
+          >
+            Read our full data policy →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function OpenSourceCTA() {
   return (
     <section id="open-source" className="px-4 sm:px-6 py-24" aria-labelledby="oss-heading">
@@ -591,8 +952,8 @@ function OpenSourceCTA() {
           MIT License · Auditable · Extensible
         </p>
         <p className="font-mono text-sm text-nb-muted mt-3 max-w-lg mx-auto leading-relaxed">
-          Self-host on your own hardware for free, or let us run it for you with Botmem Pro.
-          Same code, same features, your choice.
+          Self-host on your own hardware for free, or let us run it for you with Botmem Pro. Same
+          code, same features, your choice.
         </p>
         <div className="mt-10 flex flex-wrap justify-center gap-4">
           <a
@@ -618,31 +979,78 @@ function OpenSourceCTA() {
 function Footer() {
   return (
     <footer className="border-t-4 border-nb-border py-8 px-4 sm:px-6">
-      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-sm text-nb-muted">
-        <Logo variant="full" height={24} />
-        <div className="flex gap-6">
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            GitHub
-          </a>
-          <a
-            href={`${GITHUB_URL}#readme`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            Docs
-          </a>
+      <div className="max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-sm text-nb-muted">
+          <Logo variant="full" height={24} />
+          <div className="flex flex-wrap justify-center gap-6">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+            >
+              GitHub
+            </a>
+            <a
+              href={`${GITHUB_URL}#readme`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+            >
+              Docs
+            </a>
+            <Link
+              to="/pricing"
+              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+            >
+              Pricing
+            </Link>
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-center sm:justify-end gap-6 font-mono text-xs text-nb-muted">
           <Link
-            to="/pricing"
+            to="/privacy"
             className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
           >
-            Pricing
+            Privacy Policy
           </Link>
+          <Link
+            to="/terms"
+            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            Terms of Service
+          </Link>
+          <Link
+            to="/data-policy"
+            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+          >
+            Data Policy
+          </Link>
+        </div>
+        <div className="border-t border-nb-border/30 pt-4 flex justify-center">
+          <p className="font-mono text-xs text-nb-muted/60 flex items-center gap-1.5">
+            Made with
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-nb-lime"
+              aria-hidden="true"
+            >
+              <path d="M12 2a5 5 0 0 1 4.5 7.1A4 4 0 0 1 18 13a3.5 3.5 0 0 1-1.1 6.8H12" />
+              <path d="M12 2a5 5 0 0 0-4.5 7.1A4 4 0 0 0 6 13a3.5 3.5 0 0 0 1.1 6.8H12" />
+              <path d="M12 2v17.8" />
+              <path d="M8 8.5c1.3.7 2.7.7 4 0" />
+              <path d="M16 13c-1.3.7-2.7.7-4 0" />
+              <path d="M8 16.5c1.3-.7 2.7-.7 4 0" />
+            </svg>
+            AI + human minds
+          </p>
         </div>
       </div>
     </footer>
@@ -692,6 +1100,9 @@ export function LandingPage() {
           <HowItWorks />
         </div>
         <TechStrip />
+        <div className="landing-fade-in">
+          <SecuritySection />
+        </div>
         <div className="landing-fade-in">
           <PricingSection />
         </div>

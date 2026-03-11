@@ -336,16 +336,62 @@ export const api = {
   // Admin / Danger Zone
   purgeMemories: () => request<any>('/memories/purge', { method: 'POST' }),
   resetVectorIndex: () => request<any>('/memories/vector-index/reset', { method: 'POST' }),
+
+  // Demo Data
+  seedDemoData: () =>
+    request<{
+      ok: boolean;
+      memories?: number;
+      contacts?: number;
+      links?: number;
+      error?: string;
+    }>('/demo/seed', { method: 'POST' }),
+  clearDemoData: () =>
+    request<{ ok: boolean; deleted: number }>('/demo/seed', { method: 'DELETE' }),
+  getDemoStatus: () => request<{ hasDemoData: boolean }>('/demo/status', { method: 'POST' }),
 };
 
-// WebSocket connection
+// WebSocket connection — authenticates via first message instead of query string.
+// Uses addEventListener so callers can safely set ws.onopen without overwriting auth.
 export function createWsConnection(): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${window.location.host}/events`;
+  const ws = new WebSocket(url);
   const token = useAuthStore.getState().accessToken;
-  const url = token
-    ? `${protocol}//${window.location.host}/events?token=${encodeURIComponent(token)}`
-    : `${protocol}//${window.location.host}/events`;
-  return new WebSocket(url);
+
+  // Send auth as the first message when connection opens
+  ws.addEventListener('open', () => {
+    if (token) {
+      ws.send(JSON.stringify({ event: 'auth', data: { token } }));
+    }
+  });
+
+  return ws;
+}
+
+/**
+ * Wait for auth confirmation before subscribing.
+ * Resolves when the server responds with `{ event: 'auth', data: { ok: true } }`.
+ */
+export function waitForAuth(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const handler = (ev: MessageEvent) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.event === 'auth') {
+          ws.removeEventListener('message', handler);
+          if (msg.data?.ok) {
+            resolve();
+          } else {
+            reject(new Error(msg.data?.reason || 'WebSocket auth failed'));
+          }
+        }
+      } catch {
+        /* ignore non-JSON messages */
+      }
+    };
+    ws.addEventListener('message', handler);
+  });
 }
 
 export function subscribeToChannel(ws: WebSocket, channel: string) {

@@ -15,22 +15,24 @@ function mockAccountsService() {
 }
 
 function mockDbService() {
-  return {
-    db: {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          groupBy: vi.fn().mockResolvedValue([]),
-          where: vi.fn().mockResolvedValue([]),
+  const dbChain = {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        groupBy: vi.fn().mockResolvedValue([]),
+        where: vi.fn().mockResolvedValue([]),
+        innerJoin: vi.fn().mockReturnValue({
           innerJoin: vi.fn().mockReturnValue({
-            innerJoin: vi.fn().mockReturnValue({
-              where: vi.fn().mockReturnValue({
-                groupBy: vi.fn().mockResolvedValue([]),
-              }),
+            where: vi.fn().mockReturnValue({
+              groupBy: vi.fn().mockResolvedValue([]),
             }),
           }),
         }),
       }),
-    },
+    }),
+  };
+  return {
+    db: dbChain,
+    withCurrentUser: vi.fn().mockImplementation((fn: (db: any) => any) => fn(dbChain)),
   } as unknown as DbService;
 }
 
@@ -71,8 +73,15 @@ describe('AccountsController', () => {
 
   it('create calls service and maps result', async () => {
     (service.create as any).mockResolvedValue(fakeRow);
-    const result = await controller.create({ id: 'user-1' }, { connectorType: 'gmail', identifier: 'test@gmail.com' });
-    expect(service.create).toHaveBeenCalledWith({ connectorType: 'gmail', identifier: 'test@gmail.com', userId: 'user-1' });
+    const result = await controller.create(
+      { id: 'user-1' },
+      { connectorType: 'gmail', identifier: 'test@gmail.com' },
+    );
+    expect(service.create).toHaveBeenCalledWith({
+      connectorType: 'gmail',
+      identifier: 'test@gmail.com',
+      userId: 'user-1',
+    });
     expect(result.id).toBe('a1');
   });
 

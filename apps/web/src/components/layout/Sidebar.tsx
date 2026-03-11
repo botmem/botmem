@@ -214,10 +214,14 @@ function BankSelector({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div ref={ref} className="relative px-3 py-2 border-b-3 border-nb-border">
-      <label className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1 block">
+      <label
+        htmlFor="bank-selector"
+        className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1 block"
+      >
         BANK
       </label>
       <button
+        id="bank-selector"
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between border-3 border-nb-border px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-nb-text bg-nb-surface hover:border-nb-lime transition-colors cursor-pointer"
       >
@@ -285,36 +289,73 @@ export function Sidebar({ onClose }: SidebarProps) {
         collapsed ? 'md:w-16 w-60' : 'w-60',
       )}
     >
-      <div
-        className={cn(
-          'border-b-4 border-nb-border p-4 flex items-center',
-          collapsed ? 'md:justify-center justify-between' : 'justify-between',
-        )}
-      >
-        {/* Mobile close button */}
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="md:hidden border-2 border-nb-border w-8 h-8 flex items-center justify-center font-bold hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
-          >
-            ✕
-          </button>
-        )}
-        {(!collapsed || onClose) && (
-          <Logo variant="full" height={28} className={cn(onClose && 'mx-auto md:mx-0')} />
-        )}
-        {collapsed && !onClose && (
-          <div className="hidden md:flex items-center justify-center">
-            <Logo variant="mark" height={28} />
-          </div>
-        )}
-        {/* Desktop collapse/expand toggle — hidden on mobile */}
+      <div className="border-b-4 border-nb-border">
+        {/* Logo row */}
+        <div
+          className={cn(
+            'flex items-center h-14 px-4',
+            collapsed ? 'md:justify-center md:px-2' : '',
+          )}
+        >
+          {/* Mobile close button — before logo */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              aria-label="Close sidebar"
+              className="md:hidden w-8 h-8 flex items-center justify-center text-nb-muted hover:text-nb-text transition-colors cursor-pointer shrink-0 mr-2"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          )}
+
+          {/* Full logo (expanded) / Mark (collapsed on desktop) */}
+          {collapsed ? (
+            <div className="hidden md:block">
+              <Logo variant="mark" height={24} />
+            </div>
+          ) : (
+            <Logo variant="full" height={28} />
+          )}
+          {/* Mobile always shows full logo when sidebar is open */}
+          {collapsed && (
+            <div className="md:hidden">
+              <Logo variant="full" height={28} />
+            </div>
+          )}
+        </div>
+
+        {/* Desktop collapse toggle — sits below logo as a thin bar */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="hidden md:flex border-2 border-nb-border w-8 h-8 items-center justify-center font-bold hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+          className={cn(
+            'hidden md:flex w-full items-center justify-center h-6 border-t border-nb-border/30',
+            'text-nb-muted hover:text-nb-text hover:bg-nb-bg transition-colors cursor-pointer',
+          )}
         >
-          {collapsed ? '\u2192' : '\u2190'}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={cn('transition-transform duration-200', collapsed && 'rotate-180')}
+          >
+            <path d="M10 3L5 8l5 5" />
+          </svg>
         </button>
       </div>
 

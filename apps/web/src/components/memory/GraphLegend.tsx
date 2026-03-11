@@ -16,7 +16,12 @@ function edgeTypeColor(type: string): string {
   return '#666';
 }
 
-function LegendToggle({ active, onClick, icon, label }: {
+function LegendToggle({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
@@ -55,6 +60,49 @@ const EDGE_TYPE_LABELS: Record<string, string> = {
   related: 'Related',
   attachment: 'Attachment',
 };
+
+function SourceTypeIcon({ sourceType, color }: { sourceType: string; color: string }) {
+  const bg = '#1A1A2E';
+  if (sourceType === 'email') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16">
+        <rect x="1" y="1" width="14" height="14" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+        <rect x="3.5" y="4.5" width="9" height="7" rx="0.5" fill={bg} />
+        <polyline points="3.5,4.5 8,8.5 12.5,4.5" fill="none" stroke={color} strokeWidth="1" />
+      </svg>
+    );
+  }
+  if (sourceType === 'message') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16">
+        <rect x="1" y="1" width="14" height="14" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+        <rect x="3" y="4" width="10" height="7" rx="1.5" fill={bg} />
+        <circle cx="6" cy="7.5" r="0.8" fill={color} />
+        <circle cx="8" cy="7.5" r="0.8" fill={color} />
+        <circle cx="10" cy="7.5" r="0.8" fill={color} />
+        <polygon points="4,11 4,13.5 6.5,11" fill={bg} />
+      </svg>
+    );
+  }
+  if (sourceType === 'location') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16">
+        <rect x="1" y="1" width="14" height="14" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+        <path
+          d="M8,3.5 C6,3.5 4.5,5 4.5,7 C4.5,9.5 8,13 8,13 C8,13 11.5,9.5 11.5,7 C11.5,5 10,3.5 8,3.5Z"
+          fill={bg}
+        />
+        <circle cx="8" cy="7" r="1.5" fill={color} />
+      </svg>
+    );
+  }
+  // Fallback: plain square
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14">
+      <rect x="1" y="1" width="12" height="12" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+    </svg>
+  );
+}
 
 interface GraphLegendProps {
   filters: FilterState;
@@ -98,7 +146,14 @@ export function GraphLegend({
                   onClick={() => dispatch({ type: 'toggleContacts' })}
                   icon={
                     <svg width="16" height="16" viewBox="0 0 16 16">
-                      <circle cx="8" cy="8" r="7" fill={CONTACT_COLOR} stroke="#E0E0E0" strokeWidth="1" />
+                      <circle
+                        cx="8"
+                        cy="8"
+                        r="7"
+                        fill={CONTACT_COLOR}
+                        stroke="#E0E0E0"
+                        strokeWidth="1"
+                      />
                       <circle cx="8" cy="6" r="2.5" fill="#1A1A2E" />
                       <ellipse cx="8" cy="13" rx="4" ry="3" fill="#1A1A2E" />
                     </svg>
@@ -110,7 +165,12 @@ export function GraphLegend({
                   onClick={() => dispatch({ type: 'toggleGroups' })}
                   icon={
                     <svg width="16" height="16" viewBox="0 0 16 16">
-                      <polygon points="8,1 14.5,4.5 14.5,11.5 8,15 1.5,11.5 1.5,4.5" fill={GROUP_COLOR} stroke="#E0E0E0" strokeWidth="1" />
+                      <polygon
+                        points="8,1 14.5,4.5 14.5,11.5 8,15 1.5,11.5 1.5,4.5"
+                        fill={GROUP_COLOR}
+                        stroke="#E0E0E0"
+                        strokeWidth="1"
+                      />
                       <circle cx="5.5" cy="6.5" r="1.5" fill="#1A1A2E" />
                       <circle cx="10.5" cy="6.5" r="1.5" fill="#1A1A2E" />
                       <ellipse cx="8" cy="11.5" rx="4" ry="2.5" fill="#1A1A2E" />
@@ -123,7 +183,12 @@ export function GraphLegend({
                   onClick={() => dispatch({ type: 'toggleFiles' })}
                   icon={
                     <svg width="16" height="16" viewBox="0 0 16 16">
-                      <polygon points="8,1 15,8 8,15 1,8" fill={FILE_COLOR} stroke="#E0E0E0" strokeWidth="1" />
+                      <polygon
+                        points="8,1 15,8 8,15 1,8"
+                        fill={FILE_COLOR}
+                        stroke="#E0E0E0"
+                        strokeWidth="1"
+                      />
                       <line x1="5" y1="7" x2="11" y2="7" stroke="#1A1A2E" strokeWidth="1.5" />
                       <line x1="5" y1="9.5" x2="11" y2="9.5" stroke="#1A1A2E" strokeWidth="1.5" />
                     </svg>
@@ -135,7 +200,16 @@ export function GraphLegend({
                   onClick={() => dispatch({ type: 'togglePhotos' })}
                   icon={
                     <svg width="16" height="16" viewBox="0 0 16 16">
-                      <rect x="2" y="2" width="12" height="12" rx="3" fill={PHOTO_COLOR} stroke="#E0E0E0" strokeWidth="1" />
+                      <rect
+                        x="2"
+                        y="2"
+                        width="12"
+                        height="12"
+                        rx="3"
+                        fill={PHOTO_COLOR}
+                        stroke="#E0E0E0"
+                        strokeWidth="1"
+                      />
                       <circle cx="10" cy="5.5" r="1.5" fill="#1A1A2E" />
                       <polygon points="3,12 6.5,7 9,10 10.5,8.5 13,12" fill="#1A1A2E" />
                     </svg>
@@ -147,26 +221,36 @@ export function GraphLegend({
                   onClick={() => dispatch({ type: 'toggleDevices' })}
                   icon={
                     <svg width="16" height="16" viewBox="0 0 16 16">
-                      <rect x="2" y="2" width="12" height="12" rx="3" fill={DEVICE_COLOR} stroke="#E0E0E0" strokeWidth="1" />
+                      <rect
+                        x="2"
+                        y="2"
+                        width="12"
+                        height="12"
+                        rx="3"
+                        fill={DEVICE_COLOR}
+                        stroke="#E0E0E0"
+                        strokeWidth="1"
+                      />
                       <rect x="6" y="4" width="4" height="7" rx="0.5" fill="#1A1A2E" />
                       <circle cx="8" cy="12" r="0.8" fill="#1A1A2E" />
                     </svg>
                   }
                   label="Devices"
                 />
-                {sourceTypes.filter((st) => st !== 'file' && st !== 'photo').map((st) => (
-                  <LegendToggle
-                    key={st}
-                    active={!filters.hiddenSourceTypes.has(st)}
-                    onClick={() => dispatch({ type: 'toggleSourceType', source: st })}
-                    icon={
-                      <svg width="14" height="14" viewBox="0 0 14 14">
-                        <rect x="1" y="1" width="12" height="12" fill={CONNECTOR_COLORS[st] || '#999'} stroke="#E0E0E0" strokeWidth="1" />
-                      </svg>
-                    }
-                    label={SOURCE_TYPE_LABELS[st] || st}
-                  />
-                ))}
+                {sourceTypes
+                  .filter((st) => st !== 'file' && st !== 'photo')
+                  .map((st) => {
+                    const color = CONNECTOR_COLORS[st] || '#999';
+                    return (
+                      <LegendToggle
+                        key={st}
+                        active={!filters.hiddenSourceTypes.has(st)}
+                        onClick={() => dispatch({ type: 'toggleSourceType', source: st })}
+                        icon={<SourceTypeIcon sourceType={st} color={color} />}
+                        label={SOURCE_TYPE_LABELS[st] || st}
+                      />
+                    );
+                  })}
               </div>
             </div>
 
@@ -187,7 +271,8 @@ export function GraphLegend({
                           style={{
                             height: type === 'involves' ? 1 : 2,
                             backgroundColor: edgeTypeColor(type),
-                            borderTop: type === 'involves' ? `1px dashed ${edgeTypeColor(type)}` : 'none',
+                            borderTop:
+                              type === 'involves' ? `1px dashed ${edgeTypeColor(type)}` : 'none',
                           }}
                         />
                       </span>
@@ -216,15 +301,21 @@ export function GraphLegend({
         <button
           onClick={() => graphRef.current?.zoom(graphRef.current.zoom() * 1.5, 300)}
           className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
-        >+</button>
+        >
+          +
+        </button>
         <button
           onClick={() => graphRef.current?.zoom(graphRef.current.zoom() / 1.5, 300)}
           className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
-        >{'\u2212'}</button>
+        >
+          {'\u2212'}
+        </button>
         <button
           onClick={() => graphRef.current?.zoomToFit(400)}
           className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
-        >{'\u2299'}</button>
+        >
+          {'\u2299'}
+        </button>
       </div>
     </div>
   );

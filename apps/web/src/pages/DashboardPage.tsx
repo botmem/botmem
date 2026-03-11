@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
@@ -20,27 +20,62 @@ const dashTabs = [
 ];
 
 export function DashboardPage() {
-  const { jobs, logs, queueStats, cancelJob, reprioritize, clearLogs, hasMoreLogs, loadingMoreLogs, fetchMoreLogs } = useJobs();
+  const {
+    jobs,
+    logs,
+    queueStats,
+    cancelJob,
+    reprioritize,
+    clearLogs,
+    hasMoreLogs,
+    loadingMoreLogs,
+    fetchMoreLogs,
+  } = useJobs();
   const { accounts } = useConnectors();
-  const { graphData, loadGraph, loadFullGraph, loadGraphForIds, graphPreview, graphLoading, memoryStats } = useMemories();
+  const {
+    graphData,
+    loadGraph,
+    loadFullGraph,
+    loadGraphForIds,
+    graphPreview,
+    graphLoading,
+    memoryStats,
+  } = useMemories();
   const { retrying, retryAllFailed } = useJobStore();
-  const activeMemoryBankId = useMemoryBankStore((s) => s.activeMemoryBankId);
   const [activeTab, setActiveTab] = useState('overview');
   const [reauthOpen, setReauthOpen] = useState(false);
 
-  const onSearchResults = useCallback(async (results: any) => {
-    if (loadGraphForIds) await loadGraphForIds([...results.memoryIds]);
-  }, [loadGraphForIds]);
-  const onSearchClear = useCallback(() => { loadGraph(); }, [loadGraph]);
+  const onSearchResults = useCallback(
+    async (results: any) => {
+      if (loadGraphForIds) await loadGraphForIds([...results.memoryIds]);
+    },
+    [loadGraphForIds],
+  );
+  const onSearchClear = useCallback(() => {
+    loadGraph();
+  }, [loadGraph]);
   const graphSearch = useSearch({
     onResults: onSearchResults,
     onClear: onSearchClear,
   });
 
-  const statsLoaded = memoryStats != null;
+  // Load graph once when stats become available (initial mount)
+  const initialGraphLoaded = useRef(false);
+  if (memoryStats != null && !initialGraphLoaded.current) {
+    initialGraphLoaded.current = true;
+    loadGraph();
+  }
+
+  // Reload graph when the user switches memory banks (event-driven via Zustand subscribe)
   useEffect(() => {
-    if (statsLoaded) loadGraph();
-  }, [activeMemoryBankId, statsLoaded]);
+    let prevBankId = useMemoryBankStore.getState().activeMemoryBankId;
+    return useMemoryBankStore.subscribe((state) => {
+      if (state.activeMemoryBankId !== prevBankId) {
+        prevBankId = state.activeMemoryBankId;
+        loadGraph();
+      }
+    });
+  }, [loadGraph]);
 
   const totalMemories = memoryStats?.total ?? 0;
   const activeConnectors = accounts.filter(
@@ -76,7 +111,7 @@ export function DashboardPage() {
         {activeTab === 'overview' && (
           <>
             {/* Graph FIRST */}
-            <div className="mb-6 relative">
+            <div className="mb-6 relative" data-tour="dashboard-graph">
               {memoryStats?.needsRecoveryKey && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nb-bg/80 backdrop-blur-sm">
                   <svg
@@ -105,7 +140,15 @@ export function DashboardPage() {
                   </button>
                 </div>
               )}
-              <MemoryGraph data={graphData} onReloadPreview={loadGraph} graphPreview={graphPreview} graphLoading={graphLoading} onLoadAll={loadFullGraph} onLoadGraphForIds={loadGraphForIds} search={graphSearch} />
+              <MemoryGraph
+                data={graphData}
+                onReloadPreview={loadGraph}
+                graphPreview={graphPreview}
+                graphLoading={graphLoading}
+                onLoadAll={loadFullGraph}
+                onLoadGraphForIds={loadGraphForIds}
+                search={graphSearch}
+              />
             </div>
 
             {/* Metrics cards */}
@@ -136,7 +179,7 @@ export function DashboardPage() {
 
             {/* Pipeline view */}
             {queueStats && (
-              <div className="mb-6">
+              <div className="mb-6" data-tour="pipeline-view">
                 <PipelineView queueStats={queueStats} />
               </div>
             )}
@@ -148,7 +191,13 @@ export function DashboardPage() {
             <div className="overflow-x-auto">
               <JobTable jobs={jobs} onCancel={cancelJob} onMove={reprioritize} />
             </div>
-            <ConnectorLogFeed logs={logs} onClear={clearLogs} hasMore={hasMoreLogs} loadingMore={loadingMoreLogs} onLoadMore={fetchMoreLogs} />
+            <ConnectorLogFeed
+              logs={logs}
+              onClear={clearLogs}
+              hasMore={hasMoreLogs}
+              loadingMore={loadingMoreLogs}
+              onLoadMore={fetchMoreLogs}
+            />
           </div>
         )}
       </div>

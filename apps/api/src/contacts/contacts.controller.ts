@@ -1,10 +1,21 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Res, HttpStatus, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Query,
+  Body,
+  Res,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import type { Response } from 'express';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { ContactsService } from './contacts.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
-import { Public } from '../user-auth/decorators/public.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { SplitContactDto } from './dto/split-contact.dto';
@@ -58,10 +69,13 @@ export class ContactsController {
     return this.contactsService.backfillAvatarData();
   }
 
-  @Public()
-  @SkipThrottle()
   @Get(':id/avatar')
-  async getAvatar(@Param('id') id: string, @Query('index') indexStr: string | undefined, @Res() res: Response) {
+  async getAvatar(
+    @Param('id') id: string,
+    @Query('index') indexStr: string | undefined,
+    @CurrentUser() _user: { id: string },
+    @Res() res: Response,
+  ) {
     let contact: any;
     try {
       contact = await this.contactsService.getById(id);
@@ -76,9 +90,10 @@ export class ContactsController {
 
     // If a specific index is requested, serve only that avatar
     const requestedIndex = indexStr != null ? parseInt(indexStr, 10) : undefined;
-    const avatars = requestedIndex != null && allAvatars[requestedIndex]
-      ? [allAvatars[requestedIndex]]
-      : allAvatars;
+    const avatars =
+      requestedIndex != null && allAvatars[requestedIndex]
+        ? [allAvatars[requestedIndex]]
+        : allAvatars;
 
     // Cache Immich credentials once (lazy)
     let immichApiKey: string | null = null;
@@ -88,15 +103,18 @@ export class ContactsController {
         const allAccounts = await this.accountsService.getAll();
         const photosAccount = allAccounts.find((a: any) => a.connectorType === 'photos');
         if (photosAccount?.authContext) {
-          const auth = typeof photosAccount.authContext === 'string'
-            ? JSON.parse(photosAccount.authContext)
-            : photosAccount.authContext;
+          const auth =
+            typeof photosAccount.authContext === 'string'
+              ? JSON.parse(photosAccount.authContext)
+              : photosAccount.authContext;
           immichApiKey = auth?.accessToken || '';
         } else {
           immichApiKey = '';
         }
       } catch (err) {
-        this.logger.warn(`Failed to get Immich credentials: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(
+          `Failed to get Immich credentials: ${err instanceof Error ? err.message : String(err)}`,
+        );
         immichApiKey = '';
       }
       return immichApiKey;
@@ -112,6 +130,46 @@ export class ContactsController {
           res.setHeader('Cache-Control', 'public, max-age=86400');
           return res.send(Buffer.from(match[2], 'base64'));
         }
+        continue;
+      }
+
+      // Validate URL: only allow https:// (block private IPs to prevent SSRF)
+      try {
+        const parsed = new URL(avatar.url);
+        const protocol = parsed.protocol.toLowerCase();
+        if (protocol !== 'https:') continue;
+
+        const hostname = parsed.hostname.toLowerCase();
+        const bare =
+          hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+
+        // Block IPv6 private/link-local
+        if (
+          bare === '::1' ||
+          bare.startsWith('fc') ||
+          bare.startsWith('fd') ||
+          bare.startsWith('fe80')
+        )
+          continue;
+
+        // Block localhost
+        if (bare === 'localhost' || bare.endsWith('.localhost')) continue;
+
+        // Block IPv4 private/link-local/loopback
+        const ipv4Match = bare.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+        if (ipv4Match) {
+          const [, a, b] = ipv4Match.map(Number);
+          if (
+            a === 127 ||
+            a === 10 ||
+            (a === 172 && b >= 16 && b <= 31) ||
+            (a === 192 && b === 168) ||
+            (a === 169 && b === 254) ||
+            a === 0
+          )
+            continue;
+        }
+      } catch {
         continue;
       }
 

@@ -14,6 +14,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
 import { AnalyticsService } from './analytics/analytics.service';
 import { HttpAdapterHost } from '@nestjs/core';
+import { createCorsOriginChecker } from './cors.util';
 
 const logger = new Logger('Bootstrap');
 
@@ -59,19 +60,7 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
   app.enableCors({
-    origin: (
-      origin: string | undefined,
-      callback: (err: Error | null, allow?: boolean) => void,
-    ) => {
-      // Allow MCP requests from any origin (AI tools have varied origins)
-      if (!origin) return callback(null, true);
-      const allowed = config.frontendUrl.includes(',')
-        ? config.frontendUrl.split(',').map((s) => s.trim())
-        : [config.frontendUrl];
-      if (allowed.includes(origin)) return callback(null, true);
-      // Allow all origins for MCP/OAuth endpoints (stateless Bearer auth)
-      callback(null, true);
-    },
+    origin: createCorsOriginChecker(config.frontendUrl),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],

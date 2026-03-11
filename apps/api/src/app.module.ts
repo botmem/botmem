@@ -27,6 +27,7 @@ import { McpModule } from './mcp/mcp.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { BillingModule } from './billing/billing.module';
 import { OAuthModule } from './oauth/oauth.module';
+import { DemoModule } from './demo/demo.module';
 import { PlanGuard } from './billing/plan.guard';
 import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
@@ -35,6 +36,7 @@ import { JwtAuthGuard } from './user-auth/jwt-auth.guard';
 import { FirebaseAuthModule } from './user-auth/firebase-auth.module';
 import { FirebaseAuthGuard } from './user-auth/firebase-auth.guard';
 import { AuthProviderGuard } from './user-auth/auth-provider.guard';
+import { WriteScopeGuard } from './user-auth/write-scope.guard';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const webDistPath = join(__dirname, '..', '..', 'web', 'dist');
@@ -76,6 +78,7 @@ const serveStatic = !isDev && existsSync(webDistPath);
     FirebaseAuthModule,
     BillingModule,
     OAuthModule,
+    DemoModule,
   ],
   providers: [
     {
@@ -96,6 +99,10 @@ const serveStatic = !isDev && existsSync(webDistPath);
     {
       provide: APP_GUARD,
       useClass: PlanGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: WriteScopeGuard,
     },
   ],
 })

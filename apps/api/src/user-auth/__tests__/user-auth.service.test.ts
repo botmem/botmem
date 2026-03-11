@@ -205,7 +205,7 @@ describe('UserAuthService', () => {
       expect(result.accessToken).toBe('mock-jwt-token');
     });
 
-    it('rejects replayed revoked token without revoking the family (multi-tab safe)', async () => {
+    it('revokes entire token family when revoked token is replayed (theft detection)', async () => {
       const revokedToken = {
         id: 'rt-1',
         userId: 'user-1',
@@ -219,7 +219,7 @@ describe('UserAuthService', () => {
       usersService.findRefreshToken!.mockResolvedValue(revokedToken);
 
       await expect(service.refresh('old-refresh-token')).rejects.toThrow(UnauthorizedException);
-      expect(usersService.revokeTokenFamily).not.toHaveBeenCalled();
+      expect(usersService.revokeTokenFamily).toHaveBeenCalledWith('family-1');
     });
   });
 });
