@@ -733,7 +733,7 @@ function HowItWorks() {
 }
 
 function TechStrip() {
-  const techs = ['NestJS', 'SQLite', 'Qdrant', 'Ollama', 'React', 'BullMQ'];
+  const techs = ['NestJS', 'PostgreSQL', 'Qdrant', 'Ollama', 'React', 'BullMQ'];
   return (
     <div className="border-y-4 border-nb-border py-5 overflow-hidden">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-wrap justify-center gap-x-6 gap-y-2 font-mono text-sm text-nb-muted tracking-wide">
