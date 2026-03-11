@@ -25,11 +25,14 @@ import { EventsService } from '../events/events.service';
 import { accounts, memories, memoryContacts, rawEvents, jobs } from '../db/schema';
 import { eq, and, sql, isNull } from 'drizzle-orm';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
 import { BackfillEnrichDto } from './dto/backfill-enrich.dto';
 
+@ApiTags('Memories')
+@ApiBearerAuth()
 @Controller('memories')
 export class MemoryController {
   private readonly logger = new Logger(MemoryController.name);

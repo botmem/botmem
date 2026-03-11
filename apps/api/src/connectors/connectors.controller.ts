@@ -1,6 +1,9 @@
 import { Controller, Get, Param } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConnectorsService } from './connectors.service';
 
+@ApiTags('Connectors')
+@ApiBearerAuth()
 @Controller('connectors')
 export class ConnectorsController {
   constructor(private connectors: ConnectorsService) {}

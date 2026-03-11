@@ -13,6 +13,7 @@ import {
 import { AgentService } from './agent.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AskDto } from './dto/ask.dto';
 import { RememberDto } from './dto/remember.dto';
@@ -26,6 +27,8 @@ function ok<T>(data: T, meta?: { queryTime: number; resultCount: number; sources
 
 // ── Controller ───────────────────────────────────────────────────────
 
+@ApiTags('Agent')
+@ApiBearerAuth()
 @Controller('agent')
 export class AgentController {
   constructor(private readonly agentService: AgentService) {}

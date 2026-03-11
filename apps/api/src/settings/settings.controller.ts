@@ -1,7 +1,10 @@
 import { Controller, Get, Patch, Body } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 
+@ApiTags('Settings')
+@ApiBearerAuth()
 @Controller('settings')
 export class SettingsController {
   constructor(private settingsService: SettingsService) {}

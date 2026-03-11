@@ -1,10 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import Redis from 'ioredis';
 import { Public } from './user-auth/decorators/public.decorator';
 import { DbService } from './db/db.service';
 import { QdrantService } from './memory/qdrant.service';
 import { ConfigService } from './config/config.service';
 
+@ApiTags('System')
 @Public()
 @Controller('health')
 export class HealthController {

@@ -1,9 +1,11 @@
 import { Controller, Get, Req } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { ConfigService } from '../config/config.service';
 import type { Request } from 'express';
 
+@ApiTags('OAuth')
 @Controller('.well-known')
 @Public()
 @SkipThrottle()

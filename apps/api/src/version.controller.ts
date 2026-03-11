@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Public } from './user-auth/decorators/public.decorator';
 
 const BUILD_TIME = new Date().toISOString();
@@ -12,6 +13,7 @@ try {
   /* empty */
 }
 
+@ApiTags('System')
 @Public()
 @Controller('version')
 export class VersionController {

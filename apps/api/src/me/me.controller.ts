@@ -1,7 +1,10 @@
 import { Controller, Get, Post, Patch, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { MeService } from './me.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 
+@ApiTags('User')
+@ApiBearerAuth()
 @Controller('me')
 export class MeController {
   constructor(private meService: MeService) {}
