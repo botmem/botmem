@@ -80,25 +80,30 @@ function getGlyphCanvas(
   size: number,
   color: string,
 ): OffscreenCanvas | HTMLCanvasElement | null {
-  const key = `${source}:${Math.round(size)}`;
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const key = `${source}:${Math.round(size)}:${dpr}`;
   const cached = glyphCache.get(key);
   if (cached) return cached;
 
   const s = Math.round(size);
   if (s < 4) return null;
+  const ps = Math.round(s * dpr); // physical pixel size
   const canvas =
     typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(s, s)
+      ? new OffscreenCanvas(ps, ps)
       : (() => {
           const c = document.createElement('canvas');
-          c.width = s;
-          c.height = s;
+          c.width = ps;
+          c.height = ps;
           return c;
         })();
   const ctx = canvas.getContext('2d') as
     | CanvasRenderingContext2D
     | OffscreenCanvasRenderingContext2D;
   if (!ctx) return null;
+
+  // Scale so drawing coordinates match logical size
+  ctx.scale(dpr, dpr);
 
   const cx = s / 2;
   const cy = s / 2;

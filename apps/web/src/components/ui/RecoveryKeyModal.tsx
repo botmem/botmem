@@ -25,7 +25,10 @@ export function RecoveryKeyModal() {
         </p>
 
         <div className="relative">
-          <pre className="w-full p-4 border-3 border-nb-border bg-nb-surface font-mono text-base text-nb-text break-all whitespace-pre-wrap select-all">
+          <pre
+            data-ph-mask
+            className="w-full p-4 border-3 border-nb-border bg-nb-surface font-mono text-base text-nb-text break-all whitespace-pre-wrap select-all"
+          >
             {recoveryKey}
           </pre>
           <button

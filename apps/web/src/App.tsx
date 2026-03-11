@@ -65,6 +65,14 @@ function PostHogPageviewTracker() {
   return null;
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 function LoadingScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-nb-bg">
@@ -94,6 +102,7 @@ export function App() {
   return (
     <BrowserRouter>
       <AuthInitializer />
+      <ScrollToTop />
       <PostHogPageviewTracker />
       <Routes>
         <Route index element={<LandingOrApp />} />
