@@ -3,6 +3,9 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { createHash, randomBytes } from 'crypto';
+import { createServer } from 'http';
+import { exec } from 'child_process';
 import { BotmemClient, BotmemApiError } from './client.js';
 import { formatStatus, toonify } from './format.js';
 import { runSearch, searchHelp } from './commands/search.js';
@@ -85,7 +88,8 @@ const HELP = `
     botmem config set-key <key>    Store an API key (bm_sk_...)
     botmem config set-recovery-key <key>  Store recovery key for E2EE
     botmem config show             Show current config
-    botmem login                   Log in with email/password and store JWT
+    botmem login                   Log in via browser (OAuth) and store JWT
+    botmem login --password        Log in with email/password (for CI/scripts)
 
   GLOBAL OPTIONS
     --api-key <key>   API key (env: BOTMEM_API_KEY) — preferred for agents
@@ -340,25 +344,162 @@ async function runStatus(client: BotmemClient, json: boolean) {
   }
 }
 
-async function runLogin(client: BotmemClient, args: string[]) {
-  // Accept email/password as positional args or prompt-style from env
-  let email = args[0] || process.env['BOTMEM_EMAIL'] || '';
-  let password = args[1] || process.env['BOTMEM_PASSWORD'] || '';
+function openBrowser(url: string) {
+  const platform = process.platform;
+  const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
+  exec(`${cmd} "${url}"`);
+}
 
-  if (!email || !password) {
-    // Read from stdin if not provided
-    const readline = await import('readline');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    const ask = (q: string): Promise<string> => new Promise((r) => rl.question(q, r));
-    if (!email) email = await ask('Email: ');
-    if (!password) password = await ask('Password: ');
-    rl.close();
+function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
+  const codeVerifier = randomBytes(32).toString('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  return { codeVerifier, codeChallenge };
+}
+
+async function runLogin(client: BotmemClient, args: string[]) {
+  // --password flag forces legacy email/password login (for CI/scripts)
+  const usePassword =
+    args.includes('--password') || process.env['BOTMEM_EMAIL'] || process.env['BOTMEM_PASSWORD'];
+
+  if (usePassword) {
+    const filteredArgs = args.filter((a) => a !== '--password');
+    let email = filteredArgs[0] || process.env['BOTMEM_EMAIL'] || '';
+    let password = filteredArgs[1] || process.env['BOTMEM_PASSWORD'] || '';
+
+    if (!email || !password) {
+      const readline = await import('readline');
+      const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+      const ask = (q: string): Promise<string> => new Promise((r) => rl.question(q, r));
+      if (!email) email = await ask('Email: ');
+      if (!password) password = await ask('Password: ');
+      rl.close();
+    }
+
+    const result = await client.login(email, password);
+    storeToken(result.accessToken);
+    console.log(`Logged in as ${result.user.name} (${result.user.email})`);
+    console.log(`Token stored in ${CONFIG_FILE}`);
+    return;
   }
 
-  const result = await client.login(email, password);
-  storeToken(result.accessToken);
-  console.log(`Logged in as ${result.user.name} (${result.user.email})`);
-  console.log(`Token stored in ${CONFIG_FILE}`);
+  // Browser-based OAuth login (default)
+  const { codeVerifier, codeChallenge } = generatePKCE();
+  const state = randomBytes(16).toString('base64url');
+
+  // Start local HTTP server on random port
+  const { port, waitForCallback, close } = await startCallbackServer();
+  const redirectUri = `http://localhost:${port}/callback`;
+
+  try {
+    // Create CLI auth session on the server
+    const session = await client.createCliSession({
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+      redirectUri,
+      state,
+    });
+
+    console.log('Opening browser for login...');
+    console.log(`If it doesn't open, visit: ${session.loginUrl}`);
+    openBrowser(session.loginUrl);
+
+    // Wait for the callback
+    console.log('Waiting for authentication...');
+    const callbackParams = await waitForCallback();
+
+    if (callbackParams.error) {
+      throw new Error(`Authentication denied: ${callbackParams.error}`);
+    }
+
+    if (callbackParams.state !== state) {
+      throw new Error('State mismatch — possible CSRF attack');
+    }
+
+    if (!callbackParams.code) {
+      throw new Error('No authorization code received');
+    }
+
+    // Exchange code for tokens
+    const result = await client.exchangeCliCode({
+      code: callbackParams.code,
+      codeVerifier,
+      redirectUri,
+    });
+
+    storeToken(result.accessToken);
+    console.log(`\nLogged in as ${result.user.name} (${result.user.email})`);
+    console.log(`Token stored in ${CONFIG_FILE}`);
+  } finally {
+    close();
+  }
+}
+
+function startCallbackServer(): Promise<{
+  port: number;
+  waitForCallback: () => Promise<{ code?: string; state?: string; error?: string }>;
+  close: () => void;
+}> {
+  return new Promise((resolve, reject) => {
+    let callbackResolve: (params: { code?: string; state?: string; error?: string }) => void;
+    const callbackPromise = new Promise<{ code?: string; state?: string; error?: string }>(
+      (res) => {
+        callbackResolve = res;
+      },
+    );
+
+    const server = createServer((req, res) => {
+      const url = new URL(req.url || '/', `http://localhost`);
+      if (url.pathname === '/callback') {
+        const code = url.searchParams.get('code') || undefined;
+        const state = url.searchParams.get('state') || undefined;
+        const error = url.searchParams.get('error') || undefined;
+
+        // Send a nice HTML response to the browser
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!DOCTYPE html>
+<html>
+<head><title>Botmem CLI</title><style>
+  body { font-family: monospace; display: flex; align-items: center; justify-content: center;
+         min-height: 100vh; margin: 0; background: #111; color: #fff; }
+  .box { text-align: center; border: 3px solid #333; padding: 2rem; max-width: 400px; }
+  .ok { color: #a3e635; font-size: 2rem; font-weight: bold; }
+  .err { color: #f87171; font-size: 2rem; font-weight: bold; }
+</style></head>
+<body><div class="box">
+  ${error ? '<div class="err">Authentication Failed</div><p>Return to your terminal for details.</p>' : '<div class="ok">&#10003; Authenticated</div><p>You can close this window and return to your terminal.</p>'}
+</div></body></html>`);
+
+        callbackResolve!({ code, state, error });
+      } else {
+        res.writeHead(404);
+        res.end('Not Found');
+      }
+    });
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') {
+        reject(new Error('Failed to start callback server'));
+        return;
+      }
+      resolve({
+        port: addr.port,
+        waitForCallback: () => callbackPromise,
+        close: () => server.close(),
+      });
+    });
+
+    server.on('error', reject);
+
+    // Timeout after 5 minutes
+    setTimeout(
+      () => {
+        callbackResolve!({ error: 'timeout' });
+        server.close();
+      },
+      5 * 60 * 1000,
+    );
+  });
 }
 
 async function main() {
