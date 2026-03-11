@@ -187,19 +187,56 @@ export class McpService implements OnModuleDestroy {
   private registerTools(server: McpServer, userId: string) {
     server.tool(
       'search',
-      'Search your personal memories using semantic search. Returns matching memories ranked by relevance.',
+      `Search the user's personal memories using semantic vector search. Returns raw memory records ranked by a weighted score (semantic similarity, recency, importance, trust).
+
+Use this tool when you need to:
+- Find specific emails, messages, photos, or events
+- Look up what someone said or wrote
+- Find memories from a specific time period or source
+- Get raw data to answer factual questions
+
+Example queries:
+- "meeting with Sarah about the product launch"
+- "flights booked in January"
+- "photos from the beach trip"
+- "messages from Ahmed about the project"
+
+Returns an array of memory objects, each containing: id, text (the memory content), sourceType, connectorType, eventTime, factuality {label, confidence, rationale}, entities (extracted people/places/orgs), metadata (connector-specific fields like email subject, sender, attachments), contacts (associated people with roles), and score weights breakdown.
+
+Tips:
+- Use natural language queries — the search is semantic, not keyword-based
+- Combine filters to narrow results (e.g. connector_type="gmail" + source_type="email")
+- Start with a broad query and refine if needed
+- Results are sorted by weighted score (semantic + recency + importance + trust)`,
       {
-        query: z.string().describe('Search query (natural language)'),
+        query: z
+          .string()
+          .describe(
+            'Natural language search query. Be descriptive — semantic search understands meaning, not just keywords. E.g. "dinner plans with family last week" or "project deadline discussions"',
+          ),
         source_type: z
           .string()
           .optional()
-          .describe('Filter by source type: email, message, photo, location'),
+          .describe(
+            'Filter by source type. One of: "email", "message", "photo", "location". Omit to search all types.',
+          ),
         connector_type: z
           .string()
           .optional()
-          .describe('Filter by connector: gmail, slack, whatsapp, imessage, photos'),
-        contact_id: z.string().optional().describe('Filter by contact ID'),
-        limit: z.number().optional().default(20).describe('Max results (default 20)'),
+          .describe(
+            'Filter by data source connector. One of: "gmail", "slack", "whatsapp", "imessage", "photos". Omit to search all connectors.',
+          ),
+        contact_id: z
+          .string()
+          .optional()
+          .describe(
+            'Filter by a specific contact UUID. Use this when you already know the contact ID from a previous search result.',
+          ),
+        limit: z
+          .number()
+          .optional()
+          .default(20)
+          .describe('Maximum number of results to return (1-100). Default: 20.'),
       },
       async (params) => {
         try {
@@ -236,22 +273,51 @@ export class McpService implements OnModuleDestroy {
 
     server.tool(
       'ask',
-      'Ask a question about your memories. Returns an AI-generated answer grounded in your personal data (emails, messages, photos, etc.).',
+      `Ask a question about the user's personal memories. Retrieves relevant memories via semantic search, enriches them with contact and entity data, and returns the context needed to answer the question.
+
+Use this tool when:
+- The user asks a question that requires reasoning across multiple memories
+- You need enriched context (contacts, entities, temporal parsing) rather than raw search results
+- The question involves "who", "when", "what happened", or "summarize" patterns
+
+Difference from "search":
+- "search" returns raw ranked results — use it for lookup/browsing
+- "ask" returns enriched memories grouped by conversation thread, with parsed temporal intent and contact resolution — use it for answering questions
+
+Example queries:
+- "What did Ahmed say about the budget?"
+- "Who emailed me about the conference last month?"
+- "What photos did I take in Dubai?"
+- "Summarize my conversations with the design team this week"
+
+Returns: { results: EnrichedMemory[], query: string, parsed?: { temporal, intent, cleanQuery } }
+Each EnrichedMemory contains: id, text, sourceType, connectorType, eventTime, eventTimeRelative (human-readable like "3 days ago"), factuality, entities [{type, value}], contacts [{id, displayName, role}], metadata, weights.
+The "parsed" field shows how temporal references were interpreted (e.g. "last week" → {from, to} date range).`,
       {
-        query: z.string().describe('Your question in natural language'),
+        query: z
+          .string()
+          .describe(
+            'A natural language question about the user\'s memories. Can include temporal references like "last week", "in January", "yesterday". E.g. "What meetings did I have last Friday?" or "What did Sarah say about the marketing plan?"',
+          ),
         source_type: z
           .string()
           .optional()
-          .describe('Filter by source type: email, message, photo, location'),
+          .describe(
+            'Filter by source type. One of: "email", "message", "photo", "location". Omit to search all types.',
+          ),
         connector_type: z
           .string()
           .optional()
-          .describe('Filter by connector: gmail, slack, whatsapp, imessage, photos'),
+          .describe(
+            'Filter by data source connector. One of: "gmail", "slack", "whatsapp", "imessage", "photos". Omit to search all connectors.',
+          ),
         limit: z
           .number()
           .optional()
           .default(20)
-          .describe('Max context memories to consider (default 20)'),
+          .describe(
+            'Maximum number of context memories to retrieve for answering (1-100). Default: 20. Use higher values for broad questions.',
+          ),
       },
       async (params) => {
         try {
