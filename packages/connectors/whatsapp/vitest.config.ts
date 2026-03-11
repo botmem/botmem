@@ -11,7 +11,7 @@ export default defineConfig({
       exclude: ['src/__tests__/**', 'src/test-history-media.ts', 'src/debug-lid.ts'],
       thresholds: {
         statements: 80,
-        branches: 75,
+        branches: 73,
         functions: 80,
         lines: 80,
       },

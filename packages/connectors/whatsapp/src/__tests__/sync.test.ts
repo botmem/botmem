@@ -590,6 +590,7 @@ describe('sync module', () => {
                         degreesLatitude: 25.2048,
                         degreesLongitude: 55.2708,
                         name: 'Burj Khalifa',
+                        address: '1 Sheikh Mohammed bin Rashid Blvd',
                       },
                     },
                     messageTimestamp: Math.floor(Date.now() / 1000),
@@ -626,7 +627,7 @@ describe('sync module', () => {
         lat: 25.2048,
         lng: 55.2708,
         name: 'Burj Khalifa',
-        address: undefined,
+        address: '1 Sheikh Mohammed bin Rashid Blvd',
       });
     });
 
