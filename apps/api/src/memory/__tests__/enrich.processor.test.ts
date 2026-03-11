@@ -92,6 +92,11 @@ describe('EnrichProcessor', () => {
       aiConcurrency: { enrich: 2 },
     };
 
+    const traceContext = {
+      current: vi.fn().mockReturnValue({ traceId: 'aaaa', spanId: 'bbbb' }),
+      run: vi.fn().mockImplementation((_ctx: any, fn: () => any) => fn()),
+    } as any;
+
     processor = new EnrichProcessor(
       makeDbService(mockDb),
       enrichService,
@@ -104,6 +109,7 @@ describe('EnrichProcessor', () => {
       settingsService,
       pluginRegistry,
       configService as any,
+      traceContext,
     );
   });
 

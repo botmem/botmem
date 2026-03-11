@@ -2,11 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import { dirname } from 'path';
 import { ConfigService } from '../config/config.service';
+import { TraceContext } from '../tracing/trace.context';
 
 @Injectable()
 export class LogsService {
   private readonly logger = new Logger(LogsService.name);
-  constructor(private config: ConfigService) {}
+  constructor(
+    private config: ConfigService,
+    private traceContext: TraceContext,
+  ) {}
 
   private get logsPath(): string {
     return this.config.logsPath;
@@ -30,6 +34,7 @@ export class LogsService {
     level: string;
     message: string;
   }): void {
+    const trace = this.traceContext.current();
     const entry = {
       id: crypto.randomUUID(),
       jobId: data.jobId || null,
@@ -39,6 +44,7 @@ export class LogsService {
       level: data.level,
       message: this.sanitizeMessage(data.message),
       timestamp: new Date().toISOString(),
+      ...(trace ? { traceId: trace.traceId, spanId: trace.spanId } : {}),
     };
 
     const line = JSON.stringify(entry) + '\n';

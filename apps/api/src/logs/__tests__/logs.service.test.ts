@@ -5,12 +5,15 @@ import { LogsService } from '../logs.service';
 import { ConfigService } from '../../config/config.service';
 
 function makeTmpPath() {
-  return os.tmpdir() + '/test-logs-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.ndjson';
+  return (
+    os.tmpdir() + '/test-logs-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.ndjson'
+  );
 }
 
 function makeService(logsPath: string): LogsService {
   const config = { logsPath } as unknown as ConfigService;
-  return new LogsService(config);
+  const traceContext = { current: () => undefined } as any;
+  return new LogsService(config, traceContext);
 }
 
 describe('LogsService', () => {

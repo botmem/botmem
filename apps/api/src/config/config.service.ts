@@ -129,7 +129,16 @@ export class ConfigService implements OnModuleInit {
   }
 
   get posthogHost(): string {
-    return process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+    return process.env.POSTHOG_HOST || 'https://t.botmem.xyz';
+  }
+
+  get posthogLogServiceName(): string {
+    return process.env.POSTHOG_LOG_SERVICE_NAME || 'botmem-api';
+  }
+
+  /** Minimum log level to send to PostHog: error | warn | log | debug | verbose */
+  get posthogLogMinLevel(): string {
+    return process.env.POSTHOG_LOG_MIN_LEVEL || 'log';
   }
 
   get decayCron(): string {

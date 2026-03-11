@@ -15,6 +15,7 @@ import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 @Processor('sync')
@@ -32,6 +33,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private settingsService: SettingsService,
     private configService: ConfigService,
     private analytics: AnalyticsService,
+    private traceContext: TraceContext,
   ) {
     super();
   }
@@ -59,9 +61,31 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
   }
 
   async process(
-    job: Job<{ accountId: string; connectorType: string; jobId: string; memoryBankId?: string }>,
+    job: Job<{
+      accountId: string;
+      connectorType: string;
+      jobId: string;
+      memoryBankId?: string;
+      _trace?: { traceId: string; spanId: string };
+    }>,
+  ) {
+    const trace = job.data._trace;
+    const traceId = trace?.traceId || generateTraceId();
+    const spanId = generateSpanId();
+    return this.traceContext.run({ traceId, spanId }, () => this._process(job));
+  }
+
+  private async _process(
+    job: Job<{
+      accountId: string;
+      connectorType: string;
+      jobId: string;
+      memoryBankId?: string;
+      _trace?: { traceId: string; spanId: string };
+    }>,
   ) {
     const { accountId, connectorType, jobId } = job.data;
+    const currentTrace = this.traceContext.current()!;
     const syncStartTime = Date.now();
     const connector = this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
@@ -122,7 +146,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         }
         await this.cleanQueue.add(
           'clean',
-          { rawEventId },
+          { rawEventId, _trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId } },
           { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
         );
       };

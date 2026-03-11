@@ -14,6 +14,7 @@ import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { rawEvents, memories, accounts, users } from '../db/schema';
+import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 
 @Processor('enrich')
 export class EnrichProcessor extends WorkerHost implements OnModuleInit {
@@ -30,6 +31,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
     private config: ConfigService,
+    private traceContext: TraceContext,
   ) {
     super();
   }
@@ -37,7 +39,8 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[enrich worker] ${err.message}`));
     const defaultC = this.config.aiConcurrency.enrich;
-    const concurrency = parseInt(await this.settingsService.get('enrich_concurrency'), 10) || defaultC;
+    const concurrency =
+      parseInt(await this.settingsService.get('enrich_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
     this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
@@ -47,7 +50,26 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     });
   }
 
-  async process(job: Job<{ rawEventId: string; memoryId: string }>) {
+  async process(
+    job: Job<{
+      rawEventId: string;
+      memoryId: string;
+      _trace?: { traceId: string; spanId: string };
+    }>,
+  ) {
+    const trace = job.data._trace;
+    const traceId = trace?.traceId || generateTraceId();
+    const spanId = generateSpanId();
+    return this.traceContext.run({ traceId, spanId }, () => this._process(job));
+  }
+
+  private async _process(
+    job: Job<{
+      rawEventId: string;
+      memoryId: string;
+      _trace?: { traceId: string; spanId: string };
+    }>,
+  ) {
     const { rawEventId, memoryId } = job.data;
 
     // Bootstrap (unscoped): resolve ownerUserId + parentJobId from raw event
@@ -94,19 +116,21 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       : await readMemory(this.dbService.db);
 
     // Fire afterEnrich hook (fire-and-forget)
-    this.pluginRegistry.fireHook('afterEnrich', {
-      id: memoryId,
-      text: mem?.text,
-      sourceType: mem?.sourceType,
-      connectorType,
-      eventTime: undefined,
-      entities: mem?.entities,
-      factuality: mem?.factuality,
-    }).catch((err) => {
-      this.logger.warn(
-        `afterEnrich hook failed for memory ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    });
+    this.pluginRegistry
+      .fireHook('afterEnrich', {
+        id: memoryId,
+        text: mem?.text,
+        sourceType: mem?.sourceType,
+        connectorType,
+        eventTime: undefined,
+        entities: mem?.entities,
+        factuality: mem?.factuality,
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `afterEnrich hook failed for memory ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
 
     // Encrypt memory fields at rest — must succeed before marking done.
     // If user key is missing, this throws and BullMQ retries with backoff.
@@ -197,9 +221,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       // User's recovery key not in cache — throw to trigger BullMQ retry.
       // The user must submit their recovery key (via login or /recovery-key endpoint)
       // for encryption to succeed. Retries with exponential backoff give time for that.
-      throw new Error(
-        `User key not available. Submit recovery key to unlock encryption.`,
-      );
+      throw new Error(`User key not available. Submit recovery key to unlock encryption.`);
     }
 
     // Get user's current keyVersion — users table is NOT RLS-protected, unscoped OK

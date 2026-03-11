@@ -1,7 +1,7 @@
 import posthog from 'posthog-js';
 
 const apiKey = import.meta.env.VITE_POSTHOG_API_KEY as string | undefined;
-const apiHost = (import.meta.env.VITE_POSTHOG_HOST as string) || 'https://us.i.posthog.com';
+const apiHost = (import.meta.env.VITE_POSTHOG_HOST as string) || 'https://t.botmem.xyz';
 
 export function initPostHog() {
   if (!apiKey) return;

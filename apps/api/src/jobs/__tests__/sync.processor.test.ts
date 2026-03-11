@@ -94,6 +94,11 @@ function createMockDeps() {
     capture: vi.fn(),
   } as unknown as AnalyticsService;
 
+  const traceContext = {
+    current: vi.fn().mockReturnValue({ traceId: 'aaaa', spanId: 'bbbb' }),
+    run: vi.fn().mockImplementation((_ctx: any, fn: () => any) => fn()),
+  } as any;
+
   return {
     connectors,
     accountsService,
@@ -106,6 +111,7 @@ function createMockDeps() {
     settingsService,
     configService,
     analytics,
+    traceContext,
     mockConnector,
   };
 }
@@ -124,6 +130,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockResolvedValue({ cursor: 'c1', hasMore: false, processed: 10 });
@@ -140,6 +147,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
     );
 
     const job = {
@@ -188,6 +196,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockRejectedValue(new Error('API rate limited'));
@@ -204,6 +213,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
     );
     const job = {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
@@ -244,6 +254,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
       mockConnector,
     } = createMockDeps();
     // First call returns hasMore:true, second returns hasMore:false
@@ -263,6 +274,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
     );
     const job = {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
@@ -288,6 +300,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockResolvedValue({ cursor: null, hasMore: false, processed: 5 });
@@ -304,6 +317,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
     );
     const job = {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
@@ -328,6 +342,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockImplementation(async (ctx: any) => {
@@ -350,6 +365,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
     );
     const job = {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
@@ -377,6 +393,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockRejectedValue(new Error('fail'));
@@ -393,6 +410,7 @@ describe('SyncProcessor', () => {
       settingsService,
       configService,
       analytics,
+      traceContext,
     );
     const job = {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
