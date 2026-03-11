@@ -1,13 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@botmem/shared';
-import {
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  getIdToken,
-  createUserWithEmailAndPassword,
-  sendEmailVerification,
-} from 'firebase/auth';
 import { firebaseAuth, googleProvider, githubProvider } from '../lib/firebase';
 import { trackEvent, resetUser, identifyUser } from '../lib/posthog';
 
@@ -48,6 +41,24 @@ async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.message || `Error ${res.status}`);
   }
   return res.json();
+}
+
+/** Lazy-load firebase/auth functions only when needed */
+async function getFirebaseAuthFns() {
+  const {
+    signInWithPopup,
+    signOut,
+    getIdToken,
+    createUserWithEmailAndPassword,
+    sendEmailVerification,
+  } = await import('firebase/auth');
+  return {
+    signInWithPopup,
+    signOut,
+    getIdToken,
+    createUserWithEmailAndPassword,
+    sendEmailVerification,
+  };
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -99,7 +110,9 @@ export const useAuthStore = create<AuthState>()(
       signup: async (email: string, password: string, name: string) => {
         set({ error: null, isLoading: true });
         try {
-          if (isFirebaseMode) {
+          if (isFirebaseMode && firebaseAuth) {
+            const { createUserWithEmailAndPassword, sendEmailVerification, getIdToken } =
+              await getFirebaseAuthFns();
             // Create user in Firebase, send verification email, then sync with backend
             const cred = await createUserWithEmailAndPassword(firebaseAuth, email, password);
             await sendEmailVerification(cred.user);
@@ -193,8 +206,9 @@ export const useAuthStore = create<AuthState>()(
       logout: async () => {
         trackEvent('logout');
         // Sign out of Firebase if in firebase mode
-        if (isFirebaseMode && firebaseAuth.currentUser) {
-          await firebaseSignOut(firebaseAuth).catch(() => {});
+        if (isFirebaseMode && firebaseAuth?.currentUser) {
+          const { signOut } = await getFirebaseAuthFns();
+          await signOut(firebaseAuth).catch(() => {});
         }
         try {
           await authFetch('/logout', { method: 'POST' });
@@ -251,10 +265,11 @@ export const useAuthStore = create<AuthState>()(
       initialize: async () => {
         set({ isLoading: true });
         try {
-          if (isFirebaseMode) {
+          if (isFirebaseMode && firebaseAuth) {
+            const { getIdToken } = await getFirebaseAuthFns();
             // Wait for Firebase auth state to resolve
             await new Promise<void>((resolve) => {
-              const unsubscribe = firebaseAuth.onAuthStateChanged(async (firebaseUser) => {
+              const unsubscribe = firebaseAuth!.onAuthStateChanged(async (firebaseUser) => {
                 unsubscribe();
                 if (firebaseUser) {
                   const idToken = await getIdToken(firebaseUser);
@@ -321,7 +336,9 @@ export const useAuthStore = create<AuthState>()(
       loginWithFirebase: async (provider: 'google' | 'github') => {
         set({ error: null, isLoading: true });
         try {
-          const authProvider = provider === 'google' ? googleProvider : githubProvider;
+          if (!firebaseAuth) throw new Error('Firebase is not configured');
+          const { signInWithPopup, getIdToken } = await getFirebaseAuthFns();
+          const authProvider = provider === 'google' ? googleProvider! : githubProvider!;
           const result = await signInWithPopup(firebaseAuth, authProvider);
 
           // Get the Firebase ID token
