@@ -12,18 +12,13 @@ export class PostHogExceptionFilter extends BaseExceptionFilter {
   }
 
   catch(exception: unknown, host: ArgumentsHost) {
-    // Send to PostHog before delegating to default handler
     const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+      exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
     // Only capture 5xx errors (not 4xx client errors like 404)
     if (status >= 500) {
-      const message =
-        exception instanceof Error ? exception.message : String(exception);
-      const stack =
-        exception instanceof Error ? exception.stack : undefined;
+      const message = exception instanceof Error ? exception.message : String(exception);
+      const stack = exception instanceof Error ? exception.stack : undefined;
 
       this.analytics.capture('$exception', {
         $exception_message: message,
@@ -34,7 +29,19 @@ export class PostHogExceptionFilter extends BaseExceptionFilter {
       });
     }
 
-    // Delegate to NestJS default exception handling (sends HTTP response)
-    super.catch(exception, host);
+    // For HttpExceptions, delegate to NestJS default handler (safe serialization).
+    // For unknown errors (which may contain circular refs like Socket objects),
+    // send a plain response to avoid "Converting circular structure to JSON".
+    if (exception instanceof HttpException) {
+      super.catch(exception, host);
+    } else {
+      const ctx = host.switchToHttp();
+      const response = ctx.getResponse();
+      const message = exception instanceof Error ? exception.message : 'Internal server error';
+      response.status(status).json({
+        statusCode: status,
+        message,
+      });
+    }
   }
 }
