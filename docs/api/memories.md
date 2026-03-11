@@ -1,5 +1,9 @@
 # Memories API
 
+::: info Authentication
+All endpoints require `Authorization: Bearer <token>` header. See [Authentication](/guide/authentication).
+:::
+
 ## Search Memories
 
 Performs semantic search across all memories using vector similarity in Qdrant.
@@ -23,15 +27,15 @@ POST /api/memories/search
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `query` | string | Yes | Natural language search query |
-| `filters` | object | No | Optional filters |
-| `filters.connectorType` | string | No | Filter by connector type |
-| `filters.sourceType` | string | No | Filter by source type |
-| `filters.contactId` | string | No | Filter to memories involving this contact |
-| `filters.factualityLabel` | string | No | Filter by factuality label |
-| `limit` | number | No | Max results (default: 20) |
+| Field                     | Type   | Required | Description                               |
+| ------------------------- | ------ | -------- | ----------------------------------------- |
+| `query`                   | string | Yes      | Natural language search query             |
+| `filters`                 | object | No       | Optional filters                          |
+| `filters.connectorType`   | string | No       | Filter by connector type                  |
+| `filters.sourceType`      | string | No       | Filter by source type                     |
+| `filters.contactId`       | string | No       | Filter to memories involving this contact |
+| `filters.factualityLabel` | string | No       | Filter by factuality label                |
+| `limit`                   | number | No       | Max results (default: 20)                 |
 
 ### Response
 
@@ -63,7 +67,7 @@ POST /api/memories/search
 Results are sorted by the `final` score (descending). The scoring formula is:
 
 ```
-final = 0.40 * semantic + 0.25 * recency + 0.20 * importance + 0.15 * trust
+final = 0.40 * semantic + 0.30 * rerank + 0.15 * recency + 0.10 * importance + 0.05 * trust
 ```
 
 ---
@@ -78,12 +82,12 @@ GET /api/memories
 
 ### Query Parameters
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `limit` | number | 50 | Page size |
-| `offset` | number | 0 | Pagination offset |
-| `connectorType` | string | - | Filter by connector type |
-| `sourceType` | string | - | Filter by source type |
+| Parameter       | Type   | Default | Description              |
+| --------------- | ------ | ------- | ------------------------ |
+| `limit`         | number | 50      | Page size                |
+| `offset`        | number | 0       | Pagination offset        |
+| `connectorType` | string | -       | Filter by connector type |
+| `sourceType`    | string | -       | Filter by source type    |
 
 ### Response
 
@@ -235,11 +239,11 @@ POST /api/memories
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `text` | string | Yes | - | Memory text content |
-| `sourceType` | string | No | `manual` | Source type label |
-| `connectorType` | string | No | `manual` | Connector type label |
+| Field           | Type   | Required | Default  | Description          |
+| --------------- | ------ | -------- | -------- | -------------------- |
+| `text`          | string | Yes      | -        | Memory text content  |
+| `sourceType`    | string | No       | `manual` | Source type label    |
+| `connectorType` | string | No       | `manual` | Connector type label |
 
 ### Response
 
@@ -258,7 +262,7 @@ POST /api/memories
 
 ## Delete Memory
 
-Removes a memory from both SQLite and Qdrant.
+Removes a memory from both PostgreSQL and Qdrant.
 
 ```
 DELETE /api/memories/:id

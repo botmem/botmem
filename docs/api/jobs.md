@@ -1,5 +1,9 @@
 # Jobs API
 
+::: info Authentication
+All endpoints require `Authorization: Bearer <token>` header. See [Authentication](/guide/authentication).
+:::
+
 Jobs track sync operations and their progress. Each sync creates a job record that persists its status, progress, and any errors.
 
 ## List Jobs
@@ -10,8 +14,8 @@ GET /api/jobs
 
 ### Query Parameters
 
-| Parameter | Type | Description |
-|---|---|---|
+| Parameter   | Type   | Description          |
+| ----------- | ------ | -------------------- |
 | `accountId` | string | Filter by account ID |
 
 ### Response
@@ -38,13 +42,13 @@ GET /api/jobs
 
 ### Job Status Values
 
-| Status | Description |
-|---|---|
-| `queued` | Waiting in the sync queue |
-| `running` | Currently executing |
-| `done` | Completed successfully |
-| `failed` | Completed with an error |
-| `cancelled` | Cancelled by user |
+| Status      | Description               |
+| ----------- | ------------------------- |
+| `queued`    | Waiting in the sync queue |
+| `running`   | Currently executing       |
+| `done`      | Completed successfully    |
+| `failed`    | Completed with an error   |
+| `cancelled` | Cancelled by user         |
 
 ---
 
@@ -64,6 +68,13 @@ GET /api/jobs/queues
     "waiting": 0,
     "active": 1,
     "completed": 15,
+    "failed": 0,
+    "delayed": 0
+  },
+  "clean": {
+    "waiting": 0,
+    "active": 0,
+    "completed": 8500,
     "failed": 0,
     "delayed": 0
   },
@@ -165,12 +176,12 @@ GET /api/logs
 
 ### Query Parameters
 
-| Parameter | Type | Description |
-|---|---|---|
-| `jobId` | string | Filter by job ID |
-| `accountId` | string | Filter by account ID |
-| `level` | string | Filter by level: info, warn, error, debug |
-| `limit` | number | Max entries (default: 100) |
+| Parameter   | Type   | Description                               |
+| ----------- | ------ | ----------------------------------------- |
+| `jobId`     | string | Filter by job ID                          |
+| `accountId` | string | Filter by account ID                      |
+| `level`     | string | Filter by level: info, warn, error, debug |
+| `limit`     | number | Max entries (default: 100)                |
 
 ### Response
 
@@ -183,7 +194,7 @@ GET /api/logs
     "accountId": "account-uuid",
     "stage": "embed",
     "level": "info",
-    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(768d) qdrant=45ms",
+    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(1024d) qdrant=45ms",
     "timestamp": "2026-02-15T10:15:30Z"
   }
 ]
@@ -191,9 +202,9 @@ GET /api/logs
 
 ### Log Stages
 
-| Stage | Description |
-|---|---|
-| `sync` | Connector sync operations |
-| `embed` | Embedding and contact resolution |
-| `file` | File download and content extraction |
-| `enrich` | Entity extraction and factuality |
+| Stage    | Description                          |
+| -------- | ------------------------------------ |
+| `sync`   | Connector sync operations            |
+| `embed`  | Embedding and contact resolution     |
+| `file`   | File download and content extraction |
+| `enrich` | Entity extraction and factuality     |

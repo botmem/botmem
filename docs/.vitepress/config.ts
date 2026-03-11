@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   title: 'Botmem',
-  description: 'Self-hosted personal memory for AI agents',
+  description: 'Personal memory for AI agents — self-hosted or managed',
 
   appearance: 'dark',
   ignoreDeadLinks: true,
@@ -12,7 +12,13 @@ export default defineConfig({
     ['meta', { name: 'theme-color', content: '#F59E0B' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Botmem' }],
-    ['meta', { property: 'og:description', content: 'Self-hosted personal memory for AI agents' }],
+    [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Personal memory for AI agents — self-hosted or managed',
+      },
+    ],
   ],
 
   themeConfig: {
@@ -32,8 +38,10 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/guide/' },
           { text: 'Quick Start', link: '/guide/quickstart' },
-          { text: 'Architecture', link: '/guide/architecture' },
+          { text: 'Authentication', link: '/guide/authentication' },
           { text: 'Configuration', link: '/guide/configuration' },
+          { text: 'Self-Hosted vs Managed', link: '/guide/managed' },
+          { text: 'Production Deployment', link: '/guide/deployment' },
         ],
       },
       {
@@ -66,6 +74,7 @@ export default defineConfig({
           { text: 'Memory Model', link: '/architecture/memory-model' },
           { text: 'Contacts', link: '/architecture/contacts' },
           { text: 'Memory Graph', link: '/architecture/graph' },
+          { text: 'Security & Encryption', link: '/architecture/security' },
         ],
       },
       {
@@ -88,9 +97,7 @@ export default defineConfig({
       },
     ],
 
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/botmem/botmem' },
-    ],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/botmem/botmem' }],
 
     search: {
       provider: 'local',
