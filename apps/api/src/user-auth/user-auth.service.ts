@@ -16,6 +16,7 @@ import { ConfigService } from '../config/config.service';
 import { MailService } from '../mail/mail.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { UserKeyService } from '../crypto/user-key.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 // Dummy hash used for timing attack prevention when user not found
 const DUMMY_HASH = '$2b$12$LJ3m4ys3Gz8h/.0MStlQiee6RjGHPnRYVwO3BSXK8X8A.VFj0e6Vu';
@@ -31,6 +32,7 @@ export class UserAuthService {
     private mailService: MailService,
     private memoryBanksService: MemoryBanksService,
     private userKeyService: UserKeyService,
+    private analytics: AnalyticsService,
     @InjectQueue('reencrypt') private reencryptQueue: Queue,
   ) {}
 
@@ -74,6 +76,8 @@ export class UserAuthService {
 
     // Create default memory bank
     await this.memoryBanksService.getOrCreateDefault(user!.id);
+
+    this.analytics.capture('user_registered', { auth_method: 'email' }, user!.id);
 
     const tokens = await this.generateTokenPair(user!.id, user!.email);
     return {
@@ -144,6 +148,12 @@ export class UserAuthService {
     } else if (!dek) {
       needsRecoveryKey = true;
     }
+
+    this.analytics.capture(
+      'user_logged_in',
+      { auth_method: 'email', needs_recovery_key: needsRecoveryKey },
+      user.id,
+    );
 
     const tokens = await this.generateTokenPair(user.id, user.email);
     return {
@@ -251,6 +261,7 @@ export class UserAuthService {
     await this.usersService.markResetUsed(reset.id);
     await this.usersService.revokeAllUserTokens(reset.userId);
 
+    this.analytics.capture('password_reset', {}, reset.userId);
     this.logger.log(`Password reset for user ${reset.userId} — encryption unchanged`);
   }
 

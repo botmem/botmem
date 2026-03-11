@@ -21,13 +21,16 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center animate-[fadeIn_150ms_ease-out]">
-      <div className="absolute inset-0 bg-black/60 animate-[fadeIn_100ms_ease-out]" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 animate-[fadeIn_100ms_ease-out]"
+        onClick={onClose}
+      />
       <div className="relative border-4 border-nb-border bg-nb-surface shadow-nb-lg p-6 w-full max-w-lg mx-4 animate-[slideUp_150ms_ease-out]">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display text-xl font-bold uppercase text-nb-text">{title}</h2>
           <button
             onClick={onClose}
-            className="border-3 border-nb-border w-9 h-9 flex items-center justify-center font-bold text-lg hover:bg-nb-red hover:text-white transition-colors cursor-pointer text-nb-text"
+            className="border-3 border-nb-border w-11 h-11 flex items-center justify-center font-bold text-lg hover:bg-nb-red hover:text-white transition-colors cursor-pointer text-nb-text"
           >
             X
           </button>

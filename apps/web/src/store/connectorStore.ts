@@ -6,6 +6,7 @@ import type {
   SyncSchedule,
 } from '@botmem/shared';
 import { api } from '../lib/api';
+import { trackEvent } from '../lib/posthog';
 
 interface ConnectorState {
   accounts: ConnectorAccount[];
@@ -48,6 +49,7 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   addAccount: async (type, identifier) => {
     try {
       const account = await api.createAccount({ connectorType: type, identifier });
+      trackEvent('connector_added', { connector_type: type });
       set((state) => ({ accounts: [...state.accounts, account] }));
     } catch {
       // Fallback to local-only
@@ -72,11 +74,13 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   },
 
   removeAccount: async (id) => {
+    const account = _get().accounts.find((a) => a.id === id);
     try {
       await api.deleteAccount(id);
     } catch {
       // Continue with local removal
     }
+    trackEvent('connector_removed', { connector_type: account?.type });
     set((state) => ({ accounts: state.accounts.filter((a) => a.id !== id) }));
   },
 
@@ -92,6 +96,8 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   },
 
   syncNow: async (id, memoryBankId?) => {
+    const account = _get().accounts.find((a) => a.id === id);
+    trackEvent('sync_triggered', { connector_type: account?.type });
     set((state) => ({
       accounts: state.accounts.map((a) => (a.id === id ? { ...a, status: 'syncing' as const } : a)),
     }));

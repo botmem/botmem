@@ -13,6 +13,7 @@ import { IntegrationsTab } from '../components/settings/IntegrationsTab';
 import { useAuth } from '../hooks/useAuth';
 import { isFirebaseMode } from '../store/authStore';
 import { api } from '../lib/api';
+import { trackEvent } from '../lib/posthog';
 
 const BASE_TABS = [
   { id: 'profile', label: 'Profile' },
@@ -78,6 +79,7 @@ export function SettingsPage() {
   }, []);
 
   const handleTabChange = (id: string) => {
+    trackEvent('settings_tab_changed', { tab: id });
     setSearchParams({ tab: id });
   };
 
@@ -98,6 +100,7 @@ export function SettingsPage() {
       }
       patch.auto_enrich = String(autoEnrich);
       const updated = await api.updateSettings(patch);
+      trackEvent('settings_saved', { keys: Object.keys(patch) });
       setSettings(updated);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -235,7 +238,7 @@ export function SettingsPage() {
               </p>
 
               <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between border-3 border-nb-border p-3 bg-nb-surface-muted">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-3 border-nb-border p-3 bg-nb-surface-muted">
                   <div>
                     <p className="font-display text-sm font-bold uppercase text-nb-text">
                       PURGE ALL MEMORIES
@@ -249,6 +252,7 @@ export function SettingsPage() {
                     size="sm"
                     onClick={() => {
                       if (confirmPurge) {
+                        trackEvent('memories_purged');
                         api.purgeMemories().catch(() => {});
                         setConfirmPurge(false);
                       } else {
@@ -261,7 +265,7 @@ export function SettingsPage() {
                   </Button>
                 </div>
 
-                <div className="flex items-center justify-between border-3 border-nb-border p-3 bg-nb-surface-muted">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-3 border-nb-border p-3 bg-nb-surface-muted">
                   <div>
                     <p className="font-display text-sm font-bold uppercase text-nb-text">
                       RESET VECTOR INDEX
@@ -273,7 +277,10 @@ export function SettingsPage() {
                   <Button
                     variant="danger"
                     size="sm"
-                    onClick={() => api.resetVectorIndex().catch(() => {})}
+                    onClick={() => {
+                      trackEvent('vector_index_reset');
+                      api.resetVectorIndex().catch(() => {});
+                    }}
                   >
                     RESET
                   </Button>
