@@ -14,7 +14,7 @@ export function Tabs({ tabs, active, onChange }: TabsProps) {
           key={tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            'px-5 py-2.5 font-display text-sm font-bold uppercase tracking-wider cursor-pointer',
+            'px-5 py-3 font-display text-sm font-bold uppercase tracking-wider cursor-pointer min-h-[44px]',
             'border-r-3 border-nb-border last:border-r-0 transition-colors',
             active === tab.id
               ? 'bg-nb-text text-nb-bg'

@@ -8,6 +8,7 @@ import { DbService } from '../../db/db.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { CryptoService } from '../../crypto/crypto.service';
 import { ConfigService } from '../../config/config.service';
+import { OAuthStateService } from '../oauth-state.service';
 
 function createMockDeps() {
   const { EventEmitter } = require('events');
@@ -75,6 +76,14 @@ function createMockDeps() {
     baseUrl: 'http://localhost:12412',
   } as unknown as ConfigService;
 
+  const oauthState = {
+    savePendingConfig: vi.fn().mockResolvedValue(undefined),
+    getPendingConfig: vi.fn().mockResolvedValue(null),
+    deletePendingConfig: vi.fn().mockResolvedValue(undefined),
+    acquireCreateLock: vi.fn().mockResolvedValue(true),
+    releaseCreateLock: vi.fn().mockResolvedValue(undefined),
+  } as unknown as OAuthStateService;
+
   return {
     connectors,
     accountsService,
@@ -84,13 +93,23 @@ function createMockDeps() {
     crypto,
     analytics,
     config,
+    oauthState,
     mockConnector,
   };
 }
 
 function makeService(deps: ReturnType<typeof createMockDeps>) {
-  const { connectors, accountsService, jobsService, events, dbService, crypto, analytics, config } =
-    deps;
+  const {
+    connectors,
+    accountsService,
+    jobsService,
+    events,
+    dbService,
+    crypto,
+    analytics,
+    config,
+    oauthState,
+  } = deps;
   return new AuthService(
     connectors,
     accountsService,
@@ -100,6 +119,7 @@ function makeService(deps: ReturnType<typeof createMockDeps>) {
     crypto,
     analytics,
     config,
+    oauthState,
   );
 }
 
@@ -116,15 +136,17 @@ describe('AuthService', () => {
       const result = await service.initiate('test', { identifier: 'user1' });
 
       expect(result.type).toBe('complete');
-      expect(deps.accountsService.create).toHaveBeenCalledWith({
-        connectorType: 'test',
-        identifier: 'user1',
-        authContext: '{"accessToken":"tok"}',
-      });
+      expect(deps.accountsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connectorType: 'test',
+          identifier: 'user1',
+          authContext: '{"accessToken":"tok"}',
+        }),
+      );
       expect(deps.jobsService.triggerSync).toHaveBeenCalledWith('a1', 'test', expect.any(String));
     });
 
-    it('handles redirect auth type', async () => {
+    it('handles redirect auth type and appends state token to URL', async () => {
       const deps = createMockDeps();
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
@@ -135,11 +157,12 @@ describe('AuthService', () => {
       const result = await service.initiate('test', {});
 
       expect(result.type).toBe('redirect');
-      expect((result as any).url).toBe('https://oauth.example.com');
+      expect((result as any).url).toMatch(/^https:\/\/oauth\.example\.com\?state=.+$/);
+      expect(deps.oauthState.savePendingConfig).toHaveBeenCalled();
       expect(deps.accountsService.create).not.toHaveBeenCalled();
     });
 
-    it('stores pending config for redirect auth', async () => {
+    it('stores pending config in Redis for redirect auth', async () => {
       const deps = createMockDeps();
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
@@ -148,19 +171,46 @@ describe('AuthService', () => {
       deps.mockConnector.completeAuth.mockResolvedValue({ accessToken: 'tok' });
 
       const service = makeService(deps);
-      await service.initiate('test', {
-        clientId: 'cid',
-        clientSecret: 'csec',
+      await service.initiate(
+        'test',
+        {
+          clientId: 'cid',
+          clientSecret: 'csec',
+          returnTo: '/onboarding',
+        },
+        'user-1',
+      );
+
+      // Verify savePendingConfig was called
+      expect(deps.oauthState.savePendingConfig).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          config: expect.objectContaining({ clientId: 'cid', clientSecret: 'csec' }),
+          returnTo: '/onboarding',
+          userId: 'user-1',
+        }),
+      );
+
+      // Extract the stateToken that was saved
+      const stateToken = (deps.oauthState.savePendingConfig as any).mock.calls[0][0];
+
+      // Mock getPendingConfig to return the saved data for callback
+      (deps.oauthState.getPendingConfig as any).mockResolvedValueOnce({
+        config: { clientId: 'cid', clientSecret: 'csec' },
         returnTo: '/onboarding',
+        userId: 'user-1',
       });
 
-      const result = await service.handleCallback('test', { code: 'abc' });
+      const result = await service.handleCallback('test', { code: 'abc', state: stateToken });
 
-      expect(deps.mockConnector.completeAuth).toHaveBeenCalledWith({
-        clientId: 'cid',
-        clientSecret: 'csec',
-        code: 'abc',
-      });
+      expect(deps.oauthState.getPendingConfig).toHaveBeenCalledWith(stateToken);
+      expect(deps.mockConnector.completeAuth).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: 'cid',
+          clientSecret: 'csec',
+          code: 'abc',
+        }),
+      );
       expect(result.returnTo).toBe('/onboarding');
     });
 
@@ -221,21 +271,37 @@ describe('AuthService', () => {
   });
 
   describe('handleCallback', () => {
-    it('completes auth and creates account', async () => {
+    it('completes auth and creates account with state token', async () => {
       const deps = createMockDeps();
       deps.mockConnector.completeAuth.mockResolvedValue({ accessToken: 'callback-tok' });
+      (deps.oauthState.getPendingConfig as any).mockResolvedValueOnce({
+        config: {},
+        userId: 'user-1',
+      });
 
       const service = makeService(deps);
-      const result = await service.handleCallback('test', { code: 'abc', identifier: 'user1' });
-
-      expect(deps.mockConnector.completeAuth).toHaveBeenCalledWith({
+      const result = await service.handleCallback('test', {
         code: 'abc',
         identifier: 'user1',
+        state: 'test-state-token',
       });
+
+      expect(deps.oauthState.getPendingConfig).toHaveBeenCalledWith('test-state-token');
+      expect(deps.oauthState.deletePendingConfig).toHaveBeenCalledWith('test-state-token');
       expect(deps.accountsService.create).toHaveBeenCalled();
       expect(deps.jobsService.triggerSync).toHaveBeenCalledWith('a1', 'test', expect.any(String));
       expect(result.account).toBeDefined();
       expect(result.returnTo).toBeUndefined();
+    });
+
+    it('throws when no userId can be determined', async () => {
+      const deps = createMockDeps();
+      deps.mockConnector.completeAuth.mockResolvedValue({ accessToken: 'tok' });
+      // No state token → no pending config → no userId
+      const service = makeService(deps);
+      await expect(service.handleCallback('test', { code: 'abc' })).rejects.toThrow(
+        'could not determine user',
+      );
     });
 
     it('cleans up pending config after callback', async () => {
@@ -247,12 +313,15 @@ describe('AuthService', () => {
       deps.mockConnector.completeAuth.mockResolvedValue({ accessToken: 'tok' });
 
       const service = makeService(deps);
-      await service.initiate('test', { clientId: 'cid', clientSecret: 'csec' });
-      await service.handleCallback('test', { code: 'abc' });
+      await service.initiate('test', { clientId: 'cid', clientSecret: 'csec' }, 'user-1');
 
-      deps.mockConnector.completeAuth.mockClear();
-      await service.handleCallback('test', { code: 'def' });
-      expect(deps.mockConnector.completeAuth).toHaveBeenCalledWith({ code: 'def' });
+      // First callback with state — returns pending config
+      (deps.oauthState.getPendingConfig as any).mockResolvedValueOnce({
+        config: { clientId: 'cid', clientSecret: 'csec' },
+        userId: 'user-1',
+      });
+      await service.handleCallback('test', { code: 'abc', state: 'state-1' });
+      expect(deps.oauthState.deletePendingConfig).toHaveBeenCalledWith('state-1');
     });
   });
 
