@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { filterReducer, uiReducer } from '../graphReducers';
 import type { FilterState, UIState } from '../graphReducers';
+import type { GraphNode } from '@botmem/shared';
+import type { ApiContact, ApiContactMemory } from '../../../lib/api';
 
 describe('filterReducer', () => {
   const initial: FilterState = {
@@ -105,7 +107,7 @@ describe('uiReducer', () => {
   });
 
   it('selects node', () => {
-    const node = { id: 'n1', label: 'A' } as any;
+    const node = { id: 'n1', label: 'A' } as unknown as GraphNode;
     expect(uiReducer(initial, { type: 'selectNode', node }).selectedNode).toBe(node);
     expect(uiReducer(initial, { type: 'selectNode', node: null }).selectedNode).toBeNull();
   });
@@ -129,12 +131,15 @@ describe('uiReducer', () => {
   });
 
   it('sets contact info', () => {
-    const info = { detail: { id: 'c1' }, memories: [] };
+    const info = {
+      detail: { id: 'c1', displayName: 'Test' } as ApiContact,
+      memories: [] as ApiContactMemory[],
+    };
     expect(uiReducer(initial, { type: 'setContactInfo', info }).contactInfo).toBe(info);
   });
 
   it('double click on unfocused node focuses it', () => {
-    const node = { id: 'n1', label: 'A' } as any;
+    const node = { id: 'n1', label: 'A' } as unknown as GraphNode;
     const next = uiReducer(initial, { type: 'doubleClickNode', node });
     expect(next.focusedNodeId).toBe('n1');
     expect(next.focusExpansion).toBe(1);
@@ -142,7 +147,7 @@ describe('uiReducer', () => {
   });
 
   it('double click on already focused node expands', () => {
-    const node = { id: 'n1', label: 'A' } as any;
+    const node = { id: 'n1', label: 'A' } as unknown as GraphNode;
     const state = { ...initial, focusedNodeId: 'n1', focusExpansion: 2 };
     const next = uiReducer(state, { type: 'doubleClickNode', node });
     expect(next.focusExpansion).toBe(3);
