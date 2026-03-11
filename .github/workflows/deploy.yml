@@ -258,6 +258,7 @@ jobs:
     name: Publish @botmem/cli to npm
     runs-on: ubuntu-latest
     needs: build-and-push
+    if: ${{ secrets.NPM_TOKEN != '' }}
     permissions:
       contents: read
       id-token: write
@@ -288,6 +289,8 @@ jobs:
 
       - name: Determine version and publish
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           git fetch --tags
           LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
@@ -312,5 +315,5 @@ jobs:
           if npm view "@botmem/cli@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"
           else
-            npm publish --access public --tag latest
+            npm publish --access public --provenance --tag latest
           fi
