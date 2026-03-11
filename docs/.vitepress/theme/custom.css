@@ -1,185 +1,556 @@
 /* ===================================================
-   Botmem -- amber/gold theme on dark background
+   Botmem Docs — Neobrutalist theme
+   Matches the app's design system:
+   - Space Mono / IBM Plex Mono fonts
+   - Lime #C4F53A accent
+   - Sharp borders (0 radius), offset shadows
+   - Dark mode default (#0D0D0D bg)
    =================================================== */
 
-:root {
-  /* Brand colors */
-  --vp-c-brand-1: #F59E0B;
-  --vp-c-brand-2: #D97706;
-  --vp-c-brand-3: #B45309;
-  --vp-c-brand-soft: rgba(245, 158, 11, 0.14);
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap');
 
-  /* Tip / info callouts follow brand */
+/* ----- Base theme tokens ----- */
+
+:root {
+  /* Brand — lime accent */
+  --vp-c-brand-1: #C4F53A;
+  --vp-c-brand-2: #B0DD33;
+  --vp-c-brand-3: #9CC52D;
+  --vp-c-brand-soft: rgba(196, 245, 58, 0.14);
+
+  /* Tip/info callouts follow brand */
   --vp-c-tip-1: var(--vp-c-brand-1);
   --vp-c-tip-2: var(--vp-c-brand-2);
   --vp-c-tip-3: var(--vp-c-brand-3);
   --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  /* Warning */
+  --vp-c-warning-1: #FFE66D;
+  --vp-c-warning-2: #FBBF24;
+
+  /* Danger */
+  --vp-c-danger-1: #EF4444;
+  --vp-c-danger-2: #DC2626;
+
+  /* Hero */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    135deg,
+    #C4F53A 0%,
+    #E8FF6B 50%,
+    #C4F53A 100%
+  );
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    rgba(196, 245, 58, 0.2) 50%,
+    rgba(78, 205, 196, 0.2) 50%
+  );
+  --vp-home-hero-image-filter: blur(44px);
+
+  /* Typography */
+  --vp-font-family-base: 'IBM Plex Mono', monospace;
+  --vp-font-family-mono: 'IBM Plex Mono', monospace;
 }
 
-.dark {
-  --vp-c-bg: #0F0F0F;
-  --vp-c-bg-alt: #161616;
-  --vp-c-bg-elv: #1A1A1A;
-  --vp-c-bg-soft: #1E1E1E;
+/* ----- Dark mode ----- */
 
-  --vp-c-brand-1: #F59E0B;
-  --vp-c-brand-2: #FBBF24;
-  --vp-c-brand-3: #FCD34D;
-  --vp-c-brand-soft: rgba(245, 158, 11, 0.16);
+.dark {
+  --vp-c-bg: #0D0D0D;
+  --vp-c-bg-alt: #141420;
+  --vp-c-bg-elv: #1A1A2E;
+  --vp-c-bg-soft: #1E1E35;
+
+  --vp-c-brand-1: #C4F53A;
+  --vp-c-brand-2: #D4FF5A;
+  --vp-c-brand-3: #E8FF6B;
+  --vp-c-brand-soft: rgba(196, 245, 58, 0.16);
 
   --vp-c-tip-1: var(--vp-c-brand-1);
   --vp-c-tip-2: var(--vp-c-brand-2);
   --vp-c-tip-3: var(--vp-c-brand-3);
   --vp-c-tip-soft: var(--vp-c-brand-soft);
 
+  --vp-c-text-1: #F0F0F0;
+  --vp-c-text-2: #CCCCCC;
+  --vp-c-text-3: #888888;
+  --vp-c-divider: #E0E0E020;
+
   /* Sidebar */
-  --vp-sidebar-bg-color: #111111;
+  --vp-sidebar-bg-color: #0D0D0D;
 
   /* Code blocks */
-  --vp-code-block-bg: #141414;
-  --vp-code-line-highlight-color: rgba(245, 158, 11, 0.08);
+  --vp-code-block-bg: #0A0A18;
+  --vp-code-line-highlight-color: rgba(196, 245, 58, 0.06);
+
+  /* Nav */
+  --vp-nav-bg-color: #0D0D0D;
+}
+
+/* ----- Light mode ----- */
+
+html:not(.dark) {
+  --vp-c-bg: #F5F5F0;
+  --vp-c-bg-alt: #EFEFEA;
+  --vp-c-bg-elv: #FFFFFF;
+  --vp-c-bg-soft: #E5E5E0;
+
+  --vp-c-text-1: #0D0D0D;
+  --vp-c-text-2: #333333;
+  --vp-c-text-3: #555550;
+
+  --vp-sidebar-bg-color: #F5F5F0;
+  --vp-code-block-bg: #E8E8E3;
+  --vp-code-line-highlight-color: rgba(196, 245, 58, 0.12);
+  --vp-nav-bg-color: #F5F5F0;
+}
+
+/* ----- Global: kill all border-radius (neobrutalism) ----- */
+
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+/* ----- Heading font: Space Mono ----- */
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4,
+.VPHero .main .name,
+.VPHero .main .text,
+.VPNavBarTitle .title,
+.VPSidebarItem .text,
+.VPFeature .title,
+.VPButton {
+  font-family: 'Space Mono', monospace !important;
+  letter-spacing: 0.02em;
+}
+
+/* Sidebar group titles — uppercase */
+.VPSidebarItem.level-0 > .item > .text {
+  font-family: 'Space Mono', monospace !important;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
 }
 
 /* ----- Hero section ----- */
 
 .VPHero .main .name {
-  background: linear-gradient(135deg, #F59E0B 0%, #FCD34D 50%, #F59E0B 100%);
+  background: linear-gradient(135deg, #C4F53A 0%, #E8FF6B 50%, #C4F53A 100%);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .VPHero .main .text {
-  color: #E5E5E5;
+  font-weight: 700;
 }
 
-.VPHero .main .tagline {
-  color: #A3A3A3;
+.dark .VPHero .main .text {
+  color: #F0F0F0;
 }
 
-/* Brand gradient for hero name clip */
-:root {
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(
-    135deg,
-    #F59E0B 0%,
-    #FCD34D 50%,
-    #F59E0B 100%
-  );
+.dark .VPHero .main .tagline {
+  color: #888888;
 }
 
-/* Hero image glow */
-:root {
-  --vp-home-hero-image-background-image: linear-gradient(
-    -45deg,
-    #F59E0B33 50%,
-    #B4530933 50%
-  );
-  --vp-home-hero-image-filter: blur(44px);
+/* ----- Buttons: neobrutalist offset shadow ----- */
+
+.VPButton {
+  border: 3px solid !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  transition: transform 100ms, box-shadow 100ms !important;
 }
-
-/* ----- Heading glow ----- */
-
-.dark .vp-doc h1,
-.dark .vp-doc h2 {
-  text-shadow: 0 0 30px rgba(245, 158, 11, 0.1);
-}
-
-/* ----- Button overrides ----- */
 
 .VPButton.brand {
-  background-color: #F59E0B;
-  border-color: #F59E0B;
-  color: #0F0F0F;
+  background-color: #C4F53A !important;
+  border-color: #C4F53A !important;
+  color: #0D0D0D !important;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
 }
 
 .VPButton.brand:hover {
-  background-color: #D97706;
-  border-color: #D97706;
+  background-color: #B0DD33 !important;
+  border-color: #B0DD33 !important;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.3);
 }
 
-/* Alt button in dark mode */
+.VPButton.brand:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
 .dark .VPButton.alt {
-  background-color: #1E1E1E;
-  border-color: #333;
-  color: #E5E5E5;
+  background-color: #1A1A2E !important;
+  border-color: #E0E0E0 !important;
+  color: #F0F0F0 !important;
+  box-shadow: 4px 4px 0 rgba(255, 255, 255, 0.08);
 }
 
 .dark .VPButton.alt:hover {
-  border-color: #F59E0B;
-  color: #F59E0B;
+  border-color: #C4F53A !important;
+  color: #C4F53A !important;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.08);
 }
 
-/* ----- Feature cards ----- */
+html:not(.dark) .VPButton.alt {
+  background-color: #FFFFFF !important;
+  border-color: #0D0D0D !important;
+  color: #0D0D0D !important;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.15);
+}
+
+html:not(.dark) .VPButton.alt:hover {
+  border-color: #C4F53A !important;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* ----- Feature cards: thick border + offset shadow ----- */
+
+.VPFeature {
+  border: 3px solid !important;
+  transition: transform 100ms, box-shadow 100ms, border-color 200ms !important;
+}
 
 .dark .VPFeature {
-  background-color: #161616;
-  border-color: #222;
-  transition: border-color 0.25s, box-shadow 0.25s;
+  background-color: #1A1A2E !important;
+  border-color: #E0E0E040 !important;
+  box-shadow: 4px 4px 0 rgba(255, 255, 255, 0.06);
 }
 
 .dark .VPFeature:hover {
-  border-color: rgba(245, 158, 11, 0.4);
-  box-shadow: 0 0 20px rgba(245, 158, 11, 0.06);
+  border-color: #C4F53A80 !important;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.06);
+}
+
+html:not(.dark) .VPFeature {
+  background-color: #FFFFFF !important;
+  border-color: #0D0D0D30 !important;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.1);
+}
+
+html:not(.dark) .VPFeature:hover {
+  border-color: #0D0D0D80 !important;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
 }
 
 .VPFeature .title {
-  color: #F59E0B;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  font-size: 14px !important;
+  letter-spacing: 0.04em;
 }
 
-/* ----- Sidebar active link ----- */
+.dark .VPFeature .title {
+  color: #C4F53A !important;
+}
 
+html:not(.dark) .VPFeature .title {
+  color: #0D0D0D !important;
+}
+
+.VPFeature .details {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ----- Navbar: thick bottom border ----- */
+
+.VPNav {
+  border-bottom: 3px solid !important;
+}
+
+.dark .VPNav {
+  border-color: #E0E0E020 !important;
+}
+
+html:not(.dark) .VPNav {
+  border-color: #0D0D0D20 !important;
+}
+
+/* Nav title */
+.VPNavBarTitle .title {
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em !important;
+}
+
+/* Nav links hover */
+.dark .VPNavBarMenuLink:hover .text,
+.dark .VPNavBarMenuLink.active .text {
+  color: #C4F53A !important;
+}
+
+/* ----- Sidebar: thick right border ----- */
+
+.VPSidebar {
+  border-right: 3px solid !important;
+}
+
+.dark .VPSidebar {
+  border-color: #E0E0E020 !important;
+}
+
+html:not(.dark) .VPSidebar {
+  border-color: #0D0D0D15 !important;
+}
+
+/* Sidebar active link */
 .dark .VPSidebarItem.is-active > .item > .link > .text {
-  color: #F59E0B;
+  color: #C4F53A !important;
+  font-weight: 700;
+}
+
+html:not(.dark) .VPSidebarItem.is-active > .item > .link > .text {
+  color: #0D0D0D !important;
+  font-weight: 700;
+}
+
+/* Sidebar active indicator bar */
+.VPSidebarItem.is-active > .item > .indicator {
+  background-color: #C4F53A !important;
+}
+
+/* ----- Doc headings ----- */
+
+.vp-doc h1 {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.vp-doc h2 {
+  font-weight: 700;
+  border-top: 3px solid;
+  padding-top: 24px;
+  margin-top: 48px;
+}
+
+.dark .vp-doc h2 {
+  border-color: #E0E0E015;
+}
+
+html:not(.dark) .vp-doc h2 {
+  border-color: #0D0D0D10;
 }
 
 /* ----- Inline code ----- */
 
 .dark .vp-doc :not(pre) > code {
-  background-color: rgba(245, 158, 11, 0.1);
-  color: #FBBF24;
+  background-color: rgba(196, 245, 58, 0.1) !important;
+  color: #C4F53A !important;
+  border: 1px solid rgba(196, 245, 58, 0.2);
+  padding: 2px 6px;
+  font-weight: 500;
 }
 
-/* ----- Custom badge for connector type ----- */
+html:not(.dark) .vp-doc :not(pre) > code {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  color: #0D0D0D !important;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 2px 6px;
+  font-weight: 500;
+}
+
+/* ----- Code blocks: thick border ----- */
+
+.vp-doc div[class*='language-'] {
+  border: 2px solid !important;
+}
+
+.dark .vp-doc div[class*='language-'] {
+  border-color: #E0E0E015 !important;
+}
+
+html:not(.dark) .vp-doc div[class*='language-'] {
+  border-color: #0D0D0D10 !important;
+}
+
+/* ----- Tables: sharp, clean ----- */
+
+.vp-doc table {
+  border: 2px solid;
+}
+
+.dark .vp-doc table {
+  border-color: #E0E0E020;
+}
+
+html:not(.dark) .vp-doc table {
+  border-color: #0D0D0D15;
+}
+
+.vp-doc th {
+  font-family: 'Space Mono', monospace !important;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+.dark .vp-doc th {
+  background-color: #1A1A2E !important;
+  border-color: #E0E0E020 !important;
+  color: #C4F53A;
+}
+
+html:not(.dark) .vp-doc th {
+  background-color: #E8E8E3 !important;
+  border-color: #0D0D0D15 !important;
+  color: #0D0D0D;
+}
+
+.dark .vp-doc td {
+  border-color: #E0E0E010 !important;
+}
+
+/* ----- Custom containers (tip, warning, danger, info) ----- */
+
+.vp-doc .custom-block {
+  border: 2px solid !important;
+}
+
+.dark .vp-doc .custom-block.tip {
+  border-color: #C4F53A40 !important;
+  background-color: rgba(196, 245, 58, 0.04) !important;
+}
+
+.dark .vp-doc .custom-block.warning {
+  border-color: #FFE66D40 !important;
+  background-color: rgba(255, 230, 109, 0.04) !important;
+}
+
+.dark .vp-doc .custom-block.danger {
+  border-color: #EF444440 !important;
+  background-color: rgba(239, 68, 68, 0.04) !important;
+}
+
+.dark .vp-doc .custom-block.info {
+  border-color: #4ECDC440 !important;
+  background-color: rgba(78, 205, 196, 0.04) !important;
+}
+
+.custom-block .custom-block-title {
+  font-family: 'Space Mono', monospace !important;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+/* ----- Links ----- */
+
+.dark .vp-doc a {
+  color: #C4F53A;
+}
+
+.dark .vp-doc a:hover {
+  color: #E8FF6B;
+}
+
+html:not(.dark) .vp-doc a {
+  color: #6B8E00;
+}
+
+html:not(.dark) .vp-doc a:hover {
+  color: #4A6300;
+}
+
+/* ----- Badge overrides ----- */
 
 .badge-oauth2 {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(59, 130, 246, 0.15);
-  color: #60A5FA;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 2px solid;
+  background: rgba(78, 205, 196, 0.1);
+  color: #4ECDC4;
+  border-color: #4ECDC440;
 }
 
 .badge-qr {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(16, 185, 129, 0.15);
-  color: #34D399;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 2px solid;
+  background: rgba(34, 197, 94, 0.1);
+  color: #22C55E;
+  border-color: #22C55E40;
 }
 
 .badge-api-key {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(245, 158, 11, 0.15);
-  color: #FBBF24;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 2px solid;
+  background: rgba(196, 245, 58, 0.1);
+  color: #C4F53A;
+  border-color: #C4F53A40;
 }
 
 .badge-local {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 2px solid;
+  background: rgba(168, 85, 247, 0.1);
+  color: #A855F7;
+  border-color: #A855F740;
+}
+
+/* ----- Footer ----- */
+
+.VPFooter {
+  border-top: 3px solid !important;
+}
+
+.dark .VPFooter {
+  border-color: #E0E0E020 !important;
+}
+
+html:not(.dark) .VPFooter {
+  border-color: #0D0D0D15 !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  font-family: 'Space Mono', monospace !important;
   font-size: 12px;
-  font-weight: 600;
-  background: rgba(168, 85, 247, 0.15);
-  color: #C084FC;
+  letter-spacing: 0.04em;
+}
+
+/* ----- Selection highlight ----- */
+
+::selection {
+  background-color: #C4F53A;
+  color: #000000;
 }
 
 /* ----- Scrollbar (dark mode) ----- */
@@ -189,14 +560,69 @@
 }
 
 .dark ::-webkit-scrollbar-track {
-  background: #0F0F0F;
+  background: #0D0D0D;
 }
 
 .dark ::-webkit-scrollbar-thumb {
   background: #333;
-  border-radius: 3px;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #555;
+}
+
+/* ----- Search modal ----- */
+
+.dark .DocSearch-Modal {
+  background-color: #0D0D0D !important;
+  border: 3px solid #E0E0E020;
+}
+
+/* ----- Content doc page width ----- */
+
+.vp-doc {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* ----- Blockquotes ----- */
+
+.vp-doc blockquote {
+  border-left: 4px solid #C4F53A !important;
+}
+
+.dark .vp-doc blockquote {
+  background-color: rgba(196, 245, 58, 0.03);
+}
+
+/* ----- Horizontal rules ----- */
+
+.dark .vp-doc hr {
+  border-color: #E0E0E015;
+}
+
+/* ----- Edit link ----- */
+
+.dark .VPDocFooter .edit-link-button {
+  color: #888888;
+}
+
+.dark .VPDocFooter .edit-link-button:hover {
+  color: #C4F53A;
+}
+
+/* ----- Local search ----- */
+
+.dark .VPLocalSearchBox .search-input {
+  border: 3px solid #E0E0E020 !important;
+  background-color: #1A1A2E !important;
+}
+
+.dark .VPLocalSearchBox .result {
+  border: 2px solid #E0E0E010 !important;
+}
+
+.dark .VPLocalSearchBox .result.selected {
+  border-color: #C4F53A40 !important;
+  background-color: rgba(196, 245, 58, 0.04) !important;
 }
