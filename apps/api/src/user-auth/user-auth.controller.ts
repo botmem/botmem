@@ -1,10 +1,12 @@
 import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { UserAuthService } from './user-auth.service';
+import { CliAuthService } from './cli-auth.service';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -34,10 +36,13 @@ function clearRefreshCookie(res: Response) {
   });
 }
 
+@ApiTags('User Auth')
+@ApiBearerAuth()
 @Controller('user-auth')
 export class UserAuthController {
   constructor(
     private authService: UserAuthService,
+    private cliAuthService: CliAuthService,
     private usersService: UsersService,
   ) {}
 
@@ -153,5 +158,79 @@ export class UserAuthController {
       onboarded: !!fullUser.onboarded,
       createdAt: fullUser.createdAt,
     };
+  }
+
+  // --- CLI OAuth Flow ---
+
+  @Public()
+  @Post('cli/session')
+  async cliCreateSession(
+    @Body()
+    body: {
+      code_challenge: string;
+      code_challenge_method: string;
+      redirect_uri: string;
+      state: string;
+    },
+  ) {
+    return this.cliAuthService.createSession({
+      codeChallenge: body.code_challenge,
+      codeChallengeMethod: body.code_challenge_method,
+      redirectUri: body.redirect_uri,
+      state: body.state,
+    });
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('cli/approve')
+  @HttpCode(200)
+  async cliApprove(
+    @Body()
+    body: {
+      sessionId: string;
+      email: string;
+      password: string;
+      recoveryKey?: string;
+    },
+  ) {
+    return this.cliAuthService.approve(body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('cli/approve-with-token')
+  @HttpCode(200)
+  async cliApproveWithToken(
+    @CurrentUser() user: { id: string; email: string },
+    @Body()
+    body: {
+      sessionId: string;
+      recoveryKey?: string;
+    },
+  ) {
+    return this.cliAuthService.approveWithToken({
+      sessionId: body.sessionId,
+      userId: user.id,
+      email: user.email,
+      recoveryKey: body.recoveryKey,
+    });
+  }
+
+  @Public()
+  @Post('cli/token')
+  @HttpCode(200)
+  async cliToken(
+    @Body()
+    body: {
+      code: string;
+      code_verifier: string;
+      redirect_uri: string;
+    },
+  ) {
+    return this.cliAuthService.exchangeCode({
+      code: body.code,
+      codeVerifier: body.code_verifier,
+      redirectUri: body.redirect_uri,
+    });
   }
 }
