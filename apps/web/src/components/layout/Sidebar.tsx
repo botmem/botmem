@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@botmem/shared';
 import { useAuth } from '../../hooks/useAuth';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
@@ -280,6 +280,7 @@ interface SidebarProps {
 
 export function Sidebar({ onClose }: SidebarProps) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -398,7 +399,10 @@ export function Sidebar({ onClose }: SidebarProps) {
         )}
         {collapsed && !onClose && user && <div className="hidden md:block mb-2" />}
         <button
-          onClick={logout}
+          onClick={async () => {
+            await logout();
+            navigate('/');
+          }}
           aria-label="Logout"
           className={cn(
             'font-display text-xs font-bold uppercase border-2 border-nb-border text-nb-text',
