@@ -1805,7 +1805,6 @@ describe('sync module', () => {
                       liveLocationMessage: {
                         degreesLatitude: 40.7128,
                         degreesLongitude: -74.006,
-                        address: 'New York',
                       },
                     },
                     messageTimestamp: Math.floor(Date.now() / 1000),
@@ -1837,7 +1836,7 @@ describe('sync module', () => {
       const locEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'lloc1');
       expect(locEmit).toBeDefined();
       expect(locEmit![0].content.text).toContain('shared location');
-      expect(locEmit![0].content.text).toContain('New York');
+      expect(locEmit![0].content.text).toContain('40.7128');
     });
 
     it('handles DM message with other party resolution', async () => {
