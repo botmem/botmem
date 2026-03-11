@@ -38,9 +38,11 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
         'border-3 border-nb-border bg-nb-surface shadow-nb p-3 cursor-pointer transition-all duration-100',
         'hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm',
         selected && 'translate-x-[2px] translate-y-[2px] shadow-nb-sm border-nb-lime',
-        compact && 'p-2'
+        compact && 'p-2',
       )}
-      style={isSelf ? { borderColor: SELF_COLOR, boxShadow: `0 0 10px ${SELF_COLOR}30` } : undefined}
+      style={
+        isSelf ? { borderColor: SELF_COLOR, boxShadow: `0 0 10px ${SELF_COLOR}30` } : undefined
+      }
     >
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
@@ -51,7 +53,7 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
               {contact.connectorSources.map((src) => (
                 <div
                   key={src}
-                  className="w-4 h-4 border border-nb-border flex items-center justify-center"
+                  className="size-4 border border-nb-border flex items-center justify-center"
                   style={{ backgroundColor: CONNECTOR_COLORS[src] || '#999' }}
                   title={src}
                 >
@@ -63,13 +65,22 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className={cn('font-display font-bold uppercase tracking-wider text-nb-text truncate', compact ? 'text-xs' : 'text-sm')}>
+          <h3
+            className={cn(
+              'font-display font-bold uppercase tracking-wider text-nb-text truncate',
+              compact ? 'text-xs' : 'text-sm',
+            )}
+          >
             {contact.displayName}
           </h3>
 
           <div className="flex flex-wrap gap-1 mt-1">
             {shownIds.map((ident, i) => (
-              <Badge key={i} color={IDENTIFIER_COLORS[ident.type]} className="text-[10px] py-0 leading-tight">
+              <Badge
+                key={i}
+                color={IDENTIFIER_COLORS[ident.type]}
+                className="text-[10px] py-0 leading-tight"
+              >
                 {ident.value}
               </Badge>
             ))}

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 import { useThemeStore, type ThemePreference } from '../../store/themeStore';
 
 interface ThemeToggleProps {
@@ -81,7 +82,10 @@ export function ThemeToggle({ variant = 'icon', className = '' }: ThemeTogglePro
     return (
       <button
         onClick={() => setTheme(cycle[theme])}
-        className={`flex items-center gap-2 border-2 border-nb-border px-3 py-2.5 font-display text-xs font-bold uppercase text-nb-text hover:bg-nb-lime hover:text-black transition-colors cursor-pointer min-h-[44px] ${className}`}
+        className={cn(
+          'flex items-center gap-2 border-2 border-nb-border px-3 py-1.5 font-display text-xs font-bold uppercase text-nb-text hover:bg-nb-lime hover:text-black transition-colors cursor-pointer',
+          className,
+        )}
         aria-label={`Theme: ${labels[theme]}. Click to switch.`}
         title={`Theme: ${labels[theme]}`}
       >
@@ -94,7 +98,10 @@ export function ThemeToggle({ variant = 'icon', className = '' }: ThemeTogglePro
   return (
     <button
       onClick={() => setTheme(cycle[theme])}
-      className={`border-2 border-nb-border w-11 h-11 flex items-center justify-center text-nb-text hover:bg-nb-lime hover:text-black transition-colors cursor-pointer ${className}`}
+      className={cn(
+        'border-2 border-nb-border size-8 flex items-center justify-center text-nb-text hover:bg-nb-lime hover:text-black transition-colors cursor-pointer',
+        className,
+      )}
       aria-label={`Theme: ${labels[theme]}. Click to switch.`}
       title={`Switch theme (${labels[theme]})`}
     >

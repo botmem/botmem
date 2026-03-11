@@ -1,4 +1,5 @@
 import { useRef, useCallback, useState, useMemo, useReducer, useEffect } from 'react';
+import { cn } from '@/lib/utils';
 import type { GraphData } from '@botmem/shared';
 import { SearchResultsBanner } from './SearchResultsBanner';
 import { NodeDetailPanel } from './NodeDetailPanel';
@@ -25,8 +26,14 @@ interface MemoryGraphProps {
   search: UseSearchReturn;
 }
 
-
-export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading, onLoadAll, search }: MemoryGraphProps) {
+export function MemoryGraph({
+  data,
+  onReloadPreview,
+  graphPreview,
+  graphLoading,
+  onLoadAll,
+  search,
+}: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -46,16 +53,21 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
   });
 
   // Bridge useSearch return into SearchState format for useFilteredGraph
-  const searchState = useMemo(() => ({
-    term: search.term,
-    pending: search.pending,
-    results: search.results ? {
-      memoryIds: search.results.memoryIds,
-      contactNodeIds: search.results.contactNodeIds,
-      scoreMap: search.results.scoreMap,
-      resolvedEntities: search.results.resolvedEntities ?? undefined,
-    } : null,
-  }), [search.term, search.pending, search.results]);
+  const searchState = useMemo(
+    () => ({
+      term: search.term,
+      pending: search.pending,
+      results: search.results
+        ? {
+            memoryIds: search.results.memoryIds,
+            contactNodeIds: search.results.contactNodeIds,
+            scoreMap: search.results.scoreMap,
+            resolvedEntities: search.results.resolvedEntities ?? undefined,
+          }
+        : null,
+    }),
+    [search.term, search.pending, search.results],
+  );
 
   const [ui, dispatchUI] = useReducer(uiReducer, {
     legendOpen: false,
@@ -72,9 +84,12 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
     import('react-force-graph-2d').then((mod) => {
       setForceGraph(() => mod.default);
     });
-    api.getMeStatus().then(({ contactId }) => {
-      if (contactId) setSelfNodeId(`contact-${contactId}`);
-    }).catch(() => {});
+    api
+      .getMeStatus()
+      .then(({ contactId }) => {
+        if (contactId) setSelfNodeId(`contact-${contactId}`);
+      })
+      .catch(() => {});
   }, []);
 
   // Graph updates are now driven by WebSocket deltas — no polling needed
@@ -99,7 +114,10 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
         setDimensions({ width: rect.width, height: window.innerHeight - rect.top });
       } else {
         const rect = el.getBoundingClientRect();
-        setDimensions({ width: rect.width, height: Math.max(300, Math.min(rect.width * 0.4, 450)) });
+        setDimensions({
+          width: rect.width,
+          height: Math.max(300, Math.min(rect.width * 0.4, 450)),
+        });
       }
     };
     measure();
@@ -145,11 +163,28 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
     };
   }, [data.nodes.length]);
 
-  const { filteredData, isInitialRender, searchMatchIds, highlightedIds, focusVisibleIds, adjacency, linkColor, linkWidth } = useFilteredGraph({
-    data, filters, search: searchState, connectionCounts, selfNodeId,
-    focusedNodeId: ui.focusedNodeId, focusExpansion: ui.focusExpansion,
+  const {
+    filteredData,
+    isInitialRender,
+    searchMatchIds,
+    highlightedIds,
+    focusVisibleIds,
+    adjacency,
+    linkColor,
+    linkWidth,
+  } = useFilteredGraph({
+    data,
+    filters,
+    search: searchState,
+    connectionCounts,
+    selfNodeId,
+    focusedNodeId: ui.focusedNodeId,
+    focusExpansion: ui.focusExpansion,
     onReloadPreview,
-    graphRef, containerRef, dimensions, adaptiveConfig,
+    graphRef,
+    containerRef,
+    dimensions,
+    adaptiveConfig,
   });
 
   const handleNodeDoubleClick = useCallback((node: any) => {
@@ -157,23 +192,28 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
   }, []);
 
   const authToken = useAuthStore((s) => s.accessToken);
-  const renderCtx = useMemo<NodeRenderCtx>(() => ({
-    searchMatchIds,
-    highlightedIds,
-    focusVisibleIds,
-    selfNodeId,
-    scoreMap: searchState.results?.scoreMap ?? null,
-    authToken,
-  }), [searchMatchIds, highlightedIds, focusVisibleIds, selfNodeId, searchState.results, authToken]);
+  const renderCtx = useMemo<NodeRenderCtx>(
+    () => ({
+      searchMatchIds,
+      highlightedIds,
+      focusVisibleIds,
+      selfNodeId,
+      scoreMap: searchState.results?.scoreMap ?? null,
+      authToken,
+    }),
+    [searchMatchIds, highlightedIds, focusVisibleIds, selfNodeId, searchState.results, authToken],
+  );
 
   const nodeCanvasObject = useCallback(
-    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => renderNode(node, ctx, globalScale, renderCtx),
-    [renderCtx]
+    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) =>
+      renderNode(node, ctx, globalScale, renderCtx),
+    [renderCtx],
   );
 
   const nodePointerArea = useCallback(
-    (node: any, color: string, ctx: CanvasRenderingContext2D) => renderNodePointerArea(node, color, ctx),
-    []
+    (node: any, color: string, ctx: CanvasRenderingContext2D) =>
+      renderNodePointerArea(node, color, ctx),
+    [],
   );
 
   const { handleRemoveIdentifier } = useGraphEffects({
@@ -205,7 +245,11 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
   const matchCount = searchMatchIds?.size || 0;
 
   return (
-    <div className={ui.isFullscreen ? 'fixed inset-0 z-50 bg-nb-bg flex flex-col p-4 overflow-hidden' : ''}>
+    <div
+      className={
+        ui.isFullscreen ? 'fixed inset-0 z-50 bg-nb-bg flex flex-col p-4 overflow-hidden' : ''
+      }
+    >
       {/* Controls */}
       <div className="flex items-center gap-3 mb-2">
         <SearchInput
@@ -224,7 +268,9 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
           <span className="text-nb-lime">LOADING...</span>
         ) : (
           <>
-            <span>{visibleNodes} / {totalNodes} nodes</span>
+            <span>
+              {visibleNodes} / {totalNodes} nodes
+            </span>
             <span>{filteredData.links.length} edges</span>
             {searchState.term && <span>{matchCount} matches</span>}
             {graphPreview && onLoadAll && (
@@ -236,9 +282,7 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
                 {graphLoading ? 'LOADING...' : 'LOAD ALL'}
               </button>
             )}
-            {graphLoading && !graphPreview && (
-              <span className="text-nb-lime">LOADING...</span>
-            )}
+            {graphLoading && !graphPreview && <span className="text-nb-lime">LOADING...</span>}
             {adaptiveConfig.performanceMode && (
               <span className="text-nb-lime cursor-help relative group" title="">
                 &#9889;
@@ -258,11 +302,18 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
         />
       )}
 
-      <div ref={containerRef} className={`relative border-3 border-nb-border bg-nb-surface overflow-hidden ${ui.isFullscreen ? 'flex-1' : ''}`} style={ui.isFullscreen ? undefined : { maxHeight: dimensions.height, minHeight: 300 }}>
+      <div
+        ref={containerRef}
+        className={cn(
+          'relative border-3 border-nb-border bg-nb-surface overflow-hidden',
+          ui.isFullscreen && 'flex-1',
+        )}
+        style={ui.isFullscreen ? undefined : { maxHeight: dimensions.height, minHeight: 300 }}
+      >
         {graphNotReady ? (
           <div className="flex items-center justify-center h-[300px]">
             <div className="flex flex-col items-center gap-3">
-              <div className="w-6 h-6 border-3 border-nb-lime border-t-transparent rounded-full animate-spin" />
+              <div className="size-6 border-3 border-nb-lime border-t-transparent rounded-full animate-spin" />
               <p className="font-mono text-sm uppercase text-nb-text">
                 {!ForceGraph ? 'LOADING GRAPH ENGINE...' : 'LOADING GRAPH DATA...'}
               </p>
@@ -278,7 +329,12 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
             nodePointerAreaPaint={nodePointerArea}
             linkColor={linkColor}
             linkWidth={linkWidth}
-            linkLineDash={adaptiveConfig.disableLinkDash ? undefined : (link: any) => (link.linkType === 'involves' || link.linkType === 'source') ? [4, 2] : []}
+            linkLineDash={
+              adaptiveConfig.disableLinkDash
+                ? undefined
+                : (link: any) =>
+                    link.linkType === 'involves' || link.linkType === 'source' ? [4, 2] : []
+            }
             onNodeClick={(node: any) => {
               dispatchUI({ type: 'selectNode', node });
               trackEvent('graph_node_click', {
@@ -286,7 +342,10 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
               });
             }}
             onNodeDoubleClick={handleNodeDoubleClick}
-            onNodeDragEnd={(node: any) => { node.fx = undefined; node.fy = undefined; }}
+            onNodeDragEnd={(node: any) => {
+              node.fx = undefined;
+              node.fy = undefined;
+            }}
             onBackgroundClick={() => dispatchUI({ type: 'clearFocus' })}
             d3VelocityDecay={0.4}
             cooldownTicks={adaptiveConfig.cooldownTicks}
@@ -305,7 +364,10 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
                 }
                 if (gd?.nodes) {
                   for (const n of gd.nodes) {
-                    if (n.fx !== undefined) { n.fx = undefined; n.fy = undefined; }
+                    if (n.fx !== undefined) {
+                      n.fx = undefined;
+                      n.fy = undefined;
+                    }
                   }
                 }
               }
@@ -317,17 +379,26 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
         {/* Keyboard shortcuts hint */}
         {ui.isFullscreen && (
           <div
-            className="absolute top-3 left-3 z-10 border-2 border-nb-border bg-nb-surface/90 px-3 py-2 font-mono text-[10px] text-nb-muted space-y-0.5 pointer-events-none"
+            className="absolute top-3 left-3 z-10 border-2 border-nb-border bg-nb-surface/90 px-3 py-2 font-mono text-[10px] text-nb-muted flex flex-col gap-0.5 pointer-events-none"
             style={{
               opacity: ui.showHint ? 1 : 0,
               transition: 'opacity 0.6s ease-out',
             }}
           >
             <div className="font-bold uppercase text-nb-text text-[11px] mb-1">Keyboard</div>
-            <div><span className="inline-block w-12 text-nb-lime font-bold">Arrows</span> Navigate nodes</div>
-            <div><span className="inline-block w-12 text-nb-lime font-bold">{'\u2318'}F</span> Search</div>
-            <div><span className="inline-block w-12 text-nb-lime font-bold">M</span> Go to me</div>
-            <div><span className="inline-block w-12 text-nb-lime font-bold">Esc</span> Exit fullscreen</div>
+            <div>
+              <span className="inline-block w-12 text-nb-lime font-bold">Arrows</span> Navigate
+              nodes
+            </div>
+            <div>
+              <span className="inline-block w-12 text-nb-lime font-bold">{'\u2318'}F</span> Search
+            </div>
+            <div>
+              <span className="inline-block w-12 text-nb-lime font-bold">M</span> Go to me
+            </div>
+            <div>
+              <span className="inline-block w-12 text-nb-lime font-bold">Esc</span> Exit fullscreen
+            </div>
           </div>
         )}
 
@@ -356,15 +427,29 @@ export function MemoryGraph({ data, onReloadPreview, graphPreview, graphLoading,
         <button
           onClick={() => dispatchUI({ type: 'toggleFullscreen' })}
           title={ui.isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-          className="absolute bottom-2 right-2 z-10 border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
+          className="absolute bottom-2 right-2 z-10 border-2 border-nb-border size-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
         >
           {ui.isFullscreen ? (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <polyline points="9,1 9,5 13,5" />
               <polyline points="5,13 5,9 1,9" />
             </svg>
           ) : (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <polyline points="1,5 1,1 5,1" />
               <polyline points="13,9 13,13 9,13" />
             </svg>

@@ -16,13 +16,13 @@ export function Toggle({ checked, onChange, label }: ToggleProps) {
       <div
         className={cn(
           'w-12 h-7 border-3 border-nb-border relative transition-colors duration-100',
-          checked ? 'bg-nb-lime' : 'bg-nb-surface-muted'
+          checked ? 'bg-nb-lime' : 'bg-nb-surface-muted',
         )}
       >
         <div
           className={cn(
-            'w-5 h-5 border-2 border-nb-border bg-nb-text absolute top-0.5 transition-all duration-100',
-            checked ? 'left-5' : 'left-0.5'
+            'size-5 border-2 border-nb-border bg-nb-text absolute top-0.5 transition-all duration-100',
+            checked ? 'left-5' : 'left-0.5',
           )}
         />
       </div>

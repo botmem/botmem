@@ -33,7 +33,13 @@ interface MergeTinderProps {
 
 type SwipeDir = 'left' | 'right' | 'up' | null;
 
-export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onReinsertSuggestion }: MergeTinderProps) {
+export function MergeTinder({
+  suggestions,
+  onMerge,
+  onDismiss,
+  onUndismiss,
+  onReinsertSuggestion,
+}: MergeTinderProps) {
   const [index, setIndex] = useState(0);
   const [swipeDir, setSwipeDir] = useState<SwipeDir>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -144,7 +150,9 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
         onClick={() => setIsOpen(true)}
         className="w-full mb-4 border-3 border-nb-border bg-nb-surface shadow-nb px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-nb-lime transition-colors"
       >
-        <Badge color="#FFE66D" className="text-sm px-2 py-0.5">{suggestions.length}</Badge>
+        <Badge color="#FFE66D" className="text-sm px-2 py-0.5">
+          {suggestions.length}
+        </Badge>
         <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
           Merge Suggestions
         </span>
@@ -177,7 +185,9 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
       <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span>Merge Review</span>
-          <Badge color="#FFE66D" className="text-[10px] py-0">{suggestions.length}</Badge>
+          <Badge color="#FFE66D" className="text-[10px] py-0">
+            {suggestions.length}
+          </Badge>
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-nb-muted">
@@ -185,7 +195,7 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
           </span>
           <button
             onClick={() => setIsOpen(false)}
-            className="border border-nb-border w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-nb-red hover:text-white cursor-pointer"
+            className="border border-nb-border size-6 flex items-center justify-center text-xs font-bold hover:bg-nb-red hover:text-white cursor-pointer"
           >
             X
           </button>
@@ -199,7 +209,7 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
           className="absolute inset-y-0 left-0 w-16 flex items-center justify-center pointer-events-none transition-opacity duration-100"
           style={{ opacity: swipeDir === 'left' ? 1 : 0 }}
         >
-          <div className="bg-nb-red/20 border-2 border-nb-red rounded-full w-12 h-12 flex items-center justify-center">
+          <div className="bg-nb-red/20 border-2 border-nb-red rounded-full size-12 flex items-center justify-center">
             <span className="font-display text-lg font-bold text-nb-red">X</span>
           </div>
         </div>
@@ -207,7 +217,10 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
           className="absolute inset-y-0 right-0 w-16 flex items-center justify-center pointer-events-none transition-opacity duration-100"
           style={{ opacity: swipeDir === 'right' ? 1 : 0 }}
         >
-          <div className="border-2 border-nb-lime rounded-full w-12 h-12 flex items-center justify-center" style={{ backgroundColor: 'rgba(196, 245, 58, 0.2)' }}>
+          <div
+            className="border-2 border-nb-lime rounded-full size-12 flex items-center justify-center"
+            style={{ backgroundColor: 'rgba(196, 245, 58, 0.2)' }}
+          >
             <span className="font-display text-lg font-bold text-nb-lime">{'\u2713'}</span>
           </div>
         </div>
@@ -216,13 +229,14 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
         <div
           className="transition-all duration-100"
           style={{
-            transform: swipeDir === 'right'
-              ? 'translateX(60px) rotate(3deg)'
-              : swipeDir === 'left'
-                ? 'translateX(-60px) rotate(-3deg)'
-                : swipeDir === 'up'
-                  ? 'translateY(-30px)'
-                  : 'translateX(0)',
+            transform:
+              swipeDir === 'right'
+                ? 'translateX(60px) rotate(3deg)'
+                : swipeDir === 'left'
+                  ? 'translateX(-60px) rotate(-3deg)'
+                  : swipeDir === 'up'
+                    ? 'translateY(-30px)'
+                    : 'translateX(0)',
             opacity: swipeDir ? 0.5 : 1,
           }}
         >
@@ -254,10 +268,16 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
               className="flex items-center gap-2 px-2 py-1.5 border border-nb-border bg-nb-surface-muted"
               style={{ opacity: 1 - i * 0.3 }}
             >
-              <span className="font-mono text-xs text-nb-text truncate flex-1">{s.contact1.displayName}</span>
+              <span className="font-mono text-xs text-nb-text truncate flex-1">
+                {s.contact1.displayName}
+              </span>
               <span className="font-mono text-[10px] text-nb-muted shrink-0">{'\u2194'}</span>
-              <span className="font-mono text-xs text-nb-text truncate flex-1 text-right">{s.contact2.displayName}</span>
-              <span className="font-mono text-[9px] text-nb-muted shrink-0 max-w-32 truncate">{s.reason.split(':')[0]}</span>
+              <span className="font-mono text-xs text-nb-text truncate flex-1 text-right">
+                {s.contact2.displayName}
+              </span>
+              <span className="font-mono text-[9px] text-nb-muted shrink-0 max-w-32 truncate">
+                {s.reason.split(':')[0]}
+              </span>
             </div>
           ))}
         </div>
@@ -270,12 +290,21 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
           onClick={doSkip}
           className="flex items-center gap-2 border-2 border-nb-red px-4 py-2 font-mono text-xs font-bold uppercase text-nb-red hover:bg-nb-red hover:text-white cursor-pointer transition-colors"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <line x1="2" y1="2" x2="12" y2="12" />
             <line x1="12" y1="2" x2="2" y2="12" />
           </svg>
           Skip
-          <kbd className="ml-1 border border-current px-1 py-0 text-[9px] opacity-60">{'\u2190'}</kbd>
+          <kbd className="ml-1 border border-current px-1 py-0 text-[9px] opacity-60">
+            {'\u2190'}
+          </kbd>
         </button>
 
         {/* Undo */}
@@ -285,12 +314,21 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
           className="flex items-center gap-1.5 border-2 border-nb-border px-3 py-2 font-mono text-xs font-bold uppercase text-nb-text hover:bg-nb-surface-hover cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           title="Undo last skip"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <polyline points="4,7 1,4 4,1" />
             <path d="M1,4 H9 A4,4 0 0 1 9,12 H5" />
           </svg>
           Undo
-          <kbd className="ml-0.5 border border-nb-border px-1 py-0 text-[9px] opacity-60">{'\u2191'}</kbd>
+          <kbd className="ml-0.5 border border-nb-border px-1 py-0 text-[9px] opacity-60">
+            {'\u2191'}
+          </kbd>
         </button>
 
         {/* Merge button */}
@@ -299,19 +337,36 @@ export function MergeTinder({ suggestions, onMerge, onDismiss, onUndismiss, onRe
           className="flex items-center gap-2 border-2 border-nb-lime px-4 py-2 font-mono text-xs font-bold uppercase text-black bg-nb-lime hover:brightness-110 cursor-pointer transition-colors"
         >
           Merge
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <polyline points="2,7 6,11 12,3" />
           </svg>
-          <kbd className="ml-1 border border-black/30 px-1 py-0 text-[9px] opacity-60">{'\u2192'}</kbd>
+          <kbd className="ml-1 border border-black/30 px-1 py-0 text-[9px] opacity-60">
+            {'\u2192'}
+          </kbd>
         </button>
       </div>
 
       {/* Keyboard hint */}
       <div className="border-t border-nb-border px-4 py-1.5 bg-nb-surface-muted flex items-center justify-center gap-4 font-mono text-[10px] text-nb-muted">
-        <span><kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2190'}</kbd> Skip</span>
-        <span><kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2192'}</kbd> Merge</span>
-        <span><kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2191'}</kbd> Undo</span>
-        <span><kbd className="border border-nb-border px-1 py-0 text-[9px]">Esc</kbd> Close</span>
+        <span>
+          <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2190'}</kbd> Skip
+        </span>
+        <span>
+          <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2192'}</kbd> Merge
+        </span>
+        <span>
+          <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2191'}</kbd> Undo
+        </span>
+        <span>
+          <kbd className="border border-nb-border px-1 py-0 text-[9px]">Esc</kbd> Close
+        </span>
       </div>
     </Card>
   );

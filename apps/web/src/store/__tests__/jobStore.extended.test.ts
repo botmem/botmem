@@ -25,13 +25,13 @@ describe('jobStore extended', () => {
 
   describe('fetchQueueStats', () => {
     it('fetches and sets queue stats', async () => {
-      (api.getQueueStats as any).mockResolvedValue({ sync: { waiting: 2, active: 1, completed: 10, failed: 0, delayed: 0 } });
+      (api.getQueueStats as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ sync: { waiting: 2, active: 1, completed: 10, failed: 0, delayed: 0 } });
       await useJobStore.getState().fetchQueueStats();
       expect(useJobStore.getState().queueStats).toHaveProperty('sync');
     });
 
     it('handles error gracefully', async () => {
-      (api.getQueueStats as any).mockRejectedValue(new Error('fail'));
+      (api.getQueueStats as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useJobStore.getState().fetchQueueStats();
       expect(useJobStore.getState().queueStats).toBeNull();
     });
@@ -44,7 +44,7 @@ describe('jobStore extended', () => {
         totalLogs: 5,
         hasMoreLogs: true,
       });
-      (api.listLogs as any).mockResolvedValue({
+      (api.listLogs as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         logs: [{ id: 'l2', timestamp: '2026-01-02', level: 'info', connectorType: 'slack', message: 'msg2' }],
         total: 5,
       });
@@ -67,7 +67,7 @@ describe('jobStore extended', () => {
 
     it('handles error', async () => {
       useJobStore.setState({ hasMoreLogs: true, loadingMoreLogs: false, logs: [] });
-      (api.listLogs as any).mockRejectedValue(new Error('fail'));
+      (api.listLogs as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useJobStore.getState().fetchMoreLogs();
       expect(useJobStore.getState().loadingMoreLogs).toBe(false);
     });
@@ -121,9 +121,9 @@ describe('jobStore extended', () => {
 
   describe('retryAllFailed', () => {
     it('retries and refreshes jobs', async () => {
-      (api.retryFailedJobs as any).mockResolvedValue({ ok: true, retried: 2 });
-      (api.listJobs as any).mockResolvedValue({ jobs: [] });
-      (api.getQueueStats as any).mockResolvedValue({});
+      (api.retryFailedJobs as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, retried: 2 });
+      (api.listJobs as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ jobs: [] });
+      (api.getQueueStats as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useJobStore.getState().retryAllFailed();
       expect(api.retryFailedJobs).toHaveBeenCalled();
       expect(useJobStore.getState().retrying).toBe(false);

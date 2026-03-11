@@ -135,7 +135,7 @@ export function GraphLegend({
         </button>
 
         {legendOpen && (
-          <div className="absolute bottom-full left-0 mb-1 w-72 border-3 border-nb-border bg-nb-surface shadow-nb p-3 space-y-3">
+          <div className="absolute bottom-full left-0 mb-1 w-72 border-3 border-nb-border bg-nb-surface shadow-nb p-3 flex flex-col gap-3">
             <div>
               <div className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
                 Nodes
@@ -288,9 +288,9 @@ export function GraphLegend({
                 Size = Importance
               </div>
               <div className="flex items-center gap-2 font-mono text-[10px] text-nb-muted">
-                <span className="w-2 h-2 border border-nb-muted inline-block" /> low
-                <span className="w-3 h-3 border border-nb-muted inline-block" /> med
-                <span className="w-4 h-4 border border-nb-muted inline-block" /> high
+                <span className="size-2 border border-nb-muted inline-block" /> low
+                <span className="size-3 border border-nb-muted inline-block" /> med
+                <span className="size-4 border border-nb-muted inline-block" /> high
               </div>
             </div>
           </div>
@@ -300,19 +300,19 @@ export function GraphLegend({
       <div className="flex gap-1">
         <button
           onClick={() => graphRef.current?.zoom(graphRef.current.zoom() * 1.5, 300)}
-          className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
+          className="border-2 border-nb-border size-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
         >
           +
         </button>
         <button
           onClick={() => graphRef.current?.zoom(graphRef.current.zoom() / 1.5, 300)}
-          className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
+          className="border-2 border-nb-border size-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
         >
           {'\u2212'}
         </button>
         <button
           onClick={() => graphRef.current?.zoomToFit(400)}
-          className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
+          className="border-2 border-nb-border size-8 flex items-center justify-center font-mono text-sm font-bold bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
         >
           {'\u2299'}
         </button>

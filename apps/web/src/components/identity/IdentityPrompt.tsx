@@ -143,9 +143,10 @@ export function IdentityPrompt() {
           {!loading && filtered.length === 0 && (
             <p className="font-mono text-sm text-nb-muted text-center py-4">No contacts found</p>
           )}
-          {!loading && filtered.map((c) => (
-            <ContactRow key={c.id} contact={c} onClick={() => handleSelectIdentity(c.id)} />
-          ))}
+          {!loading &&
+            filtered.map((c) => (
+              <ContactRow key={c.id} contact={c} onClick={() => handleSelectIdentity(c.id)} />
+            ))}
         </div>
 
         <button
@@ -165,9 +166,15 @@ export function IdentityPrompt() {
     try {
       const parsed = JSON.parse(mergeCandidate.avatars || '[]');
       avatar = parsed[0]?.url ?? null;
-    } catch { /* ignore */ }
-    const email = mergeCandidate.identifiers?.find((i) => i.identifierType === 'email')?.identifierValue;
-    const phone = mergeCandidate.identifiers?.find((i) => i.identifierType === 'phone')?.identifierValue;
+    } catch {
+      /* ignore */
+    }
+    const email = mergeCandidate.identifiers?.find(
+      (i) => i.identifierType === 'email',
+    )?.identifierValue;
+    const phone = mergeCandidate.identifiers?.find(
+      (i) => i.identifierType === 'phone',
+    )?.identifierValue;
 
     return (
       <Modal open onClose={handleDismissMerge} title="IS THIS YOU?">
@@ -177,9 +184,13 @@ export function IdentityPrompt() {
 
         <div className="border-3 border-nb-border p-4 mb-4 flex items-center gap-4">
           {avatar ? (
-            <img src={avatar} alt="" className="w-14 h-14 border-2 border-nb-border object-cover shrink-0" />
+            <img
+              src={avatar}
+              alt=""
+              className="size-14 border-2 border-nb-border object-cover shrink-0"
+            />
           ) : (
-            <div className="w-14 h-14 border-2 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
+            <div className="size-14 border-2 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
               <span className="font-display text-xl font-bold text-nb-muted">
                 {mergeCandidate.displayName[0]?.toUpperCase()}
               </span>
@@ -189,12 +200,8 @@ export function IdentityPrompt() {
             <p className="font-display text-lg font-bold uppercase truncate text-nb-text">
               {mergeCandidate.displayName}
             </p>
-            <p className="font-mono text-xs text-nb-muted truncate">
-              {email ?? phone ?? '--'}
-            </p>
-            <p className="font-mono text-[10px] text-nb-lime mt-1">
-              {mergeCandidate.reason}
-            </p>
+            <p className="font-mono text-xs text-nb-muted truncate">{email ?? phone ?? '--'}</p>
+            <p className="font-mono text-[10px] text-nb-lime mt-1">{mergeCandidate.reason}</p>
           </div>
         </div>
 
@@ -227,7 +234,9 @@ function ContactRow({ contact, onClick }: { contact: ContactOption; onClick: () 
   try {
     const parsed = JSON.parse(contact.avatars || '[]');
     avatar = parsed[0]?.url ?? null;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const email = contact.identifiers?.find((i) => i.identifierType === 'email')?.identifierValue;
   const phone = contact.identifiers?.find((i) => i.identifierType === 'phone')?.identifierValue;
 
@@ -237,9 +246,13 @@ function ContactRow({ contact, onClick }: { contact: ContactOption; onClick: () 
       className="flex items-center gap-3 border-2 border-nb-border p-3 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-left w-full"
     >
       {avatar ? (
-        <img src={avatar} alt="" className="w-10 h-10 border-2 border-nb-border object-cover shrink-0" />
+        <img
+          src={avatar}
+          alt=""
+          className="size-10 border-2 border-nb-border object-cover shrink-0"
+        />
       ) : (
-        <div className="w-10 h-10 border-2 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
+        <div className="size-10 border-2 border-nb-border bg-nb-surface-muted flex items-center justify-center shrink-0">
           <span className="font-display font-bold text-nb-muted">
             {contact.displayName[0]?.toUpperCase()}
           </span>
@@ -247,9 +260,7 @@ function ContactRow({ contact, onClick }: { contact: ContactOption; onClick: () 
       )}
       <div className="flex-1 min-w-0">
         <p className="font-display text-sm font-bold uppercase truncate">{contact.displayName}</p>
-        <p className="font-mono text-[10px] text-nb-muted truncate">
-          {email ?? phone ?? '--'}
-        </p>
+        <p className="font-mono text-[10px] text-nb-muted truncate">{email ?? phone ?? '--'}</p>
       </div>
     </button>
   );

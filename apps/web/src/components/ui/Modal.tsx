@@ -30,7 +30,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
           <h2 className="font-display text-xl font-bold uppercase text-nb-text">{title}</h2>
           <button
             onClick={onClose}
-            className="border-3 border-nb-border w-11 h-11 flex items-center justify-center font-bold text-lg hover:bg-nb-red hover:text-white transition-colors cursor-pointer text-nb-text"
+            className="border-3 border-nb-border size-9 flex items-center justify-center font-bold text-lg hover:bg-nb-red hover:text-white transition-colors cursor-pointer text-nb-text"
           >
             X
           </button>

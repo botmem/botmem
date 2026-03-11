@@ -25,10 +25,10 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
 
   return (
     <header className="border-b-4 border-nb-border bg-nb-surface">
-      <div className="flex items-center justify-between px-3 sm:px-6 py-3">
+      <div className="flex items-center justify-between px-6 py-3">
         <div className="flex items-center">
           <button
-            className="md:hidden border-2 border-nb-border w-11 h-11 flex items-center justify-center mr-3 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+            className="md:hidden border-2 border-nb-border size-9 flex items-center justify-center mr-3 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
             onClick={onMenuOpen}
             aria-label="Open navigation"
           >
@@ -51,7 +51,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
         <div className="flex items-center gap-3">
           {user && (
             <div
-              className="w-9 h-9 border-2 border-nb-border bg-nb-surface flex items-center justify-center font-display text-xs font-bold uppercase text-nb-text"
+              className="size-8 border-2 border-nb-border bg-nb-surface flex items-center justify-center font-display text-xs font-bold uppercase text-nb-text"
               title={user.name || user.email}
               aria-label={`Logged in as ${user.name || user.email}`}
             >

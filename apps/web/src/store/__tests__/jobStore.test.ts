@@ -24,13 +24,13 @@ describe('jobStore', () => {
 
   describe('fetchJobs', () => {
     it('fetches and sets jobs', async () => {
-      (api.listJobs as any).mockResolvedValue({ jobs: [{ id: 'j1', accountIdentifier: null, status: 'running' }] });
+      (api.listJobs as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ jobs: [{ id: 'j1', accountIdentifier: null, status: 'running' }] });
       await useJobStore.getState().fetchJobs();
       expect(useJobStore.getState().jobs).toHaveLength(1);
     });
 
     it('handles API error', async () => {
-      (api.listJobs as any).mockRejectedValue(new Error('fail'));
+      (api.listJobs as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useJobStore.getState().fetchJobs();
       expect(useJobStore.getState().jobs).toEqual([]);
     });
@@ -38,7 +38,7 @@ describe('jobStore', () => {
 
   describe('fetchLogs', () => {
     it('fetches and maps logs', async () => {
-      (api.listLogs as any).mockResolvedValue({
+      (api.listLogs as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         logs: [{ id: 'l1', timestamp: '2026-01-01', level: 'info', connectorType: 'gmail', message: 'ok' }],
       });
       await useJobStore.getState().fetchLogs();
@@ -55,7 +55,7 @@ describe('jobStore', () => {
           { id: 'j1', connector: 'gmail', accountId: 'a1', accountIdentifier: null, status: 'running', priority: 0, progress: 5, total: 10, startedAt: null, completedAt: null, error: null },
         ],
       });
-      (api.cancelJob as any).mockResolvedValue({});
+      (api.cancelJob as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useJobStore.getState().cancelJob('j1');
       expect(useJobStore.getState().jobs[0].status).toBe('cancelled');
     });
@@ -66,7 +66,7 @@ describe('jobStore', () => {
           { id: 'j1', connector: 'gmail', accountId: 'a1', accountIdentifier: null, status: 'done', priority: 0, progress: 10, total: 10, startedAt: null, completedAt: null, error: null },
         ],
       });
-      (api.cancelJob as any).mockResolvedValue({});
+      (api.cancelJob as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
       await useJobStore.getState().cancelJob('j1');
       expect(useJobStore.getState().jobs[0].status).toBe('done');
     });

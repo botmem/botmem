@@ -45,7 +45,7 @@ export function ConnectorAccountRow({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 gap-2">
         <div className="flex items-center gap-3">
           <div
-            className="w-3 h-3 border-2 border-nb-border shrink-0"
+            className="size-3 border-2 border-nb-border shrink-0"
             style={{ backgroundColor: CONNECTOR_COLORS[account.type] }}
           />
           <div className="min-w-0">
@@ -93,7 +93,11 @@ export function ConnectorAccountRow({
           )}
           <select
             value={account.schedule}
-            onChange={(e) => useConnectorStore.getState().updateSchedule(account.id, e.target.value as SyncSchedule)}
+            onChange={(e) =>
+              useConnectorStore
+                .getState()
+                .updateSchedule(account.id, e.target.value as SyncSchedule)
+            }
             className="appearance-none border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-text px-2 py-1.5 focus:outline-none focus:border-nb-lime cursor-pointer"
           >
             {SCHEDULE_OPTIONS.map((opt) => (

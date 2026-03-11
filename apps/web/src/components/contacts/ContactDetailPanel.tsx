@@ -121,7 +121,7 @@ export function ContactDetailPanel({
         </h3>
         <button
           onClick={onClose}
-          className="border-2 border-nb-border w-8 h-8 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text"
+          className="border-2 border-nb-border size-8 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text"
         >
           X
         </button>
@@ -130,7 +130,12 @@ export function ContactDetailPanel({
       <div className="flex flex-col gap-4">
         {/* Avatar */}
         <div className="flex gap-2 flex-wrap">
-          <Avatar contactId={contact.id} fallbackInitials={contact.displayName.slice(0, 2).toUpperCase()} isSelf={isSelf} size="lg" />
+          <Avatar
+            contactId={contact.id}
+            fallbackInitials={contact.displayName.slice(0, 2).toUpperCase()}
+            isSelf={isSelf}
+            size="lg"
+          />
         </div>
 
         {/* Editable name */}
@@ -179,7 +184,7 @@ export function ContactDetailPanel({
                 <button
                   onClick={() => removeIdentifier(contact.id, ident.id)}
                   disabled={contact.identifiers.length <= 1}
-                  className="border border-nb-border w-5 h-5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                  className="border border-nb-border size-5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                 >
                   X
                 </button>

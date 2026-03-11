@@ -17,7 +17,13 @@ interface MergeSuggestionRowProps {
   onDismiss: (id1: string, id2: string) => void;
 }
 
-export function MergeSuggestionRow({ contact1, contact2, reason, onMerge, onDismiss }: MergeSuggestionRowProps) {
+export function MergeSuggestionRow({
+  contact1,
+  contact2,
+  reason,
+  onMerge,
+  onDismiss,
+}: MergeSuggestionRowProps) {
   const handleMerge = () => {
     const c1Count = contact1.identifiers?.length || 0;
     const c2Count = contact2.identifiers?.length || 0;
@@ -43,10 +49,12 @@ export function MergeSuggestionRow({ contact1, contact2, reason, onMerge, onDism
       <p className="font-mono text-xs text-nb-muted mt-2">{reason}</p>
 
       <div className="flex items-center gap-2 mt-2">
-        <Button size="sm" onClick={handleMerge}>MERGE</Button>
+        <Button size="sm" onClick={handleMerge}>
+          MERGE
+        </Button>
         <button
           onClick={() => onDismiss(contact1.id, contact2.id)}
-          className="border-2 border-nb-border w-7 h-7 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text text-xs"
+          className="border-2 border-nb-border size-7 flex items-center justify-center font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-text text-xs"
         >
           ✕
         </button>

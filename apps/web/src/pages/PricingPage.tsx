@@ -188,7 +188,7 @@ export function PricingPage() {
                     Self-hosted on your hardware. Full control over your data and infrastructure.
                   </p>
                 </div>
-                <ul className="space-y-3 flex-1" aria-label="Free tier features">
+                <ul className="flex flex-col gap-3 flex-1" aria-label="Free tier features">
                   {FREE_FEATURES.map((f) => (
                     <li key={f} className="flex items-start gap-2 font-mono text-sm text-nb-text">
                       <CheckIcon />
@@ -223,7 +223,7 @@ export function PricingPage() {
                     We handle the infrastructure. You keep the memories. Zero maintenance.
                   </p>
                 </div>
-                <ul className="space-y-3 flex-1" aria-label="Pro tier features">
+                <ul className="flex flex-col gap-3 flex-1" aria-label="Pro tier features">
                   {PRO_FEATURES.map((f) => (
                     <li key={f} className="flex items-start gap-2 font-mono text-sm text-nb-text">
                       <CheckIcon />
@@ -258,7 +258,7 @@ export function PricingPage() {
               >
                 FREQUENTLY ASKED <span className="text-nb-lime">QUESTIONS</span>
               </h2>
-              <div className="mt-12 space-y-4">
+              <div className="mt-12 flex flex-col gap-4">
                 {FAQ_ITEMS.map((item) => (
                   <FaqItem key={item.q} q={item.q} a={item.a} />
                 ))}

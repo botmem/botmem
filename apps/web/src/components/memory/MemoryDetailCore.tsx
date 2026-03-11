@@ -1,4 +1,5 @@
 import { CONNECTOR_COLORS, formatDate, formatTime } from '@botmem/shared';
+import { cn } from '@/lib/utils';
 import { Badge } from '../ui/Badge';
 import { AuthedImage } from '../ui/AuthedImage';
 
@@ -18,7 +19,7 @@ function ContextRow({
   return (
     <div>
       <span className="text-nb-muted uppercase">{label}: </span>
-      <span className={`text-nb-text ${isBold ? 'font-bold' : ''}`}>{value}</span>
+      <span className={cn('text-nb-text', isBold && 'font-bold')}>{value}</span>
     </div>
   );
 }
@@ -178,7 +179,11 @@ export function MemoryDetailCore({
       {/* Thumbnail */}
       {hasThumbnail(source, metadata) && (
         <div
-          className={`border-3 border-nb-border overflow-hidden ${compact ? 'max-h-56' : 'max-h-80'} ${onThumbnailClick ? 'cursor-zoom-in' : ''}`}
+          className={cn(
+            'border-3 border-nb-border overflow-hidden',
+            compact ? 'max-h-56' : 'max-h-80',
+            onThumbnailClick && 'cursor-zoom-in',
+          )}
           onClick={() => onThumbnailClick?.(`/api/memories/${id}/thumbnail`)}
         >
           <AuthedImage
@@ -197,11 +202,16 @@ export function MemoryDetailCore({
       {/* Text */}
       {text && (
         <div
-          className={`border-3 border-nb-border ${compact ? 'p-2 max-h-32 overflow-y-auto' : 'p-3'} bg-nb-surface-muted`}
+          className={cn(
+            'border-3 border-nb-border bg-nb-surface-muted',
+            compact ? 'p-2 max-h-32 overflow-y-auto' : 'p-3',
+          )}
         >
           <p
-            data-ph-mask
-            className={`font-mono ${compact ? 'text-xs' : 'text-sm'} text-nb-text ${compact ? 'whitespace-pre-wrap break-words' : ''}`}
+            className={cn(
+              'font-mono text-nb-text',
+              compact ? 'text-xs whitespace-pre-wrap break-words' : 'text-sm',
+            )}
           >
             {text}
           </p>
@@ -263,7 +273,10 @@ export function MemoryDetailCore({
             {filteredWeights.map(([key, val]) => (
               <div key={key} className="flex items-center gap-1.5">
                 <span
-                  className={`font-mono text-[10px] uppercase ${compact ? 'w-16' : 'w-20'} text-nb-muted`}
+                  className={cn(
+                    'font-mono text-[10px] uppercase text-nb-muted',
+                    compact ? 'w-16' : 'w-20',
+                  )}
                 >
                   {key}
                 </span>
