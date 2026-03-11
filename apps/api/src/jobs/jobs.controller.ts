@@ -14,7 +14,20 @@ import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import type { Job } from '@botmem/shared';
 
-function toApiJob(row: any): Job & { memoryBankId?: string | null } {
+function toApiJob(row: {
+  id: string;
+  connectorType: string;
+  accountId: string;
+  accountIdentifier: string | null;
+  memoryBankId: string | null;
+  status: string;
+  priority: number;
+  progress: number;
+  total: number;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  error: string | null;
+}): Job & { memoryBankId?: string | null } {
   return {
     id: row.id,
     connector: row.connectorType,

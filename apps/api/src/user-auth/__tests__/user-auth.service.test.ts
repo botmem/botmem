@@ -116,7 +116,7 @@ describe('UserAuthService', () => {
 
   describe('register', () => {
     it('creates user with hashed password and returns tokens', async () => {
-      (bcrypt.compare as any).mockResolvedValue(true);
+      vi.mocked(bcrypt.compare).mockResolvedValue(true);
       const result = await service.register('test@test.com', 'password123', 'Test User');
 
       expect(usersService.createUser).toHaveBeenCalledWith(
@@ -150,7 +150,7 @@ describe('UserAuthService', () => {
   describe('login', () => {
     it('returns tokens with valid credentials', async () => {
       usersService.findByEmail!.mockResolvedValue(mockUser);
-      (bcrypt.compare as any).mockResolvedValue(true);
+      vi.mocked(bcrypt.compare).mockResolvedValue(true);
 
       const result = await service.login('test@test.com', 'password123');
 
@@ -160,7 +160,7 @@ describe('UserAuthService', () => {
 
     it('throws UnauthorizedException with wrong password', async () => {
       usersService.findByEmail!.mockResolvedValue(mockUser);
-      (bcrypt.compare as any).mockResolvedValue(false);
+      vi.mocked(bcrypt.compare).mockResolvedValue(false);
 
       await expect(service.login('test@test.com', 'wrongpassword')).rejects.toThrow(
         UnauthorizedException,
@@ -169,7 +169,7 @@ describe('UserAuthService', () => {
 
     it('throws UnauthorizedException with non-existent email', async () => {
       usersService.findByEmail!.mockResolvedValue(null);
-      (bcrypt.compare as any).mockResolvedValue(false);
+      vi.mocked(bcrypt.compare).mockResolvedValue(false);
 
       await expect(service.login('nobody@test.com', 'password123')).rejects.toThrow(
         UnauthorizedException,
@@ -178,7 +178,7 @@ describe('UserAuthService', () => {
 
     it('always runs bcrypt.compare even when user not found', async () => {
       usersService.findByEmail!.mockResolvedValue(null);
-      (bcrypt.compare as any).mockResolvedValue(false);
+      vi.mocked(bcrypt.compare).mockResolvedValue(false);
 
       try {
         await service.login('nobody@test.com', 'password123');

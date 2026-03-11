@@ -7,13 +7,14 @@ import { Avatar } from '../ui/Avatar';
 import { ImageLightbox } from '../ui/ImageLightbox';
 import { MemoryDetailCore } from './MemoryDetailCore';
 import { IDENTIFIER_COLORS } from '../contacts/constants';
+import type { ApiContact, ApiContactMemory } from '../../lib/api';
 
 const SELF_COLOR = '#C4F53A';
 
 interface NodeDetailPanelProps {
   selectedNode: GraphNode;
   selfNodeId: string | null;
-  contactInfo: { detail: any; memories: any[] } | null;
+  contactInfo: { detail: ApiContact | null; memories: ApiContactMemory[] } | null;
   connectionCounts: Map<string, number>;
   onClose: () => void;
   onRemoveIdentifier: (contactId: string, identId: string) => void;
@@ -93,17 +94,18 @@ export function NodeDetailPanel({
                 ))}
               </div>
 
-              {contactDetail.identifiers?.length > 0 && (
+              {(contactDetail.identifiers?.length ?? 0) > 0 && (
                 <div>
                   <span className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted block mb-1">
                     Identifiers
                   </span>
                   <div className="flex flex-col gap-1">
-                    {contactDetail.identifiers.map((ident: any) => (
+                    {contactDetail.identifiers!.map((ident) => (
                       <div key={ident.id} className="flex items-center gap-2">
                         <Badge
                           color={
-                            IDENTIFIER_COLORS[ident.identifierType] || IDENTIFIER_COLORS[ident.type]
+                            IDENTIFIER_COLORS[ident.identifierType ?? ''] ||
+                            IDENTIFIER_COLORS[ident.type ?? '']
                           }
                           className="text-[10px] py-0 shrink-0"
                         >
@@ -116,7 +118,7 @@ export function NodeDetailPanel({
                           onClick={() =>
                             onRemoveIdentifier(selectedNode.id.replace(/^contact-/, ''), ident.id)
                           }
-                          disabled={contactDetail.identifiers.length <= 1}
+                          disabled={(contactDetail.identifiers?.length ?? 0) <= 1}
                           className="border border-nb-border size-5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                         >
                           X
@@ -142,11 +144,11 @@ export function NodeDetailPanel({
                   {contactMemories.length === 0 && (
                     <p className="font-mono text-[10px] text-nb-muted">No linked memories</p>
                   )}
-                  {contactMemories.map((m: any) => (
+                  {contactMemories.map((m) => (
                     <div key={m.id} className="border-2 border-nb-border p-1.5 bg-nb-surface-muted">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="font-mono text-[10px] text-nb-muted">
-                          {formatDate(m.eventTime || m.createdAt)}
+                          {formatDate(m.eventTime || m.createdAt || '')}
                         </span>
                         <Badge className="text-[10px] py-0">{m.connectorType}</Badge>
                       </div>

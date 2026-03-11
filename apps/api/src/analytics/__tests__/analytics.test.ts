@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AnalyticsService } from '../analytics.service';
+import type { ConfigService } from '../../config/config.service';
 
 // Mock posthog-node
 const mockCapture = vi.fn();
@@ -13,7 +14,7 @@ vi.mock('posthog-node', () => ({
 }));
 
 function makeConfigService(apiKey: string) {
-  return { posthogApiKey: apiKey } as any;
+  return { posthogApiKey: apiKey } as unknown as ConfigService;
 }
 
 describe('AnalyticsService', () => {

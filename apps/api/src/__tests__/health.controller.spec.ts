@@ -16,14 +16,17 @@ vi.mock('ioredis', () => {
 import 'ioredis';
 
 // Access mock internals
-const ioredisMock = (await import('ioredis')) as any;
+const ioredisMock = (await import('ioredis')) as unknown as {
+  __mockPing: ReturnType<typeof vi.fn>;
+  __mockDisconnect: ReturnType<typeof vi.fn>;
+};
 const mockPing: ReturnType<typeof vi.fn> = ioredisMock.__mockPing;
 
 describe('HealthController', () => {
   let controller: HealthController;
-  let mockDbService: any;
-  let mockQdrantService: any;
-  let mockConfigService: any;
+  let mockDbService: { healthCheck: ReturnType<typeof vi.fn> };
+  let mockQdrantService: { healthCheck: ReturnType<typeof vi.fn> };
+  let mockConfigService: { redisUrl: string };
 
   beforeEach(() => {
     vi.clearAllMocks();

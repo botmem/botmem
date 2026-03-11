@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import type { ApiContact } from '../lib/api';
 
 interface Contact {
   id: string;
@@ -46,15 +47,15 @@ interface ContactState {
   splitContact: (contactId: string, identifierIds: string[]) => Promise<void>;
 }
 
-function parseContact(raw: any): Contact {
-  const identifiers = (raw.identifiers || []).map((i: any) => ({
+function parseContact(raw: ApiContact): Contact {
+  const identifiers = (raw.identifiers || []).map((i) => ({
     id: i.id,
-    type: i.identifierType || i.type,
-    value: i.identifierValue || i.value,
+    type: i.identifierType || i.type || '',
+    value: i.identifierValue || i.value || '',
     isPrimary: i.isPrimary || false,
   }));
   const connectorSources = [
-    ...new Set((raw.identifiers || []).map((i: any) => i.connectorType).filter(Boolean)),
+    ...new Set((raw.identifiers || []).map((i) => i.connectorType).filter(Boolean)),
   ] as string[];
 
   return {
@@ -88,7 +89,11 @@ export const useContactStore = create<ContactState>((set, get) => ({
     set({ loading: true });
     const filter = entityType ?? get().entityFilter;
     try {
-      const result = await api.listContacts({ limit: CONTACT_PAGE_SIZE, offset: 0, entityType: filter });
+      const result = await api.listContacts({
+        limit: CONTACT_PAGE_SIZE,
+        offset: 0,
+        entityType: filter,
+      });
       const contacts = result.items.map(parseContact);
       set({
         contacts,

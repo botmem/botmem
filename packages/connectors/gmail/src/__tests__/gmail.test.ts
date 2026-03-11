@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GmailConnector } from '../index.js';
+import type {
+  SyncContext,
+  ConnectorDataEvent,
+  PipelineContext,
+  ProgressEvent,
+  EmbedResult,
+} from '@botmem/connector-sdk';
+
+type Entity = EmbedResult['entities'][number];
 
 vi.mock('../oauth.js', () => ({
   createOAuth2Client: vi.fn().mockReturnValue({}),
@@ -12,17 +21,33 @@ vi.mock('../oauth.js', () => ({
 }));
 
 vi.mock('../sync.js', () => ({
-  syncGmail: vi.fn().mockImplementation(async (_ctx: any, _emit: any, emitProgress: any) => {
-    emitProgress({ processed: 25, total: 100 });
-    return { cursor: 'page2', hasMore: true, processed: 25 };
-  }),
+  syncGmail: vi
+    .fn()
+    .mockImplementation(
+      async (
+        _ctx: SyncContext,
+        _emit: (e: ConnectorDataEvent) => void,
+        emitProgress: (p: ProgressEvent) => void,
+      ) => {
+        emitProgress({ processed: 25, total: 100 });
+        return { cursor: 'page2', hasMore: true, processed: 25 };
+      },
+    ),
 }));
 
 vi.mock('../contacts.js', () => ({
-  syncContacts: vi.fn().mockImplementation(async (_ctx: any, _emit: any, emitProgress: any) => {
-    emitProgress({ processed: 5, total: 5 });
-    return { processed: 0 };
-  }),
+  syncContacts: vi
+    .fn()
+    .mockImplementation(
+      async (
+        _ctx: SyncContext,
+        _emit: (e: ConnectorDataEvent) => void,
+        emitProgress: (p: ProgressEvent) => void,
+      ) => {
+        emitProgress({ processed: 5, total: 5 });
+        return { processed: 0 };
+      },
+    ),
 }));
 
 describe('GmailConnector', () => {
@@ -43,7 +68,7 @@ describe('GmailConnector', () => {
     });
 
     it('has config schema with no required fields (server injects in Firebase mode)', () => {
-      const schema = connector.manifest.configSchema as any;
+      const schema = connector.manifest.configSchema as { required: string[] };
       expect(schema.required).toEqual([]);
     });
   });
@@ -121,9 +146,12 @@ describe('GmailConnector', () => {
         sourceType: 'email' as const,
         sourceId: 'e1',
         timestamp: '2026-01-01T00:00:00Z',
-        content: { text: `Check out (  ${'https://example.com/' + 'a'.repeat(100)}  ) for info`, metadata: {} },
+        content: {
+          text: `Check out (  ${'https://example.com/' + 'a'.repeat(100)}  ) for info`,
+          metadata: {},
+        },
       };
-      const result = connector.clean(event, {} as any);
+      const result = connector.clean(event, {} as unknown as PipelineContext);
       expect(result.text).not.toContain('https://example.com');
       expect(result.text).toContain('Check out');
     });
@@ -133,9 +161,12 @@ describe('GmailConnector', () => {
         sourceType: 'email' as const,
         sourceId: 'e1',
         timestamp: '2026-01-01T00:00:00Z',
-        content: { text: `Visit ${'https://tracker.example.com/' + 'x'.repeat(100)} for details`, metadata: {} },
+        content: {
+          text: `Visit ${'https://tracker.example.com/' + 'x'.repeat(100)} for details`,
+          metadata: {},
+        },
       };
-      const result = connector.clean(event, {} as any);
+      const result = connector.clean(event, {} as unknown as PipelineContext);
       expect(result.text).not.toContain('tracker.example.com');
     });
 
@@ -144,9 +175,12 @@ describe('GmailConnector', () => {
         sourceType: 'email' as const,
         sourceId: 'e1',
         timestamp: '2026-01-01T00:00:00Z',
-        content: { text: 'Content here\n© 2026 Company Inc. All rights reserved.\nUnsubscribe https://example.com/unsub', metadata: {} },
+        content: {
+          text: 'Content here\n© 2026 Company Inc. All rights reserved.\nUnsubscribe https://example.com/unsub',
+          metadata: {},
+        },
       };
-      const result = connector.clean(event, {} as any);
+      const result = connector.clean(event, {} as unknown as PipelineContext);
       expect(result.text).not.toContain('©');
       expect(result.text).not.toContain('Unsubscribe');
     });
@@ -158,7 +192,7 @@ describe('GmailConnector', () => {
         timestamp: '2026-01-01T00:00:00Z',
         content: { text: 'Line 1     Line 2', metadata: {} },
       };
-      const result = connector.clean(event, {} as any);
+      const result = connector.clean(event, {} as unknown as PipelineContext);
       expect(result.text).toBe('Line 1 Line 2');
     });
   });
@@ -182,13 +216,13 @@ describe('GmailConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Contact: Alice', {} as any);
+      const result = connector.embed(event, 'Contact: Alice', {} as unknown as PipelineContext);
       expect(result.entities[0].id).toContain('name:Alice');
       expect(result.entities[0].id).toContain('name:Ali');
       expect(result.entities[0].id).toContain('email:alice@test.com');
       expect(result.entities[0].id).toContain('phone:+1234');
       // Organization entity
-      const orgEntity = result.entities.find((e: any) => e.type === 'organization');
+      const orgEntity = result.entities.find((e: Entity) => e.type === 'organization');
       expect(orgEntity).toBeDefined();
       expect(orgEntity!.id).toBe('name:Acme Inc');
       expect(result.metadata?.isContact).toBe(true);
@@ -210,17 +244,17 @@ describe('GmailConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Subject\n\nBody', {} as any);
+      const result = connector.embed(event, 'Subject\n\nBody', {} as unknown as PipelineContext);
 
-      const sender = result.entities.find((e: any) => e.role === 'sender');
+      const sender = result.entities.find((e: Entity) => e.role === 'sender');
       expect(sender).toBeDefined();
       expect(sender!.id).toContain('email:alice@test.com');
       expect(sender!.id).toContain('name:Alice');
 
-      const recipients = result.entities.filter((e: any) => e.role === 'recipient');
+      const recipients = result.entities.filter((e: Entity) => e.role === 'recipient');
       expect(recipients.length).toBe(3); // Bob, carol, Dave
 
-      const thread = result.entities.find((e: any) => e.type === 'message');
+      const thread = result.entities.find((e: Entity) => e.type === 'message');
       expect(thread!.id).toBe('thread:thread-123');
     });
 
@@ -232,12 +266,18 @@ describe('GmailConnector', () => {
         content: {
           text: 'See attached',
           participants: [],
-          attachments: [{ uri: 'gmail://attachment/abc', mimeType: 'application/pdf', filename: 'report.pdf' }],
+          attachments: [
+            {
+              uri: 'gmail://attachment/abc',
+              mimeType: 'application/pdf',
+              filename: 'report.pdf',
+            },
+          ],
           metadata: {},
         },
       };
-      const result = connector.embed(event, 'See attached', {} as any);
-      const file = result.entities.find((e: any) => e.type === 'file');
+      const result = connector.embed(event, 'See attached', {} as unknown as PipelineContext);
+      const file = result.entities.find((e: Entity) => e.type === 'file');
       expect(file).toBeDefined();
       expect(file!.id).toBe('file:report.pdf');
     });
@@ -253,7 +293,7 @@ describe('GmailConnector', () => {
           metadata: { from: 'alice@test.com' },
         },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       expect(result.entities[0].id).toBe('email:alice@test.com');
       expect(result.entities[0].role).toBe('sender');
     });
@@ -265,7 +305,7 @@ describe('GmailConnector', () => {
         timestamp: '2026-01-01T00:00:00Z',
         content: { text: 'Hi', participants: [], metadata: {} },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       expect(result.entities).toEqual([]);
     });
 
@@ -280,7 +320,7 @@ describe('GmailConnector', () => {
           metadata: { type: 'contact' },
         },
       };
-      const result = connector.embed(event, 'Contact: Unknown', {} as any);
+      const result = connector.embed(event, 'Contact: Unknown', {} as unknown as PipelineContext);
       expect(result.entities).toEqual([]);
     });
   });
@@ -288,7 +328,7 @@ describe('GmailConnector', () => {
   describe('sync (contacts failure)', () => {
     it('continues with email sync when contacts sync fails', async () => {
       const { syncContacts } = await import('../contacts.js');
-      (syncContacts as any).mockRejectedValueOnce(new Error('People API disabled'));
+      vi.mocked(syncContacts).mockRejectedValueOnce(new Error('People API disabled'));
 
       const ctx = {
         accountId: 'acc-1',
@@ -307,10 +347,13 @@ describe('GmailConnector', () => {
 
   describe('completeAuth (email fetch)', () => {
     it('fetches email from Gmail profile API', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ emailAddress: 'user@gmail.com' }),
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ emailAddress: 'user@gmail.com' }),
+        }),
+      );
       await connector.initiateAuth({ clientId: 'cid', clientSecret: 'cs' });
       const auth = await connector.completeAuth({ code: 'code' });
       expect(auth.identifier).toBe('user@gmail.com');

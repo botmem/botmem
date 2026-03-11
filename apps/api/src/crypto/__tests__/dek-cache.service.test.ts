@@ -17,8 +17,8 @@ import { DekCacheService } from '../dek-cache.service';
 
 describe('DekCacheService', () => {
   let service: DekCacheService;
-  let config: any;
-  let crypto: any;
+  let config: { redisUrl: string };
+  let crypto: { encrypt: ReturnType<typeof vi.fn>; decrypt: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     vi.clearAllMocks();

@@ -123,7 +123,12 @@ export class CliAuthService implements OnModuleDestroy {
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     const isFirebaseHash = user.passwordHash.startsWith('firebase:');
-    const valid = isFirebaseHash ? false : await bcrypt.compare(params.password, user.passwordHash);
+    if (isFirebaseHash) {
+      throw new UnauthorizedException(
+        'This account uses social login (Google/GitHub). Please use the social login buttons instead.',
+      );
+    }
+    const valid = await bcrypt.compare(params.password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
     // Handle DEK / recovery key

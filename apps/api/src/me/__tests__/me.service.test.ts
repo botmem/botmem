@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MeService } from '../me.service';
+import type { DbService } from '../../db/db.service';
 
 describe('MeService', () => {
   let service: MeService;
-  let mockDb: any;
-  let cryptoService: any;
-  let userKeyService: any;
-  let contactsService: any;
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
+  let cryptoService: {
+    decrypt: ReturnType<typeof vi.fn>;
+    decryptWithKey: ReturnType<typeof vi.fn>;
+  };
+  let userKeyService: { getKey: ReturnType<typeof vi.fn> };
+  let contactsService: { resolveContact: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockDb = {
@@ -38,7 +42,7 @@ describe('MeService', () => {
     };
 
     service = new MeService(
-      { db: mockDb } as any,
+      { db: mockDb } as unknown as DbService,
       cryptoService,
       userKeyService,
       contactsService,
@@ -75,8 +79,8 @@ describe('MeService', () => {
     it('returns isSet false when no self contact', async () => {
       // settings lookup returns nothing
       mockDb.where
-        .mockResolvedValueOnce([])  // per-user setting
-        .mockResolvedValueOnce([])  // global setting fallback
+        .mockResolvedValueOnce([]) // per-user setting
+        .mockResolvedValueOnce([]) // global setting fallback
         // detectSelfContactId: no accounts
         .mockResolvedValueOnce([]);
 
@@ -101,10 +105,7 @@ describe('MeService', () => {
     });
 
     it('throws if self contact not set', async () => {
-      mockDb.where
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+      mockDb.where.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
       await expect(service.setPreferredAvatar('user-1', 0)).rejects.toThrow('Self contact not set');
     });
@@ -113,8 +114,8 @@ describe('MeService', () => {
   describe('getMergeCandidates', () => {
     it('returns empty when no self contact', async () => {
       mockDb.where
-        .mockResolvedValueOnce([])  // per-user setting
-        .mockResolvedValueOnce([])  // global fallback
+        .mockResolvedValueOnce([]) // per-user setting
+        .mockResolvedValueOnce([]) // global fallback
         .mockResolvedValueOnce([]); // no accounts (detectSelfContactId)
 
       const result = await service.getMergeCandidates('user-1');
@@ -125,8 +126,7 @@ describe('MeService', () => {
       mockDb.where
         .mockResolvedValueOnce([{ key: 'selfContactId:user-1', value: 'c-1' }])
         .mockResolvedValueOnce([{ id: 'c-1' }]) // verify exists
-        .mockResolvedValueOnce([{ id: 'c-1', displayName: 'A', userId: 'user-1' }]) // self contact with short name
-      ;
+        .mockResolvedValueOnce([{ id: 'c-1', displayName: 'A', userId: 'user-1' }]); // self contact with short name
 
       const result = await service.getMergeCandidates('user-1');
       expect(result).toEqual([]);
@@ -140,7 +140,9 @@ describe('MeService', () => {
         // Load self contact
         .mockResolvedValueOnce([{ id: 'c-1', displayName: 'John Smith', userId: 'user-1' }])
         // Self identifiers
-        .mockResolvedValueOnce([{ identifierType: 'email', identifierValue: 'john@test.com', contactId: 'c-1' }])
+        .mockResolvedValueOnce([
+          { identifierType: 'email', identifierValue: 'john@test.com', contactId: 'c-1' },
+        ])
         // Dismissed pairs
         .mockResolvedValueOnce([])
         // All persons (candidates)
@@ -148,9 +150,13 @@ describe('MeService', () => {
           { id: 'c-2', displayName: 'John S', entityType: 'person', userId: 'user-1' },
         ])
         // c-2's identifiers (shares email)
-        .mockResolvedValueOnce([{ identifierType: 'email', identifierValue: 'john@test.com', contactId: 'c-2' }])
+        .mockResolvedValueOnce([
+          { identifierType: 'email', identifierValue: 'john@test.com', contactId: 'c-2' },
+        ])
         // c-2's identifiers for display
-        .mockResolvedValueOnce([{ identifierType: 'email', identifierValue: 'john@test.com', connectorType: 'gmail' }]);
+        .mockResolvedValueOnce([
+          { identifierType: 'email', identifierValue: 'john@test.com', connectorType: 'gmail' },
+        ]);
 
       const result = await service.getMergeCandidates('user-1');
       expect(result).toHaveLength(1);

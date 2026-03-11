@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useRef, useCallback } from 'react';
-import type { GraphData } from '@botmem/shared';
+import type { GraphData, GraphNode, GraphEdge } from '@botmem/shared';
 import type { FilterState, SearchState } from './graphReducers';
+import type { ForceGraphInstance } from './graphTypes';
 
 interface AdaptiveConfig {
   cooldownTicks: number;
@@ -19,16 +20,29 @@ interface UseFilteredGraphArgs {
   focusedNodeId: string | null;
   focusExpansion: number;
   onReloadPreview?: () => void;
-  graphRef: React.RefObject<any>;
+  graphRef: React.RefObject<ForceGraphInstance | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   dimensions: { width: number; height: number };
   adaptiveConfig?: AdaptiveConfig;
 }
 
+function linkNodeId(node: string | { id: string }): string {
+  return typeof node === 'object' ? node.id : node;
+}
+
 export function useFilteredGraph({
-  data, filters, search, connectionCounts, selfNodeId,
-  focusedNodeId, focusExpansion, onReloadPreview: _onReloadPreview,
-  graphRef, containerRef: _containerRef, dimensions: _dimensions, adaptiveConfig,
+  data,
+  filters,
+  search,
+  connectionCounts,
+  selfNodeId,
+  focusedNodeId,
+  focusExpansion,
+  onReloadPreview: _onReloadPreview,
+  graphRef,
+  containerRef: _containerRef,
+  dimensions: _dimensions,
+  adaptiveConfig,
 }: UseFilteredGraphArgs) {
   const isInitialRender = useRef(true);
 
@@ -48,8 +62,8 @@ export function useFilteredGraph({
     for (const contactId of search.results.contactNodeIds) {
       visible.add(contactId);
       for (const link of data.links) {
-        const src = typeof link.source === 'object' ? (link.source as any).id : link.source;
-        const tgt = typeof link.target === 'object' ? (link.target as any).id : link.target;
+        const src = linkNodeId(link.source);
+        const tgt = linkNodeId(link.target);
         if (src === contactId) visible.add(tgt);
         if (tgt === contactId) visible.add(src);
       }
@@ -62,8 +76,8 @@ export function useFilteredGraph({
     if (contactFilterIds) return contactFilterIds;
     const expanded = new Set(searchMatchIds);
     for (const link of data.links) {
-      const src = typeof link.source === 'object' ? (link.source as any).id : link.source;
-      const tgt = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      const src = linkNodeId(link.source);
+      const tgt = linkNodeId(link.target);
       if (searchMatchIds.has(src)) expanded.add(tgt);
       if (searchMatchIds.has(tgt)) expanded.add(src);
     }
@@ -74,7 +88,15 @@ export function useFilteredGraph({
     const searchVisible = contactFilterIds ?? highlightedIds;
     const searchActive = !!(contactFilterIds ?? highlightedIds);
     const nodeCount = data.nodes.length;
-    const dynamicMin = searchActive ? 0 : (nodeCount > 800 ? 3 : nodeCount > 500 ? 2 : nodeCount > 200 ? 1 : 0);
+    const dynamicMin = searchActive
+      ? 0
+      : nodeCount > 800
+        ? 3
+        : nodeCount > 500
+          ? 2
+          : nodeCount > 200
+            ? 1
+            : 0;
     const effectiveMinConn = dynamicMin;
     const keepNodes = new Set<string>();
     for (const node of data.nodes) {
@@ -103,12 +125,13 @@ export function useFilteredGraph({
     }
 
     const links = data.links.filter((l) => {
-      const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-      const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+      const src = linkNodeId(l.source);
+      const tgt = linkNodeId(l.target);
       if (!keepNodes.has(src) || !keepNodes.has(tgt)) return false;
       const type = l.linkType || 'related';
       if (filters.hiddenEdgeTypes.has(type)) return false;
-      if (adaptiveConfig?.hideDecorativeLinks && (type === 'involves' || type === 'source')) return false;
+      if (adaptiveConfig?.hideDecorativeLinks && (type === 'involves' || type === 'source'))
+        return false;
       return true;
     });
 
@@ -117,8 +140,8 @@ export function useFilteredGraph({
     for (const l of links) {
       const linkType = l.linkType || 'related';
       if (linkType === 'source') continue;
-      const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-      const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+      const src = linkNodeId(l.source);
+      const tgt = linkNodeId(l.target);
       filteredConnCounts.set(src, (filteredConnCounts.get(src) || 0) + 1);
       filteredConnCounts.set(tgt, (filteredConnCounts.get(tgt) || 0) + 1);
     }
@@ -126,8 +149,8 @@ export function useFilteredGraph({
     // Only include nodes that have at least one visible (filtered) edge
     const linkedNodes = new Set<string>();
     for (const l of links) {
-      const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-      const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+      const src = linkNodeId(l.source);
+      const tgt = linkNodeId(l.target);
       linkedNodes.add(src);
       linkedNodes.add(tgt);
     }
@@ -135,12 +158,12 @@ export function useFilteredGraph({
     if (selfNodeId && keepNodes.has(selfNodeId)) linkedNodes.add(selfNodeId);
 
     // Preserve node identity: reuse existing simulation node objects to keep x/y/vx/vy
-    const simNodeMap = new Map<string, any>();
+    const simNodeMap = new Map<string, GraphNode & { x?: number; y?: number }>();
     if (graphRef.current) {
       const currentNodes = graphRef.current.graphData?.()?.nodes;
       if (currentNodes) {
         for (const n of currentNodes) {
-          if (n.id) simNodeMap.set(n.id, n);
+          if (n.id) simNodeMap.set(n.id, n as GraphNode & { x?: number; y?: number });
         }
       }
     }
@@ -172,14 +195,14 @@ export function useFilteredGraph({
         }
         // New node: place near a neighbor if possible
         for (const l of links) {
-          const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+          const src = linkNodeId(l.source);
+          const tgt = linkNodeId(l.target);
           const neighborId = src === n.id ? tgt : tgt === n.id ? src : null;
           if (neighborId) {
             const nb = simNodeMap.get(neighborId);
             if (nb && nb.x !== undefined) {
               const jitter = () => (Math.random() - 0.5) * 30;
-              return { ...n, x: nb.x + jitter(), y: nb.y + jitter() };
+              return { ...n, x: nb.x + jitter(), y: (nb.y || 0) + jitter() };
             }
           }
         }
@@ -192,7 +215,15 @@ export function useFilteredGraph({
     }
 
     return { nodes, links };
-  }, [data, connectionCounts, filters, contactFilterIds, highlightedIds, search.results, adaptiveConfig]);
+  }, [
+    data,
+    connectionCounts,
+    filters,
+    contactFilterIds,
+    highlightedIds,
+    search.results,
+    adaptiveConfig,
+  ]);
 
   // No data-tracking or camera-restore effects needed — node identity preservation
   // keeps positions stable across updates.
@@ -203,8 +234,8 @@ export function useFilteredGraph({
     const visible = new Set<string>([focusedNodeId]);
     const connectedLinks = filteredData.links
       .map((link) => {
-        const src = typeof link.source === 'object' ? (link.source as any).id : link.source;
-        const tgt = typeof link.target === 'object' ? (link.target as any).id : link.target;
+        const src = linkNodeId(link.source);
+        const tgt = linkNodeId(link.target);
         if (src !== focusedNodeId && tgt !== focusedNodeId) return null;
         const neighbor = src === focusedNodeId ? tgt : src;
         return { neighbor, strength: link.strength ?? 0.5 };
@@ -222,8 +253,8 @@ export function useFilteredGraph({
   const adjacency = useMemo(() => {
     const adj = new Map<string, string[]>();
     for (const link of filteredData.links) {
-      const src = typeof link.source === 'object' ? (link.source as any).id : link.source;
-      const tgt = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      const src = linkNodeId(link.source);
+      const tgt = linkNodeId(link.target);
       if (!adj.has(src)) adj.set(src, []);
       if (!adj.has(tgt)) adj.set(tgt, []);
       adj.get(src)!.push(tgt);
@@ -241,35 +272,47 @@ export function useFilteredGraph({
     return () => clearTimeout(timer);
   }, [searchMatchIds]);
 
-  const linkColor = useCallback((link: any) => {
-    const DIM_OPACITY = 0.15;
-    const src = typeof link.source === 'object' ? link.source.id : link.source;
-    const tgt = typeof link.target === 'object' ? link.target.id : link.target;
-    if (searchMatchIds) {
-      const srcH = highlightedIds?.has(src);
-      const tgtH = highlightedIds?.has(tgt);
-      if (!srcH || !tgtH) return `rgba(102, 102, 102, ${DIM_OPACITY})`;
-    }
-    if (focusVisibleIds) {
-      if (!focusVisibleIds.has(src) || !focusVisibleIds.has(tgt)) return `rgba(102, 102, 102, ${DIM_OPACITY})`;
-    }
-    if (link.linkType === 'contradicts') return '#EF4444';
-    if (link.linkType === 'supports') return '#22C55E';
-    if (link.linkType === 'involves') return 'rgba(96, 165, 250, 0.4)';
-    if (link.linkType === 'attachment') return 'rgba(251, 146, 60, 0.4)';
-    if (link.linkType === 'source') return 'rgba(163, 230, 53, 0.15)';
-    return '#666';
-  }, [searchMatchIds, highlightedIds, focusVisibleIds]);
+  const linkColor = useCallback(
+    (link: GraphEdge) => {
+      const DIM_OPACITY = 0.15;
+      const src = linkNodeId(link.source);
+      const tgt = linkNodeId(link.target);
+      if (searchMatchIds) {
+        const srcH = highlightedIds?.has(src);
+        const tgtH = highlightedIds?.has(tgt);
+        if (!srcH || !tgtH) return `rgba(102, 102, 102, ${DIM_OPACITY})`;
+      }
+      if (focusVisibleIds) {
+        if (!focusVisibleIds.has(src) || !focusVisibleIds.has(tgt))
+          return `rgba(102, 102, 102, ${DIM_OPACITY})`;
+      }
+      if (link.linkType === 'contradicts') return '#EF4444';
+      if (link.linkType === 'supports') return '#22C55E';
+      if (link.linkType === 'involves') return 'rgba(96, 165, 250, 0.4)';
+      if (link.linkType === 'attachment') return 'rgba(251, 146, 60, 0.4)';
+      if (link.linkType === 'source') return 'rgba(163, 230, 53, 0.15)';
+      return '#666';
+    },
+    [searchMatchIds, highlightedIds, focusVisibleIds],
+  );
 
-  const linkWidth = useCallback((link: any) => {
-    if (link.linkType === 'involves') return adaptiveConfig?.performanceMode ? 0.5 : 1;
-    if (link.linkType === 'source') return 0.5;
-    return 2;
-  }, [adaptiveConfig?.performanceMode]);
+  const linkWidth = useCallback(
+    (link: GraphEdge) => {
+      if (link.linkType === 'involves') return adaptiveConfig?.performanceMode ? 0.5 : 1;
+      if (link.linkType === 'source') return 0.5;
+      return 2;
+    },
+    [adaptiveConfig?.performanceMode],
+  );
 
   return {
-    filteredData, isInitialRender,
-    searchMatchIds, highlightedIds, focusVisibleIds,
-    adjacency, linkColor, linkWidth,
+    filteredData,
+    isInitialRender,
+    searchMatchIds,
+    highlightedIds,
+    focusVisibleIds,
+    adjacency,
+    linkColor,
+    linkWidth,
   };
 }

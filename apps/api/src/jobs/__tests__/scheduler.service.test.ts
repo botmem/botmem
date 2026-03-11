@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SchedulerService } from '../scheduler.service';
+import type { ConfigService } from '../../config/config.service';
 
 describe('SchedulerService', () => {
   let service: SchedulerService;
-  let syncQueue: any;
-  let maintenanceQueue: any;
-  let accountsService: any;
-  let configService: any;
+  let syncQueue: {
+    add: ReturnType<typeof vi.fn>;
+    getRepeatableJobs: ReturnType<typeof vi.fn>;
+    removeRepeatableByKey: ReturnType<typeof vi.fn>;
+  };
+  let maintenanceQueue: { upsertJobScheduler: ReturnType<typeof vi.fn> };
+  let accountsService: { getAll: ReturnType<typeof vi.fn> };
+  let configService: { decayCron: string };
 
   beforeEach(() => {
     syncQueue = {
@@ -27,7 +32,12 @@ describe('SchedulerService', () => {
       decayCron: '0 3 * * *',
     };
 
-    service = new SchedulerService(syncQueue, maintenanceQueue, accountsService, configService as any);
+    service = new SchedulerService(
+      syncQueue,
+      maintenanceQueue,
+      accountsService,
+      configService as unknown as ConfigService,
+    );
   });
 
   describe('onModuleInit', () => {
@@ -54,20 +64,16 @@ describe('SchedulerService', () => {
 
     it('adds daily cron job', async () => {
       await service.setSchedule('acc-1', 'gmail', 'daily');
-      expect(syncQueue.add).toHaveBeenCalledWith(
-        'scheduled:acc-1',
-        expect.anything(),
-        { repeat: { pattern: '0 0 * * *' } },
-      );
+      expect(syncQueue.add).toHaveBeenCalledWith('scheduled:acc-1', expect.anything(), {
+        repeat: { pattern: '0 0 * * *' },
+      });
     });
 
     it('adds every-6h cron job', async () => {
       await service.setSchedule('acc-1', 'gmail', 'every-6h');
-      expect(syncQueue.add).toHaveBeenCalledWith(
-        'scheduled:acc-1',
-        expect.anything(),
-        { repeat: { pattern: '0 */6 * * *' } },
-      );
+      expect(syncQueue.add).toHaveBeenCalledWith('scheduled:acc-1', expect.anything(), {
+        repeat: { pattern: '0 */6 * * *' },
+      });
     });
 
     it('does not add job for manual schedule', async () => {

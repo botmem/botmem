@@ -59,8 +59,8 @@ export function BillingTab() {
     try {
       const { url } = await api.createCheckoutSession();
       window.location.href = url;
-    } catch (e: any) {
-      setError(e?.message || 'Failed to start checkout');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to start checkout');
       setRedirecting(false);
     }
   };
@@ -71,8 +71,8 @@ export function BillingTab() {
     try {
       const { url } = await api.createPortalSession();
       window.location.href = url;
-    } catch (e: any) {
-      setError(e?.message || 'Failed to open billing portal');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to open billing portal');
       setRedirecting(false);
     }
   };

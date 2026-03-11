@@ -10,6 +10,17 @@ import { Socket } from 'net';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export interface Attachment {
+  filename?: string;
+  mime_type?: string;
+  transfer_name?: string;
+}
+
+export interface Reaction {
+  sender?: string;
+  type?: string;
+}
+
 export interface Chat {
   id: number;
   name: string;
@@ -29,8 +40,8 @@ export interface Message {
   is_from_me: boolean;
   text: string;
   created_at: string;
-  attachments: any[];
-  reactions: any[];
+  attachments: Attachment[];
+  reactions: Reaction[];
   chat_identifier: string;
   chat_name: string;
   participants: string[];
@@ -56,6 +67,11 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface JsonRpcError extends Error {
+  code: number;
+  data: unknown;
 }
 
 // ── Client ───────────────────────────────────────────────────────────────────
@@ -200,9 +216,9 @@ export class ImsgClient {
       this.pending.delete(msg.id);
 
       if (msg.error) {
-        const err = new Error(msg.error.message);
-        (err as any).code = msg.error.code;
-        (err as any).data = msg.error.data;
+        const err = new Error(msg.error.message) as JsonRpcError;
+        err.code = msg.error.code;
+        err.data = msg.error.data;
         pending.reject(err);
       } else {
         pending.resolve(msg.result);

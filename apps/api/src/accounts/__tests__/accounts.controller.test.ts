@@ -32,7 +32,9 @@ function mockDbService() {
   };
   return {
     db: dbChain,
-    withCurrentUser: vi.fn().mockImplementation((fn: (db: any) => any) => fn(dbChain)),
+    withCurrentUser: vi
+      .fn()
+      .mockImplementation((fn: (db: typeof dbChain) => unknown) => fn(dbChain)),
   } as unknown as DbService;
 }
 
@@ -52,11 +54,14 @@ describe('AccountsController', () => {
 
   beforeEach(() => {
     service = mockAccountsService();
-    controller = new AccountsController(service as any, mockDbService() as any);
+    controller = new AccountsController(
+      service as unknown as AccountsService,
+      mockDbService() as unknown as DbService,
+    );
   });
 
   it('list returns mapped accounts', async () => {
-    (service.getAll as any).mockResolvedValue([fakeRow]);
+    vi.mocked(service.getAll).mockResolvedValue([fakeRow]);
     const result = await controller.list({ id: 'user-1' });
     expect(result.accounts).toHaveLength(1);
     expect(result.accounts[0].type).toBe('gmail');
@@ -65,14 +70,14 @@ describe('AccountsController', () => {
   });
 
   it('get returns single mapped account', async () => {
-    (service.getById as any).mockResolvedValue({ ...fakeRow, userId: 'user-1' });
+    vi.mocked(service.getById).mockResolvedValue({ ...fakeRow, userId: 'user-1' });
     const result = await controller.get({ id: 'user-1' }, 'a1');
     expect(result.id).toBe('a1');
     expect(result.type).toBe('gmail');
   });
 
   it('create calls service and maps result', async () => {
-    (service.create as any).mockResolvedValue(fakeRow);
+    vi.mocked(service.create).mockResolvedValue(fakeRow);
     const result = await controller.create(
       { id: 'user-1' },
       { connectorType: 'gmail', identifier: 'test@gmail.com' },
@@ -86,14 +91,14 @@ describe('AccountsController', () => {
   });
 
   it('update calls service with schedule', async () => {
-    (service.update as any).mockResolvedValue({ ...fakeRow, schedule: 'hourly' });
+    vi.mocked(service.update).mockResolvedValue({ ...fakeRow, schedule: 'hourly' });
     const result = await controller.update('a1', { schedule: 'hourly' });
     expect(service.update).toHaveBeenCalledWith('a1', { schedule: 'hourly' });
     expect(result.schedule).toBe('hourly');
   });
 
   it('remove calls service and returns ok', async () => {
-    (service.remove as any).mockResolvedValue(undefined);
+    vi.mocked(service.remove).mockResolvedValue(undefined);
     const result = await controller.remove('a1');
     expect(service.remove).toHaveBeenCalledWith('a1');
     expect(result).toEqual({ ok: true });

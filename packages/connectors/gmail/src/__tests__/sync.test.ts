@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { SyncContext, ConnectorDataEvent, ProgressEvent } from '@botmem/connector-sdk';
 
 const { mockList, mockGet, mockGetProfile } = vi.hoisted(() => ({
   mockList: vi.fn(),
@@ -27,7 +28,7 @@ vi.mock('googleapis', () => ({
 
 import { syncGmail } from '../sync.js';
 
-function makeCtx(overrides: Record<string, unknown> = {}) {
+function makeCtx(overrides: Record<string, unknown> = {}): SyncContext {
   return {
     accountId: 'acc-1',
     auth: { accessToken: 'tok', refreshToken: 'rt' },
@@ -36,7 +37,7 @@ function makeCtx(overrides: Record<string, unknown> = {}) {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     signal: AbortSignal.timeout(5000),
     ...overrides,
-  } as any;
+  } as SyncContext;
 }
 
 describe('syncGmail', () => {
@@ -54,7 +55,7 @@ describe('syncGmail', () => {
       },
     });
 
-    mockGet.mockImplementation(async (opts: any) => ({
+    mockGet.mockImplementation(async (opts: { id: string }) => ({
       data: {
         id: opts.id,
         payload: {
@@ -70,10 +71,14 @@ describe('syncGmail', () => {
       },
     }));
 
-    const events: any[] = [];
-    const progressEvents: any[] = [];
+    const events: ConnectorDataEvent[] = [];
+    const progressEvents: ProgressEvent[] = [];
 
-    const result = await syncGmail(makeCtx(), (e) => events.push(e), (p) => progressEvents.push(p));
+    const result = await syncGmail(
+      makeCtx(),
+      (e) => events.push(e),
+      (p) => progressEvents.push(p),
+    );
 
     expect(result.processed).toBe(2);
     expect(result.hasMore).toBe(true);
@@ -88,7 +93,7 @@ describe('syncGmail', () => {
   it('handles empty message list', async () => {
     mockList.mockResolvedValue({ data: { messages: [], nextPageToken: null } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     const result = await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(result.processed).toBe(0);
     expect(result.hasMore).toBe(false);
@@ -99,13 +104,17 @@ describe('syncGmail', () => {
     mockList.mockResolvedValue({ data: { messages: [], nextPageToken: null } });
 
     await syncGmail(makeCtx({ cursor: 'existing-cursor' }), vi.fn(), vi.fn());
-    expect(mockList).toHaveBeenCalledWith(expect.objectContaining({ pageToken: 'existing-cursor' }));
+    expect(mockList).toHaveBeenCalledWith(
+      expect.objectContaining({ pageToken: 'existing-cursor' }),
+    );
   });
 
   it('fetches messages in parallel', async () => {
     const ids = Array.from({ length: 25 }, (_, i) => ({ id: `msg-${i}` }));
-    mockList.mockResolvedValue({ data: { messages: ids, nextPageToken: null, resultSizeEstimate: 25 } });
-    mockGet.mockImplementation(async (opts: any) => ({
+    mockList.mockResolvedValue({
+      data: { messages: ids, nextPageToken: null, resultSizeEstimate: 25 },
+    });
+    mockGet.mockImplementation(async (opts: { id: string }) => ({
       data: {
         id: opts.id,
         payload: { headers: [{ name: 'Subject', value: 'Test' }] },
@@ -114,7 +123,7 @@ describe('syncGmail', () => {
       },
     }));
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     const result = await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(result.processed).toBe(25);
     expect(events).toHaveLength(25);
@@ -133,7 +142,7 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].timestamp).toBe('2024-01-01T00:00:00.000Z');
   });
@@ -153,7 +162,7 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].timestamp).toBe('2024-06-15T10:30:00.000Z');
   });
@@ -173,14 +182,16 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     // Should be a valid ISO date (today-ish)
     expect(new Date(events[0].timestamp).getTime()).not.toBeNaN();
   });
 
   it('extracts HTML body and strips tags', async () => {
-    const htmlBody = Buffer.from('<html><body><p>Hello <b>World</b></p></body></html>').toString('base64url');
+    const htmlBody = Buffer.from('<html><body><p>Hello <b>World</b></p></body></html>').toString(
+      'base64url',
+    );
     mockList.mockResolvedValue({ data: { messages: [{ id: 'msg-1' }], nextPageToken: null } });
     mockGet.mockResolvedValue({
       data: {
@@ -195,7 +206,7 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.text).toContain('Hello');
     expect(events[0].content.text).toContain('World');
@@ -214,14 +225,17 @@ describe('syncGmail', () => {
           headers: [{ name: 'Subject', value: 'Multi' }],
           parts: [
             { mimeType: 'text/plain', body: { data: textBody } },
-            { mimeType: 'text/html', body: { data: Buffer.from('<p>HTML</p>').toString('base64url') } },
+            {
+              mimeType: 'text/html',
+              body: { data: Buffer.from('<p>HTML</p>').toString('base64url') },
+            },
           ],
         },
         labelIds: [],
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.text).toContain('Plain text body');
   });
@@ -236,14 +250,17 @@ describe('syncGmail', () => {
           mimeType: 'multipart/alternative',
           headers: [{ name: 'Subject', value: 'HTML only' }],
           parts: [
-            { mimeType: 'text/html', body: { data: Buffer.from('<div>Content</div>').toString('base64url') } },
+            {
+              mimeType: 'text/html',
+              body: { data: Buffer.from('<div>Content</div>').toString('base64url') },
+            },
           ],
         },
         labelIds: [],
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.text).toContain('Content');
   });
@@ -261,9 +278,7 @@ describe('syncGmail', () => {
           parts: [
             {
               mimeType: 'multipart/alternative',
-              parts: [
-                { mimeType: 'text/plain', body: { data: textBody } },
-              ],
+              parts: [{ mimeType: 'text/plain', body: { data: textBody } }],
             },
           ],
         },
@@ -271,7 +286,7 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.text).toContain('Nested text');
   });
@@ -297,11 +312,13 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.attachments).toHaveLength(1);
-    expect(events[0].content.attachments[0].uri).toBe('gmail://attachment/att-123');
-    expect(events[0].content.attachments[0].filename).toBe('report.pdf');
+    expect(events[0].content.attachments![0].uri).toBe('gmail://attachment/att-123');
+    expect((events[0].content.attachments![0] as { filename?: string }).filename).toBe(
+      'report.pdf',
+    );
   });
 
   it('uses clientId/clientSecret from auth.raw', async () => {
@@ -343,7 +360,7 @@ describe('syncGmail', () => {
       },
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.metadata.cc).toBe('c@test.com');
     expect(events[0].content.metadata.messageId).toBe('<mid@test>');

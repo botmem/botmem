@@ -16,6 +16,7 @@ import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AskDto } from './dto/ask.dto';
+import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 import { RememberDto } from './dto/remember.dto';
 import { SummarizeDto } from './dto/summarize.dto';
 
@@ -34,6 +35,7 @@ export class AgentController {
   constructor(private readonly agentService: AgentService) {}
 
   /** Natural language memory search with enriched results. */
+  @ReadOnly()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('ask')
   @HttpCode(200)

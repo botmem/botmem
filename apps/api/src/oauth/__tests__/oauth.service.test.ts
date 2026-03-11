@@ -18,14 +18,14 @@ describe('OAuthService', () => {
   let configService: Partial<ConfigService>;
 
   // Track all inserts
-  let allInserts: any[];
+  let allInserts: Record<string, unknown>[];
 
   beforeEach(async () => {
     allInserts = [];
 
     const mockDb = {
       insert: vi.fn().mockImplementation(() => ({
-        values: vi.fn().mockImplementation((vals: any) => {
+        values: vi.fn().mockImplementation((vals: Record<string, unknown>) => {
           allInserts.push(vals);
           return Promise.resolve();
         }),
@@ -145,7 +145,9 @@ describe('OAuthService', () => {
       };
 
       // Override the select mock for this test
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -179,7 +181,9 @@ describe('OAuthService', () => {
         usedAt: null,
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -189,7 +193,12 @@ describe('OAuthService', () => {
       });
 
       await expect(
-        service.validateAndConsumeCode('test-code', 'client-1', 'http://localhost:3000/callback', 'verifier'),
+        service.validateAndConsumeCode(
+          'test-code',
+          'client-1',
+          'http://localhost:3000/callback',
+          'verifier',
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -206,7 +215,9 @@ describe('OAuthService', () => {
         usedAt: new Date(), // already used
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -216,7 +227,12 @@ describe('OAuthService', () => {
       });
 
       await expect(
-        service.validateAndConsumeCode('test-code', 'client-1', 'http://localhost:3000/callback', 'verifier'),
+        service.validateAndConsumeCode(
+          'test-code',
+          'client-1',
+          'http://localhost:3000/callback',
+          'verifier',
+        ),
       ).rejects.toThrow('Authorization code already used');
     });
 
@@ -233,7 +249,9 @@ describe('OAuthService', () => {
         usedAt: null,
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -243,12 +261,19 @@ describe('OAuthService', () => {
       });
 
       await expect(
-        service.validateAndConsumeCode('test-code', 'wrong-client', 'http://localhost:3000/callback', 'verifier'),
+        service.validateAndConsumeCode(
+          'test-code',
+          'wrong-client',
+          'http://localhost:3000/callback',
+          'verifier',
+        ),
       ).rejects.toThrow('Client ID mismatch');
     });
 
     it('rejects invalid code', async () => {
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -258,7 +283,12 @@ describe('OAuthService', () => {
       });
 
       await expect(
-        service.validateAndConsumeCode('invalid', 'client-1', 'http://localhost:3000/callback', 'verifier'),
+        service.validateAndConsumeCode(
+          'invalid',
+          'client-1',
+          'http://localhost:3000/callback',
+          'verifier',
+        ),
       ).rejects.toThrow('Invalid authorization code');
     });
 
@@ -278,7 +308,9 @@ describe('OAuthService', () => {
         usedAt: null,
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -288,7 +320,12 @@ describe('OAuthService', () => {
       });
 
       await expect(
-        service.validateAndConsumeCode('test-code', 'client-1', 'http://localhost:3000/callback', 'wrong-verifier'),
+        service.validateAndConsumeCode(
+          'test-code',
+          'client-1',
+          'http://localhost:3000/callback',
+          'wrong-verifier',
+        ),
       ).rejects.toThrow('PKCE validation failed');
     });
   });
@@ -337,7 +374,9 @@ describe('OAuthService', () => {
         revokedAt: null,
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -369,7 +408,9 @@ describe('OAuthService', () => {
         revokedAt: new Date(), // revoked
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -397,7 +438,9 @@ describe('OAuthService', () => {
         revokedAt: null,
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -425,7 +468,9 @@ describe('OAuthService', () => {
         revokedAt: null,
       };
 
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
       dbService.db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -442,7 +487,9 @@ describe('OAuthService', () => {
 
   describe('revokeToken', () => {
     it('marks token as revoked', async () => {
-      const dbService = (service as any).db;
+      const dbService = (
+        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
+      ).db;
 
       await service.revokeToken('some-token');
 

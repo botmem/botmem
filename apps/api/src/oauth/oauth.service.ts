@@ -25,11 +25,7 @@ export class OAuthService {
     private config: ConfigService,
   ) {}
 
-  async registerClient(
-    name: string,
-    redirectUris: string[],
-    grantTypes?: string[],
-  ) {
+  async registerClient(name: string, redirectUris: string[], grantTypes?: string[]) {
     const clientId = randomUUID();
     const grants = grantTypes ?? ['authorization_code', 'refresh_token'];
 
@@ -233,14 +229,11 @@ export class OAuthService {
       .update(oauthRefreshTokens)
       .set({ revokedAt: new Date() })
       .where(
-        and(
-          eq(oauthRefreshTokens.tokenHash, tokenHash),
-          isNull(oauthRefreshTokens.revokedAt),
-        ),
+        and(eq(oauthRefreshTokens.tokenHash, tokenHash), isNull(oauthRefreshTokens.revokedAt)),
       );
   }
 
-  verifyAccessToken(token: string): any {
+  verifyAccessToken(token: string): Record<string, unknown> {
     try {
       const payload = this.jwt.verify(token, {
         secret: this.config.oauthJwtSecret,

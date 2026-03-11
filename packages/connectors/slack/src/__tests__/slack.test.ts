@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { PipelineContext, EmbedResult } from '@botmem/connector-sdk';
 import { SlackConnector } from '../index.js';
+
+type Entity = EmbedResult['entities'][number];
 
 vi.mock('../oauth.js', () => ({
   getSlackAuthUrl: vi.fn().mockReturnValue('https://slack.com/oauth/v2/authorize?client_id=test'),
@@ -11,7 +14,9 @@ vi.mock('../oauth.js', () => ({
 }));
 
 vi.mock('../sync.js', () => ({
-  syncSlack: vi.fn().mockResolvedValue({ cursor: '{"channels":{}}', hasMore: false, processed: 15 }),
+  syncSlack: vi
+    .fn()
+    .mockResolvedValue({ cursor: '{"channels":{}}', hasMore: false, processed: 15 }),
 }));
 
 describe('SlackConnector', () => {
@@ -32,7 +37,7 @@ describe('SlackConnector', () => {
     });
 
     it('has config fields for token and OAuth', () => {
-      const schema = connector.manifest.configSchema as any;
+      const schema = connector.manifest.configSchema as { properties: Record<string, unknown> };
       expect(schema.properties.token).toBeDefined();
       expect(schema.properties.clientId).toBeDefined();
       expect(schema.properties.clientSecret).toBeDefined();
@@ -49,9 +54,12 @@ describe('SlackConnector', () => {
     });
 
     it('returns complete with token and fetches identity', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ ok: true, user: 'testuser', team: 'myteam' }),
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          json: () => Promise.resolve({ ok: true, user: 'testuser', team: 'myteam' }),
+        }),
+      );
       const result = await connector.initiateAuth({ token: 'xoxp-test-token' });
       expect(result.type).toBe('complete');
       if (result.type === 'complete') {
@@ -64,9 +72,12 @@ describe('SlackConnector', () => {
 
   describe('completeAuth', () => {
     it('exchanges code and returns auth context with identity', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ ok: true, user: 'testuser', team: 'myteam' }),
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          json: () => Promise.resolve({ ok: true, user: 'testuser', team: 'myteam' }),
+        }),
+      );
       await connector.initiateAuth({ clientId: 'cid', clientSecret: 'cs' });
       const auth = await connector.completeAuth({ code: 'slack-code' });
       expect(auth.accessToken).toBe('xoxb-test');
@@ -78,9 +89,12 @@ describe('SlackConnector', () => {
 
   describe('validateAuth', () => {
     it('calls slack API to validate', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ ok: true }),
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          json: () => Promise.resolve({ ok: true }),
+        }),
+      );
       const result = await connector.validateAuth({ accessToken: 'xoxb-test' });
       expect(result).toBe(true);
       vi.unstubAllGlobals();
@@ -140,7 +154,11 @@ describe('SlackConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Slack contact: Alice', {} as any);
+      const result = connector.embed(
+        event,
+        'Slack contact: Alice',
+        {} as unknown as PipelineContext,
+      );
       expect(result.entities).toHaveLength(1);
       expect(result.entities[0].id).toContain('name:Alice');
       expect(result.entities[0].id).toContain('slack_id:U123');
@@ -160,7 +178,7 @@ describe('SlackConnector', () => {
           metadata: { type: 'contact', name: 'Bob', slackId: 'U123' },
         },
       };
-      const result = connector.embed(event, 'Slack contact: Bob', {} as any);
+      const result = connector.embed(event, 'Slack contact: Bob', {} as unknown as PipelineContext);
       expect(result.entities[0].id).toBe('name:Bob|slack_id:U123');
     });
 
@@ -183,9 +201,9 @@ describe('SlackConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, '[general] Hello', {} as any);
-      const alice = result.entities.find((e: any) => e.id.includes('Alice'));
-      const bob = result.entities.find((e: any) => e.id.includes('Bob'));
+      const result = connector.embed(event, '[general] Hello', {} as unknown as PipelineContext);
+      const alice = result.entities.find((e: Entity) => e.id.includes('Alice'));
+      const bob = result.entities.find((e: Entity) => e.id.includes('Bob'));
       expect(alice?.role).toBe('sender');
       expect(alice?.id).toContain('email:alice@test.com');
       expect(bob?.role).toBe('recipient');
@@ -202,8 +220,8 @@ describe('SlackConnector', () => {
           metadata: { channelId: 'C123', channelName: 'general' },
         },
       };
-      const result = connector.embed(event, '[general] Hello', {} as any);
-      const channel = result.entities.find((e: any) => e.type === 'group');
+      const result = connector.embed(event, '[general] Hello', {} as unknown as PipelineContext);
+      const channel = result.entities.find((e: Entity) => e.type === 'group');
       expect(channel).toBeDefined();
       expect(channel?.id).toContain('slack_channel:C123');
       expect(channel?.id).toContain('name:general');
@@ -220,8 +238,8 @@ describe('SlackConnector', () => {
           metadata: { channelId: 'C123', threadTs: '1234.5678' },
         },
       };
-      const result = connector.embed(event, 'thread reply', {} as any);
-      const thread = result.entities.find((e: any) => e.type === 'message');
+      const result = connector.embed(event, 'thread reply', {} as unknown as PipelineContext);
+      const thread = result.entities.find((e: Entity) => e.type === 'message');
       expect(thread).toBeDefined();
       expect(thread?.id).toBe('slack_thread:C123:1234.5678');
     });
@@ -238,8 +256,8 @@ describe('SlackConnector', () => {
           metadata: {},
         },
       };
-      const result = connector.embed(event, 'shared: report.pdf', {} as any);
-      const file = result.entities.find((e: any) => e.type === 'file');
+      const result = connector.embed(event, 'shared: report.pdf', {} as unknown as PipelineContext);
+      const file = result.entities.find((e: Entity) => e.type === 'file');
       expect(file).toBeDefined();
       expect(file?.id).toContain('file:');
     });
@@ -258,7 +276,7 @@ describe('SlackConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'hey @Charlie', {} as any);
+      const result = connector.embed(event, 'hey @Charlie', {} as unknown as PipelineContext);
       expect(result.entities[0].role).toBe('mentioned');
     });
 
@@ -276,7 +294,7 @@ describe('SlackConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'hi', {} as any);
+      const result = connector.embed(event, 'hi', {} as unknown as PipelineContext);
       // Default roles array is ['sender']
       expect(result.entities[0].role).toBe('sender');
     });
@@ -292,7 +310,7 @@ describe('SlackConnector', () => {
           metadata: { participantRoles: { Unknown: ['sender'] } },
         },
       };
-      const result = connector.embed(event, 'hi', {} as any);
+      const result = connector.embed(event, 'hi', {} as unknown as PipelineContext);
       expect(result.entities[0].id).toBe('slack_id:Unknown');
     });
 
@@ -307,17 +325,20 @@ describe('SlackConnector', () => {
           metadata: { channel: 'random' },
         },
       };
-      const result = connector.embed(event, 'hi', {} as any);
-      const ch = result.entities.find((e: any) => e.type === 'group');
+      const result = connector.embed(event, 'hi', {} as unknown as PipelineContext);
+      const ch = result.entities.find((e: Entity) => e.type === 'group');
       expect(ch?.id).toContain('name:random');
     });
   });
 
   describe('initiateAuth (token identity fetch failure)', () => {
     it('returns undefined identifier when identity fetch fails', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ ok: false }),
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          json: () => Promise.resolve({ ok: false }),
+        }),
+      );
       const result = await connector.initiateAuth({ token: 'xoxp-test' });
       if (result.type === 'complete') {
         expect(result.auth.identifier).toBeUndefined();

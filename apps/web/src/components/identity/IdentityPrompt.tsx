@@ -6,8 +6,14 @@ import { api } from '../../lib/api';
 interface ContactOption {
   id: string;
   displayName: string;
-  avatars: string;
-  identifiers: Array<{ identifierType: string; identifierValue: string }>;
+  avatars?: string | Array<{ url: string; source: string }>;
+  identifiers?: Array<{
+    identifierType?: string;
+    identifierValue?: string;
+    type?: string;
+    value?: string;
+    [key: string]: unknown;
+  }>;
 }
 
 interface MergeCandidate extends ContactOption {
@@ -120,7 +126,9 @@ export function IdentityPrompt() {
     if (!search) return true;
     const q = search.toLowerCase();
     if (c.displayName.toLowerCase().includes(q)) return true;
-    return c.identifiers?.some((i) => i.identifierValue.toLowerCase().includes(q));
+    return c.identifiers?.some((i) =>
+      (i.identifierValue || i.value || '').toLowerCase().includes(q),
+    );
   });
 
   if (showIdentityPicker) {
@@ -162,19 +170,15 @@ export function IdentityPrompt() {
   /* ---- Render: Merge prompt ---- */
 
   if (mergeCandidate) {
-    let avatar: string | null = null;
-    try {
-      const parsed = JSON.parse(mergeCandidate.avatars || '[]');
-      avatar = parsed[0]?.url ?? null;
-    } catch {
-      /* ignore */
-    }
-    const email = mergeCandidate.identifiers?.find(
-      (i) => i.identifierType === 'email',
-    )?.identifierValue;
-    const phone = mergeCandidate.identifiers?.find(
-      (i) => i.identifierType === 'phone',
-    )?.identifierValue;
+    const avatar = parseAvatarUrl(mergeCandidate.avatars);
+    const emailIdent = mergeCandidate.identifiers?.find(
+      (i) => (i.identifierType || i.type) === 'email',
+    );
+    const phoneIdent = mergeCandidate.identifiers?.find(
+      (i) => (i.identifierType || i.type) === 'phone',
+    );
+    const email = emailIdent?.identifierValue || emailIdent?.value;
+    const phone = phoneIdent?.identifierValue || phoneIdent?.value;
 
     return (
       <Modal open onClose={handleDismissMerge} title="IS THIS YOU?">
@@ -229,16 +233,23 @@ export function IdentityPrompt() {
 
 /* ---- Shared contact row ---- */
 
-function ContactRow({ contact, onClick }: { contact: ContactOption; onClick: () => void }) {
-  let avatar: string | null = null;
+function parseAvatarUrl(
+  avatars: string | Array<{ url: string; source: string }> | undefined,
+): string | null {
+  if (!avatars) return null;
+  if (Array.isArray(avatars)) return avatars[0]?.url ?? null;
   try {
-    const parsed = JSON.parse(contact.avatars || '[]');
-    avatar = parsed[0]?.url ?? null;
+    const parsed = JSON.parse(avatars);
+    return parsed[0]?.url ?? null;
   } catch {
-    /* ignore */
+    return null;
   }
-  const email = contact.identifiers?.find((i) => i.identifierType === 'email')?.identifierValue;
-  const phone = contact.identifiers?.find((i) => i.identifierType === 'phone')?.identifierValue;
+}
+
+function ContactRow({ contact, onClick }: { contact: ContactOption; onClick: () => void }) {
+  const avatar = parseAvatarUrl(contact.avatars);
+  const email = contact.identifiers?.find((i) => (i.identifierType || i.type) === 'email');
+  const phone = contact.identifiers?.find((i) => (i.identifierType || i.type) === 'phone');
 
   return (
     <button
@@ -260,7 +271,11 @@ function ContactRow({ contact, onClick }: { contact: ContactOption; onClick: () 
       )}
       <div className="flex-1 min-w-0">
         <p className="font-display text-sm font-bold uppercase truncate">{contact.displayName}</p>
-        <p className="font-mono text-[10px] text-nb-muted truncate">{email ?? phone ?? '--'}</p>
+        <p className="font-mono text-[10px] text-nb-muted truncate">
+          {(email?.identifierValue || email?.value) ??
+            (phone?.identifierValue || phone?.value) ??
+            '--'}
+        </p>
       </div>
     </button>
   );

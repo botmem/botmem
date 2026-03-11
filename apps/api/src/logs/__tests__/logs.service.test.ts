@@ -12,7 +12,7 @@ function makeTmpPath() {
 
 function makeService(logsPath: string): LogsService {
   const config = { logsPath } as unknown as ConfigService;
-  const traceContext = { current: () => undefined } as any;
+  const traceContext = { current: () => undefined } as unknown as { current: () => undefined };
   return new LogsService(config, traceContext);
 }
 

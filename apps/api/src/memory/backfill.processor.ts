@@ -161,7 +161,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     }
 
     // Decrypt metadata if needed
-    let metadata: Record<string, any> = {};
+    let metadata: Record<string, unknown> = {};
     try {
       const wasEncrypted = this.crypto.isEncrypted(mem.metadata);
       if (wasEncrypted) {
@@ -226,8 +226,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
         // Write updated metadata back (re-encrypt if needed)
         const metadataStr = JSON.stringify(metadata);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const writeUpdate = (db: any) =>
+        const writeUpdate = (db: typeof this.dbService.db) =>
           db.update(memories).set({ metadata: metadataStr }).where(eq(memories.id, memoryId));
 
         if (ownerUserId) {

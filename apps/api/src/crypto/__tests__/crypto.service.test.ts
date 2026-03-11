@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { randomBytes } from 'crypto';
 import { CryptoService } from '../crypto.service';
+import type { ConfigService } from '../../config/config.service';
 
-const mockConfig = { appSecret: 'test-secret-for-unit-tests' } as any;
+const mockConfig = { appSecret: 'test-secret-for-unit-tests' } as unknown as ConfigService;
 
 describe('CryptoService', () => {
   const service = new CryptoService(mockConfig);
@@ -145,7 +146,7 @@ describe('CryptoService', () => {
       expect(dec.entities).toBe(fields.entities);
       expect(dec.claims).toBe(fields.claims);
       expect(dec.metadata).toBe(fields.metadata);
-      expect((dec as any).id).toBe('mem-1');
+      expect((dec as unknown as { id: string }).id).toBe('mem-1');
     });
   });
 });

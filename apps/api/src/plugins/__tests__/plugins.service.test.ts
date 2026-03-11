@@ -5,6 +5,8 @@ import { ConnectorsService } from '../../connectors/connectors.service';
 import { ConfigService } from '../../config/config.service';
 import * as fs from 'fs/promises';
 import { EventEmitter } from 'events';
+import type { EventsService } from '../../events/events.service';
+import type { DbService } from '../../db/db.service';
 
 vi.mock('fs/promises');
 
@@ -31,7 +33,7 @@ function createMocks() {
 
   const events = {
     emitToChannel: vi.fn(),
-  } as any;
+  } as unknown as EventsService;
 
   const dbService = {
     db: {
@@ -41,7 +43,7 @@ function createMocks() {
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
     },
-  } as any;
+  } as unknown as DbService;
 
   return { connectors, config, registry, events, dbService, mockWa };
 }
@@ -51,11 +53,19 @@ function createService(
   connectors: ConnectorsService,
   config: ConfigService,
   registry: PluginRegistry,
-  events?: any,
-  dbService?: any,
+  events?: EventsService,
+  dbService?: DbService,
 ) {
-  const service = new PluginsService(connectors, config, registry, events ?? { emitToChannel: vi.fn() }, dbService ?? { db: {} });
-  (service as any).loadBuiltin = vi.fn().mockResolvedValue(undefined);
+  const service = new PluginsService(
+    connectors,
+    config,
+    registry,
+    events ?? ({ emitToChannel: vi.fn() } as unknown as EventsService),
+    dbService ?? ({ db: {} } as unknown as DbService),
+  );
+  (service as unknown as { loadBuiltin: ReturnType<typeof vi.fn> }).loadBuiltin = vi
+    .fn()
+    .mockResolvedValue(undefined);
   return service;
 }
 
@@ -103,10 +113,14 @@ describe('PluginsService', () => {
       // Wait for async handler
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(events.emitToChannel).toHaveBeenCalledWith('notifications', 'connector:warning', expect.objectContaining({
-        connectorType: 'whatsapp',
-        action: 'reauth',
-      }));
+      expect(events.emitToChannel).toHaveBeenCalledWith(
+        'notifications',
+        'connector:warning',
+        expect.objectContaining({
+          connectorType: 'whatsapp',
+          action: 'reauth',
+        }),
+      );
     });
   });
 
@@ -125,10 +139,14 @@ describe('PluginsService', () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(events.emitToChannel).toHaveBeenCalledWith('notifications', 'connector:warning', expect.objectContaining({
-        connectorType: 'whatsapp',
-        message: expect.stringContaining('Logged out'),
-      }));
+      expect(events.emitToChannel).toHaveBeenCalledWith(
+        'notifications',
+        'connector:warning',
+        expect.objectContaining({
+          connectorType: 'whatsapp',
+          message: expect.stringContaining('Logged out'),
+        }),
+      );
     });
   });
 
@@ -138,7 +156,9 @@ describe('PluginsService', () => {
       const connectors = {
         register: vi.fn(),
         list: vi.fn().mockReturnValue([]),
-        get: vi.fn(() => { throw new Error('not found'); }),
+        get: vi.fn(() => {
+          throw new Error('not found');
+        }),
         registry: { loadFromDirectory: vi.fn().mockResolvedValue(undefined) },
       } as unknown as ConnectorsService;
       vi.mocked(fs.readdir).mockResolvedValue([]);
@@ -154,7 +174,7 @@ describe('PluginsService', () => {
       const registerSpy = vi.spyOn(registry, 'registerLifecycle');
 
       const dirEntry = { name: 'my-lifecycle', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'my-lifecycle',
@@ -166,11 +186,13 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry, events, dbService);
-      (service as any)._importPlugin = vi.fn().mockResolvedValue({
-        default: {
-          afterEnrich: () => {},
-        },
-      });
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = vi
+        .fn()
+        .mockResolvedValue({
+          default: {
+            afterEnrich: () => {},
+          },
+        });
 
       await service.loadAll();
 
@@ -183,7 +205,7 @@ describe('PluginsService', () => {
       const registerSpy = vi.spyOn(registry, 'registerScorer');
 
       const dirEntry = { name: 'my-scorer', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'my-scorer',
@@ -194,11 +216,13 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry, events, dbService);
-      (service as any)._importPlugin = vi.fn().mockResolvedValue({
-        default: {
-          score: (_mem: any, _w: any) => 0.5,
-        },
-      });
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = vi
+        .fn()
+        .mockResolvedValue({
+          default: {
+            score: (_mem: unknown, _w: unknown) => 0.5,
+          },
+        });
 
       await service.loadAll();
 
@@ -210,7 +234,7 @@ describe('PluginsService', () => {
       const { connectors, config, registry, events, dbService } = createMocks();
 
       const dirEntry = { name: 'bad-scorer', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'bad-scorer',
@@ -221,9 +245,13 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry, events, dbService);
-      (service as any)._importPlugin = vi.fn().mockResolvedValue({
-        default: { /* no score function */ },
-      });
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = vi
+        .fn()
+        .mockResolvedValue({
+          default: {
+            /* no score function */
+          },
+        });
 
       await service.loadAll();
 
@@ -236,7 +264,7 @@ describe('PluginsService', () => {
       const scSpy = vi.spyOn(registry, 'registerScorer');
 
       const dirEntry = { name: 'my-connector', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'my-connector',
@@ -256,7 +284,7 @@ describe('PluginsService', () => {
       const { connectors, config, registry, events, dbService } = createMocks();
 
       const fileEntry = { name: 'readme.txt', isDirectory: () => false };
-      vi.mocked(fs.readdir).mockResolvedValue([fileEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([fileEntry] as unknown as import('fs').Dirent[]);
 
       const service = createService(connectors, config, registry, events, dbService);
       await service.loadAll();
@@ -269,7 +297,7 @@ describe('PluginsService', () => {
       const { connectors, config, registry, events, dbService } = createMocks();
 
       const dirEntry = { name: 'no-entry', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'no-entry',
@@ -283,7 +311,7 @@ describe('PluginsService', () => {
       const importSpy = vi.fn().mockResolvedValue({
         default: { afterIngest: () => {} },
       });
-      (service as any)._importPlugin = importSpy;
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = importSpy;
 
       await service.loadAll();
 
@@ -296,7 +324,7 @@ describe('PluginsService', () => {
       const registerSpy = vi.spyOn(registry, 'registerLifecycle');
 
       const dirEntry = { name: 'bad-hooks', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'bad-hooks',
@@ -308,13 +336,15 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry, events, dbService);
-      (service as any)._importPlugin = vi.fn().mockResolvedValue({
-        default: {
-          afterEnrich: () => {},
-          invalidHook: () => {},
-          beforeDestroy: () => {},
-        },
-      });
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = vi
+        .fn()
+        .mockResolvedValue({
+          default: {
+            afterEnrich: () => {},
+            invalidHook: () => {},
+            beforeDestroy: () => {},
+          },
+        });
 
       await service.loadAll();
 
@@ -329,7 +359,7 @@ describe('PluginsService', () => {
       const { connectors, config, registry, events, dbService } = createMocks();
 
       const dirEntry = { name: 'broken-plugin', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'));
 
       const service = createService(connectors, config, registry, events, dbService);
@@ -342,7 +372,7 @@ describe('PluginsService', () => {
       const { connectors, config, registry, events, dbService } = createMocks();
 
       const dirEntry = { name: 'bad-import', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'bad-import',
@@ -353,7 +383,9 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry, events, dbService);
-      (service as any)._importPlugin = vi.fn().mockRejectedValue(new Error('Cannot find module'));
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = vi
+        .fn()
+        .mockRejectedValue(new Error('Cannot find module'));
 
       await expect(service.loadAll()).resolves.toBeUndefined();
     });
@@ -363,7 +395,7 @@ describe('PluginsService', () => {
       const registerSpy = vi.spyOn(registry, 'registerLifecycle');
 
       const dirEntry = { name: 'no-default', isDirectory: () => true };
-      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as any);
+      vi.mocked(fs.readdir).mockResolvedValue([dirEntry] as unknown as import('fs').Dirent[]);
       vi.mocked(fs.readFile).mockResolvedValue(
         JSON.stringify({
           name: 'no-default',
@@ -375,9 +407,11 @@ describe('PluginsService', () => {
       );
 
       const service = createService(connectors, config, registry, events, dbService);
-      (service as any)._importPlugin = vi.fn().mockResolvedValue({
-        afterSearch: () => {},
-      });
+      (service as unknown as { _importPlugin: ReturnType<typeof vi.fn> })._importPlugin = vi
+        .fn()
+        .mockResolvedValue({
+          afterSearch: () => {},
+        });
 
       await service.loadAll();
 

@@ -1,6 +1,6 @@
 import { Injectable, Inject, forwardRef, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, eq, or, sql, inArray } from 'drizzle-orm';
+import { and, eq, or, sql, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
@@ -194,7 +194,9 @@ export class ContactsService {
         );
         if (!stillExists.length) {
           // Find the winner by display name
-          const conditions: any[] = [sql`LOWER(${contacts.displayName}) = LOWER(${displayName})`];
+          const conditions: (SQLWrapper | undefined)[] = [
+            sql`LOWER(${contacts.displayName}) = LOWER(${displayName})`,
+          ];
           if (userId) conditions.push(eq(contacts.userId, userId));
           const winners = await this.dbService.withCurrentUser((db) =>
             db
@@ -475,7 +477,7 @@ export class ContactsService {
     const limit = params.limit || 50;
     const offset = params.offset || 0;
 
-    const conditions: any[] = [];
+    const conditions: (SQLWrapper | undefined)[] = [];
     if (params.entityType) conditions.push(eq(contacts.entityType, params.entityType));
     if (params.userId) conditions.push(eq(contacts.userId, params.userId));
     const where = conditions.length ? and(...conditions) : undefined;
@@ -690,7 +692,7 @@ export class ContactsService {
     let immichHeaders: Record<string, string> = {};
     try {
       const allAccounts = await this.accountsService.getAll();
-      const photosAccount = allAccounts.find((a: any) => a.connectorType === 'photos');
+      const photosAccount = allAccounts.find((a) => a.connectorType === 'photos');
       if (photosAccount?.authContext) {
         const auth =
           typeof photosAccount.authContext === 'string'
@@ -769,7 +771,11 @@ export class ContactsService {
     }
   }
 
-  async getMemories(contactId: string, limit = 50, userId?: string): Promise<any[]> {
+  async getMemories(
+    contactId: string,
+    limit = 50,
+    userId?: string,
+  ): Promise<Record<string, unknown>[]> {
     const conditions = [eq(memoryContacts.contactId, contactId)];
     if (userId) {
       // Filter memories to only those belonging to user's accounts
@@ -803,7 +809,7 @@ export class ContactsService {
       keyVersion?: number;
     },
   >(mem: T, userId?: string, userKey?: Buffer | null): T {
-    const kv = (mem as any).keyVersion ?? 0;
+    const kv = mem.keyVersion ?? 0;
     if (kv >= 1 && userId) {
       if (userKey) {
         return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
@@ -832,7 +838,7 @@ export class ContactsService {
     );
     if (!existing.length) return null;
 
-    const patch: Record<string, any> = { updatedAt: new Date() };
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.displayName !== undefined) patch.displayName = updates.displayName;
     if (updates.avatars !== undefined) patch.avatars = updates.avatars;
     if (updates.metadata !== undefined) patch.metadata = JSON.stringify(updates.metadata);
@@ -846,7 +852,7 @@ export class ContactsService {
 
   async mergeContacts(targetId: string, sourceId: string): Promise<ContactWithIdentifiers> {
     // Retry on deadlock up to 3 times
-    let lastError: any;
+    let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         await this.dbService.withCurrentUser(
@@ -907,7 +913,7 @@ export class ContactsService {
                 .from(contactIdentifiers)
                 .where(eq(contactIdentifiers.contactId, targetId));
               const targetIdKeys = new Set(
-                targetIds.map((i: any) => `${i.identifierType}::${i.identifierValue}`),
+                targetIds.map((i) => `${i.identifierType}::${i.identifierValue}`),
               );
               for (const ident of sourceIds) {
                 if (targetIdKeys.has(`${ident.identifierType}::${ident.identifierValue}`)) {
@@ -929,9 +935,7 @@ export class ContactsService {
                 .select()
                 .from(memoryContacts)
                 .where(eq(memoryContacts.contactId, targetId));
-              const targetMemKeys = new Set(
-                targetMemLinks.map((m: any) => `${m.memoryId}::${m.role}`),
-              );
+              const targetMemKeys = new Set(targetMemLinks.map((m) => `${m.memoryId}::${m.role}`));
 
               for (const link of sourceMemLinks) {
                 if (targetMemKeys.has(`${link.memoryId}::${link.role}`)) {
@@ -1558,7 +1562,9 @@ export class ContactsService {
     if (!trimmed) return;
 
     // Find all contacts with this exact display name (case-insensitive), scoped to user
-    const conditions: any[] = [sql`LOWER(${contacts.displayName}) = LOWER(${trimmed})`];
+    const conditions: (SQLWrapper | undefined)[] = [
+      sql`LOWER(${contacts.displayName}) = LOWER(${trimmed})`,
+    ];
     if (userId) conditions.push(eq(contacts.userId, userId));
 
     const matches = await this.dbService.withCurrentUser((db) =>

@@ -18,7 +18,7 @@ function createMockDeps() {
     sync: vi.fn(),
     removeAllListeners: vi.fn(),
     resetSyncLimit: vi.fn(),
-    wrapSyncContext: vi.fn((ctx: any) => ctx),
+    wrapSyncContext: vi.fn((ctx: Record<string, unknown>) => ctx),
     isLimitReached: false,
   });
 
@@ -68,18 +68,21 @@ function createMockDeps() {
         }),
       }),
     },
-    withUserId: vi.fn().mockImplementation((_uid: string, fn: (db: any) => Promise<void>) =>
-      fn({
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockResolvedValue(undefined),
-        }),
-      }),
-    ),
+    withUserId: vi
+      .fn()
+      .mockImplementation(
+        (_uid: string, fn: (db: Record<string, ReturnType<typeof vi.fn>>) => Promise<void>) =>
+          fn({
+            insert: vi.fn().mockReturnValue({
+              values: vi.fn().mockResolvedValue(undefined),
+            }),
+          }),
+      ),
   } as unknown as DbService;
 
   const cleanQueue = {
     add: vi.fn().mockResolvedValue(undefined),
-  } as any;
+  } as unknown as import('bullmq').Queue;
 
   const settingsService = {
     get: vi.fn().mockReturnValue(''),
@@ -96,8 +99,8 @@ function createMockDeps() {
 
   const traceContext = {
     current: vi.fn().mockReturnValue({ traceId: 'aaaa', spanId: 'bbbb' }),
-    run: vi.fn().mockImplementation((_ctx: any, fn: () => any) => fn()),
-  } as any;
+    run: vi.fn().mockImplementation((_ctx: unknown, fn: () => unknown) => fn()),
+  } as unknown as { current: ReturnType<typeof vi.fn>; run: ReturnType<typeof vi.fn> };
 
   return {
     connectors,
@@ -154,7 +157,7 @@ describe('SyncProcessor', () => {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
-    } as any;
+    } as unknown as import('bullmq').Job;
     await processor.process(job);
 
     expect(jobsService.updateJob).toHaveBeenCalledWith(
@@ -219,7 +222,7 @@ describe('SyncProcessor', () => {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
-    } as any;
+    } as unknown as import('bullmq').Job;
 
     await expect(processor.process(job)).rejects.toThrow('API rate limited');
 
@@ -280,7 +283,7 @@ describe('SyncProcessor', () => {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
-    } as any;
+    } as unknown as import('bullmq').Job;
     await processor.process(job);
 
     // sync should have been called twice (two pages)
@@ -323,7 +326,7 @@ describe('SyncProcessor', () => {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
-    } as any;
+    } as unknown as import('bullmq').Job;
     await processor.process(job);
 
     expect(mockConnector.sync).toHaveBeenCalledTimes(1);
@@ -345,13 +348,22 @@ describe('SyncProcessor', () => {
       traceContext,
       mockConnector,
     } = createMockDeps();
-    mockConnector.sync.mockImplementation(async (ctx: any) => {
-      ctx.logger.info('started');
-      ctx.logger.warn('slow');
-      ctx.logger.error('oops');
-      ctx.logger.debug('trace');
-      return { cursor: null, hasMore: false, processed: 0 };
-    });
+    mockConnector.sync.mockImplementation(
+      async (ctx: {
+        logger: {
+          info: (m: string) => void;
+          warn: (m: string) => void;
+          error: (m: string) => void;
+          debug: (m: string) => void;
+        };
+      }) => {
+        ctx.logger.info('started');
+        ctx.logger.warn('slow');
+        ctx.logger.error('oops');
+        ctx.logger.debug('trace');
+        return { cursor: null, hasMore: false, processed: 0 };
+      },
+    );
 
     const processor = new SyncProcessor(
       connectors,
@@ -371,7 +383,7 @@ describe('SyncProcessor', () => {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
-    } as any;
+    } as unknown as import('bullmq').Job;
     await processor.process(job);
 
     expect(logsService.add).toHaveBeenCalledTimes(4);
@@ -416,7 +428,7 @@ describe('SyncProcessor', () => {
       data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
-    } as any;
+    } as unknown as import('bullmq').Job;
 
     try {
       await processor.process(job);

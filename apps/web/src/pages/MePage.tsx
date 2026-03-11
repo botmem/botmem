@@ -105,8 +105,14 @@ interface MeData {
 interface ContactOption {
   id: string;
   displayName: string;
-  avatars: string;
-  identifiers: Array<{ identifierType: string; identifierValue: string }>;
+  avatars?: string | Array<{ url: string; source: string }>;
+  identifiers?: Array<{
+    identifierType?: string;
+    identifierValue?: string;
+    type?: string;
+    value?: string;
+    [key: string]: unknown;
+  }>;
 }
 
 /* ---------- reducer ---------- */
@@ -458,7 +464,9 @@ function ContactPickerModal({
     if (!search) return true;
     const q = search.toLowerCase();
     if (c.displayName.toLowerCase().includes(q)) return true;
-    return c.identifiers?.some((i) => i.identifierValue.toLowerCase().includes(q));
+    return c.identifiers?.some((i) =>
+      (i.identifierValue || i.value || '').toLowerCase().includes(q),
+    );
   });
 
   return (
@@ -478,8 +486,10 @@ function ContactPickerModal({
         )}
         {!loading &&
           filtered.map((c) => {
-            const email = c.identifiers?.find((i) => i.identifierType === 'email')?.identifierValue;
-            const phone = c.identifiers?.find((i) => i.identifierType === 'phone')?.identifierValue;
+            const emailIdent = c.identifiers?.find((i) => (i.identifierType || i.type) === 'email');
+            const phoneIdent = c.identifiers?.find((i) => (i.identifierType || i.type) === 'phone');
+            const email = emailIdent?.identifierValue || emailIdent?.value;
+            const phone = phoneIdent?.identifierValue || phoneIdent?.value;
 
             return (
               <button
@@ -525,7 +535,7 @@ export function MePage() {
 
   const fetchMe = useCallback(async () => {
     try {
-      const result = await api.getMe();
+      const result = await api.getMe<MeData>();
       dispatch({ type: 'FETCH_SUCCESS', data: result });
     } catch {
       dispatch({ type: 'FETCH_ERROR' });
@@ -617,7 +627,9 @@ export function MePage() {
     if (!contactSearch) return true;
     const q = contactSearch.toLowerCase();
     if (c.displayName.toLowerCase().includes(q)) return true;
-    return c.identifiers?.some((i) => i.identifierValue.toLowerCase().includes(q));
+    return c.identifiers?.some((i) =>
+      (i.identifierValue || i.value || '').toLowerCase().includes(q),
+    );
   });
 
   return (
