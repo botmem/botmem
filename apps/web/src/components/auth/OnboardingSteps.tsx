@@ -12,6 +12,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useAuthStore } from '../../store/authStore';
 import { useTourStore } from '../../store/tourStore';
 import { api } from '../../lib/api';
+import { trackEvent } from '../../lib/posthog';
 
 interface OnboardingState {
   step: number;
@@ -110,6 +111,7 @@ export function OnboardingSteps() {
   };
 
   const handleExploreDemo = async () => {
+    trackEvent('onboarding_path_chosen', { path: 'demo' });
     dispatch({ type: 'DEMO_START' });
     try {
       const result = await api.seedDemoData();
@@ -133,10 +135,12 @@ export function OnboardingSteps() {
   };
 
   const handleConnectNow = () => {
+    trackEvent('onboarding_path_chosen', { path: 'connect' });
     dispatch({ type: 'SET_STEP', step: 2 });
   };
 
   const handleSkipOnboarding = () => {
+    trackEvent('onboarding_skipped');
     completeOnboarding();
     navigate('/dashboard');
   };

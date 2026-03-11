@@ -107,7 +107,7 @@ export function DashboardPage() {
       <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
 
-      <div className="mt-4" style={{ minHeight: 560 }}>
+      <div className="mt-4" style={{ minHeight: '35rem' }}>
         {activeTab === 'overview' && (
           <>
             {/* Graph FIRST */}

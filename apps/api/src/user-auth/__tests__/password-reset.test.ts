@@ -5,6 +5,9 @@ import { UsersService } from '../users.service';
 import { MailService } from '../../mail/mail.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '../../config/config.service';
+import { MemoryBanksService } from '../../memory/memory-banks.service';
+import { UserKeyService } from '../../crypto/user-key.service';
+import { AnalyticsService } from '../../analytics/analytics.service';
 import * as crypto from 'crypto';
 
 describe('Password Reset', () => {
@@ -13,6 +16,9 @@ describe('Password Reset', () => {
   let mailService: Partial<MailService>;
   let configService: Partial<ConfigService>;
   let jwtService: Partial<JwtService>;
+  let memoryBanksService: Partial<MemoryBanksService>;
+  let userKeyService: Partial<UserKeyService>;
+  let analytics: Partial<AnalyticsService>;
 
   beforeEach(() => {
     usersService = {
@@ -42,11 +48,29 @@ describe('Password Reset', () => {
       verify: vi.fn(),
     };
 
+    memoryBanksService = {
+      ensureDefaultBank: vi.fn().mockResolvedValue(undefined),
+    };
+
+    userKeyService = {
+      cacheRecoveryKey: vi.fn().mockResolvedValue(undefined),
+    };
+
+    analytics = {
+      capture: vi.fn(),
+    };
+
+    const mockQueue = { add: vi.fn() } as any;
+
     authService = new UserAuthService(
       jwtService as JwtService,
       usersService as UsersService,
       configService as ConfigService,
       mailService as MailService,
+      memoryBanksService as MemoryBanksService,
+      userKeyService as UserKeyService,
+      analytics as AnalyticsService,
+      mockQueue,
     );
   });
 

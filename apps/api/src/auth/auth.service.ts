@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -8,16 +9,12 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
-import { connectorCredentials, users } from '../db/schema';
+import { OAuthStateService } from './oauth-state.service';
+import { connectorCredentials } from '../db/schema';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private pendingConfigs = new Map<
-    string,
-    { config: Record<string, unknown>; returnTo?: string; userId?: string }
-  >();
-  private creatingAccounts = new Set<string>();
 
   constructor(
     private connectors: ConnectorsService,
@@ -28,6 +25,7 @@ export class AuthService {
     private crypto: CryptoService,
     private analytics: AnalyticsService,
     private config: ConfigService,
+    private oauthState: OAuthStateService,
   ) {}
 
   async getSavedCredentials(connectorType: string): Promise<Record<string, unknown> | null> {
@@ -79,7 +77,8 @@ export class AuthService {
   ) {
     this.logger.log(`[Auth] createAndSync called: type=${connectorType}`);
     const lockKey = `${connectorType}:${identifier}`;
-    if (this.creatingAccounts.has(lockKey)) {
+    const acquired = await this.oauthState.acquireCreateLock(lockKey);
+    if (!acquired) {
       this.logger.warn(`[Auth] createAndSync: lock already held for ${connectorType}, waiting...`);
       await new Promise((r) => setTimeout(r, 2000));
       const existing = await this.accountsService.findByTypeAndIdentifier(
@@ -90,7 +89,6 @@ export class AuthService {
       if (existing) return existing;
       throw new BadRequestException(`Account ${identifier} is already being created`);
     }
-    this.creatingAccounts.add(lockKey);
 
     try {
       const existing = await this.accountsService.findByTypeAndIdentifier(
@@ -130,7 +128,7 @@ export class AuthService {
 
       return account;
     } finally {
-      this.creatingAccounts.delete(lockKey);
+      await this.oauthState.releaseCreateLock(lockKey);
     }
   }
 
@@ -188,7 +186,8 @@ export class AuthService {
       };
     }
 
-    this.pendingConfigs.set(connectorType, {
+    const stateToken = randomUUID();
+    await this.oauthState.savePendingConfig(stateToken, {
       config: mergedConfig,
       returnTo: returnTo as string | undefined,
       userId,
@@ -196,7 +195,9 @@ export class AuthService {
 
     await this.saveCredentials(connectorType, mergedConfig);
 
-    return { type: 'redirect' as const, url: result.url };
+    // Append state token to the OAuth redirect URL
+    const separator = result.url.includes('?') ? '&' : '?';
+    return { type: 'redirect' as const, url: `${result.url}${separator}state=${stateToken}` };
   }
 
   private activeQrListeners = new Map<string, boolean>();
@@ -290,24 +291,23 @@ export class AuthService {
 
   async handleCallback(connectorType: string, params: Record<string, unknown>) {
     const connector = this.connectors.get(connectorType);
-    const pending = this.pendingConfigs.get(connectorType);
+
+    // Retrieve pending config from Redis using the OAuth state parameter
+    const stateToken = params.state as string | undefined;
+    const pending = stateToken ? await this.oauthState.getPendingConfig(stateToken) : null;
+    if (stateToken) {
+      await this.oauthState.deletePendingConfig(stateToken);
+    }
+
     const saved = await this.getSavedCredentials(connectorType);
     const mergedParams = { ...saved, ...pending?.config, ...params };
     const auth = await connector.completeAuth(mergedParams);
-    this.pendingConfigs.delete(connectorType);
 
-    // Resolve userId: prefer pending (set during initiate), fall back to single-user lookup
-    let userId = pending?.userId;
+    const userId = pending?.userId;
     if (!userId) {
-      const allUsers = await this.dbService.db.select({ id: users.id }).from(users).limit(2);
-      if (allUsers.length === 1) {
-        userId = allUsers[0].id;
-        this.logger.warn(`[Auth] OAuth callback had no userId, inferred from single user`);
-      } else {
-        throw new BadRequestException(
-          'OAuth callback failed: could not determine user. Please re-initiate the auth flow while logged in.',
-        );
-      }
+      throw new BadRequestException(
+        'OAuth callback failed: could not determine user. Please re-initiate the auth flow while logged in.',
+      );
     }
 
     const identifier =

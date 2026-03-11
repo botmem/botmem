@@ -13,8 +13,8 @@ export class AnalyticsService implements OnModuleDestroy {
     }
   }
 
-  capture(event: string, properties?: Record<string, unknown>): void {
-    this.client?.capture({ distinctId: 'server', event, properties });
+  capture(event: string, properties?: Record<string, unknown>, distinctId?: string): void {
+    this.client?.capture({ distinctId: distinctId ?? 'server', event, properties });
   }
 
   async onModuleDestroy(): Promise<void> {

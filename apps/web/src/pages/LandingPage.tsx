@@ -37,6 +37,16 @@ function SkipToContent() {
 }
 
 function Navbar() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const navLinks = [
+    { href: '#features', label: 'FEATURES' },
+    { href: '#how-it-works', label: 'HOW IT WORKS' },
+    { href: '#open-source', label: 'OPEN SOURCE' },
+    { href: '#security', label: 'SECURITY' },
+    { href: '#pricing', label: 'PRICING' },
+  ];
+
   return (
     <nav
       className="sticky top-0 z-40 bg-nb-bg/95 backdrop-blur-sm border-b-4 border-nb-border"
@@ -47,47 +57,78 @@ function Navbar() {
           <Logo variant="full" height={28} />
         </Link>
         <div className="hidden sm:flex items-center gap-6 font-display text-sm tracking-wide">
-          <a
-            href="#features"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            FEATURES
-          </a>
-          <a
-            href="#how-it-works"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            HOW IT WORKS
-          </a>
-          <a
-            href="#open-source"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            OPEN SOURCE
-          </a>
-          <a
-            href="#security"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            SECURITY
-          </a>
-          <a
-            href="#pricing"
-            className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            PRICING
-          </a>
+          {navLinks.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
+            >
+              {link.label}
+            </a>
+          ))}
         </div>
         <div className="flex items-center gap-3">
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="sm:hidden border-2 border-nb-border w-11 h-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              {mobileMenuOpen ? (
+                <path d="M4 4l10 10M14 4l-10 10" />
+              ) : (
+                <>
+                  <line x1="2" y1="4" x2="16" y2="4" />
+                  <line x1="2" y1="9" x2="16" y2="9" />
+                  <line x1="2" y1="14" x2="16" y2="14" />
+                </>
+              )}
+            </svg>
+          </button>
           <ThemeToggle />
           <Link
             to="/signup"
-            className="font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
+            className="hidden sm:inline-block font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
           >
             GET STARTED
           </Link>
         </div>
       </div>
+
+      {/* Mobile menu dropdown */}
+      {mobileMenuOpen && (
+        <div className="sm:hidden border-t-3 border-nb-border bg-nb-surface">
+          <div className="flex flex-col font-display text-sm tracking-wide">
+            {navLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                onClick={() => setMobileMenuOpen(false)}
+                className="px-4 py-3 text-nb-muted hover:text-nb-text hover:bg-nb-surface-hover transition-colors border-b border-nb-border/30 cursor-pointer"
+              >
+                {link.label}
+              </a>
+            ))}
+            <Link
+              to="/signup"
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-4 py-3 font-bold bg-nb-lime text-black cursor-pointer"
+            >
+              GET STARTED
+            </Link>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

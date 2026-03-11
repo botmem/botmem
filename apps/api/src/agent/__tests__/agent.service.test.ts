@@ -26,6 +26,8 @@ describe('AgentService', () => {
     pinned: false,
   };
 
+  let dbService: any;
+
   beforeEach(() => {
     mockDb = {
       select: vi.fn().mockReturnThis(),
@@ -44,9 +46,17 @@ describe('AgentService', () => {
     };
 
     memoryService = {
-      search: vi.fn().mockResolvedValue({ items: [], fallback: false, parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' } }),
+      search: vi
+        .fn()
+        .mockResolvedValue({
+          items: [],
+          fallback: false,
+          parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' },
+        }),
       getById: vi.fn().mockResolvedValue(fakeMemory),
-      getStats: vi.fn().mockResolvedValue({ total: 100, byConnector: { gmail: 50 }, bySource: { email: 50 } }),
+      getStats: vi
+        .fn()
+        .mockResolvedValue({ total: 100, byConnector: { gmail: 50 }, bySource: { email: 50 } }),
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -74,8 +84,14 @@ describe('AgentService', () => {
       openrouterEmbedModel: 'google/gemini-embedding-001',
     };
 
+    dbService = {
+      db: mockDb,
+      withCurrentUser: vi.fn((fn: any) => fn(mockDb)),
+      withUserId: vi.fn((_uid: string, fn: any) => fn(mockDb)),
+    };
+
     service = new AgentService(
-      { db: mockDb } as any,
+      dbService as any,
       memoryService,
       aiService,
       qdrantService,
@@ -89,7 +105,13 @@ describe('AgentService', () => {
       const result = await service.ask('test query');
       expect(result.results).toEqual([]);
       expect(result.query).toBe('test query');
-      expect(memoryService.search).toHaveBeenCalledWith('test query', undefined, 20, false, undefined);
+      expect(memoryService.search).toHaveBeenCalledWith(
+        'test query',
+        undefined,
+        20,
+        false,
+        undefined,
+      );
     });
 
     it('returns enriched results when search finds matches', async () => {
@@ -110,7 +132,13 @@ describe('AgentService', () => {
 
     it('respects limit and filters', async () => {
       await service.ask('test', { limit: 5, filters: { sourceType: 'email' } });
-      expect(memoryService.search).toHaveBeenCalledWith('test', { sourceType: 'email' }, 5, false, undefined);
+      expect(memoryService.search).toHaveBeenCalledWith(
+        'test',
+        { sourceType: 'email' },
+        5,
+        false,
+        undefined,
+      );
     });
 
     it('passes userId to search', async () => {
@@ -120,10 +148,11 @@ describe('AgentService', () => {
   });
 
   describe('remember', () => {
-    it('creates a memory and returns enriched result', async () => {
+    it('creates a memory using withCurrentUser and returns enriched result', async () => {
       mockDb.where.mockResolvedValueOnce([]); // memoryContacts
 
       const result = await service.remember('A new note');
+      expect(dbService.withCurrentUser).toHaveBeenCalled();
       expect(mockDb.insert).toHaveBeenCalled();
       expect(aiService.embed).toHaveBeenCalledWith('A new note');
       expect(qdrantService.upsert).toHaveBeenCalled();
@@ -141,12 +170,13 @@ describe('AgentService', () => {
   });
 
   describe('forget', () => {
-    it('deletes existing memory', async () => {
+    it('deletes existing memory using withCurrentUser', async () => {
       memoryService.getById.mockResolvedValueOnce(fakeMemory);
 
       const result = await service.forget('mem-1');
       expect(result.deleted).toBe(true);
       expect(memoryService.delete).toHaveBeenCalledWith('mem-1');
+      expect(dbService.withCurrentUser).toHaveBeenCalled();
     });
 
     it('returns false for non-existent memory', async () => {
@@ -214,10 +244,11 @@ describe('AgentService', () => {
   });
 
   describe('status', () => {
-    it('returns memory and contact stats', async () => {
+    it('returns memory and contact stats using withCurrentUser', async () => {
       mockDb.from.mockResolvedValueOnce([{ count: 25 }]); // contacts count
 
       const result = await service.status();
+      expect(dbService.withCurrentUser).toHaveBeenCalled();
       expect(result.memories.total).toBe(100);
       expect(result.memories.byConnector).toEqual({ gmail: 50 });
       expect(result.contacts.total).toBe(25);
