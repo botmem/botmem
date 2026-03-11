@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 
-const GITHUB_URL = 'https://github.com/botmem/open-core';
+const GITHUB_URL = 'https://github.com/botmem/botmem';
 
 function Navbar() {
   return (
