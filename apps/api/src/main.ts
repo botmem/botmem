@@ -14,6 +14,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
 import { AnalyticsService } from './analytics/analytics.service';
 import { HttpAdapterHost } from '@nestjs/core';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { createCorsOriginChecker } from './cors.util';
 
 const logger = new Logger('Bootstrap');
@@ -48,6 +49,18 @@ async function bootstrap() {
       vite.middlewares(req, res, next);
     });
   }
+
+  // Capture raw body for Stripe webhook signature verification
+  server.use(
+    '/api/billing/webhook',
+    express.raw({ type: 'application/json' }),
+    (req: Request, _res: Response, next: NextFunction) => {
+      if (Buffer.isBuffer(req.body)) {
+        (req as any).rawBody = req.body;
+      }
+      next();
+    },
+  );
 
   const cookieParser = (await import('cookie-parser')).default;
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), { rawBody: true });
@@ -115,6 +128,27 @@ async function bootstrap() {
         .catch(next);
     });
   }
+
+  // Swagger / OpenAPI docs
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Botmem API')
+    .setDescription('Personal memory for AI agents')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+  const swaggerCss = readFileSync(join(__dirname, 'swagger-theme.css'), 'utf-8');
+  SwaggerModule.setup('api/docs', app, swaggerDocument, {
+    jsonDocumentUrl: 'api/docs/json',
+    customSiteTitle: 'Botmem API Docs',
+    customCss: swaggerCss,
+    swaggerOptions: {
+      docExpansion: 'list',
+      filter: true,
+      showRequestDuration: true,
+      persistAuthorization: true,
+    },
+  });
 
   const port = config.port;
   await app.listen(port);
