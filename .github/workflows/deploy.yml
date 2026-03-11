@@ -76,14 +76,14 @@ jobs:
             VITE_FIREBASE_APP_ID=1:958102222848:web:1ced1d9c98222557ebc0e5
             VITE_FIREBASE_MEASUREMENT_ID=G-VY98K4Q9FJ
           tags: |
-            ghcr.io/botmem/open-core:latest
-            ghcr.io/botmem/open-core:${{ github.sha }}
+            ghcr.io/botmem/botmem:latest
+            ghcr.io/botmem/botmem:${{ github.sha }}
           cache-from: |
             type=gha
-            type=registry,ref=ghcr.io/botmem/open-core:cache
+            type=registry,ref=ghcr.io/botmem/botmem:cache
           cache-to: |
             type=gha,mode=max
-            type=registry,ref=ghcr.io/botmem/open-core:cache,mode=max
+            type=registry,ref=ghcr.io/botmem/botmem:cache,mode=max
           platforms: linux/amd64
 
   deploy:

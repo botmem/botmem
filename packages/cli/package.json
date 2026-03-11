@@ -5,10 +5,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/botmem/open-core.git",
+    "url": "https://github.com/botmem/botmem.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/botmem/open-core/tree/main/packages/cli",
+  "homepage": "https://github.com/botmem/botmem/tree/main/packages/cli",
   "keywords": [
     "botmem",
     "memory",
