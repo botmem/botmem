@@ -9,7 +9,22 @@ export default defineConfig({
   srcExclude: ['plans/**'],
 
   head: [
-    ['meta', { name: 'theme-color', content: '#F59E0B' }],
+    ['meta', { name: 'theme-color', content: '#C4F53A' }],
+    [
+      'link',
+      {
+        rel: 'preconnect',
+        href: 'https://fonts.googleapis.com',
+      },
+    ],
+    [
+      'link',
+      {
+        rel: 'preconnect',
+        href: 'https://fonts.gstatic.com',
+        crossorigin: '',
+      },
+    ],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Botmem' }],
     [
