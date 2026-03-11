@@ -171,12 +171,13 @@ export class AuthService {
     }
 
     if (result.type === 'complete') {
-      const identifier =
+      const identifier = String(
         result.auth.identifier ||
-        ((result.auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)
-          ?.email ||
-        (config.identifier as string) ||
-        connectorType;
+          ((result.auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)
+            ?.email ||
+          (config.identifier as string) ||
+          connectorType,
+      );
       const account = await this.createAndSync(
         connectorType,
         identifier,
@@ -247,7 +248,7 @@ export class AuthService {
 
       try {
         const auth = payload.auth;
-        const jid = auth?.raw?.jid || '';
+        const jid = String((auth?.raw as Record<string, unknown>)?.jid || '');
         const identifier = jid.split('@')[0]?.split(':')[0] || connectorType;
         this.logger.log(`[Auth] Creating account for ${connectorType}`);
 
@@ -324,11 +325,12 @@ export class AuthService {
       );
     }
 
-    const identifier =
+    const identifier = String(
       auth.identifier ||
-      ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
-      (params.identifier as string) ||
-      connectorType;
+        ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
+        (params.identifier as string) ||
+        connectorType,
+    );
     const account = await this.createAndSync(
       connectorType,
       identifier,
@@ -354,11 +356,12 @@ export class AuthService {
       });
     }
 
-    const identifier =
+    const identifier = String(
       (body.params.identifier as string) ||
-      auth.identifier ||
-      ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
-      connectorType;
+        auth.identifier ||
+        ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
+        connectorType,
+    );
     return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
   }
 

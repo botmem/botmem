@@ -482,13 +482,13 @@ export class MemoryController {
 
     // Serve from stored thumbnail if available (no upstream fetch needed)
     if (metadata.thumbnailBase64) {
-      const buffer = Buffer.from(metadata.thumbnailBase64, 'base64');
+      const buffer = Buffer.from(metadata.thumbnailBase64 as string, 'base64');
       res.setHeader('Content-Type', 'image/jpeg');
       res.setHeader('Cache-Control', 'public, max-age=604800');
       return res.send(buffer);
     }
 
-    const fileUrl: string | undefined = metadata.fileUrl;
+    const fileUrl: string | undefined = metadata.fileUrl as string | undefined;
     if (!fileUrl) return res.status(HttpStatus.NOT_FOUND).json({ error: 'no file' });
 
     // Build auth headers from account

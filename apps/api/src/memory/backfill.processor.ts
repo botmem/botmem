@@ -187,7 +187,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
       return { skipped: true, reason: 'already-has-thumbnail' };
     }
 
-    const fileUrl: string | undefined = metadata.fileUrl;
+    const fileUrl: string | undefined = metadata.fileUrl as string | undefined;
     if (!fileUrl) {
       await this.advanceAndComplete(jobId);
       return { skipped: true, reason: 'no-file-url' };
@@ -226,7 +226,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
         // Write updated metadata back (re-encrypt if needed)
         const metadataStr = JSON.stringify(metadata);
-        const writeUpdate = (db: typeof this.dbService.db) =>
+        const writeUpdate = (db: any) =>
           db.update(memories).set({ metadata: metadataStr }).where(eq(memories.id, memoryId));
 
         if (ownerUserId) {

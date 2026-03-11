@@ -972,7 +972,7 @@ export class MemoryService {
     if (memoryBankIds?.length) {
       conditions.push(inArray(memories.memoryBankId, memoryBankIds));
     }
-    const doneFilter = conditions.length > 1 ? and(...conditions)! : conditions[0];
+    const doneFilter = and(...conditions)!;
 
     const totalRows = await this.dbService.withCurrentUser((db) =>
       db
@@ -1042,8 +1042,7 @@ export class MemoryService {
     } else if (memoryBankIds?.length) {
       memoryBankConditions.push(inArray(memories.memoryBankId, memoryBankIds));
     }
-    const memoryBankFilter =
-      memoryBankConditions.length > 1 ? and(...memoryBankConditions)! : memoryBankConditions[0];
+    const memoryBankFilter = and(...memoryBankConditions)!;
 
     // Fetch memories — either specific IDs (search) or recent (preview)
     const recentMemories = filterMemoryIds?.length
@@ -1781,7 +1780,7 @@ export class MemoryService {
       });
     }
 
-    items.sort((a, b) => b.score - a.score);
+    items.sort((a, b) => (b.score as number) - (a.score as number));
     return { items: items.slice(0, limit), source: memory };
   }
 
@@ -1846,7 +1845,7 @@ export class MemoryService {
       }
 
       for (const e of entities) {
-        const value = e.value || e.name || e.id;
+        const value = e.value || e.name || (e as Record<string, unknown>).id;
         if (!value || !String(value).toLowerCase().includes(queryLower)) continue;
 
         const key = `${e.type}:${String(value).toLowerCase()}`;
@@ -1919,7 +1918,7 @@ export class MemoryService {
       }
 
       for (const e of entities) {
-        const val = e.value || e.name || e.id;
+        const val = e.value || e.name || (e as Record<string, unknown>).id;
         if (!val) continue;
         const key = `${e.type}:${String(val).toLowerCase()}`;
         if (String(val).toLowerCase() === queryLower) continue;
@@ -1927,7 +1926,7 @@ export class MemoryService {
         if (existing) {
           existing.count++;
         } else {
-          coEntities.set(key, { value: String(val), type: e.type, count: 1 });
+          coEntities.set(key, { value: String(val), type: e.type || 'unknown', count: 1 });
         }
       }
 

@@ -486,7 +486,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
 
     for (const mem of results) {
       const meta = mem.metadata as Record<string, unknown> | null;
-      const threadId = meta?.threadId || meta?.thread_id;
+      const threadId = String(meta?.threadId || meta?.thread_id || '');
       if (threadId) {
         const existing = threadMap.get(threadId) || [];
         existing.push(mem);

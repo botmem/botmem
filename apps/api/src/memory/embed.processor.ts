@@ -559,10 +559,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     metadata: Record<string, unknown>,
     rawEvent: { accountId: string; connectorType: string },
   ): Promise<string | null> {
-    const fileUrl: string = metadata.fileUrl || '';
-    const fileBase64: string = metadata.fileBase64 || '';
-    const mimetype: string = metadata.mimetype || '';
-    const fileName: string = metadata.fileName || '';
+    const fileUrl: string = (metadata.fileUrl as string) || '';
+    const fileBase64: string = (metadata.fileBase64 as string) || '';
+    const mimetype: string = (metadata.mimetype as string) || '';
+    const fileName: string = (metadata.fileName as string) || '';
     const mid = memoryId.slice(0, 8);
 
     this.addLog(
@@ -633,7 +633,9 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     if (mime === 'application/pdf' || ext === 'pdf') {
       const pdfParseModule = await import('pdf-parse');
       const pdfParse = pdfParseModule.default || pdfParseModule;
-      const data = await (pdfParse as (buf: Buffer) => Promise<{ text?: string }>)(fileBuffer);
+      const data = await (pdfParse as unknown as (buf: Buffer) => Promise<{ text?: string }>)(
+        fileBuffer,
+      );
       const text = data.text?.trim();
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;

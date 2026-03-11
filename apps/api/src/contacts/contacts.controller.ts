@@ -87,7 +87,7 @@ export class ContactsController {
       return res.status(HttpStatus.NOT_FOUND).json({ error: 'contact not found' });
     }
 
-    const allAvatars = (contact.avatars as Array<{ url: string; source: string }>) || [];
+    const allAvatars = (contact!.avatars as Array<{ url: string; source: string }>) || [];
     if (allAvatars.length === 0) {
       return res.status(HttpStatus.NOT_FOUND).json({ error: 'no avatar' });
     }

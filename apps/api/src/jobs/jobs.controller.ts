@@ -34,12 +34,18 @@ function toApiJob(row: {
     accountId: row.accountId,
     accountIdentifier: row.accountIdentifier || null,
     memoryBankId: row.memoryBankId || null,
-    status: row.status,
+    status: row.status as Job['status'],
     priority: row.priority,
     progress: row.progress,
     total: row.total,
-    startedAt: row.startedAt,
-    completedAt: row.completedAt,
+    startedAt:
+      row.startedAt instanceof Date
+        ? row.startedAt.toISOString()
+        : (row.startedAt as string | null),
+    completedAt:
+      row.completedAt instanceof Date
+        ? row.completedAt.toISOString()
+        : (row.completedAt as string | null),
     error: row.error,
   };
 }

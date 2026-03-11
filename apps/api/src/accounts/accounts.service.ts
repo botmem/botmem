@@ -85,7 +85,7 @@ export class AccountsService {
     }
     // Encrypt authContext if being updated
     if ('authContext' in toSet && toSet.authContext != null) {
-      toSet.authContext = this.crypto.encrypt(toSet.authContext)!;
+      toSet.authContext = this.crypto.encrypt(toSet.authContext as string)!;
     }
     await this.dbService.withCurrentUser((db) =>
       db.update(accounts).set(toSet).where(eq(accounts.id, id)),

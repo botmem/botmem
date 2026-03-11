@@ -210,7 +210,11 @@ export class UserAuthService {
     }
 
     await this.usersService.revokeRefreshToken(stored.id);
-    const tokens = await this.generateTokenPair(payload.sub, payload.email, stored.family);
+    const tokens = await this.generateTokenPair(
+      payload.sub as string,
+      payload.email as string,
+      stored.family,
+    );
 
     return {
       accessToken: tokens.accessToken,
@@ -298,7 +302,7 @@ export class UserAuthService {
       { sub: userId, email },
       {
         secret: this.config.jwtAccessSecret,
-        expiresIn: this.config.jwtAccessExpiresIn as string | number,
+        expiresIn: this.config.jwtAccessExpiresIn as unknown as import('ms').StringValue,
         algorithm: 'HS256',
       },
     );
@@ -310,7 +314,7 @@ export class UserAuthService {
     };
     const refreshToken = this.jwt.sign(refreshPayload, {
       secret: this.config.jwtRefreshSecret,
-      expiresIn: this.config.jwtRefreshExpiresIn as string | number,
+      expiresIn: this.config.jwtRefreshExpiresIn as unknown as import('ms').StringValue,
       algorithm: 'HS256',
     });
 
@@ -338,7 +342,7 @@ export class UserAuthService {
       email: user.email,
       name: user.name,
       onboarded: !!user.onboarded,
-      plan: ['active', 'trialing'].includes(user.subscriptionStatus) ? 'pro' : 'free',
+      plan: ['active', 'trialing'].includes(user.subscriptionStatus ?? '') ? 'pro' : 'free',
       createdAt: user.createdAt,
     };
   }

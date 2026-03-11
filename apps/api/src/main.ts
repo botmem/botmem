@@ -48,7 +48,7 @@ async function bootstrap() {
       ) {
         return next();
       }
-      vite.middlewares(req, res, next);
+      vite!.middlewares(req, res, next);
     });
   }
 

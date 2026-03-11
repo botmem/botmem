@@ -50,9 +50,9 @@ export class PluginsService {
   }
 
   private async loadManifestPlugins(dir: string) {
-    let entries: Awaited<ReturnType<typeof readdir>>;
+    let entries: import('fs').Dirent[];
     try {
-      entries = await readdir(dir, { withFileTypes: true });
+      entries = (await readdir(dir, { withFileTypes: true })) as unknown as import('fs').Dirent[];
     } catch {
       this.logger.warn(`Could not read plugins directory: ${dir}`);
       return;
@@ -88,7 +88,7 @@ export class PluginsService {
         }
 
         const mod = await this._importPlugin(entryPath);
-        const plugin = mod.default || mod;
+        const plugin = (mod.default || mod) as Record<string, unknown>;
 
         if (manifest.type === 'lifecycle') {
           const hooks: Record<string, (...args: unknown[]) => unknown> = {};
