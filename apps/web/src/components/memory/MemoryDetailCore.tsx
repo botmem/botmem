@@ -6,7 +6,15 @@ function hasThumbnail(source: string, metadata?: Record<string, any>): boolean {
   return (source === 'file' || source === 'photo') && !!metadata?.fileUrl;
 }
 
-function ContextRow({ label, value, bold: isBold }: { label: string; value: string; bold?: boolean }) {
+function ContextRow({
+  label,
+  value,
+  bold: isBold,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+}) {
   return (
     <div>
       <span className="text-nb-muted uppercase">{label}: </span>
@@ -31,7 +39,8 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
       if (metadata.fromMe) {
         // Sent by you → recipient is the chat contact
         const recipientName = metadata.chatName || chatPhone;
-        const recipientSuffix = metadata.chatName && chatPhone !== metadata.chatName ? ` (${chatPhone})` : '';
+        const recipientSuffix =
+          metadata.chatName && chatPhone !== metadata.chatName ? ` (${chatPhone})` : '';
         rows.push({ label: 'To', value: `${recipientName}${recipientSuffix}` });
       } else {
         // Received → you are the recipient
@@ -42,7 +51,8 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
   }
 
   // Email from/to/subject
-  if (metadata.from && !metadata.senderName) rows.push({ label: 'From', value: metadata.from, bold: true });
+  if (metadata.from && !metadata.senderName)
+    rows.push({ label: 'From', value: metadata.from, bold: true });
   if (metadata.to) rows.push({ label: 'To', value: metadata.to });
   if (metadata.subject) rows.push({ label: 'Subject', value: metadata.subject });
 
@@ -53,7 +63,8 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
   }
 
   // Chat/group name
-  if (metadata.chatName) rows.push({ label: metadata.isGroup ? 'Group' : 'Chat', value: metadata.chatName });
+  if (metadata.chatName)
+    rows.push({ label: metadata.isGroup ? 'Group' : 'Chat', value: metadata.chatName });
 
   // Photo metadata
   if (metadata.people?.length) {
@@ -61,10 +72,16 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
     rows.push({ label: 'People', value: names });
   }
   if (metadata.cameraMake || metadata.cameraModel) {
-    rows.push({ label: 'Camera', value: [metadata.cameraMake, metadata.cameraModel].filter(Boolean).join(' ') });
+    rows.push({
+      label: 'Camera',
+      value: [metadata.cameraMake, metadata.cameraModel].filter(Boolean).join(' '),
+    });
   }
   if (metadata.city || metadata.country) {
-    rows.push({ label: 'Location', value: [metadata.city, metadata.state, metadata.country].filter(Boolean).join(', ') });
+    rows.push({
+      label: 'Location',
+      value: [metadata.city, metadata.state, metadata.country].filter(Boolean).join(', '),
+    });
   }
 
   // Location
@@ -72,7 +89,8 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
     rows.push({ label: 'Coords', value: `${metadata.lat.toFixed(4)}, ${metadata.lon.toFixed(4)}` });
   }
   if (metadata.regions?.length) rows.push({ label: 'Region', value: metadata.regions.join(', ') });
-  if (metadata.activity?.length) rows.push({ label: 'Activity', value: metadata.activity.join(', ') });
+  if (metadata.activity?.length)
+    rows.push({ label: 'Activity', value: metadata.activity.join(', ') });
 
   // File
   if (metadata.fileName) rows.push({ label: 'File', value: metadata.fileName });
@@ -81,7 +99,9 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
 
   return (
     <div className="border-2 border-nb-border p-2 bg-nb-surface-muted font-mono text-xs flex flex-col gap-0.5">
-      {rows.map((r, i) => <ContextRow key={i} label={r.label} value={r.value} bold={r.bold} />)}
+      {rows.map((r, i) => (
+        <ContextRow key={i} label={r.label} value={r.value} bold={r.bold} />
+      ))}
     </div>
   );
 }
@@ -164,9 +184,11 @@ export function MemoryDetailCore({
           <AuthedImage
             src={`/api/memories/${id}/thumbnail`}
             className="w-full object-cover"
-            style={metadata?.width && metadata?.height
-              ? { aspectRatio: `${metadata.width} / ${metadata.height}` }
-              : { height: '14rem' }}
+            style={
+              metadata?.width && metadata?.height
+                ? { aspectRatio: `${metadata.width} / ${metadata.height}` }
+                : { height: '14rem' }
+            }
             loading="lazy"
           />
         </div>
@@ -174,8 +196,13 @@ export function MemoryDetailCore({
 
       {/* Text */}
       {text && (
-        <div className={`border-3 border-nb-border ${compact ? 'p-2 max-h-32 overflow-y-auto' : 'p-3'} bg-nb-surface-muted`}>
-          <p className={`font-mono ${compact ? 'text-xs' : 'text-sm'} text-nb-text ${compact ? 'whitespace-pre-wrap break-words' : ''}`}>
+        <div
+          className={`border-3 border-nb-border ${compact ? 'p-2 max-h-32 overflow-y-auto' : 'p-3'} bg-nb-surface-muted`}
+        >
+          <p
+            data-ph-mask
+            className={`font-mono ${compact ? 'text-xs' : 'text-sm'} text-nb-text ${compact ? 'whitespace-pre-wrap break-words' : ''}`}
+          >
             {text}
           </p>
         </div>
@@ -214,16 +241,13 @@ export function MemoryDetailCore({
         <div className="flex gap-3 font-mono text-[10px]">
           {connectionCount != null && (
             <span className="text-nb-muted">
-              Connections:{' '}
-              <span className="text-nb-text font-bold">{connectionCount}</span>
+              Connections: <span className="text-nb-text font-bold">{connectionCount}</span>
             </span>
           )}
           {importance != null && (
             <span className="text-nb-muted">
               Importance:{' '}
-              <span className="text-nb-text font-bold">
-                {(importance * 100).toFixed(0)}%
-              </span>
+              <span className="text-nb-text font-bold">{(importance * 100).toFixed(0)}%</span>
             </span>
           )}
         </div>
@@ -238,7 +262,9 @@ export function MemoryDetailCore({
           <div className="flex flex-col gap-1">
             {filteredWeights.map(([key, val]) => (
               <div key={key} className="flex items-center gap-1.5">
-                <span className={`font-mono text-[10px] uppercase ${compact ? 'w-16' : 'w-20'} text-nb-muted`}>
+                <span
+                  className={`font-mono text-[10px] uppercase ${compact ? 'w-16' : 'w-20'} text-nb-muted`}
+                >
                   {key}
                 </span>
                 <div className={`flex-1 ${barH} ${barBorder} border-nb-border bg-nb-surface-muted`}>

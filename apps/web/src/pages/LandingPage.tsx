@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { PublicFooter } from '../components/layout/PublicFooter';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -1017,87 +1018,6 @@ function OpenSourceCTA() {
   );
 }
 
-function Footer() {
-  return (
-    <footer className="border-t-4 border-nb-border py-8 px-4 sm:px-6">
-      <div className="max-w-6xl mx-auto flex flex-col gap-6">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-sm text-nb-muted">
-          <Logo variant="full" height={24} />
-          <div className="flex flex-wrap justify-center gap-6">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-            >
-              GitHub
-            </a>
-            <a
-              href={`${GITHUB_URL}#readme`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-            >
-              Docs
-            </a>
-            <Link
-              to="/pricing"
-              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-            >
-              Pricing
-            </Link>
-          </div>
-        </div>
-        <div className="flex flex-wrap justify-center sm:justify-end gap-6 font-mono text-xs text-nb-muted">
-          <Link
-            to="/privacy"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            Privacy Policy
-          </Link>
-          <Link
-            to="/terms"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            Terms of Service
-          </Link>
-          <Link
-            to="/data-policy"
-            className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
-          >
-            Data Policy
-          </Link>
-        </div>
-        <div className="border-t border-nb-border/30 pt-4 flex justify-center">
-          <p className="font-mono text-xs text-nb-muted/60 flex items-center gap-1.5">
-            Made with
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-nb-lime"
-              aria-hidden="true"
-            >
-              <path d="M12 2a5 5 0 0 1 4.5 7.1A4 4 0 0 1 18 13a3.5 3.5 0 0 1-1.1 6.8H12" />
-              <path d="M12 2a5 5 0 0 0-4.5 7.1A4 4 0 0 0 6 13a3.5 3.5 0 0 0 1.1 6.8H12" />
-              <path d="M12 2v17.8" />
-              <path d="M8 8.5c1.3.7 2.7.7 4 0" />
-              <path d="M16 13c-1.3.7-2.7.7-4 0" />
-              <path d="M8 16.5c1.3-.7 2.7-.7 4 0" />
-            </svg>
-            AI + human minds
-          </p>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
 export function LandingPage() {
   const mainRef = useRef<HTMLDivElement>(null);
 
@@ -1151,7 +1071,7 @@ export function LandingPage() {
           <OpenSourceCTA />
         </div>
       </main>
-      <Footer />
+      <PublicFooter />
     </div>
   );
 }
