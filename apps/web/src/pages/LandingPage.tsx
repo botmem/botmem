@@ -4,7 +4,7 @@ import { cn } from '../lib/utils';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 
-const GITHUB_URL = 'https://github.com/botmem/open-core';
+const GITHUB_URL = 'https://github.com/botmem/botmem';
 
 function CheckIcon() {
   return (
