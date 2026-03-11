@@ -11,7 +11,7 @@ const pipelineCtx: PipelineContext = {
 function makeSyncCtx(overrides: Record<string, unknown> = {}) {
   return {
     accountId: 'acc-1',
-    auth: { accessToken: 'test-key', raw: { host: 'http://localhost:2283' } },
+    auth: { accessToken: 'test-key', raw: { host: 'http://immich.example.com' } },
     cursor: null as string | null,
     jobId: 'j1',
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -128,24 +128,24 @@ describe('ImmichConnector', () => {
     it('validates and returns complete auth', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const result = await connector.initiateAuth({
-        host: 'http://localhost:2283',
+        host: 'http://immich.example.com',
         apiKey: 'test-key',
       });
       expect(result.type).toBe('complete');
       if (result.type === 'complete') {
         expect(result.auth.accessToken).toBe('test-key');
-        expect(result.auth.raw?.host).toBe('http://localhost:2283');
+        expect(result.auth.raw?.host).toBe('http://immich.example.com');
       }
     });
 
     it('strips trailing slash from host', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const result = await connector.initiateAuth({
-        host: 'http://localhost:2283/',
+        host: 'http://immich.example.com/',
         apiKey: 'key',
       });
       if (result.type === 'complete') {
-        expect(result.auth.raw?.host).toBe('http://localhost:2283');
+        expect(result.auth.raw?.host).toBe('http://immich.example.com');
       }
     });
 
@@ -170,7 +170,7 @@ describe('ImmichConnector', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const result = await connector.validateAuth({
         accessToken: 'key',
-        raw: { host: 'http://localhost:2283' },
+        raw: { host: 'http://immich.example.com' },
       });
       expect(result).toBe(true);
     });
@@ -542,7 +542,10 @@ describe('ImmichConnector', () => {
           return Promise.resolve({ ok: true });
         }),
       );
-      const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
+      const result = await connector.initiateAuth({
+        host: 'http://immich.example.com',
+        apiKey: 'k',
+      });
       if (result.type === 'complete') {
         expect(result.auth.identifier).toBe('My Immich');
       }
@@ -557,9 +560,12 @@ describe('ImmichConnector', () => {
           return Promise.resolve({ ok: true });
         }),
       );
-      const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
+      const result = await connector.initiateAuth({
+        host: 'http://immich.example.com',
+        apiKey: 'k',
+      });
       if (result.type === 'complete') {
-        expect(result.auth.identifier).toBe('http://localhost:2283');
+        expect(result.auth.identifier).toBe('http://immich.example.com');
       }
     });
 
@@ -572,20 +578,23 @@ describe('ImmichConnector', () => {
           return Promise.resolve({ ok: true });
         }),
       );
-      const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
+      const result = await connector.initiateAuth({
+        host: 'http://immich.example.com',
+        apiKey: 'k',
+      });
       if (result.type === 'complete') {
-        expect(result.auth.identifier).toBe('http://localhost:2283');
+        expect(result.auth.identifier).toBe('http://immich.example.com');
       }
     });
 
     it('strips /api suffix from host', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const result = await connector.initiateAuth({
-        host: 'http://localhost:2283/api',
+        host: 'http://immich.example.com/api',
         apiKey: 'k',
       });
       if (result.type === 'complete') {
-        expect(result.auth.raw?.host).toBe('http://localhost:2283');
+        expect(result.auth.raw?.host).toBe('http://immich.example.com');
       }
     });
   });
