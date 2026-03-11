@@ -46,6 +46,7 @@ function Navbar() {
     { href: '#open-source', label: 'OPEN SOURCE' },
     { href: '#security', label: 'SECURITY' },
     { href: '#pricing', label: 'PRICING' },
+    { href: 'https://docs.botmem.xyz', label: 'DOCS', external: true },
   ];
 
   return (
@@ -62,6 +63,9 @@ function Navbar() {
             <a
               key={link.href}
               href={link.href}
+              {...('external' in link && link.external
+                ? { target: '_blank', rel: 'noopener noreferrer' }
+                : {})}
               className="text-nb-muted hover:text-nb-text transition-colors duration-200 cursor-pointer"
             >
               {link.label}
@@ -114,6 +118,9 @@ function Navbar() {
               <a
                 key={link.href}
                 href={link.href}
+                {...('external' in link && link.external
+                  ? { target: '_blank', rel: 'noopener noreferrer' }
+                  : {})}
                 onClick={() => setMobileMenuOpen(false)}
                 className="px-4 py-3 text-nb-muted hover:text-nb-text hover:bg-nb-surface-hover transition-colors border-b border-nb-border/30 cursor-pointer"
               >
