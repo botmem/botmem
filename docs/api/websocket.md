@@ -23,22 +23,28 @@ After connecting, subscribe to channels to receive events. Send a JSON message w
 
 ```javascript
 // Subscribe to log events
-ws.send(JSON.stringify({
-  event: 'subscribe',
-  data: { channel: 'logs' }
-}));
+ws.send(
+  JSON.stringify({
+    event: 'subscribe',
+    data: { channel: 'logs' },
+  }),
+);
 
 // Subscribe to memory events
-ws.send(JSON.stringify({
-  event: 'subscribe',
-  data: { channel: 'memories' }
-}));
+ws.send(
+  JSON.stringify({
+    event: 'subscribe',
+    data: { channel: 'memories' },
+  }),
+);
 
 // Unsubscribe
-ws.send(JSON.stringify({
-  event: 'unsubscribe',
-  data: { channel: 'logs' }
-}));
+ws.send(
+  JSON.stringify({
+    event: 'unsubscribe',
+    data: { channel: 'logs' },
+  }),
+);
 ```
 
 ## Channels
@@ -58,7 +64,7 @@ Receives real-time log entries from all pipeline stages.
     "accountId": "account-uuid",
     "stage": "embed",
     "level": "info",
-    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(768d) qdrant=45ms",
+    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(1024d) qdrant=45ms",
     "timestamp": "2026-02-15T10:15:30Z"
   }
 }
@@ -121,7 +127,7 @@ The WebSocket gateway is implemented using NestJS's `@WebSocketGateway` decorato
 - **Path:** `/events`
 - **Protocol:** Native WebSocket (ws://)
 - **Subscription model:** Client subscribes to named channels; server only sends events for subscribed channels
-- **No authentication:** Same as the REST API -- designed for single-user local deployment
+- **Authentication:** WebSocket connections require a valid token passed as a query parameter (`?token=...`)
 - **Reconnection:** Not handled server-side; clients should implement their own reconnection logic
 
 ## Example: Monitoring Sync Progress
