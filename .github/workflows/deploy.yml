@@ -104,6 +104,8 @@ jobs:
             cd /opt/botmem
             docker compose -f docker-compose.prod.yml pull api
             docker compose -f docker-compose.prod.yml up -d api
+            docker image prune -af
+            docker builder prune -af
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
