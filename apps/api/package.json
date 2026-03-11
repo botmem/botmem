@@ -73,7 +73,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.18.0",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^5.1.4",
     "drizzle-kit": "^0.30.6",
     "typescript": "catalog:",
     "unplugin-swc": "^1.5.9",
