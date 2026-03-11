@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { Button } from '../ui/Button';
 import { api } from '../../lib/api';
 
@@ -26,7 +27,10 @@ export function BillingTab() {
 
   if (loading) {
     return (
-      <div className="h-24 border-3 border-nb-border bg-nb-surface-muted" style={{ animation: 'pulse-bar 1.5s ease-in-out infinite' }} />
+      <div
+        className="h-24 border-3 border-nb-border bg-nb-surface-muted"
+        style={{ animation: 'pulse-bar 1.5s ease-in-out infinite' }}
+      />
     );
   }
 
@@ -37,7 +41,9 @@ export function BillingTab() {
           BILLING
         </h2>
         <div className="flex items-center gap-3 mt-4 p-4 border-3 border-nb-green bg-nb-surface-muted">
-          <span className="font-display text-sm font-bold uppercase text-nb-green">ALL FEATURES UNLOCKED</span>
+          <span className="font-display text-sm font-bold uppercase text-nb-green">
+            ALL FEATURES UNLOCKED
+          </span>
           <span className="font-mono text-xs text-nb-muted">(self-hosted)</span>
         </div>
       </>
@@ -76,9 +82,7 @@ export function BillingTab() {
       <h2 className="font-display text-lg font-bold uppercase tracking-wider text-nb-text mb-1">
         BILLING
       </h2>
-      <p className="font-mono text-xs text-nb-muted mb-6">
-        Manage your subscription plan.
-      </p>
+      <p className="font-mono text-xs text-nb-muted mb-6">Manage your subscription plan.</p>
 
       {error && (
         <div className="p-3 mb-4 border-3 border-nb-red bg-nb-surface-muted">
@@ -92,14 +96,27 @@ export function BillingTab() {
           <p className="font-mono text-xs text-nb-muted mt-1">
             Your last payment failed. Please update your payment method to keep your Pro features.
           </p>
-          <Button variant="danger" size="sm" className="mt-2" onClick={handleManage} disabled={redirecting}>
+          <Button
+            variant="danger"
+            size="sm"
+            className="mt-2"
+            onClick={handleManage}
+            disabled={redirecting}
+          >
             UPDATE PAYMENT METHOD
           </Button>
         </div>
       )}
 
       <div className="flex items-center gap-3 mb-4">
-        <span className={`inline-block px-3 py-1 border-3 font-display text-sm font-bold uppercase tracking-wider ${isPro ? 'border-nb-lime text-nb-lime bg-nb-surface-muted' : 'border-nb-border text-nb-muted bg-nb-surface-muted'}`}>
+        <span
+          className={cn(
+            'inline-block px-3 py-1 border-3 font-display text-sm font-bold uppercase tracking-wider',
+            isPro
+              ? 'border-nb-lime text-nb-lime bg-nb-surface-muted'
+              : 'border-nb-border text-nb-muted bg-nb-surface-muted',
+          )}
+        >
           {isPro ? 'PRO' : 'FREE'}
         </span>
         {isPro && billing.currentPeriodEnd && (
@@ -113,7 +130,7 @@ export function BillingTab() {
         <div>
           <div className="p-4 border-3 border-nb-lime/30 bg-nb-surface-muted mb-4">
             <p className="font-mono text-xs text-nb-muted">Your Pro plan includes:</p>
-            <ul className="font-mono text-xs text-nb-text mt-2 space-y-1">
+            <ul className="font-mono text-xs text-nb-text mt-2 flex flex-col gap-1">
               <li>Unlimited connectors</li>
               <li>Priority enrichment pipeline</li>
               <li>Advanced search &amp; analytics</li>
@@ -131,8 +148,10 @@ export function BillingTab() {
       ) : (
         <div>
           <div className="mb-4 p-4 border-3 border-nb-border bg-nb-surface-muted">
-            <p className="font-display text-sm font-bold uppercase text-nb-text mb-2">PRO PLAN — $14.99/MO</p>
-            <ul className="font-mono text-xs text-nb-muted space-y-1">
+            <p className="font-display text-sm font-bold uppercase text-nb-text mb-2">
+              PRO PLAN — $14.99/MO
+            </p>
+            <ul className="font-mono text-xs text-nb-muted flex flex-col gap-1">
               <li>Unlimited connectors</li>
               <li>Priority enrichment pipeline</li>
               <li>Advanced search &amp; analytics</li>

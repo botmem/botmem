@@ -49,7 +49,7 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                 >
                   {isActive && (
                     <div
-                      className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse"
+                      className="absolute top-1.5 right-1.5 size-2 rounded-full animate-pulse"
                       style={{ backgroundColor: meta.color }}
                     />
                   )}
@@ -66,14 +66,14 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                     </span>
                   </div>
 
-                  <div className="space-y-0.5">
+                  <div className="flex flex-col gap-0.5">
                     {ROW_DEFS.map((row) => {
                       const value = stats[row.key];
                       const rowColor = row.color ?? meta.color;
                       return (
                         <div key={row.key} className="flex items-center gap-1.5 whitespace-nowrap">
                           <span
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            className="size-1.5 rounded-full shrink-0"
                             style={{ backgroundColor: rowColor, opacity: value > 0 ? 1 : 0.2 }}
                           />
                           <span

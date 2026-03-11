@@ -25,7 +25,7 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
     >
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 border-2 border-white/40 w-10 h-10 flex items-center justify-center font-bold text-white hover:bg-white/20 transition-colors cursor-pointer"
+        className="absolute top-4 right-4 border-2 border-white/40 size-10 flex items-center justify-center font-bold text-white hover:bg-white/20 transition-colors cursor-pointer"
         aria-label="Close lightbox"
       >
         X

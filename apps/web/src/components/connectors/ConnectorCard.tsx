@@ -13,24 +13,37 @@ interface ConnectorCardProps {
   compact?: boolean;
 }
 
-export function ConnectorCard({ config, connected, accountCount, onConnect, onSkip, compact }: ConnectorCardProps) {
+export function ConnectorCard({
+  config,
+  connected,
+  accountCount,
+  onConnect,
+  onSkip,
+  compact,
+}: ConnectorCardProps) {
   return (
     <Card
       className={cn(
         'flex flex-col items-center gap-3 text-center h-full',
         compact ? 'p-4' : 'p-6',
-        connected && 'border-3'
+        connected && 'border-3',
       )}
       style={connected ? { borderColor: config.color } : undefined}
     >
       <div
-        className="w-14 h-14 border-3 border-nb-border flex items-center justify-center text-2xl font-bold shrink-0"
+        className="size-14 border-3 border-nb-border flex items-center justify-center text-2xl font-bold shrink-0"
         style={{ backgroundColor: config.color }}
       >
         {getConnectorIcon(config.type)}
       </div>
-      <h3 className="font-display text-sm font-bold uppercase text-nb-text line-clamp-1">{config.label}</h3>
-      {!compact && <p className="font-mono text-xs text-nb-muted line-clamp-2 min-h-[2lh]">{config.description}</p>}
+      <h3 className="font-display text-sm font-bold uppercase text-nb-text line-clamp-1">
+        {config.label}
+      </h3>
+      {!compact && (
+        <p className="font-mono text-xs text-nb-muted line-clamp-2 min-h-[2lh]">
+          {config.description}
+        </p>
+      )}
 
       <div className="flex flex-col gap-2 w-full mt-auto">
         {connected ? (

@@ -53,30 +53,30 @@ export function QrCodeAuth({ open, onClose, qrData, wsChannel, onSuccess }: QrCo
               Open WhatsApp on your phone, go to Settings &gt; Linked Devices &gt; Link a Device
             </p>
             {currentQr && (
-              <img src={currentQr} alt="QR Code" className="w-64 h-64 border-3 border-nb-border" />
+              <img src={currentQr} alt="QR Code" className="size-64 border-3 border-nb-border" />
             )}
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-nb-lime rounded-full animate-pulse" />
+              <div className="size-2 bg-nb-lime rounded-full animate-pulse" />
               <p className="font-mono text-xs text-nb-muted">Waiting for scan...</p>
             </div>
           </>
         )}
         {status === 'connecting' && (
           <div className="flex flex-col items-center gap-3 py-4">
-            <div className="w-10 h-10 border-3 border-nb-lime border-t-transparent rounded-full animate-spin" />
+            <div className="size-10 border-3 border-nb-lime border-t-transparent rounded-full animate-spin" />
             <p className="font-mono text-sm text-nb-lime">{stepMessage || 'Connecting...'}</p>
             <div className="flex gap-1 mt-2">
-              <div className="w-2 h-2 bg-nb-lime rounded-full" />
-              <div className="w-2 h-2 bg-nb-lime rounded-full animate-pulse" />
-              <div className="w-2 h-2 bg-nb-border rounded-full" />
+              <div className="size-2 bg-nb-lime rounded-full" />
+              <div className="size-2 bg-nb-lime rounded-full animate-pulse" />
+              <div className="size-2 bg-nb-border rounded-full" />
             </div>
           </div>
         )}
         {status === 'success' && (
           <div className="flex flex-col items-center gap-3 py-4">
-            <div className="w-10 h-10 border-3 border-nb-lime rounded-full flex items-center justify-center">
+            <div className="size-10 border-3 border-nb-lime rounded-full flex items-center justify-center">
               <svg
-                className="w-6 h-6 text-nb-lime"
+                className="size-6 text-nb-lime"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -90,9 +90,9 @@ export function QrCodeAuth({ open, onClose, qrData, wsChannel, onSuccess }: QrCo
         )}
         {status === 'failed' && (
           <div className="flex flex-col items-center gap-3 py-4">
-            <div className="w-10 h-10 border-3 border-nb-red flex items-center justify-center">
+            <div className="size-10 border-3 border-nb-red flex items-center justify-center">
               <svg
-                className="w-6 h-6 text-nb-red"
+                className="size-6 text-nb-red"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"

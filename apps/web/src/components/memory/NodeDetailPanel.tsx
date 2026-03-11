@@ -61,7 +61,7 @@ export function NodeDetailPanel({
           </span>
           <button
             onClick={onClose}
-            className="border-2 border-nb-border w-6 h-6 flex items-center justify-center text-xs font-bold cursor-pointer hover:bg-nb-red hover:text-white text-nb-text"
+            className="border-2 border-nb-border size-6 flex items-center justify-center text-xs font-bold cursor-pointer hover:bg-nb-red hover:text-white text-nb-text"
           >
             X
           </button>
@@ -117,7 +117,7 @@ export function NodeDetailPanel({
                             onRemoveIdentifier(selectedNode.id.replace(/^contact-/, ''), ident.id)
                           }
                           disabled={contactDetail.identifiers.length <= 1}
-                          className="border border-nb-border w-5 h-5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                          className="border border-nb-border size-5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                         >
                           X
                         </button>

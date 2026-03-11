@@ -25,7 +25,10 @@ export function JobRow({ job, onCancel, onMove }: JobRowProps) {
           {job.connector}
         </span>
         {job.accountIdentifier && (
-          <span className="font-mono text-[10px] text-nb-muted block truncate" title={job.accountIdentifier}>
+          <span
+            className="font-mono text-[10px] text-nb-muted block truncate"
+            title={job.accountIdentifier}
+          >
             {job.accountIdentifier}
           </span>
         )}
@@ -56,13 +59,13 @@ export function JobRow({ job, onCancel, onMove }: JobRowProps) {
           <>
             <button
               onClick={() => onMove(job.id, 'up')}
-              className="border-2 border-nb-border w-7 h-7 flex items-center justify-center font-bold text-xs hover:bg-nb-lime hover:text-black cursor-pointer text-nb-text"
+              className="border-2 border-nb-border size-7 flex items-center justify-center font-bold text-xs hover:bg-nb-lime hover:text-black cursor-pointer text-nb-text"
             >
               ↑
             </button>
             <button
               onClick={() => onMove(job.id, 'down')}
-              className="border-2 border-nb-border w-7 h-7 flex items-center justify-center font-bold text-xs hover:bg-nb-lime hover:text-black cursor-pointer text-nb-text"
+              className="border-2 border-nb-border size-7 flex items-center justify-center font-bold text-xs hover:bg-nb-lime hover:text-black cursor-pointer text-nb-text"
             >
               ↓
             </button>

@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef, useCallback } from 'react';
+import { cn } from '@/lib/utils';
 import type { ConnectorType } from '@botmem/shared';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
@@ -219,13 +220,13 @@ function QrAuthView({
               Scan this QR code with WhatsApp on your phone
             </p>
             <div className="bg-white p-3 rounded">
-              <img src={state.qrData} alt="WhatsApp QR Code" className="w-64 h-64" />
+              <img src={state.qrData} alt="WhatsApp QR Code" className="size-64" />
             </div>
             <p className="font-mono text-[10px] text-nb-muted text-center">
               Open WhatsApp → Settings → Linked Devices → Link a Device
             </p>
             <div className="flex items-center gap-2 mt-2">
-              <div className="w-2 h-2 bg-nb-lime rounded-full animate-pulse" />
+              <div className="size-2 bg-nb-lime rounded-full animate-pulse" />
               <p className="font-mono text-xs text-nb-muted uppercase">Waiting for scan...</p>
             </div>
           </>
@@ -320,11 +321,12 @@ function FormView({
               key={method.id}
               type="button"
               onClick={() => dispatch({ type: 'SET_METHOD', method: method.id })}
-              className={`flex-1 py-3 px-3 font-display text-sm font-bold uppercase transition-colors cursor-pointer border-r-3 border-nb-border last:border-r-0 ${
+              className={cn(
+                'flex-1 py-3 px-3 font-display text-sm font-bold uppercase transition-colors cursor-pointer border-r-3 border-nb-border last:border-r-0',
                 state.selectedMethod === method.id
                   ? 'bg-nb-lime text-black'
-                  : 'bg-nb-surface text-nb-muted hover:text-nb-text hover:bg-nb-border/30'
-              }`}
+                  : 'bg-nb-surface text-nb-muted hover:text-nb-text hover:bg-nb-border/30',
+              )}
             >
               {method.label}
             </button>

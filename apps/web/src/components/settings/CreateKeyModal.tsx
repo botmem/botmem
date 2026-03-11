@@ -143,7 +143,7 @@ export function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps)
                     type="checkbox"
                     checked={selectedBankIds.includes(bank.id)}
                     onChange={() => toggleBank(bank.id)}
-                    className="accent-nb-lime w-4 h-4"
+                    className="accent-nb-lime size-4"
                   />
                   <span className="font-mono text-sm text-nb-text uppercase">
                     {bank.name}

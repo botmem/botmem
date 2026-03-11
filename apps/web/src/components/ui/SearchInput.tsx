@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { cn } from '@/lib/utils';
 
 interface SearchInputProps {
   value: string;
@@ -9,9 +10,16 @@ interface SearchInputProps {
   inputRef?: RefObject<HTMLInputElement | null>;
 }
 
-export function SearchInput({ value, onChange, pending, placeholder = 'SEARCH...', className = '', inputRef }: SearchInputProps) {
+export function SearchInput({
+  value,
+  onChange,
+  pending,
+  placeholder = 'SEARCH...',
+  className = '',
+  inputRef,
+}: SearchInputProps) {
   return (
-    <div className={`relative ${className}`}>
+    <div className={cn('relative', className)}>
       <input
         ref={inputRef}
         type="text"
@@ -26,7 +34,7 @@ export function SearchInput({ value, onChange, pending, placeholder = 'SEARCH...
       />
       {pending && (
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-          <div className="w-3 h-3 border-2 border-nb-lime border-t-transparent rounded-full animate-spin" />
+          <div className="size-3 border-2 border-nb-lime border-t-transparent rounded-full animate-spin" />
           <span className="font-mono text-[10px] text-nb-lime uppercase">Searching...</span>
         </div>
       )}

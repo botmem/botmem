@@ -19,7 +19,7 @@ vi.mock('../../lib/ws', () => ({
 
 vi.mock('../authStore', () => ({
   useAuthStore: Object.assign(
-    (sel: any) => sel({ accessToken: 'tok', user: { id: 'u1' } }),
+    (sel: (state: Record<string, unknown>) => unknown) => sel({ accessToken: 'tok', user: { id: 'u1' } }),
     {
       getState: () => ({ accessToken: 'tok', user: { id: 'u1' }, refreshSession: vi.fn() }),
       setState: vi.fn(),
@@ -47,7 +47,7 @@ describe('memoryStore extended', () => {
 
   describe('loadMemories', () => {
     it('fetches and maps memories', async () => {
-      (api.listMemories as any).mockResolvedValue({
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [{ id: 'm1', sourceType: 'email', connectorType: 'gmail', text: 'Hello', eventTime: '2026-01-01', pinned: false }],
         total: 1,
       });
@@ -60,13 +60,13 @@ describe('memoryStore extended', () => {
     });
 
     it('handles error', async () => {
-      (api.listMemories as any).mockRejectedValue(new Error('fail'));
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useMemoryStore.getState().loadMemories();
       expect(useMemoryStore.getState().loading).toBe(false);
     });
 
     it('sets hasMore when more available', async () => {
-      (api.listMemories as any).mockResolvedValue({
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: Array.from({ length: 100 }, (_, i) => ({ id: `m${i}`, text: `t${i}` })),
         total: 500,
       });
@@ -83,7 +83,7 @@ describe('memoryStore extended', () => {
         loadingMore: false,
         query: '',
       });
-      (api.listMemories as any).mockResolvedValue({
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [{ id: 'm1', text: 'new' }],
         total: 2,
       });
@@ -105,7 +105,7 @@ describe('memoryStore extended', () => {
 
     it('handles error', async () => {
       useMemoryStore.setState({ hasMore: true, loadingMore: false, query: '', memories: [] });
-      (api.listMemories as any).mockRejectedValue(new Error('fail'));
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useMemoryStore.getState().loadMoreMemories();
       expect(useMemoryStore.getState().loadingMore).toBe(false);
     });
@@ -113,7 +113,7 @@ describe('memoryStore extended', () => {
 
   describe('searchMemories', () => {
     it('searches and sets results', async () => {
-      (api.searchMemories as any).mockResolvedValue({
+      (api.searchMemories as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         items: [{ id: 'm1', text: 'result' }],
         fallback: false,
         resolvedEntities: { contacts: [], topicWords: ['test'], topicMatchCount: 1 },
@@ -128,7 +128,7 @@ describe('memoryStore extended', () => {
     });
 
     it('handles search error', async () => {
-      (api.searchMemories as any).mockRejectedValue(new Error('fail'));
+      (api.searchMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useMemoryStore.getState().searchMemories('test');
       expect(useMemoryStore.getState().loading).toBe(false);
     });
@@ -139,7 +139,7 @@ describe('memoryStore extended', () => {
       useMemoryStore.setState({
         memories: [{ id: 'm1', pinned: false, source: 'email', sourceConnector: 'gmail', accountIdentifier: null, text: '', time: '', ingestTime: '', factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' }, weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }, entities: [], claims: [], metadata: {} }] as any,
       });
-      (api.pinMemory as any).mockResolvedValue({ ok: true });
+      (api.pinMemory as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
       await useMemoryStore.getState().pinMemory('m1');
       expect(useMemoryStore.getState().memories[0].pinned).toBe(true);
     });
@@ -148,7 +148,7 @@ describe('memoryStore extended', () => {
       useMemoryStore.setState({
         memories: [{ id: 'm1', pinned: true, source: 'email', sourceConnector: 'gmail', accountIdentifier: null, text: '', time: '', ingestTime: '', factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' }, weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }, entities: [], claims: [], metadata: {} }] as any,
       });
-      (api.unpinMemory as any).mockResolvedValue({ ok: true });
+      (api.unpinMemory as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
       await useMemoryStore.getState().unpinMemory('m1');
       expect(useMemoryStore.getState().memories[0].pinned).toBe(false);
     });
@@ -222,7 +222,7 @@ describe('memoryStore extended', () => {
 
   describe('loadGraph', () => {
     it('loads graph data', async () => {
-      (api.getGraphData as any).mockResolvedValue({
+      (api.getGraphData as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         nodes: [{ id: 'n1', label: 'A', type: 'email' }],
         links: [{ source: 'n1', target: 'n1', type: 'related', strength: 0.5 }],
       });
@@ -233,7 +233,7 @@ describe('memoryStore extended', () => {
     });
 
     it('handles error', async () => {
-      (api.getGraphData as any).mockRejectedValue(new Error('fail'));
+      (api.getGraphData as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
       await useMemoryStore.getState().loadGraph();
       expect(useMemoryStore.getState().graphLoading).toBe(false);
     });

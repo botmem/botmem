@@ -24,7 +24,7 @@ function Section({ id, number, title, children }: SectionProps) {
       >
         <span className="text-nb-lime">{number}.</span> {title}
       </h2>
-      <div className="mt-4 font-mono text-sm text-nb-muted leading-relaxed space-y-3">
+      <div className="mt-4 font-mono text-sm text-nb-muted leading-relaxed flex flex-col gap-3">
         {children}
       </div>
     </section>
@@ -125,7 +125,7 @@ export function TermsPage() {
         </div>
 
         {/* Sections */}
-        <div className="px-4 sm:px-6 pb-20 max-w-4xl mx-auto space-y-6">
+        <div className="px-4 sm:px-6 pb-20 max-w-4xl mx-auto flex flex-col gap-6">
           <Section id="acceptance" number="01" title="ACCEPTANCE OF TERMS">
             <p>
               By accessing or using Botmem ("the Service"), whether self-hosted or via our Pro cloud
@@ -146,7 +146,7 @@ export function TermsPage() {
               memory schema, and provides cross-modal search and retrieval with weighted ranking.
             </p>
             <p>Key capabilities include:</p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
+            <ul className="list-disc list-inside flex flex-col gap-1 ml-2">
               <li>
                 Connecting to third-party services (Gmail, Slack, WhatsApp, iMessage, Photos,
                 Locations) via pluggable connectors
@@ -162,7 +162,7 @@ export function TermsPage() {
               To use certain features of the Service, you must create an account. When creating an
               account, you agree to:
             </p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
+            <ul className="list-disc list-inside flex flex-col gap-1 ml-2">
               <li>Provide accurate and complete registration information</li>
               <li>Keep your credentials secure and not share them with third parties</li>
               <li>Accept responsibility for all activity that occurs under your account</li>
@@ -199,7 +199,7 @@ export function TermsPage() {
               The Botmem Pro cloud service is available on a subscription basis under the following
               terms:
             </p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
+            <ul className="list-disc list-inside flex flex-col gap-1 ml-2">
               <li>
                 <strong className="text-nb-text">Pricing:</strong> $14.99 per month, billed monthly
               </li>
@@ -227,7 +227,7 @@ export function TermsPage() {
 
           <Section id="acceptable-use" number="06" title="ACCEPTABLE USE">
             <p>You agree not to use the Service to:</p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
+            <ul className="list-disc list-inside flex flex-col gap-1 ml-2">
               <li>
                 Violate any applicable local, state, national, or international law or regulation
               </li>

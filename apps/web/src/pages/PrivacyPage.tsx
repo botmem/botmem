@@ -23,7 +23,7 @@ function PolicySection({ id, number, title, children }: SectionProps) {
       >
         <span className="text-nb-lime">{number}.</span> {title}
       </h2>
-      <div className="mt-4 font-mono text-sm text-nb-muted leading-relaxed space-y-3">
+      <div className="mt-4 font-mono text-sm text-nb-muted leading-relaxed flex flex-col gap-3">
         {children}
       </div>
     </section>
@@ -83,10 +83,10 @@ export function PrivacyPage() {
         </section>
 
         {/* Policy sections */}
-        <div className="px-4 sm:px-6 pb-20 max-w-3xl mx-auto space-y-6">
+        <div className="px-4 sm:px-6 pb-20 max-w-3xl mx-auto flex flex-col gap-6">
           <PolicySection id="information-we-collect" number="01" title="INFORMATION WE COLLECT">
             <p>We collect the following categories of information:</p>
-            <ul className="list-none space-y-2 pl-4">
+            <ul className="list-none flex flex-col gap-2 pl-4">
               <li>
                 <strong className="text-nb-text">Account information</strong> &mdash; your email
                 address and a hashed password. We never store your password in plaintext.
@@ -107,7 +107,7 @@ export function PrivacyPage() {
 
           <PolicySection id="how-we-use" number="02" title="HOW WE USE YOUR INFORMATION">
             <p>We use your information for the following purposes:</p>
-            <ul className="list-none space-y-2 pl-4">
+            <ul className="list-none flex flex-col gap-2 pl-4">
               <li>
                 <strong className="text-nb-text">Providing the service</strong> &mdash; ingesting,
                 normalizing, enriching, and indexing your memories so you can search and retrieve
@@ -144,7 +144,7 @@ export function PrivacyPage() {
           </PolicySection>
 
           <PolicySection id="self-hosted-vs-pro" number="04" title="SELF-HOSTED VS PRO">
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <div>
                 <h3 className="font-display text-sm font-bold text-nb-text uppercase tracking-wide mb-2">
                   Self-hosted (Free)
@@ -171,7 +171,7 @@ export function PrivacyPage() {
 
           <PolicySection id="third-party" number="05" title="THIRD-PARTY SERVICES">
             <p>Botmem integrates with the following third-party services:</p>
-            <ul className="list-none space-y-2 pl-4">
+            <ul className="list-none flex flex-col gap-2 pl-4">
               <li>
                 <strong className="text-nb-text">Connector OAuth providers</strong> &mdash; Google
                 (Gmail), Slack, and WhatsApp for authentication and data access. These services have
@@ -204,7 +204,7 @@ export function PrivacyPage() {
 
           <PolicySection id="your-rights" number="07" title="YOUR RIGHTS">
             <p>You have the right to:</p>
-            <ul className="list-none space-y-2 pl-4">
+            <ul className="list-none flex flex-col gap-2 pl-4">
               <li>
                 <strong className="text-nb-text">Export all your data</strong> &mdash; download a
                 complete copy of your memories, contacts, and metadata at any time via the API or
@@ -224,7 +224,7 @@ export function PrivacyPage() {
 
           <PolicySection id="cookies" number="08" title="COOKIES">
             <p>We use minimal cookies, strictly for functionality:</p>
-            <ul className="list-none space-y-2 pl-4">
+            <ul className="list-none flex flex-col gap-2 pl-4">
               <li>
                 <strong className="text-nb-text">Session authentication</strong> &mdash; a secure,
                 httpOnly cookie to maintain your login session.

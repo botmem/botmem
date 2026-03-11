@@ -154,7 +154,7 @@ function BankSelector({ collapsed }: { collapsed: boolean }) {
       <div ref={ref} className="relative px-2 py-2 border-b-3 border-nb-border">
         <button
           onClick={() => setOpen(!open)}
-          className="w-full flex items-center justify-center border-2 border-nb-border h-11 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+          className="w-full flex items-center justify-center border-2 border-nb-border h-8 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
           title={label}
         >
           <svg
@@ -261,7 +261,7 @@ function BankSelector({ collapsed }: { collapsed: boolean }) {
               <div className="flex items-center gap-2">
                 <span className="truncate">{bank.name}</span>
                 {bank.isDefault === true && (
-                  <span className="text-[10px] bg-nb-lime text-black px-1 border border-nb-border shrink-0">
+                  <span className="text-[9px] bg-nb-lime text-black px-1 border border-nb-border shrink-0">
                     DEFAULT
                   </span>
                 )}
@@ -303,7 +303,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             <button
               onClick={onClose}
               aria-label="Close sidebar"
-              className="md:hidden w-11 h-11 flex items-center justify-center text-nb-muted hover:text-nb-text transition-colors cursor-pointer shrink-0 mr-2"
+              className="md:hidden size-8 flex items-center justify-center text-nb-muted hover:text-nb-text transition-colors cursor-pointer shrink-0 mr-2"
             >
               <svg
                 width="14"
@@ -377,7 +377,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               )
             }
           >
-            <span className="w-5 h-5 flex items-center justify-center">{item.icon}</span>
+            <span className="size-5 flex items-center justify-center">{item.icon}</span>
             <span className={cn(collapsed && 'md:hidden')}>{item.label}</span>
           </NavLink>
         ))}
@@ -408,7 +408,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             'font-display text-xs font-bold uppercase border-2 border-nb-border text-nb-text',
             'hover:bg-nb-red hover:text-white transition-colors cursor-pointer',
             collapsed
-              ? 'md:w-11 md:h-11 md:flex md:items-center md:justify-center px-3 py-1.5'
+              ? 'md:w-8 md:h-8 md:flex md:items-center md:justify-center px-3 py-1.5'
               : 'px-3 py-1.5',
           )}
         >

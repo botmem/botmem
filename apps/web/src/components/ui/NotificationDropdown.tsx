@@ -63,7 +63,7 @@ export function NotificationDropdown({
       <button
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          'relative border-3 border-nb-border bg-nb-surface shadow-nb p-3',
+          'relative border-3 border-nb-border bg-nb-surface shadow-nb p-2',
           'hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm',
           'active:translate-x-[4px] active:translate-y-[4px] active:shadow-none',
           'transition-all duration-100 cursor-pointer',
@@ -94,7 +94,7 @@ export function NotificationDropdown({
       {open && (
         <div
           className={cn(
-            'absolute right-0 top-full mt-2 z-50 w-[calc(100vw-2rem)] sm:w-80',
+            'absolute right-0 top-full mt-2 z-50 w-80',
             'border-3 border-nb-border bg-nb-surface shadow-nb',
           )}
         >
@@ -132,7 +132,7 @@ export function NotificationDropdown({
                 >
                   {/* Level dot */}
                   <span
-                    className="mt-1.5 h-2 w-2 shrink-0 rounded-full border border-nb-border"
+                    className="mt-1.5 size-2 shrink-0 rounded-full border border-nb-border"
                     style={{ backgroundColor: levelColors[n.level] }}
                   />
 
@@ -157,7 +157,7 @@ export function NotificationDropdown({
                       e.stopPropagation();
                       onDismiss(n.id);
                     }}
-                    className="shrink-0 text-nb-muted hover:text-nb-text transition-colors cursor-pointer p-2 -m-1"
+                    className="mt-0.5 shrink-0 text-nb-muted hover:text-nb-text transition-colors cursor-pointer"
                   >
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                       <path

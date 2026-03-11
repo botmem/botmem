@@ -1,12 +1,13 @@
+import { cn } from '@/lib/utils';
 import { AuthedImage } from './AuthedImage';
 
 const SELF_COLOR = '#C4F53A';
 
 const SIZE_MAP = {
-  xs: 'w-6 h-6',
-  sm: 'w-10 h-10',
-  md: 'w-12 h-12',
-  lg: 'w-16 h-16',
+  xs: 'size-6',
+  sm: 'size-10',
+  md: 'size-12',
+  lg: 'size-16',
 } as const;
 
 const TEXT_SIZE_MAP = {
@@ -42,13 +43,17 @@ export function Avatar({
 
   const fallbackNode = (
     <div
-      className={`border-3 border-nb-border ${sizeClass} flex items-center justify-center ${className}`}
+      className={cn(
+        'border-3 border-nb-border flex items-center justify-center',
+        sizeClass,
+        className,
+      )}
       style={{
         backgroundColor: isSelf ? SELF_COLOR : undefined,
         ...borderStyle,
       }}
     >
-      <span className={`font-display ${textSize} font-bold text-black`}>
+      <span className={cn('font-display font-bold text-black', textSize)}>
         {isSelf ? '\u2605' : fallbackInitials}
       </span>
     </div>
@@ -72,7 +77,7 @@ export function Avatar({
       <img
         src={imgSrc}
         alt=""
-        className={`border-3 border-nb-border ${sizeClass} object-cover ${className}`}
+        className={cn('border-3 border-nb-border object-cover', sizeClass, className)}
         style={borderStyle}
       />
     );
@@ -82,7 +87,7 @@ export function Avatar({
     <AuthedImage
       src={imgSrc}
       alt=""
-      className={`border-3 border-nb-border ${sizeClass} object-cover ${className}`}
+      className={cn('border-3 border-nb-border object-cover', sizeClass, className)}
       fallback={fallbackNode}
     />
   );

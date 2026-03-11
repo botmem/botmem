@@ -18,7 +18,7 @@ export function RecoveryKeyModal() {
 
   return (
     <Modal open={true} onClose={() => {}} title="Save Your Recovery Key">
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <p className="font-mono text-sm text-nb-red font-bold">
           This is your encryption key. Without it, your data CANNOT be recovered. Not by us, not by
           anyone. Save it now.
@@ -44,7 +44,7 @@ export function RecoveryKeyModal() {
             type="checkbox"
             checked={confirmed}
             onChange={(e) => setConfirmed(e.target.checked)}
-            className="mt-1 accent-[#C4F53A] w-4 h-4"
+            className="mt-1 accent-[#C4F53A] size-4"
           />
           <span className="font-mono text-sm text-nb-muted">
             I have saved my recovery key in a safe place
