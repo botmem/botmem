@@ -1,6 +1,6 @@
 # Agent API & CLI
 
-Botmem is designed to be the memory layer for your AI agents. The **`botmem` CLI** provides both human-readable and JSON output for querying and managing your memory system.
+Botmem is designed to be the memory layer for your AI agents. The **`botmem` CLI** and **REST API** provide both human-readable and JSON output for querying and managing your memory system.
 
 ## How It Works
 
@@ -9,43 +9,60 @@ Botmem is designed to be the memory layer for your AI agents. The **`botmem` CLI
 |   Human / Agent  |     |   Botmem API     |
 |                  +---->+   port 12412      |
 |   botmem search  |     |                  |
-|   botmem status  |     |   Semantic search|
-|   botmem --json  |     |   Contact lookup |
+|   botmem ask     |     |   Semantic search|
+|   botmem --json  |     |   AI-powered Q&A |
 +------------------+     +------------------+
 ```
 
 The `botmem` CLI talks directly to the Botmem REST API. Use `--json` for machine-readable output (pipe to `jq` or use from scripts/agents).
 
+::: info Authentication required
+All API endpoints require authentication. Use `botmem login` to authenticate the CLI, or pass an API key with `--api-key bm_sk_...`. See [Authentication](/guide/authentication) for details.
+:::
+
 ## What You Can Do
 
 With the `botmem` CLI, you can:
 
-- **Search memories** -- "Find emails about the Q3 budget" returns semantically ranked results with scores
-- **Recall specific events** -- "What happened at the coffee meeting on Tuesday?" pulls context from all connected sources
-- **Look up contacts** -- "Who is Sarah Chen?" returns all known identifiers, metadata, and associated memories
-- **Build timelines** -- "Show me everything related to the project launch" across email, Slack, and WhatsApp
-- **Store new information** -- "Remember that the deadline was moved to March 15th" creates a manual memory
-- **Cross-reference sources** -- "Did John's Slack message about the budget match what he said in the email?" leverages the factuality system
+- **Search memories** — "Find emails about the Q3 budget" returns semantically ranked results with scores
+- **Ask questions** — "What did John say about the project deadline?" uses AI to synthesize an answer from your memories
+- **Build timelines** — "Show me everything related to the project launch" across email, Slack, and WhatsApp
+- **Get context** — Retrieve relevant context for a conversation topic
+- **Look up contacts** — "Who is Sarah Chen?" returns all known identifiers, metadata, and associated memories
+- **Store new information** — "Remember that the deadline was moved to March 15th" creates a manual memory
+- **Cross-reference sources** — "Did John's Slack message about the budget match what he said in the email?" leverages the factuality system
 
-## Available Tools
+## Agent REST Endpoints
 
-| Tool | Description |
-|---|---|
-| `search_memories` | Semantic search across all memories with optional filters |
-| `get_memory` | Retrieve a specific memory by ID |
-| `list_memories` | List memories with pagination and filters |
-| `store_memory` | Create a new manual memory |
-| `delete_memory` | Remove a memory |
-| `search_contacts` | Search contacts by name, email, or phone |
-| `get_contact` | Get full contact details including identifiers |
-| `get_contact_memories` | List all memories associated with a contact |
-| `get_memory_stats` | Get statistics about the memory store |
-| `get_memory_graph` | Get the memory relationship graph |
+| Method | Path                  | Description                                          |
+| ------ | --------------------- | ---------------------------------------------------- |
+| `POST` | `/api/agent/ask`      | Ask a question — AI synthesizes answer from memories |
+| `POST` | `/api/agent/timeline` | Build a timeline for a topic                         |
+| `POST` | `/api/agent/context`  | Get relevant context for a conversation              |
+| `POST` | `/api/agent/remember` | Store a new memory                                   |
+| `GET`  | `/api/agent/entities` | List extracted entities                              |
 
-See the [Tools Reference](/agent-api/tools-reference) for complete schemas and examples.
+## CLI Tools
+
+| Command        | Description                                               |
+| -------------- | --------------------------------------------------------- |
+| `search`       | Semantic search across all memories with optional filters |
+| `ask`          | Ask a question (AI-powered synthesis)                     |
+| `timeline`     | Build a timeline for a topic                              |
+| `context`      | Get context for a conversation                            |
+| `memories`     | List memories with pagination                             |
+| `memory`       | Get or delete a single memory                             |
+| `contacts`     | List or search contacts                                   |
+| `contact`      | Get contact details or memories                           |
+| `stats`        | Memory count breakdown                                    |
+| `status`       | Dashboard overview                                        |
+| `entities`     | List extracted entities                                   |
+| `memory-banks` | Manage memory banks                                       |
+
+See the [CLI Reference](/agent-api/cli) for complete command documentation.
 
 ## Next Steps
 
 - [CLI Reference](/agent-api/cli) for all commands and options
-- [Browse the tools reference](/agent-api/tools-reference) for REST API schemas
+- [Tools Reference](/agent-api/tools-reference) for REST API schemas
 - [See example workflows](/agent-api/examples) for common use cases

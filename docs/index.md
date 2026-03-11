@@ -17,22 +17,22 @@ hero:
       link: https://github.com/botmem/botmem
 
 features:
-  - icon: "🧠"
+  - icon: '🧠'
     title: Personal Memory
     details: Ingest emails, messages, photos, and locations into a unified memory store. Everything you have said, received, or experienced — searchable and structured.
-  - icon: "🔍"
+  - icon: '🔍'
     title: Semantic Search
     details: Vector embeddings power natural-language queries across all your data. Ask "what did John say about the project deadline?" and get ranked, scored results.
-  - icon: "🔌"
+  - icon: '🔌'
     title: Multi-Source
     details: Gmail, Slack, WhatsApp, iMessage, Immich photos, OwnTracks locations — and a plugin SDK to build your own connectors.
-  - icon: "🤖"
+  - icon: '🤖'
     title: Agent-Ready
-    details: Expose your memory to AI agents via MCP (Model Context Protocol). Claude, GPT, and any MCP-compatible agent can query your personal knowledge base.
-  - icon: "🏠"
-    title: Self-Hosted
-    details: Runs entirely on your hardware. SQLite + Qdrant + Redis. No cloud dependencies, no data leaves your network.
-  - icon: "🧩"
+    details: Expose your memory to AI agents via REST API and CLI. Claude, GPT, and any agent can query your personal knowledge base.
+  - icon: '🔒'
+    title: Encrypted & Private
+    details: AES-256-GCM encryption at rest with a personal recovery key. Self-host on your hardware, or use the managed Pro tier — either way, your data stays yours.
+  - icon: '🧩'
     title: Extensible
     details: Build custom connectors with the Connector SDK. Add new data sources in under 200 lines of TypeScript.
 ---
@@ -45,23 +45,26 @@ features:
 
 ## Quick Start
 
-Get Botmem running in under two minutes:
+Get Botmem running in under five minutes:
 
 ```bash
 # Clone the repository
 git clone https://github.com/botmem/botmem.git
 cd botmem
 
-# Start infrastructure (Redis + Qdrant)
+# Start infrastructure (PostgreSQL + Redis + Qdrant)
 docker compose up -d
 
 # Install dependencies
 pnpm install
 
+# Set required env var
+echo "DATABASE_URL=postgresql://botmem:botmem@localhost:5432/botmem" > .env
+
 # Start the development servers
 pnpm dev
 ```
 
-The API serves on `http://localhost:12412` and the web UI on `http://localhost:12412`.
+The API and web UI serve on `http://localhost:12412`. Sign up, connect your first data source, and start searching.
 
-Connect your first data source from the web UI, or jump straight to the [Agent API](/agent-api/) to give your AI agents access to your personal memory.
+Want someone else to handle the infrastructure? [Botmem Pro](https://botmem.xyz) ($14.99/mo) runs the same open-source code with managed hosting and preconfigured AI.

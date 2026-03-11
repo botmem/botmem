@@ -1,5 +1,9 @@
 # Contacts API
 
+::: info Authentication
+All endpoints require `Authorization: Bearer <token>` header. See [Authentication](/guide/authentication).
+:::
+
 ## List Contacts
 
 ```
@@ -8,10 +12,10 @@ GET /api/contacts
 
 ### Query Parameters
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `limit` | number | 50 | Page size |
-| `offset` | number | 0 | Pagination offset |
+| Parameter | Type   | Default | Description       |
+| --------- | ------ | ------- | ----------------- |
+| `limit`   | number | 50      | Page size         |
+| `offset`  | number | 0       | Pagination offset |
 
 ### Response
 
@@ -89,9 +93,7 @@ PATCH /api/contacts/:id
 ```json
 {
   "displayName": "John A. Smith",
-  "avatars": [
-    { "url": "data:image/jpeg;base64,...", "source": "google" }
-  ],
+  "avatars": [{ "url": "data:image/jpeg;base64,...", "source": "google" }],
   "metadata": {
     "organizations": [{ "name": "Acme Corp", "title": "VP Engineering" }],
     "birthday": "1985-03-15"
@@ -141,9 +143,9 @@ POST /api/contacts/:id/merge
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `sourceId` | string | Yes | UUID of the contact to merge into the target |
+| Field      | Type   | Required | Description                                  |
+| ---------- | ------ | -------- | -------------------------------------------- |
+| `sourceId` | string | Yes      | UUID of the contact to merge into the target |
 
 ### Response
 

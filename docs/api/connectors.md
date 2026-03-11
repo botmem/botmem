@@ -1,5 +1,9 @@
 # Connectors & Accounts API
 
+::: info Authentication
+All endpoints require `Authorization: Bearer <token>` header. See [Authentication](/guide/authentication).
+:::
+
 ## List Connectors
 
 Returns all registered connector types with their manifests.
@@ -62,7 +66,11 @@ GET /api/connectors/:type/schema
     "properties": {
       "clientId": { "type": "string", "title": "Google Client ID" },
       "clientSecret": { "type": "string", "title": "Google Client Secret" },
-      "redirectUri": { "type": "string", "title": "Redirect URI", "default": "http://localhost:12412/api/auth/gmail/callback" }
+      "redirectUri": {
+        "type": "string",
+        "title": "Redirect URI",
+        "default": "http://localhost:12412/api/auth/gmail/callback"
+      }
     },
     "required": ["clientId", "clientSecret"]
   }
@@ -119,17 +127,17 @@ GET /api/accounts
 
 ### Account Status Values
 
-| Status | Description |
-|---|---|
-| `disconnected` | Not yet authenticated |
-| `connected` | Authenticated and ready to sync |
-| `syncing` | Currently running a sync job |
-| `error` | Last sync failed |
+| Status         | Description                     |
+| -------------- | ------------------------------- |
+| `disconnected` | Not yet authenticated           |
+| `connected`    | Authenticated and ready to sync |
+| `syncing`      | Currently running a sync job    |
+| `error`        | Last sync failed                |
 
 ### Schedule Values
 
-| Schedule | Description |
-|---|---|
+| Schedule | Description              |
+| -------- | ------------------------ |
 | `manual` | Sync only when triggered |
 
 ---
@@ -216,6 +224,7 @@ GET /api/auth/:type/has-credentials
 ```
 
 **Response:**
+
 ```json
 {
   "hasSavedCredentials": true
@@ -231,6 +240,7 @@ POST /api/auth/:type/initiate
 ```
 
 **Request Body:**
+
 ```json
 {
   "config": {
@@ -241,6 +251,7 @@ POST /api/auth/:type/initiate
 ```
 
 **Response (OAuth 2.0):**
+
 ```json
 {
   "type": "redirect",
@@ -249,6 +260,7 @@ POST /api/auth/:type/initiate
 ```
 
 **Response (QR Code):**
+
 ```json
 {
   "type": "qr-code",
@@ -258,6 +270,7 @@ POST /api/auth/:type/initiate
 ```
 
 **Response (API Key):**
+
 ```json
 {
   "type": "complete",
@@ -287,6 +300,7 @@ POST /api/auth/:type/complete
 ```
 
 **Request Body:**
+
 ```json
 {
   "accountId": "existing-account-uuid",

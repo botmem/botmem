@@ -4,7 +4,13 @@ The `botmem` CLI lets you query and manage your personal memory system from the 
 
 ## Installation
 
-The CLI is built as part of the monorepo:
+The CLI is published to npm:
+
+```bash
+npx botmem --help
+```
+
+Or build from the monorepo:
 
 ```bash
 pnpm build
@@ -13,13 +19,38 @@ npx botmem --help
 
 ## Global Options
 
-| Flag | Description |
-|---|---|
+| Flag              | Description                                                                 |
+| ----------------- | --------------------------------------------------------------------------- |
 | `--api-url <url>` | API base URL (env: `BOTMEM_API_URL`, default: `http://localhost:12412/api`) |
-| `--json` | Output raw JSON for piping to `jq` or scripts |
-| `-h, --help` | Show help |
+| `--api-key <key>` | API key for authentication (env: `BOTMEM_API_KEY`)                          |
+| `--json`          | Output raw JSON for piping to `jq` or scripts                               |
+| `-h, --help`      | Show help                                                                   |
+
+## Authentication
+
+```bash
+# Interactive login (email/password)
+botmem login
+
+# Login with API key
+botmem login --api-key bm_sk_abc123...
+
+# Check auth status
+botmem version
+```
+
+Credentials are stored locally after login. Alternatively, set `BOTMEM_API_KEY` environment variable.
 
 ## Commands
+
+### `login`
+
+Authenticate with the Botmem API.
+
+```bash
+botmem login
+botmem login --api-key bm_sk_abc123...
+```
 
 ### `search <query>`
 
@@ -32,6 +63,32 @@ botmem search "photos from dubai" --source photo --json
 ```
 
 Options: `--source`, `--connector`, `--contact`, `--limit`
+
+### `ask <question>`
+
+Ask a question — AI synthesizes an answer from your memories.
+
+```bash
+botmem ask "What did John say about the project deadline?"
+botmem ask "When is the next team meeting?" --json
+```
+
+### `timeline <topic>`
+
+Build a chronological timeline for a topic.
+
+```bash
+botmem timeline "project launch"
+botmem timeline "vacation planning" --limit 20
+```
+
+### `context <topic>`
+
+Get relevant context for a conversation topic.
+
+```bash
+botmem context "Q3 budget review"
+```
 
 ### `memories`
 
@@ -73,6 +130,24 @@ botmem contact <id>
 botmem contact <id> memories
 ```
 
+### `entities`
+
+List extracted entities across all memories.
+
+```bash
+botmem entities
+botmem entities --type person
+```
+
+### `memory-banks`
+
+Manage memory banks (named collections of memories).
+
+```bash
+botmem memory-banks
+botmem memory-banks create "Work Projects"
+```
+
 ### `status`
 
 Dashboard overview showing memory counts, pipeline status, and connector health.
@@ -98,6 +173,14 @@ Retry all failed sync jobs and re-enqueue failed memories.
 
 List connected accounts.
 
+### `version`
+
+Show CLI and API versions.
+
+```bash
+botmem version
+```
+
 ## JSON Mode
 
 Add `--json` to any command for machine-readable output:
@@ -105,4 +188,5 @@ Add `--json` to any command for machine-readable output:
 ```bash
 botmem search "project update" --json | jq '.[].text'
 botmem status --json | jq '.stats.total'
+botmem ask "next meeting?" --json | jq '.answer'
 ```

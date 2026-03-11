@@ -9,7 +9,7 @@ This guide covers the development setup, monorepo structure, and conventions for
 - **Node.js** 20+
 - **pnpm** 9.15+ (`corepack enable && corepack prepare pnpm@9.15.0 --activate`)
 - **Docker** and Docker Compose
-- **Ollama** running somewhere on your network
+- **Ollama** running somewhere on your network (or use OpenRouter)
 
 ### Clone and Install
 
@@ -22,7 +22,13 @@ pnpm install
 ### Start Infrastructure
 
 ```bash
-docker compose up -d   # Redis + Qdrant
+docker compose up -d   # PostgreSQL + Redis + Qdrant
+```
+
+### Configure Environment
+
+```bash
+echo "DATABASE_URL=postgresql://botmem:botmem@localhost:5432/botmem" > .env
 ```
 
 ### Start Development Servers
@@ -39,12 +45,12 @@ curl http://localhost:12412/api/version
 
 ## Available Commands
 
-| Command | Description |
-|---|---|
-| `pnpm dev` | Start all dev servers (Turbo, concurrency 20) |
-| `pnpm build` | Build all packages |
-| `pnpm lint` | Lint everything |
-| `pnpm test` | Run Vitest across all workspaces |
+| Command      | Description                                   |
+| ------------ | --------------------------------------------- |
+| `pnpm dev`   | Start all dev servers (Turbo, concurrency 20) |
+| `pnpm build` | Build all packages                            |
+| `pnpm lint`  | Lint everything                               |
+| `pnpm test`  | Run Vitest across all workspaces              |
 
 ## Monorepo Structure
 
@@ -54,23 +60,32 @@ botmem/
     api/                NestJS backend
       src/
         config/         Environment + ConfigService
-        db/             SQLite, Drizzle schema, DbService
+        db/             PostgreSQL, Drizzle schema, DbService
+        user-auth/      User registration, login, JWT
+        crypto/         AES-256-GCM encryption, recovery keys
         connectors/     Connector registry + factory
-        accounts/       Account CRUD
-        auth/           OAuth flow orchestration
+        accounts/       Account CRUD + credential management
+        auth/           OAuth flow orchestration (connectors)
         jobs/           Job management + sync triggering
         logs/           Log persistence
         events/         WebSocket gateway
-        memory/         Search, ranking, processors
+        memory/         Search, ranking, processors (embed, enrich, file, clean)
         contacts/       Contact dedup + merging
+        agent/          AI-powered Q&A, timeline, context endpoints
+        api-keys/       API key management (bm_sk_...)
+        memory-banks/   Named memory collections
+        billing/        Stripe subscription management
+        analytics/      PostHog event tracking
         settings/       Runtime settings
-      data/             SQLite DB + session files
+        plugins/        Plugin/extension system
+      data/             Session files
     web/                React frontend
       src/
         pages/          Route pages
         components/     UI components
         store/          Zustand stores
   packages/
+    cli/                botmem CLI (human + JSON output)
     connector-sdk/      BaseConnector + types
     connectors/
       gmail/            Google connector
@@ -86,13 +101,13 @@ botmem/
 
 ### Code
 
-- **TypeScript** -- strict mode, ES2022 target, ESNext modules
-- **IDs** -- all UUIDs, stored as text primary keys in SQLite
-- **Timestamps** -- ISO 8601 strings everywhere
-- **JSON columns** -- stored as text, parsed at the application layer
-- **Auth context** -- encrypted at rest in the `accounts` and `connectorCredentials` tables
-- **Connector packages** -- named `@botmem/connector-<name>`
-- **Shared types** -- import from `@botmem/shared`, not from API internals
+- **TypeScript** — strict mode, ES2022 target, ESNext modules
+- **IDs** — all UUIDs, stored as text primary keys
+- **Timestamps** — ISO 8601 strings everywhere
+- **JSON columns** — stored as text in PostgreSQL, parsed at the application layer
+- **Auth context** — encrypted at rest in the `accounts` and `connectorCredentials` tables
+- **Connector packages** — named `@botmem/connector-<name>`
+- **Shared types** — import from `@botmem/shared`, not from API internals
 
 ### File Organization
 
@@ -116,9 +131,10 @@ src/
 
 ### Database
 
-- SQLite with WAL mode
-- Schema defined in `apps/api/src/db/schema.ts` using Drizzle ORM
-- No migrations -- schema is sync'd on startup (suitable for local-first development)
+- PostgreSQL 17 with Drizzle ORM
+- Schema defined in `apps/api/src/db/schema.ts`
+- Migrations in `apps/api/src/db/migrations/`
+- Multi-user with `userId` foreign keys on all user-owned tables
 
 ### API Conventions
 
@@ -126,6 +142,7 @@ src/
 - Services contain business logic
 - BullMQ processors handle async work
 - WebSocket events for real-time updates
+- All endpoints require JWT or API key authentication
 
 ## Adding a New Feature
 
@@ -159,38 +176,33 @@ See [Building a Connector](/connectors/building-a-connector) for a complete walk
 ### View Logs
 
 ```bash
-# All logs
-curl http://localhost:12412/api/logs
+# All logs (requires auth)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:12412/api/logs
 
 # Logs for a specific account
-curl http://localhost:12412/api/logs?accountId=<uuid>
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:12412/api/logs?accountId=<uuid>"
 
 # Error logs only
-curl http://localhost:12412/api/logs?level=error
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:12412/api/logs?level=error"
 ```
 
 ### Queue Health
 
 ```bash
-curl http://localhost:12412/api/jobs/queues
+curl -H "Authorization: Bearer $TOKEN" http://localhost:12412/api/jobs/queues
 ```
 
 ### Retry Failed Jobs
 
 ```bash
-curl -X POST http://localhost:12412/api/memories/retry-failed
-```
-
-### Check a Specific Memory
-
-```bash
-curl http://localhost:12412/api/memories/<uuid>
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:12412/api/memories/retry-failed
 ```
 
 ## Architecture Decisions
 
-- **SQLite over Postgres** -- single-file database, no server process, WAL mode for concurrent reads, suitable for single-user local deployment
-- **BullMQ over direct processing** -- decouples ingestion from processing, provides retries with backoff, enables concurrency control
-- **Qdrant over pgvector** -- dedicated vector DB with built-in similarity search, filtering, and recommendation APIs
-- **Ollama over OpenAI** -- runs locally, no API keys, no data leaving the network
-- **Cursor-based sync** -- enables incremental sync without re-fetching all data
+- **PostgreSQL over SQLite** — multi-user support, proper concurrent writes, production-grade reliability
+- **BullMQ over direct processing** — decouples ingestion from processing, provides retries with backoff, enables concurrency control
+- **Qdrant over pgvector** — dedicated vector DB with built-in similarity search, filtering, and recommendation APIs
+- **Ollama + OpenRouter** — local-first with cloud fallback, swappable via single env var
+- **Recovery key over password-derived encryption** — password changes don't invalidate encrypted data
+- **Cursor-based sync** — enables incremental sync without re-fetching all data
