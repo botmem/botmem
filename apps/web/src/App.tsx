@@ -18,6 +18,7 @@ import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
 import { DataPolicyPage } from './pages/DataPolicyPage';
 import OAuthConsentPage from './pages/OAuthConsentPage';
+import CliLoginPage from './pages/CliLoginPage';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { useAuth } from './hooks/useAuth';
@@ -116,6 +117,7 @@ export function App() {
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/data-policy" element={<DataPolicyPage />} />
         <Route path="/oauth/consent" element={<OAuthConsentPage />} />
+        <Route path="/cli-login" element={<CliLoginPage />} />
         <Route
           path="/onboarding"
           element={

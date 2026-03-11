@@ -6,7 +6,9 @@ import { ConfigModule } from '../config/config.module';
 import { ConfigService } from '../config/config.service';
 import { DbModule } from '../db/db.module';
 import { MailModule } from '../mail/mail.module';
+import { CryptoModule } from '../crypto/crypto.module';
 import { UserAuthService } from './user-auth.service';
+import { CliAuthService } from './cli-auth.service';
 import { UsersService } from './users.service';
 import { UserAuthController } from './user-auth.controller';
 import { JwtStrategy } from './jwt.strategy';
@@ -17,6 +19,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     ConfigModule,
     DbModule,
     MailModule,
+    CryptoModule,
     BullModule.registerQueue({ name: 'reencrypt' }),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -32,7 +35,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     }),
   ],
   controllers: [UserAuthController],
-  providers: [UserAuthService, UsersService, JwtStrategy, JwtAuthGuard],
+  providers: [UserAuthService, CliAuthService, UsersService, JwtStrategy, JwtAuthGuard],
   exports: [JwtAuthGuard, JwtStrategy, UsersService],
 })
 export class UserAuthModule {}

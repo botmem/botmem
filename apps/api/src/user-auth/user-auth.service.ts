@@ -284,6 +284,13 @@ export class UserAuthService {
     this.logger.log(`Password changed for user ${userId} — encryption unchanged`);
   }
 
+  /**
+   * Generate token pair for an already-authenticated user (used by CLI OAuth flow).
+   */
+  async generateTokensForUser(userId: string, email: string) {
+    return this.generateTokenPair(userId, email);
+  }
+
   private async generateTokenPair(userId: string, email: string, family?: string) {
     const tokenFamily = family ?? randomUUID();
 
