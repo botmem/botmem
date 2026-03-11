@@ -1,0 +1,18 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /events
+Disallow: /dashboard
+Disallow: /me
+Disallow: /onboarding
+Disallow: /connectors
+Disallow: /memories
+Disallow: /people
+Disallow: /contacts
+Disallow: /settings
+Disallow: /oauth/
+Disallow: /cli-login
+Disallow: /forgot-password
+Disallow: /reset-password
+
+Sitemap: https://botmem.xyz/sitemap.xml
