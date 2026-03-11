@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BaseConnector } from '../base.js';
-import type { ConnectorManifest, AuthContext, AuthInitResult, SyncContext, SyncResult, ConnectorDataEvent, ProgressEvent } from '../types.js';
+import type {
+  ConnectorManifest,
+  AuthContext,
+  AuthInitResult,
+  SyncContext,
+  SyncResult,
+  ConnectorDataEvent,
+  ProgressEvent,
+  PipelineContext,
+} from '../types.js';
 
 class MockConnector extends BaseConnector {
   readonly manifest: ConnectorManifest = {
@@ -33,7 +42,17 @@ class MockConnector extends BaseConnector {
   async sync(_ctx: SyncContext): Promise<SyncResult> {
     return { cursor: null, hasMore: false, processed: 0 };
   }
+
+  testLog(level: string, message: string): void {
+    this.log(level as 'info' | 'warn' | 'error' | 'debug', message);
+  }
 }
+
+const pipelineCtx: PipelineContext = {
+  accountId: 'acc-1',
+  auth: { accessToken: 'test' },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+};
 
 describe('BaseConnector', () => {
   it('creates instance with manifest', () => {
@@ -144,8 +163,8 @@ describe('log', () => {
     const listener = vi.fn();
     connector.on('log', listener);
 
-    // Access protected method via any
-    (connector as any).log('info', 'test message');
+    // Access protected method via subclass
+    connector.testLog('info', 'test message');
     expect(listener).toHaveBeenCalledWith({ level: 'info', message: 'test message' });
   });
 
@@ -154,9 +173,9 @@ describe('log', () => {
     const listener = vi.fn();
     connector.on('log', listener);
 
-    (connector as any).log('warn', 'warning');
-    (connector as any).log('error', 'failure');
-    (connector as any).log('debug', 'debugging');
+    connector.testLog('warn', 'warning');
+    connector.testLog('error', 'failure');
+    connector.testLog('debug', 'debugging');
 
     expect(listener).toHaveBeenCalledTimes(3);
     expect(listener).toHaveBeenCalledWith({ level: 'warn', message: 'warning' });
@@ -174,8 +193,8 @@ describe('clean', () => {
       timestamp: '2026-01-01T00:00:00Z',
       content: { text: 'hello   world', metadata: {} },
     };
-    const result = connector.clean(event, {} as any);
-    expect((result as any).text).toBe('hello world');
+    const result = connector.clean(event, pipelineCtx);
+    expect(result.text).toBe('hello world');
   });
 
   it('strips HTML tags and decodes entities', () => {
@@ -184,10 +203,13 @@ describe('clean', () => {
       sourceType: 'email',
       sourceId: 'x',
       timestamp: '2026-01-01T00:00:00Z',
-      content: { text: '<html><div>Hello &amp; &lt;world&gt; &quot;hi&quot; &#39;bye&#39;</div></html>', metadata: {} },
+      content: {
+        text: '<html><div>Hello &amp; &lt;world&gt; &quot;hi&quot; &#39;bye&#39;</div></html>',
+        metadata: {},
+      },
     };
-    const result = connector.clean(event, {} as any);
-    const text = (result as any).text;
+    const result = connector.clean(event, pipelineCtx);
+    const text = result.text;
     expect(text).toContain('Hello & <world>');
     expect(text).toContain('"hi"');
     expect(text).toContain("'bye'");
@@ -200,10 +222,13 @@ describe('clean', () => {
       sourceType: 'email',
       sourceId: 'x',
       timestamp: '2026-01-01T00:00:00Z',
-      content: { text: '<html><style>body{color:red}</style><script>alert(1)</script><div>content</div></html>', metadata: {} },
+      content: {
+        text: '<html><style>body{color:red}</style><script>alert(1)</script><div>content</div></html>',
+        metadata: {},
+      },
     };
-    const result = connector.clean(event, {} as any);
-    const text = (result as any).text;
+    const result = connector.clean(event, pipelineCtx);
+    const text = result.text;
     expect(text).toContain('content');
     expect(text).not.toContain('color:red');
     expect(text).not.toContain('alert');
@@ -217,8 +242,8 @@ describe('clean', () => {
       timestamp: '2026-01-01T00:00:00Z',
       content: { text: 'hello\u200Bworld\u00ADtest\uFEFFend', metadata: {} },
     };
-    const result = connector.clean(event, {} as any);
-    expect((result as any).text).toBe('helloworldtestend');
+    const result = connector.clean(event, pipelineCtx);
+    expect(result.text).toBe('helloworldtestend');
   });
 
   it('strips tracking URLs', () => {
@@ -227,10 +252,13 @@ describe('clean', () => {
       sourceType: 'email',
       sourceId: 'x',
       timestamp: '2026-01-01T00:00:00Z',
-      content: { text: 'Click here https://example.com/ls/click?upn=abc123 for more', metadata: {} },
+      content: {
+        text: 'Click here https://example.com/ls/click?upn=abc123 for more',
+        metadata: {},
+      },
     };
-    const result = connector.clean(event, {} as any);
-    expect((result as any).text).not.toContain('upn=');
+    const result = connector.clean(event, pipelineCtx);
+    expect(result.text).not.toContain('upn=');
   });
 
   it('handles empty text', () => {
@@ -241,8 +269,8 @@ describe('clean', () => {
       timestamp: '2026-01-01T00:00:00Z',
       content: { metadata: {} },
     };
-    const result = connector.clean(event, {} as any);
-    expect((result as any).text).toBe('');
+    const result = connector.clean(event, pipelineCtx);
+    expect(result.text).toBe('');
   });
 
   it('strips &nbsp;', () => {
@@ -253,8 +281,8 @@ describe('clean', () => {
       timestamp: '2026-01-01T00:00:00Z',
       content: { text: '<html><div>hello&nbsp;world</div></html>', metadata: {} },
     };
-    const result = connector.clean(event, {} as any);
-    expect((result as any).text).toContain('hello world');
+    const result = connector.clean(event, pipelineCtx);
+    expect(result.text).toContain('hello world');
   });
 });
 
@@ -267,10 +295,10 @@ describe('embed (default)', () => {
       timestamp: '2026-01-01T00:00:00Z',
       content: { text: 'hello', participants: ['Alice', 'Bob'], metadata: {} },
     };
-    const result = connector.embed(event, 'hello', {} as any);
-    expect((result as any).text).toBe('hello');
-    expect((result as any).entities).toHaveLength(2);
-    expect((result as any).entities[0]).toEqual({ type: 'person', id: 'Alice', role: 'participant' });
+    const result = connector.embed(event, 'hello', pipelineCtx);
+    expect(result.text).toBe('hello');
+    expect(result.entities).toHaveLength(2);
+    expect(result.entities[0]).toEqual({ type: 'person', id: 'Alice', role: 'participant' });
   });
 
   it('returns empty entities when no participants', () => {
@@ -281,15 +309,15 @@ describe('embed (default)', () => {
       timestamp: '2026-01-01T00:00:00Z',
       content: { text: 'hello', metadata: {} },
     };
-    const result = connector.embed(event, 'hello', {} as any);
-    expect((result as any).entities).toEqual([]);
+    const result = connector.embed(event, 'hello', pipelineCtx);
+    expect(result.entities).toEqual([]);
   });
 });
 
 describe('enrich (default)', () => {
   it('returns empty object', () => {
     const connector = new MockConnector();
-    const result = connector.enrich('mem-1', {} as any);
+    const result = connector.enrich('mem-1', pipelineCtx);
     expect(result).toEqual({});
   });
 });
@@ -379,7 +407,10 @@ describe('DEBUG_SYNC_LIMIT enforcement', () => {
     BaseConnector.DEBUG_SYNC_LIMIT = 2;
     const connector = new MockConnector();
     connector.wrapSyncContext({
-      accountId: 'a', auth: {}, cursor: null, jobId: 'j',
+      accountId: 'a',
+      auth: {},
+      cursor: null,
+      jobId: 'j',
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       signal: new AbortController().signal,
     });
@@ -388,7 +419,12 @@ describe('DEBUG_SYNC_LIMIT enforcement', () => {
     connector.on('data', listener);
     connector.on('log', logListener);
 
-    const event: ConnectorDataEvent = { sourceType: 'message', sourceId: 'x', timestamp: '2026-01-01T00:00:00Z', content: { text: 'a', metadata: {} } };
+    const event: ConnectorDataEvent = {
+      sourceType: 'message',
+      sourceId: 'x',
+      timestamp: '2026-01-01T00:00:00Z',
+      content: { text: 'a', metadata: {} },
+    };
     expect(connector.emitData(event)).toBe(true);
     expect(connector.emitData(event)).toBe(true);
     expect(connector.isLimitReached).toBe(true);
@@ -407,7 +443,12 @@ describe('DEBUG_SYNC_LIMIT enforcement', () => {
     BaseConnector.DEBUG_SYNC_LIMIT = 1;
     const connector = new MockConnector();
     connector.on('data', () => {});
-    const event: ConnectorDataEvent = { sourceType: 'message', sourceId: 'x', timestamp: '2026-01-01T00:00:00Z', content: { text: 'a', metadata: {} } };
+    const event: ConnectorDataEvent = {
+      sourceType: 'message',
+      sourceId: 'x',
+      timestamp: '2026-01-01T00:00:00Z',
+      content: { text: 'a', metadata: {} },
+    };
     connector.emitData(event);
     expect(connector.isLimitReached).toBe(true);
     connector.resetSyncLimit();

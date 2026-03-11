@@ -271,5 +271,5 @@ jobs:
           if npm view "@botmem/cli@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"
           else
-            npm publish --access public
+            npm publish --access public --tag latest
           fi
