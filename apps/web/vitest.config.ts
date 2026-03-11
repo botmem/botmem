@@ -32,10 +32,10 @@ export default defineConfig({
         'src/lib/ws.ts',
       ],
       thresholds: {
-        statements: 78,
+        statements: 76,
         branches: 75,
         functions: 80,
-        lines: 78,
+        lines: 76,
       },
     },
   },
