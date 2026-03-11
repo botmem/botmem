@@ -4,12 +4,14 @@ import { Queue } from 'bullmq';
 import { eq, desc, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { jobs } from '../db/schema';
+import { TraceContext } from '../tracing/trace.context';
 
 @Injectable()
 export class JobsService {
   constructor(
     private dbService: DbService,
     @InjectQueue('sync') private syncQueue: Queue,
+    private traceContext: TraceContext,
   ) {}
 
   async triggerSync(
@@ -36,9 +38,16 @@ export class JobsService {
       }),
     );
 
+    const trace = this.traceContext.current();
     await this.syncQueue.add(
       'sync',
-      { accountId, connectorType, jobId: id, memoryBankId: memoryBankId || undefined },
+      {
+        accountId,
+        connectorType,
+        jobId: id,
+        memoryBankId: memoryBankId || undefined,
+        ...(trace ? { _trace: { traceId: trace.traceId, spanId: trace.spanId } } : {}),
+      },
       {
         jobId: id,
       },

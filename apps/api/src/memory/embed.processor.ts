@@ -28,6 +28,7 @@ import {
 } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import { normalizeEntities } from './entity-normalizer';
+import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
 const MAX_CONTENT_LENGTH = 10_000;
@@ -58,6 +59,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private analytics: AnalyticsService,
     private config: ConfigService,
     @InjectQueue('enrich') private enrichQueue: Queue,
+    private traceContext: TraceContext,
   ) {
     super();
   }
@@ -76,8 +78,18 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     });
   }
 
-  async process(job: Job<{ rawEventId: string }>) {
+  async process(job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>) {
+    const trace = job.data._trace;
+    const traceId = trace?.traceId || generateTraceId();
+    const spanId = generateSpanId();
+    return this.traceContext.run({ traceId, spanId }, () => this._process(job));
+  }
+
+  private async _process(
+    job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>,
+  ) {
     const { rawEventId } = job.data;
+    const currentTrace = this.traceContext.current()!;
 
     const rows = await this.dbService.db
       .select()
@@ -515,7 +527,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     if (pipelineEnrich) {
       await this.enrichQueue.add(
         'enrich',
-        { rawEventId, memoryId },
+        {
+          rawEventId,
+          memoryId,
+          _trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId },
+        },
         { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
       );
     } else {

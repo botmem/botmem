@@ -11,6 +11,7 @@ import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { rawEvents, memories } from '../db/schema';
+import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
 function sanitizeText(text: string): string {
@@ -37,6 +38,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     private settingsService: SettingsService,
     @InjectQueue('clean') private cleanQueue: Queue,
     @InjectQueue('embed') private embedQueue: Queue,
+    private traceContext: TraceContext,
   ) {
     super();
   }
@@ -87,8 +89,18 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  async process(job: Job<{ rawEventId: string }>) {
+  async process(job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>) {
+    const trace = job.data._trace;
+    const traceId = trace?.traceId || generateTraceId();
+    const spanId = generateSpanId();
+    return this.traceContext.run({ traceId, spanId }, () => this._process(job));
+  }
+
+  private async _process(
+    job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>,
+  ) {
     const { rawEventId } = job.data;
+    const currentTrace = this.traceContext.current()!;
 
     const rows = await this.dbService.db
       .select()
@@ -235,7 +247,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     // Enqueue to embed stage
     await this.embedQueue.add(
       'embed',
-      { rawEventId },
+      { rawEventId, _trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId } },
       { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
     );
   }

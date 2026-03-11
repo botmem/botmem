@@ -41,9 +41,12 @@ describe('JobsService', () => {
       getRepeatableJobs: vi.fn().mockResolvedValue([]),
     };
 
+    const traceContext = { current: vi.fn().mockReturnValue(undefined) } as any;
+
     service = new JobsService(
       { db: mockDb, withCurrentUser: vi.fn().mockImplementation((fn: any) => fn(mockDb)) } as any,
       syncQueue,
+      traceContext,
     );
   });
 
@@ -68,7 +71,10 @@ describe('JobsService', () => {
     });
 
     it('filters by accountId', async () => {
-      mockDb.orderBy.mockResolvedValueOnce([fakeJob, { ...fakeJob, id: 'job-2', accountId: 'acc-2' }]);
+      mockDb.orderBy.mockResolvedValueOnce([
+        fakeJob,
+        { ...fakeJob, id: 'job-2', accountId: 'acc-2' },
+      ]);
       const result = await service.getAll({ accountId: 'acc-1' });
       expect(result).toHaveLength(1);
       expect(result[0].accountId).toBe('acc-1');

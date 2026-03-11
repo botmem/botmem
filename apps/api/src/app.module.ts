@@ -37,6 +37,7 @@ import { FirebaseAuthModule } from './user-auth/firebase-auth.module';
 import { FirebaseAuthGuard } from './user-auth/firebase-auth.guard';
 import { AuthProviderGuard } from './user-auth/auth-provider.guard';
 import { WriteScopeGuard } from './user-auth/write-scope.guard';
+import { TracingModule } from './tracing/tracing.module';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const webDistPath = join(__dirname, '..', '..', 'web', 'dist');
@@ -54,6 +55,7 @@ const serveStatic = !isDev && existsSync(webDistPath);
         ]
       : []),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
+    TracingModule,
     AnalyticsModule,
     ConfigModule,
     DbModule,
