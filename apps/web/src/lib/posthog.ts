@@ -14,16 +14,39 @@ export function initPostHog() {
       maskAllInputs: true,
       maskTextSelector: '[data-ph-mask]',
       recordCrossOriginIframes: false,
-      // Mask auth headers in network recording (REPLAY-03)
+      // Mask auth headers and response bodies in network recording (REPLAY-03)
       maskCapturedNetworkRequestFn: (request) => {
         if (request.requestHeaders) {
           const masked = { ...request.requestHeaders };
           for (const key of Object.keys(masked)) {
-            if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'cookie') {
+            const lower = key.toLowerCase();
+            if (lower === 'authorization' || lower === 'cookie' || lower === 'x-api-key') {
               masked[key] = '***REDACTED***';
             }
           }
           request.requestHeaders = masked;
+        }
+        // Redact response bodies from API calls that may contain personal data
+        if (request.responseBody) {
+          const url = request.name || '';
+          if (
+            url.includes('/api/memory') ||
+            url.includes('/api/contacts') ||
+            url.includes('/api/me')
+          ) {
+            request.responseBody = '***REDACTED***';
+          }
+        }
+        // Redact request bodies that may contain passwords or keys
+        if (request.requestBody) {
+          const body = typeof request.requestBody === 'string' ? request.requestBody : '';
+          if (
+            body.includes('password') ||
+            body.includes('recoveryKey') ||
+            body.includes('refreshToken')
+          ) {
+            request.requestBody = '***REDACTED***';
+          }
         }
         return request;
       },

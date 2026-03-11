@@ -75,15 +75,19 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
           <AuthedImage
             src={`/api/memories/${memory.id}/thumbnail`}
             className="w-full object-cover"
-            style={memory.metadata?.width && memory.metadata?.height
-              ? { aspectRatio: `${memory.metadata.width} / ${memory.metadata.height}` }
-              : { height: '10rem' }}
+            style={
+              memory.metadata?.width && memory.metadata?.height
+                ? { aspectRatio: `${memory.metadata.width} / ${memory.metadata.height}` }
+                : { height: '10rem' }
+            }
             loading="lazy"
           />
         </div>
       )}
 
-      <p className="font-mono text-sm mb-3 text-nb-text">{truncate(memory.text, 150)}</p>
+      <p data-ph-mask className="font-mono text-sm mb-3 text-nb-text">
+        {truncate(memory.text, 150)}
+      </p>
 
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs text-nb-muted">{formatRelative(memory.time)}</span>
