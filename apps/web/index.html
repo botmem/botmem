@@ -3,18 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Botmem — Your Life, Searchable. Local-First Personal Memory.</title>
-    <meta name="description" content="Self-hosted personal memory system. Ingest Gmail, Slack, WhatsApp, iMessage, photos, and locations into one searchable AI-powered memory. Fully local, open source." />
+    <title>Botmem — Your Life, Searchable. Personal Memory for AI Agents.</title>
+    <meta name="description" content="Open-source personal memory system. Ingest Gmail, Slack, WhatsApp, iMessage, photos, and locations into one searchable AI-powered memory. Self-hosted, local-first, privacy-focused. MCP server for Claude, Cursor, and AI coding agents." />
+    <meta name="keywords" content="personal memory, AI memory, personal knowledge base, RAG system, MCP server, personal data search, Gmail search, Slack search, WhatsApp search, iMessage search, photo search, location history, AI agent memory, vector search, semantic search, self-hosted, open source, local first, privacy, Ollama, Qdrant, personal AI, digital memory, life search, second brain, personal assistant memory, Claude MCP, Cursor MCP" />
     <link rel="canonical" href="https://botmem.xyz/" />
     <meta property="og:title" content="Botmem — Your Life, Searchable" />
-    <meta property="og:description" content="Self-hosted personal memory. Search your entire digital life locally." />
+    <meta property="og:description" content="Open-source personal memory. Search Gmail, Slack, WhatsApp, iMessage, photos and locations with AI. Self-hosted or managed." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://botmem.xyz/" />
     <meta property="og:image" content="https://botmem.xyz/brand/og-image.png" />
+    <meta property="og:site_name" content="Botmem" />
+    <meta property="og:locale" content="en_US" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Botmem — Your Life, Searchable" />
-    <meta name="twitter:description" content="Self-hosted personal memory. Search your entire digital life locally." />
+    <meta name="twitter:description" content="Open-source personal memory. Search Gmail, Slack, WhatsApp, iMessage, photos and locations with AI. Self-hosted or managed." />
     <meta name="twitter:image" content="https://botmem.xyz/brand/og-image.png" />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="Botmem" />
     <meta name="theme-color" content="#0D0D0D" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#F5F5F0" media="(prefers-color-scheme: light)" />
     <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
@@ -43,16 +48,60 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Botmem",
-        "description": "Local-first personal memory system. Ingest emails, messages, photos, and locations into one searchable AI-powered memory.",
+        "alternateName": "Botmem Personal Memory",
+        "description": "Open-source personal memory system that ingests Gmail, Slack, WhatsApp, iMessage, photos, and locations into one AI-powered searchable memory with semantic search, contact graph, and MCP server for AI agents.",
         "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Personal Knowledge Management",
         "operatingSystem": "Cross-platform",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "Free (Self-Hosted)",
+            "price": "0",
+            "priceCurrency": "USD",
+            "description": "Self-hosted on your hardware with all features"
+          },
+          {
+            "@type": "Offer",
+            "name": "Pro (Managed)",
+            "price": "14.99",
+            "priceCurrency": "USD",
+            "billingIncrement": "P1M",
+            "description": "Cloud-hosted with managed infrastructure"
+          }
+        ],
         "license": "https://opensource.org/licenses/MIT",
-        "url": "https://botmem.xyz/"
+        "url": "https://botmem.xyz/",
+        "downloadUrl": "https://github.com/botmem/botmem",
+        "screenshot": "https://botmem.xyz/brand/og-image.png",
+        "featureList": "Gmail integration, Slack integration, WhatsApp integration, iMessage integration, Photo search, Location history, Semantic vector search, Contact graph, Factuality classification, Memory graph visualization, CLI tool, REST API, WebSocket API, MCP server for AI agents",
+        "softwareRequirements": "Node.js, Docker, PostgreSQL, Redis, Qdrant"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Botmem",
+        "url": "https://botmem.xyz/",
+        "description": "Your life, searchable. Personal memory for AI agents.",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://botmem.xyz/memories?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Botmem",
+        "url": "https://botmem.xyz/",
+        "logo": "https://botmem.xyz/brand/logo-mark-192.png",
+        "sameAs": [
+          "https://github.com/botmem/botmem"
+        ]
       }
     </script>
   </head>

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicNavbar } from '../components/layout/PublicNavbar';
 import { PublicFooter } from '../components/layout/PublicFooter';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 interface SectionProps {
   id: string;
@@ -32,6 +33,12 @@ function PolicySection({ id, number, title, children }: SectionProps) {
 
 export function PrivacyPage() {
   const mainRef = useRef<HTMLDivElement>(null);
+
+  usePageMeta({
+    title: 'Privacy Policy — How Botmem Protects Your Data',
+    description:
+      'Botmem privacy policy. Learn how your personal memory data is stored, encrypted, and protected. AES-256-GCM encryption at rest, zero-knowledge architecture, open-source and auditable.',
+  });
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');

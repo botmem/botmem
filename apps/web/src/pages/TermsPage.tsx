@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { PublicNavbar } from '../components/layout/PublicNavbar';
 import { PublicFooter } from '../components/layout/PublicFooter';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -33,6 +34,12 @@ function Section({ id, number, title, children }: SectionProps) {
 
 export function TermsPage() {
   const mainRef = useRef<HTMLDivElement>(null);
+
+  usePageMeta({
+    title: 'Terms of Service',
+    description:
+      'Botmem terms of service. Read the terms governing your use of the Botmem personal memory platform.',
+  });
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');

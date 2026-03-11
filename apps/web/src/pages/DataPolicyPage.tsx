@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { PublicNavbar } from '../components/layout/PublicNavbar';
 import { PublicFooter } from '../components/layout/PublicFooter';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -64,6 +65,12 @@ function PipelineStep({
 
 export function DataPolicyPage() {
   const mainRef = useRef<HTMLDivElement>(null);
+
+  usePageMeta({
+    title: 'Data Policy — Encryption, Storage & Your Rights',
+    description:
+      'Botmem data policy. How your personal memory data is encrypted, stored, and processed. AES-256-GCM encryption, local-first architecture, full data export and deletion rights.',
+  });
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
