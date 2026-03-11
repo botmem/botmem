@@ -173,7 +173,8 @@ export class AuthService {
     if (result.type === 'complete') {
       const identifier =
         result.auth.identifier ||
-        (result.auth as any).raw?.email ||
+        ((result.auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)
+          ?.email ||
         (config.identifier as string) ||
         connectorType;
       const account = await this.createAndSync(
@@ -212,7 +213,7 @@ export class AuthService {
   private activeQrListeners = new Map<string, boolean>();
 
   private listenForQrCompletion(
-    connector: any,
+    connector: import('@botmem/connector-sdk').BaseConnector,
     connectorType: string,
     wsChannel: string,
     userId?: string,
@@ -223,7 +224,11 @@ export class AuthService {
     this.activeQrListeners.set(connectorType, true);
 
     let handled = false;
-    const handler = async (payload: { wsChannel: string; sessionDir: string; auth: any }) => {
+    const handler = async (payload: {
+      wsChannel: string;
+      sessionDir: string;
+      auth: Record<string, unknown>;
+    }) => {
       this.logger.log(
         `[Auth] QR 'connected' event received for ${connectorType}, wsChannel=${payload.wsChannel}, handled=${handled}`,
       );
@@ -320,7 +325,10 @@ export class AuthService {
     }
 
     const identifier =
-      auth.identifier || (auth as any).raw?.email || (params.identifier as string) || connectorType;
+      auth.identifier ||
+      ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
+      (params.identifier as string) ||
+      connectorType;
     const account = await this.createAndSync(
       connectorType,
       identifier,
@@ -349,7 +357,7 @@ export class AuthService {
     const identifier =
       (body.params.identifier as string) ||
       auth.identifier ||
-      (auth as any).raw?.email ||
+      ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
       connectorType;
     return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
   }
@@ -377,7 +385,11 @@ export class AuthService {
       authContext: JSON.stringify(result.auth),
       status: 'connected',
       lastError: null,
-      identifier: result.auth.identifier || (result.auth as any).raw?.host || accountId,
+      identifier:
+        result.auth.identifier ||
+        (((result.auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)
+          ?.host as string) ||
+        accountId,
     });
 
     return this.accountsService.getById(accountId);

@@ -3,6 +3,8 @@ import { JobsController } from '../jobs.controller';
 import { JobsService } from '../jobs.service';
 import { AccountsService } from '../../accounts/accounts.service';
 import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
+import type { DbService } from '../../db/db.service';
+import type { Queue } from 'bullmq';
 
 function createMocks() {
   const jobsService = {
@@ -29,12 +31,12 @@ function createMocks() {
         }),
       }),
     },
-  } as any;
-  const syncQueue = {} as any;
-  const cleanQueue = {} as any;
-  const embedQueue = {} as any;
-  const enrichQueue = {} as any;
-  const backfillQueue = {} as any;
+  } as unknown as DbService;
+  const syncQueue = {} as unknown as Queue;
+  const cleanQueue = {} as unknown as Queue;
+  const embedQueue = {} as unknown as Queue;
+  const enrichQueue = {} as unknown as Queue;
+  const backfillQueue = {} as unknown as Queue;
 
   return {
     jobsService,
@@ -75,7 +77,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     } = createMocks();
-    (jobsService.getAll as any).mockResolvedValue([fakeJobRow]);
+    vi.mocked(jobsService.getAll).mockResolvedValue([fakeJobRow]);
 
     const controller = new JobsController(
       jobsService,
@@ -107,7 +109,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     } = createMocks();
-    (jobsService.getAll as any).mockResolvedValue([]);
+    vi.mocked(jobsService.getAll).mockResolvedValue([]);
 
     const controller = new JobsController(
       jobsService,
@@ -137,7 +139,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     } = createMocks();
-    (jobsService.getById as any).mockResolvedValue(fakeJobRow);
+    vi.mocked(jobsService.getById).mockResolvedValue(fakeJobRow);
 
     const controller = new JobsController(
       jobsService,
@@ -167,7 +169,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     } = createMocks();
-    (jobsService.getById as any).mockResolvedValue(null);
+    vi.mocked(jobsService.getById).mockResolvedValue(null);
 
     const controller = new JobsController(
       jobsService,
@@ -196,12 +198,12 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     } = createMocks();
-    (accountsService.getById as any).mockResolvedValue({
+    vi.mocked(accountsService.getById).mockResolvedValue({
       id: 'a1',
       connectorType: 'gmail',
       identifier: 'test@gmail.com',
     });
-    (jobsService.triggerSync as any).mockResolvedValue(fakeJobRow);
+    vi.mocked(jobsService.triggerSync).mockResolvedValue(fakeJobRow);
 
     const controller = new JobsController(
       jobsService,
@@ -238,7 +240,7 @@ describe('JobsController', () => {
       enrichQueue,
       backfillQueue,
     } = createMocks();
-    (jobsService.cancel as any).mockResolvedValue(undefined);
+    vi.mocked(jobsService.cancel).mockResolvedValue(undefined);
 
     const controller = new JobsController(
       jobsService,

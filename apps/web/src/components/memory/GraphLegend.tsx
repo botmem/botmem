@@ -1,5 +1,6 @@
 import { CONNECTOR_COLORS } from '@botmem/shared';
 import type { FilterState, FilterAction } from './graphReducers';
+import type { ForceGraphInstance } from './graphTypes';
 
 const CONTACT_COLOR = '#60A5FA';
 const GROUP_COLOR = '#C084FC';
@@ -111,7 +112,7 @@ interface GraphLegendProps {
   edgeTypes: string[];
   legendOpen: boolean;
   onToggleLegend: () => void;
-  graphRef: React.RefObject<any>;
+  graphRef: React.RefObject<ForceGraphInstance | null>;
 }
 
 export function GraphLegend({

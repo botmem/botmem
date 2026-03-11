@@ -50,7 +50,7 @@ export class PluginsService {
   }
 
   private async loadManifestPlugins(dir: string) {
-    let entries: any[];
+    let entries: Awaited<ReturnType<typeof readdir>>;
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
@@ -91,7 +91,7 @@ export class PluginsService {
         const plugin = mod.default || mod;
 
         if (manifest.type === 'lifecycle') {
-          const hooks: Record<string, any> = {};
+          const hooks: Record<string, (...args: unknown[]) => unknown> = {};
           const hookNames = manifest.hooks || [];
           for (const hookName of hookNames) {
             if (
@@ -181,7 +181,7 @@ export class PluginsService {
   }
 
   /** Overridable for testing */
-  async _importPlugin(path: string): Promise<any> {
+  async _importPlugin(path: string): Promise<Record<string, unknown>> {
     return import(path);
   }
 

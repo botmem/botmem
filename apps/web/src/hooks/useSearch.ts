@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
+import type { ApiMemoryItem, ApiSearchResponse } from '../lib/api';
 import { useMemoryBankStore } from '../store/memoryBankStore';
 
 interface ResolvedEntities {
@@ -9,13 +10,13 @@ interface ResolvedEntities {
 }
 
 export interface SearchResult {
-  items: any[];
+  items: ApiMemoryItem[];
   memoryIds: Set<string>;
   contactNodeIds: string[];
   scoreMap: Map<string, number>;
   resolvedEntities: ResolvedEntities | null;
   fallback: boolean;
-  parsed?: any;
+  parsed?: ApiSearchResponse['parsed'];
 }
 
 interface UseSearchOptions {
@@ -35,13 +36,7 @@ export interface UseSearchReturn {
 }
 
 export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
-  const {
-    debounceMs = 500,
-    minLength = 3,
-    limit = 100,
-    onResults,
-    onClear,
-  } = opts;
+  const { debounceMs = 500, minLength = 3, limit = 100, onResults, onClear } = opts;
 
   const [term, setTerm] = useState('');
   const [pending, setPending] = useState(false);
@@ -72,15 +67,15 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
       setPending(true);
       try {
         const bankId = useMemoryBankStore.getState().activeMemoryBankId;
-        const res = await api.searchMemories(trimmed, undefined, limit, bankId || undefined) as any;
+        const res = await api.searchMemories(trimmed, undefined, limit, bankId || undefined);
 
-        const memoryIds = new Set<string>(res.items.map((item: any) => item.id));
+        const memoryIds = new Set<string>(res.items.map((item) => item.id));
         const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
           (c: { id: string }) => `contact-${c.id}`,
         );
         const scoreMap = new Map<string, number>();
         const total = res.items.length;
-        res.items.forEach((item: any, idx: number) => {
+        res.items.forEach((item, idx) => {
           scoreMap.set(item.id, total > 1 ? 1 - idx / (total - 1) : 1);
         });
         for (const id of contactNodeIds) scoreMap.set(id, 1);

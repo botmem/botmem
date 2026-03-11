@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { PipelineContext } from '@botmem/connector-sdk';
 import { WhatsAppConnector } from '../index.js';
+import type { QrAuthCallbacks } from '../qr-auth.js';
 
 vi.mock('../qr-auth.js', () => ({
-  startQrAuth: vi.fn((_dir: string, callbacks: any) => {
+  startQrAuth: vi.fn((_dir: string, callbacks: QrAuthCallbacks) => {
     callbacks.onQrCode('data:image/png;base64,qrcode');
     return Promise.resolve();
   }),
@@ -106,7 +108,7 @@ describe('WhatsAppConnector', () => {
           metadata: { senderPhone: '1234567890', senderName: 'Alice', fromMe: false },
         },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       expect(result.entities).toContainEqual({
         type: 'person',
         id: 'phone:1234567890|name:Alice',
@@ -125,7 +127,7 @@ describe('WhatsAppConnector', () => {
           metadata: { isGroup: true, chatId: '120363@g.us', chatName: 'Family' },
         },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       const group = result.entities.find((e) => e.type === 'group');
       expect(group).toBeDefined();
       expect(group!.id).toContain('whatsapp_group_jid:120363');
@@ -148,7 +150,7 @@ describe('WhatsAppConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       // fromMe=true means sender is self, phone resolves to senderPhone, recipient is the phone (same as sender in this case)
       // Actually: otherPhone = fromMe ? phone : selfPhone => phone=1234567890, so otherPhone=1234567890
       // But otherPhone === phone, so no recipient emitted
@@ -172,7 +174,7 @@ describe('WhatsAppConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       const recipient = result.entities.find((e) => e.role === 'recipient');
       expect(recipient).toBeDefined();
       expect(recipient!.id).toBe('phone:9876543210');
@@ -189,7 +191,7 @@ describe('WhatsAppConnector', () => {
           metadata: { mentions: [{ phone: '5551234', name: 'Bob' }] },
         },
       };
-      const result = connector.embed(event, '@Bob', {} as any);
+      const result = connector.embed(event, '@Bob', {} as unknown as PipelineContext);
       const mentioned = result.entities.find((e) => e.role === 'mentioned');
       expect(mentioned).toBeDefined();
       expect(mentioned!.id).toBe('phone:5551234|name:Bob');
@@ -206,7 +208,7 @@ describe('WhatsAppConnector', () => {
           metadata: { sharedContacts: [{ name: 'Carol', phones: ['5559876'] }] },
         },
       };
-      const result = connector.embed(event, 'Contact card', {} as any);
+      const result = connector.embed(event, 'Contact card', {} as unknown as PipelineContext);
       expect(result.entities).toContainEqual({
         type: 'person',
         id: 'name:Carol|phone:5559876',
@@ -221,7 +223,7 @@ describe('WhatsAppConnector', () => {
         timestamp: '2026-01-01T00:00:00Z',
         content: { text: 'Hi', participants: ['120363-group'], metadata: {} },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       expect(result.entities.filter((e) => e.type === 'person')).toHaveLength(0);
     });
 
@@ -232,7 +234,7 @@ describe('WhatsAppConnector', () => {
         timestamp: '2026-01-01T00:00:00Z',
         content: { text: 'Hi', participants: ['1111', '2222'], metadata: { senderPhone: '1111' } },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       const participant = result.entities.find((e) => e.role === 'participant');
       expect(participant).toBeDefined();
       expect(participant!.id).toBe('phone:2222');
@@ -249,7 +251,7 @@ describe('WhatsAppConnector', () => {
           metadata: { senderPhone: '1234567890', senderName: 'me' },
         },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       expect(result.entities[0].id).toBe('phone:1234567890');
     });
 
@@ -260,7 +262,7 @@ describe('WhatsAppConnector', () => {
         timestamp: '2026-01-01T00:00:00Z',
         content: { text: 'Hi', participants: ['1234567890@s.whatsapp.net'], metadata: {} },
       };
-      const result = connector.embed(event, 'Hi', {} as any);
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
       expect(result.entities[0].id).toBe('phone:1234567890');
     });
   });

@@ -23,6 +23,7 @@ import { SplitContactDto } from './dto/split-contact.dto';
 import { MergeContactDto } from './dto/merge-contact.dto';
 import { SearchContactsDto } from './dto/search-contacts.dto';
 import { DismissSuggestionDto } from './dto/dismiss-suggestion.dto';
+import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 
 @ApiTags('Contacts')
 @ApiBearerAuth()
@@ -79,7 +80,7 @@ export class ContactsController {
     @CurrentUser() _user: { id: string },
     @Res() res: Response,
   ) {
-    let contact: any;
+    let contact: Awaited<ReturnType<typeof this.contactsService.getById>>;
     try {
       contact = await this.contactsService.getById(id);
     } catch {
@@ -104,7 +105,7 @@ export class ContactsController {
       if (immichApiKey !== null) return immichApiKey;
       try {
         const allAccounts = await this.accountsService.getAll();
-        const photosAccount = allAccounts.find((a: any) => a.connectorType === 'photos');
+        const photosAccount = allAccounts.find((a) => a.connectorType === 'photos');
         if (photosAccount?.authContext) {
           const auth =
             typeof photosAccount.authContext === 'string'
@@ -236,6 +237,7 @@ export class ContactsController {
     return this.contactsService.splitContact(id, dto.identifierIds);
   }
 
+  @ReadOnly()
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(@Body() dto: SearchContactsDto) {

@@ -1,4 +1,5 @@
 import { CONNECTOR_COLORS, truncate } from '@botmem/shared';
+import type { SimulationNode } from './graphTypes';
 
 // Image cache — loaded once per URL, reused across frames
 const imageCache = new Map<string, HTMLImageElement | 'loading' | 'failed'>();
@@ -230,7 +231,7 @@ export interface NodeRenderCtx {
 }
 
 export function renderNode(
-  node: any,
+  node: SimulationNode,
   ctx: CanvasRenderingContext2D,
   globalScale: number,
   rc: NodeRenderCtx,
@@ -545,7 +546,7 @@ export function renderNode(
     // Inner glyph — drawn from pre-rendered offscreen canvas
     const glyph = getGlyphCanvas(node.source, size, color);
     if (glyph) {
-      ctx.drawImage(glyph as any, x - size / 2, y - size / 2, size, size);
+      ctx.drawImage(glyph as CanvasImageSource, x - size / 2, y - size / 2, size, size);
     }
     // Label
     if (globalScale > 1.5 || isDirectMatch) {
@@ -559,7 +560,11 @@ export function renderNode(
   ctx.globalAlpha = 1;
 }
 
-export function renderNodePointerArea(node: any, color: string, ctx: CanvasRenderingContext2D) {
+export function renderNodePointerArea(
+  node: SimulationNode,
+  color: string,
+  ctx: CanvasRenderingContext2D,
+) {
   const x = node.x || 0;
   const y = node.y || 0;
   ctx.fillStyle = color;

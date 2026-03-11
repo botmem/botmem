@@ -20,7 +20,16 @@ import { UpdateAccountDto } from './dto/update-account.dto';
 import type { ConnectorAccount } from '@botmem/shared';
 
 function toApiAccount(
-  row: any,
+  row: {
+    id: string;
+    connectorType: string;
+    identifier: string;
+    status: string;
+    schedule: string | null;
+    lastSyncAt: Date | string | null;
+    itemsSynced: number | null;
+    lastError: string | null;
+  },
   memoryCount?: number,
   contactsCount?: number,
   groupsCount?: number,

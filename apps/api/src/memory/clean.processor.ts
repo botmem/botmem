@@ -59,7 +59,9 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
   private async migrateOldMemoryQueue() {
     try {
-      const oldQueue = new Queue('memory', { connection: this.worker.opts.connection as any });
+      const oldQueue = new Queue('memory', {
+        connection: this.worker.opts.connection as import('bullmq').ConnectionOptions,
+      });
       const waiting = await oldQueue.getWaiting(0, 1000);
       const delayed = await oldQueue.getDelayed(0, 1000);
       const all = [...waiting, ...delayed];
@@ -198,7 +200,9 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         for (const { entityType, identifiers } of buckets) {
           await this.contactsService.resolveContact(
             identifiers,
-            entityType === 'person' ? undefined : (entityType as any),
+            entityType === 'person'
+              ? undefined
+              : (entityType as 'group' | 'organization' | 'device'),
           );
         }
       } catch {
@@ -295,10 +299,10 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     accountId: string,
     connectorType: string,
   ): Promise<PipelineContext> {
-    let auth: any = {};
+    let auth: Record<string, unknown> = {};
     try {
       const account = await this.accountsService.getById(accountId);
-      if (account.authContext) auth = JSON.parse(account.authContext);
+      if (account.authContext) auth = JSON.parse(account.authContext) as Record<string, unknown>;
     } catch {
       /* empty */
     }

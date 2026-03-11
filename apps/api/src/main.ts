@@ -25,7 +25,7 @@ async function bootstrap() {
   const express = (await import('express')).default;
   const server = express();
   const isDev = process.env.NODE_ENV !== 'production';
-  let vite: any;
+  let vite: Awaited<ReturnType<(typeof import('vite'))['createServer']>> | undefined;
 
   // In dev mode, mount Vite BEFORE NestJS so it handles frontend assets + HMR
   if (isDev) {
@@ -58,7 +58,7 @@ async function bootstrap() {
     express.raw({ type: 'application/json' }),
     (req: Request, _res: Response, next: NextFunction) => {
       if (Buffer.isBuffer(req.body)) {
-        (req as any).rawBody = req.body;
+        (req as Request & { rawBody?: Buffer }).rawBody = req.body;
       }
       next();
     },

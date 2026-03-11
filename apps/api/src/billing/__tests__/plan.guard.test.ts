@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlanGuard } from '../plan.guard';
 import { ForbiddenException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
+import type { Reflector } from '@nestjs/core';
+import type { BillingService } from '../billing.service';
+import type { ConfigService } from '../../config/config.service';
 
 describe('PlanGuard', () => {
   let guard: PlanGuard;
-  let reflector: any;
-  let billingService: any;
-  let config: any;
+  let reflector: { getAllAndOverride: ReturnType<typeof vi.fn> };
+  let billingService: { isProUser: ReturnType<typeof vi.fn> };
+  let config: { isSelfHosted: boolean };
 
   function createContext(userId?: string): ExecutionContext {
     return {
@@ -18,7 +21,7 @@ describe('PlanGuard', () => {
           user: userId ? { id: userId } : undefined,
         }),
       }),
-    } as any;
+    } as unknown as ExecutionContext;
   }
 
   beforeEach(() => {
@@ -29,7 +32,11 @@ describe('PlanGuard', () => {
       isProUser: vi.fn().mockResolvedValue(false),
     };
     config = { isSelfHosted: false };
-    guard = new PlanGuard(reflector, billingService, config as any);
+    guard = new PlanGuard(
+      reflector as unknown as Reflector,
+      billingService as unknown as BillingService,
+      config as unknown as ConfigService,
+    );
   });
 
   it('allows access when @RequiresPro is not set', async () => {
@@ -50,7 +57,11 @@ describe('PlanGuard', () => {
   it('allows access in self-hosted mode even with @RequiresPro', async () => {
     reflector.getAllAndOverride.mockReturnValue(true);
     config.isSelfHosted = true;
-    guard = new PlanGuard(reflector, billingService, config as any);
+    guard = new PlanGuard(
+      reflector as unknown as Reflector,
+      billingService as unknown as BillingService,
+      config as unknown as ConfigService,
+    );
     const ctx = createContext('user-1');
 
     expect(await guard.canActivate(ctx)).toBe(true);
@@ -89,9 +100,9 @@ describe('PlanGuard', () => {
 
     await guard.canActivate(ctx);
 
-    expect(reflector.getAllAndOverride).toHaveBeenCalledWith(
-      'requiresPro',
-      [ctx.getHandler(), ctx.getClass()],
-    );
+    expect(reflector.getAllAndOverride).toHaveBeenCalledWith('requiresPro', [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ]);
   });
 });

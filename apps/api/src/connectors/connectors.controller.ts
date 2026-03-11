@@ -21,8 +21,9 @@ export class ConnectorsController {
   @Get(':type/status')
   getStatus(@Param('type') type: string) {
     const connector = this.connectors.get(type);
-    if (typeof (connector as any).getStatus === 'function') {
-      return (connector as any).getStatus();
+    const conn = connector as unknown as Record<string, unknown>;
+    if (typeof conn.getStatus === 'function') {
+      return (conn.getStatus as () => unknown)();
     }
     return { ready: true, status: 'available' };
   }

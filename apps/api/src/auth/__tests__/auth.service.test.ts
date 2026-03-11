@@ -165,7 +165,9 @@ describe('AuthService', () => {
       const result = await service.initiate('test', {});
 
       expect(result.type).toBe('redirect');
-      expect((result as any).url).toMatch(/^https:\/\/oauth\.example\.com\?state=.+$/);
+      expect((result as unknown as { url: string }).url).toMatch(
+        /^https:\/\/oauth\.example\.com\?state=.+$/,
+      );
       expect(deps.oauthState.savePendingConfig).toHaveBeenCalled();
       expect(deps.accountsService.create).not.toHaveBeenCalled();
     });
@@ -200,10 +202,10 @@ describe('AuthService', () => {
       );
 
       // Extract the stateToken that was saved
-      const stateToken = (deps.oauthState.savePendingConfig as any).mock.calls[0][0];
+      const stateToken = vi.mocked(deps.oauthState.savePendingConfig).mock.calls[0][0];
 
       // Mock getPendingConfig to return the saved data for callback
-      (deps.oauthState.getPendingConfig as any).mockResolvedValueOnce({
+      vi.mocked(deps.oauthState.getPendingConfig).mockResolvedValueOnce({
         config: { clientId: 'cid', clientSecret: 'csec' },
         returnTo: '/onboarding',
         userId: 'user-1',
@@ -247,8 +249,8 @@ describe('AuthService', () => {
       const result = await service.initiate('test', {});
 
       expect(result.type).toBe('qr-code');
-      expect((result as any).qrData).toBe('data:image/png');
-      expect((result as any).wsChannel).toBe('auth:session-1');
+      expect((result as unknown as { qrData: string }).qrData).toBe('data:image/png');
+      expect((result as unknown as { wsChannel: string }).wsChannel).toBe('auth:session-1');
     });
   });
 
@@ -262,7 +264,7 @@ describe('AuthService', () => {
 
     it('returns parsed credentials when saved', async () => {
       const deps = createMockDeps();
-      (deps.dbService.db.select as any).mockReturnValue({
+      vi.mocked(deps.dbService.db.select).mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockResolvedValue([
             {
@@ -282,7 +284,7 @@ describe('AuthService', () => {
     it('completes auth and creates account with state token', async () => {
       const deps = createMockDeps();
       deps.mockConnector.completeAuth.mockResolvedValue({ accessToken: 'callback-tok' });
-      (deps.oauthState.getPendingConfig as any).mockResolvedValueOnce({
+      vi.mocked(deps.oauthState.getPendingConfig).mockResolvedValueOnce({
         config: {},
         userId: 'user-1',
       });
@@ -324,7 +326,7 @@ describe('AuthService', () => {
       await service.initiate('test', { clientId: 'cid', clientSecret: 'csec' }, 'user-1');
 
       // First callback with state — returns pending config
-      (deps.oauthState.getPendingConfig as any).mockResolvedValueOnce({
+      vi.mocked(deps.oauthState.getPendingConfig).mockResolvedValueOnce({
         config: { clientId: 'cid', clientSecret: 'csec' },
         userId: 'user-1',
       });
@@ -336,10 +338,10 @@ describe('AuthService', () => {
   describe('Firebase mode credential injection', () => {
     it('injects server-side Gmail creds when authProvider is firebase', async () => {
       const deps = createMockDeps();
-      (deps.config as any).authProvider = 'firebase';
-      (deps.config as any).gmailClientId = 'server-cid';
-      (deps.config as any).gmailClientSecret = 'server-csec';
-      (deps.config as any).baseUrl = 'https://botmem.xyz';
+      (deps.config as Record<string, unknown>).authProvider = 'firebase';
+      (deps.config as Record<string, unknown>).gmailClientId = 'server-cid';
+      (deps.config as Record<string, unknown>).gmailClientSecret = 'server-csec';
+      (deps.config as Record<string, unknown>).baseUrl = 'https://botmem.xyz';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -359,10 +361,10 @@ describe('AuthService', () => {
 
     it('server-side creds override user-provided config in Firebase mode', async () => {
       const deps = createMockDeps();
-      (deps.config as any).authProvider = 'firebase';
-      (deps.config as any).gmailClientId = 'server-cid';
-      (deps.config as any).gmailClientSecret = 'server-csec';
-      (deps.config as any).baseUrl = 'https://botmem.xyz';
+      (deps.config as Record<string, unknown>).authProvider = 'firebase';
+      (deps.config as Record<string, unknown>).gmailClientId = 'server-cid';
+      (deps.config as Record<string, unknown>).gmailClientSecret = 'server-csec';
+      (deps.config as Record<string, unknown>).baseUrl = 'https://botmem.xyz';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -382,9 +384,9 @@ describe('AuthService', () => {
 
     it('does not inject server creds in local auth mode', async () => {
       const deps = createMockDeps();
-      (deps.config as any).authProvider = 'local';
-      (deps.config as any).gmailClientId = 'server-cid';
-      (deps.config as any).gmailClientSecret = 'server-csec';
+      (deps.config as Record<string, unknown>).authProvider = 'local';
+      (deps.config as Record<string, unknown>).gmailClientId = 'server-cid';
+      (deps.config as Record<string, unknown>).gmailClientSecret = 'server-csec';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -398,9 +400,9 @@ describe('AuthService', () => {
 
     it('does not inject Gmail creds for non-Gmail connectors in Firebase mode', async () => {
       const deps = createMockDeps();
-      (deps.config as any).authProvider = 'firebase';
-      (deps.config as any).gmailClientId = 'server-cid';
-      (deps.config as any).gmailClientSecret = 'server-csec';
+      (deps.config as Record<string, unknown>).authProvider = 'firebase';
+      (deps.config as Record<string, unknown>).gmailClientId = 'server-cid';
+      (deps.config as Record<string, unknown>).gmailClientSecret = 'server-csec';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://oauth.example.com',
@@ -414,9 +416,9 @@ describe('AuthService', () => {
 
     it('does not inject when server creds are empty', async () => {
       const deps = createMockDeps();
-      (deps.config as any).authProvider = 'firebase';
-      (deps.config as any).gmailClientId = '';
-      (deps.config as any).gmailClientSecret = '';
+      (deps.config as Record<string, unknown>).authProvider = 'firebase';
+      (deps.config as Record<string, unknown>).gmailClientId = '';
+      (deps.config as Record<string, unknown>).gmailClientSecret = '';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',

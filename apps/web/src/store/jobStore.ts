@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Job, LogEntry } from '@botmem/shared';
+import type { ConnectorType, Job, LogEntry } from '@botmem/shared';
 import { api } from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from './authStore';
@@ -79,12 +79,12 @@ export const useJobStore = create<JobState>((set, get) => ({
   fetchLogs: async () => {
     try {
       const result = await api.listLogs({ limit: 200 });
-      const logs = result.logs.map((l: any) => ({
+      const logs: LogEntry[] = result.logs.map((l) => ({
         id: l.id,
         timestamp: l.timestamp,
-        level: l.level,
-        connector: l.connectorType || l.connector,
-        stage: l.stage || undefined,
+        level: l.level as LogEntry['level'],
+        connector: (l.connectorType || l.connector || 'unknown') as ConnectorType,
+        stage: (l.stage || undefined) as LogEntry['stage'],
         message: l.message,
       }));
       set({
@@ -103,12 +103,12 @@ export const useJobStore = create<JobState>((set, get) => ({
     set({ loadingMoreLogs: true });
     try {
       const result = await api.listLogs({ limit: 200, offset: logs.length });
-      const newLogs = result.logs.map((l: any) => ({
+      const newLogs: LogEntry[] = result.logs.map((l) => ({
         id: l.id,
         timestamp: l.timestamp,
-        level: l.level,
-        connector: l.connectorType || l.connector,
-        stage: l.stage || undefined,
+        level: l.level as LogEntry['level'],
+        connector: (l.connectorType || l.connector || 'unknown') as ConnectorType,
+        stage: (l.stage || undefined) as LogEntry['stage'],
         message: l.message,
       }));
       const merged = [...logs, ...newLogs];
@@ -133,7 +133,7 @@ export const useJobStore = create<JobState>((set, get) => ({
       jobs: state.jobs.map((j) =>
         j.id === id && (j.status === 'running' || j.status === 'queued')
           ? { ...j, status: 'cancelled' as const }
-          : j
+          : j,
       ),
     }));
   },
@@ -173,9 +173,7 @@ export const useJobStore = create<JobState>((set, get) => ({
 
   markNotificationRead: (id) =>
     set((state) => ({
-      notifications: state.notifications.map((n) =>
-        n.id === id ? { ...n, read: true } : n
-      ),
+      notifications: state.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
     })),
 
   markAllNotificationsRead: () =>
@@ -224,8 +222,12 @@ export const useJobStore = create<JobState>((set, get) => ({
         set((state) => ({
           jobs: state.jobs.map((j) =>
             j.id === msg.data.jobId
-              ? { ...j, progress: msg.data.processed ?? msg.data.progress ?? j.progress, total: msg.data.total || j.total }
-              : j
+              ? {
+                  ...j,
+                  progress: msg.data.processed ?? msg.data.progress ?? j.progress,
+                  total: msg.data.total || j.total,
+                }
+              : j,
           ),
         }));
       }
@@ -263,7 +265,11 @@ export const useJobStore = create<JobState>((set, get) => ({
       if (!hasRunning) {
         const queuedIdx = jobs.findIndex((j) => j.status === 'queued');
         if (queuedIdx >= 0) {
-          jobs[queuedIdx] = { ...jobs[queuedIdx], status: 'running', startedAt: new Date().toISOString() };
+          jobs[queuedIdx] = {
+            ...jobs[queuedIdx],
+            status: 'running',
+            startedAt: new Date().toISOString(),
+          };
         }
       }
       return { jobs };

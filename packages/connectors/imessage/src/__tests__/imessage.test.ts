@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IMessageConnector } from '../index.js';
+import type { SyncContext, PipelineContext } from '@botmem/connector-sdk';
 
 const mockConnect = vi.fn().mockResolvedValue(undefined);
 const mockDisconnect = vi.fn();
@@ -84,7 +85,9 @@ describe('IMessageConnector', () => {
     });
 
     it('has configSchema with imsgHost and imsgPort properties', () => {
-      const schema = connector.manifest.configSchema as any;
+      const schema = connector.manifest.configSchema as {
+        properties: Record<string, { type: string }>;
+      };
       expect(schema.properties).toHaveProperty('imsgHost');
       expect(schema.properties).toHaveProperty('imsgPort');
       expect(schema.properties.imsgHost.type).toBe('string');
@@ -187,27 +190,28 @@ describe('IMessageConnector', () => {
   });
 
   describe('sync', () => {
-    const makeSyncCtx = (overrides: Record<string, unknown> = {}) => ({
-      accountId: 'acc-1',
-      auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
-      cursor: null as string | null,
-      jobId: 'j1',
-      logger: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-      },
-      signal: AbortSignal.timeout(5000),
-      ...overrides,
-    });
+    const makeSyncCtx = (overrides: Record<string, unknown> = {}): SyncContext =>
+      ({
+        accountId: 'acc-1',
+        auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
+        cursor: null as string | null,
+        jobId: 'j1',
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        },
+        signal: AbortSignal.timeout(5000),
+        ...overrides,
+      }) as SyncContext;
 
     it('calls chatsList and messagesHistory, emits events, returns correct result', async () => {
       const dataListener = vi.fn();
       connector.on('data', dataListener);
 
       const ctx = makeSyncCtx();
-      const result = await connector.sync(ctx as any);
+      const result = await connector.sync(ctx);
 
       expect(mockConnect).toHaveBeenCalledOnce();
       expect(mockChatsList).toHaveBeenCalledWith(10_000);
@@ -233,7 +237,7 @@ describe('IMessageConnector', () => {
 
     it('uses cursor as start param when provided', async () => {
       const ctx = makeSyncCtx({ cursor: '2025-01-01T00:00:00Z' });
-      await connector.sync(ctx as any);
+      await connector.sync(ctx);
 
       expect(mockMessagesHistory).toHaveBeenCalledWith(1, {
         start: '2025-01-01T00:00:00.001Z',
@@ -244,7 +248,7 @@ describe('IMessageConnector', () => {
       mockChatsList.mockRejectedValueOnce(new Error('RPC error'));
 
       const ctx = makeSyncCtx();
-      await expect(connector.sync(ctx as any)).rejects.toThrow('RPC error');
+      await expect(connector.sync(ctx)).rejects.toThrow('RPC error');
 
       expect(mockDisconnect).toHaveBeenCalledOnce();
     });
@@ -253,7 +257,7 @@ describe('IMessageConnector', () => {
       mockMessagesHistory.mockResolvedValueOnce([]);
       const ctx = makeSyncCtx({ cursor: '2024-12-01T00:00:00Z' });
 
-      const result = await connector.sync(ctx as any);
+      const result = await connector.sync(ctx);
 
       expect(result.cursor).toBe('2024-12-01T00:00:00Z');
       expect(result.processed).toBe(0);
@@ -272,11 +276,23 @@ describe('IMessageConnector', () => {
           metadata: { isFromMe: true, isGroup: false },
         },
       };
-      const ctx = { accountId: 'a', auth: { raw: { myIdentifier: 'me@icloud.com' } }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hello', ctx as any);
-      expect(result.entities).toContainEqual({ type: 'person', id: 'email:me@icloud.com', role: 'sender' });
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: { myIdentifier: 'me@icloud.com' } },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hello', ctx);
+      expect(result.entities).toContainEqual({
+        type: 'person',
+        id: 'email:me@icloud.com',
+        role: 'sender',
+      });
       // Participant is recipient since isFromMe=true
-      expect(result.entities).toContainEqual({ type: 'person', id: 'phone:+1234567890', role: 'recipient' });
+      expect(result.entities).toContainEqual({
+        type: 'person',
+        id: 'phone:+1234567890',
+        role: 'recipient',
+      });
     });
 
     it('resolves phone sender when isFromMe with phone identifier', () => {
@@ -290,10 +306,22 @@ describe('IMessageConnector', () => {
           metadata: { isFromMe: true, isGroup: false },
         },
       };
-      const ctx = { accountId: 'a', auth: { raw: { myIdentifier: '+1234567890' } }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hello', ctx as any);
-      expect(result.entities).toContainEqual({ type: 'person', id: 'phone:+1234567890', role: 'sender' });
-      expect(result.entities).toContainEqual({ type: 'person', id: 'email:bob@email.com', role: 'recipient' });
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: { myIdentifier: '+1234567890' } },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hello', ctx);
+      expect(result.entities).toContainEqual({
+        type: 'person',
+        id: 'phone:+1234567890',
+        role: 'sender',
+      });
+      expect(result.entities).toContainEqual({
+        type: 'person',
+        id: 'email:bob@email.com',
+        role: 'recipient',
+      });
     });
 
     it('resolves participant as sender when not isFromMe', () => {
@@ -307,9 +335,17 @@ describe('IMessageConnector', () => {
           metadata: { isFromMe: false },
         },
       };
-      const ctx = { accountId: 'a', auth: { raw: { myIdentifier: 'me@icloud.com' } }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hello', ctx as any);
-      expect(result.entities).toContainEqual({ type: 'person', id: 'phone:+1234567890', role: 'sender' });
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: { myIdentifier: 'me@icloud.com' } },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hello', ctx);
+      expect(result.entities).toContainEqual({
+        type: 'person',
+        id: 'phone:+1234567890',
+        role: 'sender',
+      });
     });
 
     it('skips self in participant list', () => {
@@ -323,12 +359,18 @@ describe('IMessageConnector', () => {
           metadata: { isFromMe: true },
         },
       };
-      const ctx = { accountId: 'a', auth: { raw: { myIdentifier: 'me@icloud.com' } }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hello', ctx as any);
-      const personEntities = result.entities.filter(e => e.type === 'person');
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: { myIdentifier: 'me@icloud.com' } },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hello', ctx);
+      const personEntities = result.entities.filter((e) => e.type === 'person');
       // Should have sender (me) + 1 recipient (not self)
       expect(personEntities).toHaveLength(2);
-      expect(personEntities).not.toContainEqual(expect.objectContaining({ id: 'email:me@icloud.com', role: 'recipient' }));
+      expect(personEntities).not.toContainEqual(
+        expect.objectContaining({ id: 'email:me@icloud.com', role: 'recipient' }),
+      );
     });
 
     it('extracts group entity when isGroup with chatName', () => {
@@ -342,9 +384,17 @@ describe('IMessageConnector', () => {
           metadata: { isFromMe: false, isGroup: true, chatName: 'Family Chat' },
         },
       };
-      const ctx = { accountId: 'a', auth: { raw: {} }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hello group', ctx as any);
-      expect(result.entities).toContainEqual({ type: 'group', id: 'name:Family Chat', role: 'group' });
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: {} },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hello group', ctx);
+      expect(result.entities).toContainEqual({
+        type: 'group',
+        id: 'name:Family Chat',
+        role: 'group',
+      });
     });
 
     it('does not extract group entity when isGroup is false', () => {
@@ -354,9 +404,13 @@ describe('IMessageConnector', () => {
         timestamp: '2025-01-01T12:00:00Z',
         content: { text: 'Hi', participants: [], metadata: { isGroup: false } },
       };
-      const ctx = { accountId: 'a', auth: { raw: {} }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hi', ctx as any);
-      expect(result.entities.filter(e => e.type === 'group')).toHaveLength(0);
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: {} },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hi', ctx);
+      expect(result.entities.filter((e) => e.type === 'group')).toHaveLength(0);
     });
 
     it('skips empty participant names', () => {
@@ -366,8 +420,12 @@ describe('IMessageConnector', () => {
         timestamp: '2025-01-01T12:00:00Z',
         content: { text: 'Hi', participants: ['', '+1234567890'], metadata: {} },
       };
-      const ctx = { accountId: 'a', auth: { raw: {} }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hi', ctx as any);
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: {} },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hi', ctx);
       expect(result.entities).toHaveLength(1);
     });
 
@@ -378,8 +436,12 @@ describe('IMessageConnector', () => {
         timestamp: '2025-01-01T12:00:00Z',
         content: { text: 'Hi', participants: ['+1234567890'], metadata: { isFromMe: true } },
       };
-      const ctx = { accountId: 'a', auth: { raw: {} }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-      const result = connector.embed(event, 'Hi', ctx as any);
+      const ctx = {
+        accountId: 'a',
+        auth: { raw: {} },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      } as unknown as PipelineContext;
+      const result = connector.embed(event, 'Hi', ctx);
       // No self entity since no myIdentifier, but participant still resolved
       expect(result.entities).toHaveLength(1);
     });
@@ -409,7 +471,7 @@ describe('IMessageConnector', () => {
       connector.on('data', () => {});
       connector.on('progress', progressListener);
 
-      const ctx = {
+      const ctx: SyncContext = {
         accountId: 'acc-1',
         auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
         cursor: null,
@@ -418,7 +480,7 @@ describe('IMessageConnector', () => {
         signal: AbortSignal.timeout(5000),
       };
 
-      await connector.sync(ctx as any);
+      await connector.sync(ctx);
 
       // Should emit at 50 (PROGRESS_INTERVAL) and final
       expect(progressListener).toHaveBeenCalledWith({ processed: 50 });
@@ -426,26 +488,28 @@ describe('IMessageConnector', () => {
     });
 
     it('falls back to imsg-{id} sourceId when no guid', async () => {
-      mockMessagesHistory.mockResolvedValueOnce([{
-        id: 42,
-        chat_id: 1,
-        guid: '',
-        sender: '+1234567890',
-        is_from_me: false,
-        text: 'No GUID',
-        created_at: '2025-01-01T12:00:00Z',
-        attachments: [],
-        reactions: [],
-        chat_identifier: '+1234567890',
-        chat_name: 'Chat 1',
-        participants: ['+1234567890'],
-        is_group: false,
-      }]);
+      mockMessagesHistory.mockResolvedValueOnce([
+        {
+          id: 42,
+          chat_id: 1,
+          guid: '',
+          sender: '+1234567890',
+          is_from_me: false,
+          text: 'No GUID',
+          created_at: '2025-01-01T12:00:00Z',
+          attachments: [],
+          reactions: [],
+          chat_identifier: '+1234567890',
+          chat_name: 'Chat 1',
+          participants: ['+1234567890'],
+          is_group: false,
+        },
+      ]);
 
       const dataListener = vi.fn();
       connector.on('data', dataListener);
 
-      const ctx = {
+      const ctx: SyncContext = {
         accountId: 'acc-1',
         auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
         cursor: null,
@@ -454,31 +518,33 @@ describe('IMessageConnector', () => {
         signal: AbortSignal.timeout(5000),
       };
 
-      await connector.sync(ctx as any);
+      await connector.sync(ctx);
       expect(dataListener.mock.calls[0][0].sourceId).toBe('imsg-42');
     });
 
     it('uses sender when no participants array', async () => {
-      mockMessagesHistory.mockResolvedValueOnce([{
-        id: 1,
-        chat_id: 1,
-        guid: 'g1',
-        sender: '+9999999999',
-        is_from_me: false,
-        text: 'Hi',
-        created_at: '2025-01-01T12:00:00Z',
-        attachments: [],
-        reactions: [],
-        chat_identifier: '+9999999999',
-        chat_name: 'Chat 1',
-        participants: null,
-        is_group: false,
-      }]);
+      mockMessagesHistory.mockResolvedValueOnce([
+        {
+          id: 1,
+          chat_id: 1,
+          guid: 'g1',
+          sender: '+9999999999',
+          is_from_me: false,
+          text: 'Hi',
+          created_at: '2025-01-01T12:00:00Z',
+          attachments: [],
+          reactions: [],
+          chat_identifier: '+9999999999',
+          chat_name: 'Chat 1',
+          participants: null,
+          is_group: false,
+        },
+      ]);
 
       const dataListener = vi.fn();
       connector.on('data', dataListener);
 
-      const ctx = {
+      const ctx: SyncContext = {
         accountId: 'acc-1',
         auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
         cursor: null,
@@ -487,7 +553,7 @@ describe('IMessageConnector', () => {
         signal: AbortSignal.timeout(5000),
       };
 
-      await connector.sync(ctx as any);
+      await connector.sync(ctx);
       expect(dataListener.mock.calls[0][0].content.participants).toEqual(['+9999999999']);
     });
   });

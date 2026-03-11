@@ -36,12 +36,18 @@ function AuthInitializer() {
   return null;
 }
 
+interface PostHogMeData {
+  identity?: { email?: string; contactId?: string; name?: string };
+  accounts?: unknown[];
+  stats?: { totalMemories?: number };
+}
+
 function PostHogIdentifier() {
   const accessToken = useAuthStore((s) => s.accessToken);
   useEffect(() => {
     if (!accessToken) return;
     api
-      .getMe()
+      .getMe<PostHogMeData>()
       .then((data) => {
         const userId = data.identity?.email || data.identity?.contactId || 'botmem-user';
         identifyUser(userId, {

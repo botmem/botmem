@@ -12,6 +12,7 @@ vi.mock('nodemailer', () => ({
 }));
 
 import { MailService } from '../mail.service';
+import type { ConfigService } from '../../config/config.service';
 
 describe('MailService', () => {
   let mailService: MailService;
@@ -25,14 +26,19 @@ describe('MailService', () => {
         smtpUser: '',
         smtpPass: '',
         smtpFrom: 'noreply@botmem.xyz',
-      } as any;
+      } as unknown as ConfigService;
       mailService = new MailService(configService);
       mockSendMail.mockClear();
       mockCreateTransport.mockClear();
     });
 
     it('should log reset URL via NestJS Logger instead of sending email', async () => {
-      const loggerSpy = vi.spyOn((mailService as any).logger, 'log').mockImplementation(() => {});
+      const loggerSpy = vi
+        .spyOn(
+          (mailService as unknown as { logger: { log: (...args: string[]) => void } }).logger,
+          'log',
+        )
+        .mockImplementation(() => {});
 
       await mailService.sendResetEmail('user@example.com', 'https://botmem.xyz/reset?token=abc');
 
@@ -55,7 +61,7 @@ describe('MailService', () => {
         smtpUser: 'user@example.com',
         smtpPass: 'password',
         smtpFrom: 'noreply@botmem.xyz',
-      } as any;
+      } as unknown as ConfigService;
       mailService = new MailService(configService);
       mockSendMail.mockClear();
       mockCreateTransport.mockClear();
@@ -95,7 +101,7 @@ describe('MailService', () => {
         smtpUser: 'user@example.com',
         smtpPass: 'password',
         smtpFrom: 'noreply@botmem.xyz',
-      } as any;
+      } as unknown as ConfigService;
       mailService = new MailService(configService);
       mockSendMail.mockClear();
       mockCreateTransport.mockClear();

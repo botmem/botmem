@@ -15,7 +15,10 @@ import {
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
   downloadContentFromMessage,
+  type WAMessage,
 } from '@whiskeysockets/baileys';
+import type { BaileysEventMap, MediaType } from '@whiskeysockets/baileys';
+import type { Boom } from '@hapi/boom';
 import type { Transform } from 'stream';
 import pino from 'pino';
 import { mkdirSync } from 'fs';
@@ -27,7 +30,7 @@ const IDLE_TIMEOUT_MS = 20_000; // 20s idle = done collecting history
 const MAX_MEDIA_TESTS = 20; // test up to 20 media messages
 const DOWNLOAD_TIMEOUT_MS = 15_000; // 15s per download attempt
 
-const logger = pino({ level: 'silent' }) as any;
+const logger = pino({ level: 'silent' }) as pino.Logger;
 
 interface MediaTestResult {
   messageId: string;
@@ -75,7 +78,7 @@ async function main() {
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Connection timeout (60s)')), 60_000);
 
-    sock.ev.on('connection.update', async (update: any) => {
+    sock.ev.on('connection.update', async (update) => {
       if (update.qr) {
         const qrPath = '/tmp/wa-media-test-qr.png';
         await qrcode.toFile(qrPath, update.qr, { scale: 8 });
@@ -90,12 +93,16 @@ async function main() {
       if (update.connection === 'open') {
         connected = true;
         clearTimeout(timeout);
-        console.log(`Connected as: ${(sock as any).user?.id || 'unknown'}\n`);
+        console.log(`Connected as: ${sock.user?.id || 'unknown'}\n`);
         resolve();
       }
       if (update.connection === 'close' && !connected) {
         clearTimeout(timeout);
-        const code = (update.lastDisconnect?.error as any)?.output?.statusCode;
+        const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
+        const code =
+          disconnectError && 'output' in disconnectError
+            ? (disconnectError as Boom).output.statusCode
+            : 0;
         if (code === 515) {
           console.log('Got 515 restart (normal after QR link) — reconnecting...');
           resolve(); // Let the script continue; we'll handle reconnect outside
@@ -127,7 +134,7 @@ async function main() {
 
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('Reconnect timeout')), 30_000);
-      sock2.ev.on('connection.update', (u: any) => {
+      sock2.ev.on('connection.update', (u) => {
         if (u.connection === 'open') {
           clearTimeout(t);
           resolve();
@@ -148,7 +155,7 @@ async function main() {
 async function runMediaTest(sock: ReturnType<typeof makeWASocket>) {
   // Phase 2: Collect history messages with media
   const mediaMessages: Array<{
-    msg: any;
+    msg: WAMessage;
     type: string;
     mimetype: string;
     fileName?: string;
@@ -179,7 +186,7 @@ async function runMediaTest(sock: ReturnType<typeof makeWASocket>) {
       }, IDLE_TIMEOUT_MS);
     };
 
-    sock.ev.on('messaging-history.set', (data: any) => {
+    sock.ev.on('messaging-history.set', (data: BaileysEventMap['messaging-history.set']) => {
       historyBatches++;
       const messages = data.messages || [];
       totalMsgs += messages.length;
@@ -235,7 +242,7 @@ async function runMediaTest(sock: ReturnType<typeof makeWASocket>) {
     });
 
     // Also capture real-time messages for comparison
-    sock.ev.on('messages.upsert', (upsert: any) => {
+    sock.ev.on('messages.upsert', (upsert: BaileysEventMap['messages.upsert']) => {
       const msgs = upsert.messages || [];
       totalMsgs += msgs.length;
       console.log(`  Real-time: ${msgs.length} msgs (type=${upsert.type})`);
@@ -264,14 +271,15 @@ async function runMediaTest(sock: ReturnType<typeof makeWASocket>) {
     const ageHours = msgTs > 0 ? (Date.now() - msgTs * 1000) / 3600000 : -1;
 
     // Get the media message object
-    let mediaMsg: any = null;
-    if (m.imageMessage) mediaMsg = m.imageMessage;
-    else if (m.videoMessage) mediaMsg = m.videoMessage;
-    else if (m.audioMessage) mediaMsg = m.audioMessage;
-    else if (m.documentMessage) mediaMsg = m.documentMessage;
-    else if (m.documentWithCaptionMessage?.message?.documentMessage)
-      mediaMsg = m.documentWithCaptionMessage.message.documentMessage;
-    else if (m.stickerMessage) mediaMsg = m.stickerMessage;
+    type MediaMsgObj = { mediaKey?: unknown; directPath?: unknown; url?: unknown };
+    let mediaMsg: MediaMsgObj | null = null;
+    if (m?.imageMessage) mediaMsg = m.imageMessage as MediaMsgObj;
+    else if (m?.videoMessage) mediaMsg = m.videoMessage as MediaMsgObj;
+    else if (m?.audioMessage) mediaMsg = m.audioMessage as MediaMsgObj;
+    else if (m?.documentMessage) mediaMsg = m.documentMessage as MediaMsgObj;
+    else if (m?.documentWithCaptionMessage?.message?.documentMessage)
+      mediaMsg = m.documentWithCaptionMessage.message.documentMessage as MediaMsgObj;
+    else if (m?.stickerMessage) mediaMsg = m.stickerMessage as MediaMsgObj;
 
     const result: MediaTestResult = {
       messageId: msg.key?.id || `unknown-${i}`,
@@ -301,7 +309,10 @@ async function runMediaTest(sock: ReturnType<typeof makeWASocket>) {
     const t0 = Date.now();
     try {
       const stream: Transform = await Promise.race([
-        downloadContentFromMessage(mediaMsg, type as any),
+        downloadContentFromMessage(
+          mediaMsg as Parameters<typeof downloadContentFromMessage>[0],
+          type as MediaType,
+        ),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Download timeout')), DOWNLOAD_TIMEOUT_MS),
         ),

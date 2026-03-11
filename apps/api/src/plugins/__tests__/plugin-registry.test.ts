@@ -68,7 +68,7 @@ describe('PluginRegistry', () => {
           afterEnrich: (data) => {
             // Attempting to mutate frozen data should throw
             expect(() => {
-              (data as any).memoryId = 'hacked';
+              (data as Record<string, unknown>).memoryId = 'hacked';
             }).toThrow();
           },
         },
@@ -104,9 +104,7 @@ describe('PluginRegistry', () => {
     });
 
     it('completes without error when no handlers are registered for a hook', async () => {
-      await expect(
-        registry.fireHook('afterSearch', { query: 'test' }),
-      ).resolves.toBeUndefined();
+      await expect(registry.fireHook('afterSearch', { query: 'test' })).resolves.toBeUndefined();
     });
   });
 

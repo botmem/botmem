@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { Memory, SourceType, GraphData } from '@botmem/shared';
+import type { Memory, SourceType, GraphData, GraphNode, GraphEdge } from '@botmem/shared';
 import { api } from '../lib/api';
+import type { ApiMemoryItem, ApiGraphNode, ApiGraphEdge, ApiMemoryStats } from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from './authStore';
 import { useMemoryBankStore } from './memoryBankStore';
@@ -25,11 +26,11 @@ interface ParsedQuery {
   cleanQuery: string;
 }
 
-interface MemoryStats {
-  total: number;
-  bySource: Record<string, number>;
-  byConnector: Record<string, number>;
-  needsRecoveryKey?: boolean;
+interface GraphDelta {
+  nodes?: ApiGraphNode[];
+  contacts?: ApiGraphNode[];
+  links?: ApiGraphEdge[];
+  contactEdges?: ApiGraphEdge[];
 }
 
 interface MemoryState {
@@ -46,11 +47,16 @@ interface MemoryState {
   searchFallback: boolean;
   resolvedEntities: ResolvedEntities | null;
   parsed: ParsedQuery | null;
-  memoryStats: MemoryStats | null;
+  memoryStats: ApiMemoryStats | null;
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   getFiltered: () => Memory[];
-  setSearchResults: (results: { items: any[]; fallback: boolean; resolvedEntities: ResolvedEntities | null; parsed: ParsedQuery | null }) => void;
+  setSearchResults: (results: {
+    items: ApiMemoryItem[];
+    fallback: boolean;
+    resolvedEntities: ResolvedEntities | null;
+    parsed: ParsedQuery | null;
+  }) => void;
   loadMemories: () => Promise<void>;
   loadMoreMemories: () => Promise<void>;
   loadGraph: (params?: { memoryLimit?: number; linkLimit?: number }) => Promise<void>;
@@ -61,15 +67,15 @@ interface MemoryState {
   unpinMemory: (id: string) => Promise<void>;
   recordRecall: (id: string) => void;
   connectWs: () => void;
-  mergeGraphDelta: (delta: any) => void;
-  mergeGraphDeltaBatch: (deltas: any[]) => void;
+  mergeGraphDelta: (delta: GraphDelta) => void;
+  mergeGraphDeltaBatch: (deltas: GraphDelta[]) => void;
   reset: () => void;
 }
 
-function apiMemoryToShared(raw: any): Memory {
+function apiMemoryToShared(raw: ApiMemoryItem): Memory {
   return {
     id: raw.id,
-    source: raw.sourceType || 'message',
+    source: (raw.sourceType || 'message') as SourceType,
     sourceConnector: raw.connectorType || 'gmail',
     accountIdentifier: raw.accountIdentifier || null,
     text: raw.text || '',
@@ -97,12 +103,48 @@ function apiMemoryToShared(raw: any): Memory {
   };
 }
 
+function apiNodeToGraphNode(n: ApiGraphNode): GraphNode {
+  return {
+    id: n.id,
+    label: n.label || '',
+    source: (n.type || 'message') as GraphNode['source'],
+    sourceConnector: n.connectorType || 'gmail',
+    importance: n.importance || 0.5,
+    factuality: (n.factuality || 'UNVERIFIED') as GraphNode['factuality'],
+    cluster: n.cluster || 0,
+    nodeType: (n.nodeType || 'memory') as GraphNode['nodeType'],
+    entities: n.entities || [],
+    connectors: n.connectors || [],
+    text: n.text || '',
+    weights: n.weights || {},
+    eventTime: n.eventTime || '',
+    metadata: n.metadata || {},
+    avatarUrl: n.avatarUrl,
+    thumbnailDataUrl: n.thumbnailDataUrl,
+  };
+}
+
+function apiEdgeToGraphEdge(e: ApiGraphEdge): GraphEdge {
+  return {
+    source: e.source,
+    target: e.target,
+    linkType: e.type || 'related',
+    strength: e.strength || 0.5,
+  };
+}
+
+function getLinkId(l: GraphEdge): { src: string; tgt: string } {
+  const src = typeof l.source === 'object' ? (l.source as { id: string }).id : l.source;
+  const tgt = typeof l.target === 'object' ? (l.target as { id: string }).id : l.target;
+  return { src, tgt };
+}
+
 const PAGE_SIZE = 100;
 
 let memoryWsConnected = false;
 
 // Graph delta buffer — collapses rapid WS deltas into batched updates
-let deltaBuffer: any[] = [];
+let deltaBuffer: GraphDelta[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
@@ -165,7 +207,12 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
       const sourceType = get().filters.source || undefined;
-      const result = await api.listMemories({ limit: PAGE_SIZE, offset: 0, sourceType, memoryBankId: bankId || undefined });
+      const result = await api.listMemories({
+        limit: PAGE_SIZE,
+        offset: 0,
+        sourceType,
+        memoryBankId: bankId || undefined,
+      });
       const mems = result.items.map(apiMemoryToShared);
       set({
         memories: mems,
@@ -213,12 +260,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     set({ loading: true, searchFallback: false, resolvedEntities: null, parsed: null });
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
-      const result = (await api.searchMemories(
-        query,
-        undefined,
-        undefined,
-        bankId || undefined,
-      )) as any;
+      const result = await api.searchMemories(query, undefined, undefined, bankId || undefined);
       const mems = result.items.map(apiMemoryToShared);
       trackEvent('search', {
         query_length: query.length,
@@ -230,7 +272,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         loading: false,
         searchFallback: result.fallback,
         resolvedEntities: result.resolvedEntities || null,
-        parsed: result.parsed || null,
+        parsed: result.parsed ?? null,
       });
     } catch (err) {
       console.error('Failed to search memories:', err);
@@ -282,41 +324,18 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     set({ graphLoading: true, graphPreview: isPreview });
     try {
       const data = await api.getGraphData(merged);
-      let allNodes = (data.nodes || []).map((n: any) => ({
-        id: n.id,
-        label: n.label || '',
-        source: n.type || 'message',
-        sourceConnector: n.connectorType || 'gmail',
-        importance: n.importance || 0.5,
-        factuality: n.factuality || 'UNVERIFIED',
-        cluster: n.cluster || 0,
-        nodeType: n.nodeType || 'memory',
-        entities: n.entities || [],
-        connectors: n.connectors || [],
-        text: n.text || '',
-        weights: n.weights || {},
-        eventTime: n.eventTime || '',
-        metadata: n.metadata || {},
-        avatarUrl: n.avatarUrl,
-        thumbnailDataUrl: n.thumbnailDataUrl,
-      }));
-      let allLinks = (data.links || data.edges || []).map((e: any) => ({
-        source: e.source,
-        target: e.target,
-        linkType: e.type || 'related',
-        strength: e.strength || 0.5,
-      }));
+      let allNodes: GraphNode[] = (data.nodes || []).map(apiNodeToGraphNode);
+      let allLinks: GraphEdge[] = (data.links || data.edges || []).map(apiEdgeToGraphEdge);
 
       // In preview mode, cap total nodes to ~previewLimit*1.5
       // by trimming contacts with fewest connections
       if (isPreview && allNodes.length > previewLimit * 1.5) {
-        const memoryNodes = allNodes.filter((n: any) => n.nodeType !== 'contact');
-        const contactNodes = allNodes.filter((n: any) => n.nodeType === 'contact');
+        const memoryNodes = allNodes.filter((n) => n.nodeType !== 'contact');
+        const contactNodes = allNodes.filter((n) => n.nodeType === 'contact');
         // Count edges per contact
         const contactEdgeCount = new Map<string, number>();
         for (const link of allLinks) {
-          const s = typeof link.source === 'object' ? (link.source as any).id : link.source;
-          const t = typeof link.target === 'object' ? (link.target as any).id : link.target;
+          const { src: s, tgt: t } = getLinkId(link);
           if (contactEdgeCount.has(s)) contactEdgeCount.set(s, contactEdgeCount.get(s)! + 1);
           else contactEdgeCount.set(s, 1);
           if (contactEdgeCount.has(t)) contactEdgeCount.set(t, contactEdgeCount.get(t)! + 1);
@@ -324,13 +343,17 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         }
         // Sort contacts by edge count desc, keep top N
         const maxContacts = Math.max(20, previewLimit * 0.5);
-        contactNodes.sort((a: any, b: any) => (contactEdgeCount.get(b.id) || 0) - (contactEdgeCount.get(a.id) || 0));
+        contactNodes.sort(
+          (a, b) => (contactEdgeCount.get(b.id) || 0) - (contactEdgeCount.get(a.id) || 0),
+        );
         const keptContacts = contactNodes.slice(0, maxContacts);
-        const keptIds = new Set([...memoryNodes.map((n: any) => n.id), ...keptContacts.map((n: any) => n.id)]);
+        const keptIds = new Set([
+          ...memoryNodes.map((n) => n.id),
+          ...keptContacts.map((n) => n.id),
+        ]);
         allNodes = [...memoryNodes, ...keptContacts];
-        allLinks = allLinks.filter((l: any) => {
-          const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        allLinks = allLinks.filter((l) => {
+          const { src: s, tgt: t } = getLinkId(l);
           return keptIds.has(s) && keptIds.has(t);
         });
       }
@@ -347,31 +370,14 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     set({ graphLoading: true });
     const bankId = useMemoryBankStore.getState().activeMemoryBankId;
     try {
-      const data = await api.getGraphData({ memoryLimit: 10000, linkLimit: 50000, memoryBankId: bankId || undefined });
+      const data = await api.getGraphData({
+        memoryLimit: 10000,
+        linkLimit: 50000,
+        memoryBankId: bankId || undefined,
+      });
       const graphData: GraphData = {
-        nodes: (data.nodes || []).map((n: any) => ({
-          id: n.id,
-          label: n.label || '',
-          source: n.type || 'message',
-          sourceConnector: n.connectorType || 'gmail',
-          importance: n.importance || 0.5,
-          factuality: n.factuality || 'UNVERIFIED',
-          cluster: n.cluster || 0,
-          nodeType: n.nodeType || 'memory',
-          entities: n.entities || [],
-          connectors: n.connectors || [],
-          text: n.text || '',
-          weights: n.weights || {},
-          eventTime: n.eventTime || '',
-          metadata: n.metadata || {},
-          avatarUrl: n.avatarUrl,
-        })),
-        links: (data.links || data.edges || []).map((e: any) => ({
-          source: e.source,
-          target: e.target,
-          linkType: e.type || 'related',
-          strength: e.strength || 0.5,
-        })),
+        nodes: (data.nodes || []).map(apiNodeToGraphNode),
+        links: (data.links || data.edges || []).map(apiEdgeToGraphEdge),
       };
       set({ graphData, graphPreview: false, graphLoading: false });
     } catch (err) {
@@ -387,29 +393,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     try {
       const data = await api.getGraphData({ memoryIds, memoryBankId: bankId || undefined });
       const graphData: GraphData = {
-        nodes: (data.nodes || []).map((n: any) => ({
-          id: n.id,
-          label: n.label || '',
-          source: n.type || 'message',
-          sourceConnector: n.connectorType || 'gmail',
-          importance: n.importance || 0.5,
-          factuality: n.factuality || 'UNVERIFIED',
-          cluster: n.cluster || 0,
-          nodeType: n.nodeType || 'memory',
-          entities: n.entities || [],
-          connectors: n.connectors || [],
-          text: n.text || '',
-          weights: n.weights || {},
-          eventTime: n.eventTime || '',
-          metadata: n.metadata || {},
-          avatarUrl: n.avatarUrl,
-        })),
-        links: (data.links || data.edges || []).map((e: any) => ({
-          source: e.source,
-          target: e.target,
-          linkType: e.type || 'related',
-          strength: e.strength || 0.5,
-        })),
+        nodes: (data.nodes || []).map(apiNodeToGraphNode),
+        links: (data.links || data.edges || []).map(apiEdgeToGraphEdge),
       };
       set({ graphData, graphPreview: false, graphLoading: false });
     } catch (err) {
@@ -423,8 +408,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       const existingNodeIds = new Set(state.graphData.nodes.map((n) => n.id));
       const existingLinkKeys = new Set(
         state.graphData.links.map((l) => {
-          const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+          const { src, tgt } = getLinkId(l);
           return `${src}→${tgt}→${l.linkType}`;
         }),
       );
@@ -435,24 +419,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       // Add memory nodes
       for (const node of delta.nodes || []) {
         if (!existingNodeIds.has(node.id)) {
-          newNodes.push({
-            id: node.id,
-            label: node.label || '',
-            source: node.type || 'message',
-            sourceConnector: node.connectorType || 'gmail',
-            importance: node.importance || 0.5,
-            factuality: node.factuality || 'UNVERIFIED',
-            cluster: node.cluster || 0,
-            nodeType: node.nodeType || 'memory',
-            entities: node.entities || [],
-            connectors: node.connectors || [],
-            text: node.text || '',
-            weights: node.weights || {},
-            eventTime: node.eventTime || '',
-            metadata: node.metadata || {},
-            avatarUrl: node.avatarUrl,
-            thumbnailDataUrl: node.thumbnailDataUrl,
-          });
+          newNodes.push(apiNodeToGraphNode(node));
           existingNodeIds.add(node.id);
         }
       }
@@ -463,12 +430,12 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           newNodes.push({
             id: contact.id,
             label: contact.label || '',
-            source: contact.type || 'contact',
+            source: (contact.type || 'contact') as GraphNode['source'],
             sourceConnector: contact.connectorType || 'manual',
             importance: contact.importance || 0.8,
-            factuality: contact.factuality || 'FACT',
+            factuality: (contact.factuality || 'FACT') as GraphNode['factuality'],
             cluster: contact.cluster || 0,
-            nodeType: contact.nodeType || 'contact',
+            nodeType: (contact.nodeType || 'contact') as GraphNode['nodeType'],
             entities: [],
             connectors: contact.connectors || [],
             text: '',
@@ -489,12 +456,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           existingNodeIds.has(link.source) &&
           existingNodeIds.has(link.target)
         ) {
-          newLinks.push({
-            source: link.source,
-            target: link.target,
-            linkType: link.type || 'related',
-            strength: link.strength || 0.5,
-          });
+          newLinks.push(apiEdgeToGraphEdge(link));
           existingLinkKeys.add(key);
         }
       }
@@ -527,8 +489,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       const existingNodeIds = new Set(state.graphData.nodes.map((n) => n.id));
       const existingLinkKeys = new Set(
         state.graphData.links.map((l) => {
-          const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-          const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+          const { src, tgt } = getLinkId(l);
           return `${src}→${tgt}→${l.linkType}`;
         }),
       );
@@ -539,23 +500,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       for (const delta of deltas) {
         for (const node of delta.nodes || []) {
           if (!existingNodeIds.has(node.id)) {
-            newNodes.push({
-              id: node.id,
-              label: node.label || '',
-              source: node.type || 'message',
-              sourceConnector: node.connectorType || 'gmail',
-              importance: node.importance || 0.5,
-              factuality: node.factuality || 'UNVERIFIED',
-              cluster: node.cluster || 0,
-              nodeType: node.nodeType || 'memory',
-              entities: node.entities || [],
-              connectors: node.connectors || [],
-              text: node.text || '',
-              weights: node.weights || {},
-              eventTime: node.eventTime || '',
-              metadata: node.metadata || {},
-              avatarUrl: node.avatarUrl,
-            });
+            newNodes.push(apiNodeToGraphNode(node));
             existingNodeIds.add(node.id);
           }
         }
@@ -564,12 +509,12 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
             newNodes.push({
               id: contact.id,
               label: contact.label || '',
-              source: contact.type || 'contact',
+              source: (contact.type || 'contact') as GraphNode['source'],
               sourceConnector: contact.connectorType || 'manual',
               importance: contact.importance || 0.8,
-              factuality: contact.factuality || 'FACT',
+              factuality: (contact.factuality || 'FACT') as GraphNode['factuality'],
               cluster: contact.cluster || 0,
-              nodeType: contact.nodeType || 'contact',
+              nodeType: (contact.nodeType || 'contact') as GraphNode['nodeType'],
               entities: [],
               connectors: contact.connectors || [],
               text: '',
@@ -588,12 +533,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
             existingNodeIds.has(link.source) &&
             existingNodeIds.has(link.target)
           ) {
-            newLinks.push({
-              source: link.source,
-              target: link.target,
-              linkType: link.type || 'related',
-              strength: link.strength || 0.5,
-            });
+            newLinks.push(apiEdgeToGraphEdge(link));
             existingLinkKeys.add(key);
           }
         }
@@ -631,7 +571,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       if (msg.event === 'graph:delta') {
         // Only merge deltas when showing the full graph (not preview)
         if (!get().graphPreview) {
-          deltaBuffer.push(msg.data);
+          deltaBuffer.push(msg.data as GraphDelta);
           if (flushTimer) clearTimeout(flushTimer);
           flushTimer = setTimeout(() => {
             const batch = deltaBuffer;
@@ -643,7 +583,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       }
       if (msg.event === 'dashboard:memory-stats-changed') {
         const bankId = useMemoryBankStore.getState().activeMemoryBankId;
-        api.getMemoryStats({ memoryBankId: bankId || undefined })
+        api
+          .getMemoryStats({ memoryBankId: bankId || undefined })
           .then((stats) => set({ memoryStats: stats }))
           .catch(() => {});
       }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { eq, and, sql, desc, inArray } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
@@ -34,7 +34,7 @@ export class MeService {
     const db = this.dbService.db;
 
     // Verify the contact exists and belongs to user
-    const conditions: any[] = [eq(contacts.id, contactId)];
+    const conditions: SQLWrapper[] = [eq(contacts.id, contactId)];
     if (userId) conditions.push(eq(contacts.userId, userId));
     const existing = await db
       .select({ id: contacts.id })
@@ -61,7 +61,7 @@ export class MeService {
     const db = this.dbService.db;
 
     // Get user's accounts only
-    const accountConditions: any[] = [];
+    const accountConditions: SQLWrapper[] = [];
     if (userId) accountConditions.push(eq(accounts.userId, userId));
     const allAccounts = await db
       .select()
@@ -155,7 +155,7 @@ export class MeService {
 
     if (row?.value) {
       // Verify it still exists (and belongs to user if userId given)
-      const conditions: any[] = [eq(contacts.id, row.value)];
+      const conditions: SQLWrapper[] = [eq(contacts.id, row.value)];
       if (userId) conditions.push(eq(contacts.userId, userId));
       const exists = await db
         .select({ id: contacts.id })
@@ -241,7 +241,7 @@ export class MeService {
     );
 
     // Find candidates: persons with matching name or shared identifiers (user-scoped)
-    const personConditions: any[] = [
+    const personConditions: SQLWrapper[] = [
       sql`${contacts.id} != ${selfId}`,
       sql`COALESCE(${contacts.entityType}, 'person') = 'person'`,
     ];
@@ -385,7 +385,7 @@ export class MeService {
         identity.name = contact.displayName;
         identity.preferredAvatarIndex = contact.preferredAvatarIndex ?? 0;
         try {
-          identity.avatars = (contact.avatars as any) || [];
+          identity.avatars = (contact.avatars as Array<{ url: string; source: string }>) || [];
         } catch {
           identity.avatars = [];
         }
@@ -428,7 +428,7 @@ export class MeService {
     const userAccountIds = userAccounts.map((a) => a.id);
 
     // Stats — only count fully-processed memories for this user
-    const doneConditions: any[] = [eq(memories.pipelineComplete, true)];
+    const doneConditions: SQLWrapper[] = [eq(memories.pipelineComplete, true)];
     if (userAccountIds.length > 0) {
       doneConditions.push(inArray(memories.accountId, userAccountIds));
     }
@@ -493,7 +493,7 @@ export class MeService {
     const newestMemory = newestMemoryRow[0]?.eventTime || null;
 
     // Top entities — parse JSON entities from user's memories
-    const entityConditions: any[] = [sql`${memories.entities} != '[]'`];
+    const entityConditions: SQLWrapper[] = [sql`${memories.entities} != '[]'`];
     if (userAccountIds.length > 0) {
       entityConditions.push(inArray(memories.accountId, userAccountIds));
     } else if (userId) {

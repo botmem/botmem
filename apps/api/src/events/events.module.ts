@@ -15,7 +15,7 @@ import { EventsService } from './events.service';
       useFactory: (config: ConfigService) => ({
         secret: config.jwtAccessSecret,
         signOptions: {
-          expiresIn: config.jwtAccessExpiresIn as any,
+          expiresIn: config.jwtAccessExpiresIn as string | number,
           algorithm: 'HS256' as const,
         },
       }),

@@ -17,6 +17,7 @@ import { runEntities, runRelated, entitiesHelp, relatedHelp } from './commands/e
 import { runVersion, versionHelp } from './commands/version.js';
 import { runAsk, runContext, askHelp, contextHelp } from './commands/agent.js';
 import { runMemoryBanks, memoryBanksHelp } from './commands/memory-banks.js';
+import { runInstallSkill } from './commands/install-skill.js';
 
 const DEFAULT_API_URL = 'https://api.botmem.xyz/api';
 
@@ -82,6 +83,7 @@ const HELP = `
     sync <accountId>        Trigger a connector sync
     retry                   Retry all failed jobs and memories
     accounts                List connected accounts
+    install-skill           Install Claude Code skill in current project
 
   SETUP
     botmem config set-host <url>   Set API host (e.g. localhost:12412, api.botmem.xyz)
@@ -538,6 +540,12 @@ async function main() {
 
   if (!command) {
     console.log(HELP);
+    return;
+  }
+
+  // Commands that don't need API access
+  if (command === 'install-skill') {
+    runInstallSkill();
     return;
   }
 

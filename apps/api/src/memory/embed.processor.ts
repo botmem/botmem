@@ -251,7 +251,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         const contact = await Promise.race([
           this.contactsService.resolveContact(
             identifiers,
-            resolveType as any,
+            resolveType as 'group' | 'organization' | 'device' | undefined,
             ownerUserId || undefined,
           ),
           new Promise<null>((_, reject) =>
@@ -556,8 +556,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
   private async processFile(
     memoryId: string,
-    metadata: Record<string, any>,
-    rawEvent: any,
+    metadata: Record<string, unknown>,
+    rawEvent: { accountId: string; connectorType: string },
   ): Promise<string | null> {
     const fileUrl: string = metadata.fileUrl || '';
     const fileBase64: string = metadata.fileBase64 || '';
@@ -633,7 +633,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     if (mime === 'application/pdf' || ext === 'pdf') {
       const pdfParseModule = await import('pdf-parse');
       const pdfParse = pdfParseModule.default || pdfParseModule;
-      const data = await (pdfParse as any)(fileBuffer);
+      const data = await (pdfParse as (buf: Buffer) => Promise<{ text?: string }>)(fileBuffer);
       const text = data.text?.trim();
       if (!text) return null;
       let content = header ? `${header}\n\n${text}` : text;
@@ -808,10 +808,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     accountId: string,
     connectorType: string,
   ): Promise<PipelineContext> {
-    let auth: any = {};
+    let auth: Record<string, unknown> = {};
     try {
       const account = await this.accountsService.getById(accountId);
-      if (account.authContext) auth = JSON.parse(account.authContext);
+      if (account.authContext) auth = JSON.parse(account.authContext) as Record<string, unknown>;
     } catch (err) {
       this.logger.warn(
         'Auth context parse failed',

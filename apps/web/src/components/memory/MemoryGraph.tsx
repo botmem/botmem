@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useMemo, useReducer, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import type { GraphData } from '@botmem/shared';
+import type { GraphData, GraphNode, GraphEdge } from '@botmem/shared';
 import { SearchResultsBanner } from './SearchResultsBanner';
 import { NodeDetailPanel } from './NodeDetailPanel';
 import { GraphLegend } from './GraphLegend';
@@ -11,10 +11,13 @@ import type { NodeRenderCtx } from './graphDrawing';
 import { useGraphKeyboard } from './useGraphKeyboard';
 import { useFilteredGraph } from './useFilteredGraph';
 import { useGraphEffects } from './useGraphEffects';
+import type { ForceGraphInstance, SimulationNode } from './graphTypes';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import { trackEvent } from '../../lib/posthog';
 import type { UseSearchReturn } from '../../hooks/useSearch';
+
+type ForceGraphComponent = React.ComponentType<Record<string, unknown>>;
 
 interface MemoryGraphProps {
   data: GraphData;
@@ -35,10 +38,10 @@ export function MemoryGraph({
   search,
 }: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<any>(null);
+  const graphRef = useRef<ForceGraphInstance | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const [ForceGraph, setForceGraph] = useState<any>(null);
+  const [ForceGraph, setForceGraph] = useState<ForceGraphComponent | null>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
   const [selfNodeId, setSelfNodeId] = useState<string | null>(null);
 
@@ -129,8 +132,10 @@ export function MemoryGraph({
   const connectionCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const link of data.links) {
-      const src = typeof link.source === 'object' ? (link.source as any).id : link.source;
-      const tgt = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      const src =
+        typeof link.source === 'object' ? (link.source as { id: string }).id : link.source;
+      const tgt =
+        typeof link.target === 'object' ? (link.target as { id: string }).id : link.target;
       counts.set(src, (counts.get(src) || 0) + 1);
       counts.set(tgt, (counts.get(tgt) || 0) + 1);
     }
@@ -187,7 +192,7 @@ export function MemoryGraph({
     adaptiveConfig,
   });
 
-  const handleNodeDoubleClick = useCallback((node: any) => {
+  const handleNodeDoubleClick = useCallback((node: GraphNode) => {
     dispatchUI({ type: 'doubleClickNode', node });
   }, []);
 
@@ -205,13 +210,13 @@ export function MemoryGraph({
   );
 
   const nodeCanvasObject = useCallback(
-    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) =>
+    (node: SimulationNode, ctx: CanvasRenderingContext2D, globalScale: number) =>
       renderNode(node, ctx, globalScale, renderCtx),
     [renderCtx],
   );
 
   const nodePointerArea = useCallback(
-    (node: any, color: string, ctx: CanvasRenderingContext2D) =>
+    (node: SimulationNode, color: string, ctx: CanvasRenderingContext2D) =>
       renderNodePointerArea(node, color, ctx),
     [],
   );
@@ -332,17 +337,17 @@ export function MemoryGraph({
             linkLineDash={
               adaptiveConfig.disableLinkDash
                 ? undefined
-                : (link: any) =>
+                : (link: GraphEdge) =>
                     link.linkType === 'involves' || link.linkType === 'source' ? [4, 2] : []
             }
-            onNodeClick={(node: any) => {
+            onNodeClick={(node: GraphNode) => {
               dispatchUI({ type: 'selectNode', node });
               trackEvent('graph_node_click', {
                 node_type: node.nodeType || 'unknown',
               });
             }}
             onNodeDoubleClick={handleNodeDoubleClick}
-            onNodeDragEnd={(node: any) => {
+            onNodeDragEnd={(node: SimulationNode) => {
               node.fx = undefined;
               node.fy = undefined;
             }}
@@ -355,15 +360,17 @@ export function MemoryGraph({
                 const g = graphRef.current;
                 if (!g) return;
                 const gd = g.graphData?.();
-                const meNode = gd?.nodes?.find((n: any) => n.id === selfNodeId);
+                const meNode = gd?.nodes?.find((n) => n.id === selfNodeId) as
+                  | SimulationNode
+                  | undefined;
                 if (meNode && meNode.x !== undefined) {
-                  g.centerAt(meNode.x, meNode.y, 400);
+                  g.centerAt(meNode.x, meNode.y || 0, 400);
                   setTimeout(() => g.zoomToFit(400, 80), 450);
                 } else {
                   g.zoomToFit(400, 80);
                 }
                 if (gd?.nodes) {
-                  for (const n of gd.nodes) {
+                  for (const n of gd.nodes as SimulationNode[]) {
                     if (n.fx !== undefined) {
                       n.fx = undefined;
                       n.fy = undefined;

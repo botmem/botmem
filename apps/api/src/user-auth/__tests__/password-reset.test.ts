@@ -60,7 +60,7 @@ describe('Password Reset', () => {
       capture: vi.fn(),
     };
 
-    const mockQueue = { add: vi.fn() } as any;
+    const mockQueue = { add: vi.fn() } as unknown as import('bullmq').Queue;
 
     authService = new UserAuthService(
       jwtService as JwtService,
@@ -77,7 +77,7 @@ describe('Password Reset', () => {
   describe('forgotPassword', () => {
     it('should generate token, store hash, and send email when user exists', async () => {
       const mockUser = { id: 'user-1', email: 'test@test.com', name: 'Test' };
-      (usersService.findByEmail as any).mockResolvedValue(mockUser);
+      vi.mocked(usersService.findByEmail).mockResolvedValue(mockUser);
 
       await authService.forgotPassword('test@test.com');
 
@@ -95,7 +95,7 @@ describe('Password Reset', () => {
     });
 
     it('should not throw when user does not exist (no email enumeration)', async () => {
-      (usersService.findByEmail as any).mockResolvedValue(null);
+      vi.mocked(usersService.findByEmail).mockResolvedValue(null);
 
       await expect(authService.forgotPassword('nonexistent@test.com')).resolves.not.toThrow();
 
@@ -116,7 +116,7 @@ describe('Password Reset', () => {
         expiresAt: new Date(Date.now() + 3600000).toISOString(),
         usedAt: null,
       };
-      (usersService.findPasswordReset as any).mockResolvedValue(mockReset);
+      vi.mocked(usersService.findPasswordReset).mockResolvedValue(mockReset);
 
       await authService.resetPassword(rawToken, 'newpassword123');
 
@@ -135,7 +135,7 @@ describe('Password Reset', () => {
         expiresAt: new Date(Date.now() - 1000).toISOString(), // expired
         usedAt: null,
       };
-      (usersService.findPasswordReset as any).mockResolvedValue(mockReset);
+      vi.mocked(usersService.findPasswordReset).mockResolvedValue(mockReset);
 
       await expect(authService.resetPassword(rawToken, 'newpassword123')).rejects.toThrow(
         BadRequestException,
@@ -150,7 +150,7 @@ describe('Password Reset', () => {
         expiresAt: new Date(Date.now() + 3600000).toISOString(),
         usedAt: new Date().toISOString(), // already used
       };
-      (usersService.findPasswordReset as any).mockResolvedValue(mockReset);
+      vi.mocked(usersService.findPasswordReset).mockResolvedValue(mockReset);
 
       await expect(authService.resetPassword(rawToken, 'newpassword123')).rejects.toThrow(
         BadRequestException,
@@ -158,7 +158,7 @@ describe('Password Reset', () => {
     });
 
     it('should reject invalid token', async () => {
-      (usersService.findPasswordReset as any).mockResolvedValue(null);
+      vi.mocked(usersService.findPasswordReset).mockResolvedValue(null);
 
       await expect(authService.resetPassword('invalid-token', 'newpassword123')).rejects.toThrow(
         BadRequestException,
@@ -179,7 +179,7 @@ describe('Password Reset', () => {
         expiresAt: new Date(Date.now() + 3600000).toISOString(),
         usedAt: null,
       };
-      (usersService.findPasswordReset as any).mockResolvedValue(mockReset);
+      vi.mocked(usersService.findPasswordReset).mockResolvedValue(mockReset);
 
       await authService.resetPassword(rawToken, 'newpassword123');
 

@@ -1,14 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AgentService } from '../agent.service';
+import type { DbService } from '../../db/db.service';
+import type { ConfigService } from '../../config/config.service';
 
 describe('AgentService', () => {
   let service: AgentService;
-  let mockDb: any;
-  let memoryService: any;
-  let aiService: any;
-  let qdrantService: any;
-  let contactsService: any;
-  let configService: any;
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
+  let memoryService: Record<string, ReturnType<typeof vi.fn>>;
+  let aiService: Record<string, ReturnType<typeof vi.fn>>;
+  let qdrantService: Record<string, ReturnType<typeof vi.fn>>;
+  let contactsService: Record<string, ReturnType<typeof vi.fn>>;
+  let configService: { aiBackend: string; ollamaEmbedModel: string; openrouterEmbedModel: string };
 
   const fakeMemory = {
     id: 'mem-1',
@@ -26,7 +28,7 @@ describe('AgentService', () => {
     pinned: false,
   };
 
-  let dbService: any;
+  let dbService: Record<string, ReturnType<typeof vi.fn> | typeof mockDb>;
 
   beforeEach(() => {
     mockDb = {
@@ -42,17 +44,15 @@ describe('AgentService', () => {
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
       delete: vi.fn().mockReturnThis(),
-      then: vi.fn().mockImplementation((fn: any) => fn([])),
+      then: vi.fn().mockImplementation((fn: (val: unknown[]) => unknown) => fn([])),
     };
 
     memoryService = {
-      search: vi
-        .fn()
-        .mockResolvedValue({
-          items: [],
-          fallback: false,
-          parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' },
-        }),
+      search: vi.fn().mockResolvedValue({
+        items: [],
+        fallback: false,
+        parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' },
+      }),
       getById: vi.fn().mockResolvedValue(fakeMemory),
       getStats: vi
         .fn()
@@ -86,17 +86,17 @@ describe('AgentService', () => {
 
     dbService = {
       db: mockDb,
-      withCurrentUser: vi.fn((fn: any) => fn(mockDb)),
-      withUserId: vi.fn((_uid: string, fn: any) => fn(mockDb)),
+      withCurrentUser: vi.fn((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+      withUserId: vi.fn((_uid: string, fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
     };
 
     service = new AgentService(
-      dbService as any,
+      dbService as unknown as DbService,
       memoryService,
       aiService,
       qdrantService,
       contactsService,
-      configService as any,
+      configService as unknown as ConfigService,
     );
   });
 

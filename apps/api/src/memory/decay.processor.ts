@@ -57,7 +57,7 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
         const trust = this.getTrustScore(mem.connectorType);
 
         // Preserve existing semantic/rerank scores
-        const parsedWeights = (mem.weights as any) || {};
+        const parsedWeights = (mem.weights as Record<string, number> | null) || {};
         const semantic = parsedWeights.semantic ?? 0;
         const rerank = parsedWeights.rerank ?? 0;
 

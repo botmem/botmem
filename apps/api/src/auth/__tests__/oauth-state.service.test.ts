@@ -13,9 +13,10 @@ vi.mock('ioredis', () => ({
 }));
 
 import { OAuthStateService } from '../oauth-state.service';
+import type { ConfigService } from '../../config/config.service';
 
 function createService() {
-  const configService = { redisUrl: 'redis://localhost:6379' } as any;
+  const configService = { redisUrl: 'redis://localhost:6379' } as unknown as ConfigService;
   return new OAuthStateService(configService);
 }
 

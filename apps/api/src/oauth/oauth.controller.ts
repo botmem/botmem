@@ -143,7 +143,7 @@ export class OAuthController {
     }
 
     // Authenticate: Bearer token (existing session) or email/password
-    let user: any;
+    let user: Awaited<ReturnType<typeof this.usersService.findById>> | null = null;
     const bearerMatch = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
     if (bearerMatch) {
       try {

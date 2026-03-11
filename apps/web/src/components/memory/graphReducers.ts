@@ -1,4 +1,5 @@
 import type { GraphNode } from '@botmem/shared';
+import type { ApiContact, ApiContactMemory } from '../../lib/api';
 
 export type FilterState = {
   hiddenSourceTypes: Set<string>;
@@ -23,17 +24,30 @@ export function filterReducer(state: FilterState, action: FilterAction): FilterS
   switch (action.type) {
     case 'toggleSourceType': {
       const next = new Set(state.hiddenSourceTypes);
-      if (next.has(action.source)) { next.delete(action.source); } else { next.add(action.source); }
+      if (next.has(action.source)) {
+        next.delete(action.source);
+      } else {
+        next.add(action.source);
+      }
       return { ...state, hiddenSourceTypes: next };
     }
-    case 'toggleContacts': return { ...state, hideContacts: !state.hideContacts };
-    case 'toggleGroups': return { ...state, hideGroups: !state.hideGroups };
-    case 'toggleFiles': return { ...state, hideFiles: !state.hideFiles };
-    case 'togglePhotos': return { ...state, hidePhotos: !state.hidePhotos };
-    case 'toggleDevices': return { ...state, hideDevices: !state.hideDevices };
+    case 'toggleContacts':
+      return { ...state, hideContacts: !state.hideContacts };
+    case 'toggleGroups':
+      return { ...state, hideGroups: !state.hideGroups };
+    case 'toggleFiles':
+      return { ...state, hideFiles: !state.hideFiles };
+    case 'togglePhotos':
+      return { ...state, hidePhotos: !state.hidePhotos };
+    case 'toggleDevices':
+      return { ...state, hideDevices: !state.hideDevices };
     case 'toggleEdgeType': {
       const next = new Set(state.hiddenEdgeTypes);
-      if (next.has(action.edgeType)) { next.delete(action.edgeType); } else { next.add(action.edgeType); }
+      if (next.has(action.edgeType)) {
+        next.delete(action.edgeType);
+      } else {
+        next.add(action.edgeType);
+      }
       return { ...state, hiddenEdgeTypes: next };
     }
   }
@@ -46,7 +60,11 @@ export type SearchState = {
     memoryIds: Set<string>;
     contactNodeIds: string[];
     scoreMap: Map<string, number>;
-    resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[]; topicMatchCount: number };
+    resolvedEntities?: {
+      contacts: { id: string; displayName: string }[];
+      topicWords: string[];
+      topicMatchCount: number;
+    };
   } | null;
 };
 
@@ -58,7 +76,7 @@ export type UIState = {
   selectedNode: GraphNode | null;
   focusedNodeId: string | null;
   focusExpansion: number;
-  contactInfo: { detail: any; memories: any[] } | null;
+  contactInfo: { detail: ApiContact | null; memories: ApiContactMemory[] } | null;
 };
 
 export type UIAction =
@@ -72,26 +90,41 @@ export type UIAction =
   | { type: 'focusNode'; nodeId: string }
   | { type: 'expandFocus' }
   | { type: 'clearFocus' }
-  | { type: 'setContactInfo'; info: { detail: any; memories: any[] } | null }
+  | {
+      type: 'setContactInfo';
+      info: { detail: ApiContact | null; memories: ApiContactMemory[] } | null;
+    }
   | { type: 'doubleClickNode'; node: GraphNode };
 
 export function uiReducer(state: UIState, action: UIAction): UIState {
   switch (action.type) {
-    case 'toggleLegend': return { ...state, legendOpen: !state.legendOpen };
-    case 'enterFullscreen': return { ...state, isFullscreen: true, showHint: true };
-    case 'exitFullscreen': return { ...state, isFullscreen: false, showHint: false };
-    case 'toggleFullscreen': return state.isFullscreen
-      ? { ...state, isFullscreen: false, showHint: false }
-      : { ...state, isFullscreen: true, showHint: true };
-    case 'setShowHint': return { ...state, showHint: action.value };
-    case 'setSearchFocused': return { ...state, searchFocused: action.value };
-    case 'selectNode': return { ...state, selectedNode: action.node };
-    case 'focusNode': return { ...state, focusedNodeId: action.nodeId, focusExpansion: 1 };
-    case 'expandFocus': return { ...state, focusExpansion: state.focusExpansion + 1 };
-    case 'clearFocus': return { ...state, focusedNodeId: null, focusExpansion: 1 };
-    case 'setContactInfo': return { ...state, contactInfo: action.info };
-    case 'doubleClickNode': return state.focusedNodeId === action.node.id
-      ? { ...state, focusExpansion: state.focusExpansion + 1, selectedNode: action.node }
-      : { ...state, focusedNodeId: action.node.id, focusExpansion: 1, selectedNode: action.node };
+    case 'toggleLegend':
+      return { ...state, legendOpen: !state.legendOpen };
+    case 'enterFullscreen':
+      return { ...state, isFullscreen: true, showHint: true };
+    case 'exitFullscreen':
+      return { ...state, isFullscreen: false, showHint: false };
+    case 'toggleFullscreen':
+      return state.isFullscreen
+        ? { ...state, isFullscreen: false, showHint: false }
+        : { ...state, isFullscreen: true, showHint: true };
+    case 'setShowHint':
+      return { ...state, showHint: action.value };
+    case 'setSearchFocused':
+      return { ...state, searchFocused: action.value };
+    case 'selectNode':
+      return { ...state, selectedNode: action.node };
+    case 'focusNode':
+      return { ...state, focusedNodeId: action.nodeId, focusExpansion: 1 };
+    case 'expandFocus':
+      return { ...state, focusExpansion: state.focusExpansion + 1 };
+    case 'clearFocus':
+      return { ...state, focusedNodeId: null, focusExpansion: 1 };
+    case 'setContactInfo':
+      return { ...state, contactInfo: action.info };
+    case 'doubleClickNode':
+      return state.focusedNodeId === action.node.id
+        ? { ...state, focusExpansion: state.focusExpansion + 1, selectedNode: action.node }
+        : { ...state, focusedNodeId: action.node.id, focusExpansion: 1, selectedNode: action.node };
   }
 }

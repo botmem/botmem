@@ -97,7 +97,7 @@ export class JobsService {
       completedAt: Date | string;
     }>,
   ) {
-    const toSet: any = { ...data };
+    const toSet: Record<string, unknown> = { ...data };
     if (data.startedAt)
       toSet.startedAt = data.startedAt instanceof Date ? data.startedAt : new Date(data.startedAt);
     if (data.completedAt)
