@@ -396,10 +396,11 @@ export function formatAgentContext(data: any): string {
   return lines.join('\n');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function formatMemoryBanks(banks: any[]): string {
+export function formatMemoryBanks(
+  banks: Array<{ id: string; name: string; memoryCount?: number }>,
+): string {
   if (!banks.length) return dim('No memory banks.');
-  const lines = banks.map((b: any) => {
+  const lines = banks.map((b) => {
     return `${bold(String(b.name).padEnd(25))} ${dim(String(b.memoryCount ?? 0).padStart(5) + ' memories')}  ${dim(b.id)}`;
   });
   lines.push('');

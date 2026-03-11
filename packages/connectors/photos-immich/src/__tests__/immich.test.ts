@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ImmichConnector } from '../index.js';
+import type { PipelineContext } from '@botmem/connector-sdk';
+
+const pipelineCtx: PipelineContext = {
+  accountId: 'acc-1',
+  auth: { accessToken: 'test' },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+};
 
 function makeSyncCtx(overrides: Record<string, unknown> = {}) {
   return {
@@ -110,7 +117,7 @@ describe('ImmichConnector', () => {
     });
 
     it('requires host and apiKey', () => {
-      const schema = connector.manifest.configSchema as any;
+      const schema = connector.manifest.configSchema as { required: string[] };
       expect(schema.required).toContain('host');
       expect(schema.required).toContain('apiKey');
     });
@@ -195,7 +202,8 @@ describe('ImmichConnector', () => {
 
       // Find the search call
       const searchCall = mockFetch.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/search/metadata'),
+        (c: [string, RequestInit]) =>
+          typeof c[0] === 'string' && c[0].includes('/api/search/metadata'),
       );
       expect(searchCall).toBeDefined();
       const body = JSON.parse(searchCall![1].body);
@@ -217,7 +225,8 @@ describe('ImmichConnector', () => {
       await connector.sync(makeSyncCtx({ cursor }));
 
       const searchCall = mockFetch.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/search/metadata'),
+        (c: [string, RequestInit]) =>
+          typeof c[0] === 'string' && c[0].includes('/api/search/metadata'),
       );
       const body = JSON.parse(searchCall![1].body);
       expect(body.takenAfter).toBe('2026-01-01T00:00:00.000Z');
@@ -300,7 +309,8 @@ describe('ImmichConnector', () => {
 
       // Should have sent page=3
       const searchCall = mockFetch.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/search/metadata'),
+        (c: [string, RequestInit]) =>
+          typeof c[0] === 'string' && c[0].includes('/api/search/metadata'),
       );
       const body = JSON.parse(searchCall![1].body);
       expect(body.page).toBe(3);
@@ -398,14 +408,21 @@ describe('ImmichConnector', () => {
           text: 'Photo: test.jpg',
           participants: ['John Doe'],
           metadata: {
-            people: [{ id: 'p1', name: 'John Doe' }, { id: 'p2', name: '' }],
+            people: [
+              { id: 'p1', name: 'John Doe' },
+              { id: 'p2', name: '' },
+            ],
           },
         },
       };
-      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      const result = connector.embed(event, 'Photo: test.jpg', pipelineCtx);
       // Should only include named people, skip empty name
       expect(result.entities).toHaveLength(1);
-      expect(result.entities[0]).toEqual({ type: 'person', id: 'immich_person_id:p1|name:John Doe', role: 'participant' });
+      expect(result.entities[0]).toEqual({
+        type: 'person',
+        id: 'immich_person_id:p1|name:John Doe',
+        role: 'participant',
+      });
     });
 
     it('extracts pet entities when person type is pet', () => {
@@ -421,7 +438,7 @@ describe('ImmichConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Photo: cat.jpg', {} as any);
+      const result = connector.embed(event, 'Photo: cat.jpg', pipelineCtx);
       expect(result.entities[0].type).toBe('pet');
     });
 
@@ -436,8 +453,12 @@ describe('ImmichConnector', () => {
           metadata: { latitude: 34.0195, longitude: -118.4912, people: [] },
         },
       };
-      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
-      expect(result.entities).toContainEqual({ type: 'location', id: 'geo:34.0195,-118.4912', role: 'location' });
+      const result = connector.embed(event, 'Photo: test.jpg', pipelineCtx);
+      expect(result.entities).toContainEqual({
+        type: 'location',
+        id: 'geo:34.0195,-118.4912',
+        role: 'location',
+      });
     });
 
     it('does not extract location when lat/lon missing', () => {
@@ -451,8 +472,8 @@ describe('ImmichConnector', () => {
           metadata: { people: [] },
         },
       };
-      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
-      expect(result.entities.filter(e => e.type === 'location')).toHaveLength(0);
+      const result = connector.embed(event, 'Photo: test.jpg', pipelineCtx);
+      expect(result.entities.filter((e) => e.type === 'location')).toHaveLength(0);
     });
 
     it('includes participants not already in people array', () => {
@@ -468,10 +489,14 @@ describe('ImmichConnector', () => {
           },
         },
       };
-      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      const result = connector.embed(event, 'Photo: test.jpg', pipelineCtx);
       // p1 from people, Extra Person as additional participant
       expect(result.entities).toHaveLength(2);
-      expect(result.entities[1]).toEqual({ type: 'person', id: 'name:Extra Person', role: 'participant' });
+      expect(result.entities[1]).toEqual({
+        type: 'person',
+        id: 'name:Extra Person',
+        role: 'participant',
+      });
     });
 
     it('handles empty content metadata gracefully', () => {
@@ -481,7 +506,7 @@ describe('ImmichConnector', () => {
         timestamp: '2026-01-01T00:00:00Z',
         content: { text: 'Photo: test.jpg', metadata: {} },
       };
-      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      const result = connector.embed(event, 'Photo: test.jpg', pipelineCtx);
       expect(result.entities).toEqual([]);
     });
 
@@ -496,7 +521,7 @@ describe('ImmichConnector', () => {
           metadata: { people: [] },
         },
       };
-      const result = connector.embed(event, 'Photo: test.jpg', {} as any);
+      const result = connector.embed(event, 'Photo: test.jpg', pipelineCtx);
       expect(result.entities).toHaveLength(1);
       expect(result.entities[0].id).toBe('name:Alice');
     });
@@ -505,11 +530,18 @@ describe('ImmichConnector', () => {
   // ─── initiateAuth server info branch ──────────────────
   describe('initiateAuth (server info)', () => {
     it('uses server name from /api/server/about when available', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
-        if (url.includes('/api/server/about')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ name: 'My Immich' }) });
-        return Promise.resolve({ ok: true });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
+          if (url.includes('/api/server/about'))
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({ name: 'My Immich' }),
+            });
+          return Promise.resolve({ ok: true });
+        }),
+      );
       const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
       if (result.type === 'complete') {
         expect(result.auth.identifier).toBe('My Immich');
@@ -517,11 +549,14 @@ describe('ImmichConnector', () => {
     });
 
     it('falls back to host when /api/server/about fails', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
-        if (url.includes('/api/server/about')) return Promise.reject(new Error('fail'));
-        return Promise.resolve({ ok: true });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
+          if (url.includes('/api/server/about')) return Promise.reject(new Error('fail'));
+          return Promise.resolve({ ok: true });
+        }),
+      );
       const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
       if (result.type === 'complete') {
         expect(result.auth.identifier).toBe('http://localhost:2283');
@@ -529,11 +564,14 @@ describe('ImmichConnector', () => {
     });
 
     it('falls back to host when /api/server/about returns not ok', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
-        if (url.includes('/api/server/about')) return Promise.resolve({ ok: false });
-        return Promise.resolve({ ok: true });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/api/server/ping')) return Promise.resolve({ ok: true });
+          if (url.includes('/api/server/about')) return Promise.resolve({ ok: false });
+          return Promise.resolve({ ok: true });
+        }),
+      );
       const result = await connector.initiateAuth({ host: 'http://localhost:2283', apiKey: 'k' });
       if (result.type === 'complete') {
         expect(result.auth.identifier).toBe('http://localhost:2283');
@@ -542,7 +580,10 @@ describe('ImmichConnector', () => {
 
     it('strips /api suffix from host', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
-      const result = await connector.initiateAuth({ host: 'http://localhost:2283/api', apiKey: 'k' });
+      const result = await connector.initiateAuth({
+        host: 'http://localhost:2283/api',
+        apiKey: 'k',
+      });
       if (result.type === 'complete') {
         expect(result.auth.raw?.host).toBe('http://localhost:2283');
       }
@@ -561,20 +602,33 @@ describe('ImmichConnector', () => {
     });
 
     it('provides 404 hint in error message', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/assets/statistics')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ images: 0 }) });
-        if (url.includes('/api/search/metadata')) return Promise.resolve({ ok: false, status: 404 });
-        return Promise.resolve({ ok: true });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/api/assets/statistics'))
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ images: 0 }) });
+          if (url.includes('/api/search/metadata'))
+            return Promise.resolve({ ok: false, status: 404 });
+          return Promise.resolve({ ok: true });
+        }),
+      );
       await expect(connector.sync(makeSyncCtx())).rejects.toThrow('check that the host URL');
     });
 
     it('handles statistics returning total instead of images', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/assets/statistics')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ total: 300 }) });
-        if (url.includes('/api/search/metadata')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ assets: { items: [], nextPage: null } }) });
-        return Promise.resolve({ ok: true });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/api/assets/statistics'))
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ total: 300 }) });
+          if (url.includes('/api/search/metadata'))
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({ assets: { items: [], nextPage: null } }),
+            });
+          return Promise.resolve({ ok: true });
+        }),
+      );
       const progressListener = vi.fn();
       connector.on('data', () => {});
       connector.on('progress', progressListener);
@@ -639,7 +693,12 @@ describe('ImmichConnector', () => {
     });
 
     it('handles tags with name fallback (no value)', async () => {
-      const asset = makeAsset({ tags: [{ id: 't1', name: 'nature', value: '' }, { id: 't2', name: 'outdoor', value: null }] });
+      const asset = makeAsset({
+        tags: [
+          { id: 't1', name: 'nature', value: '' },
+          { id: 't2', name: 'outdoor', value: null },
+        ],
+      });
       vi.stubGlobal('fetch', mockFetchForSync([asset]));
       const dataListener = vi.fn();
       connector.on('data', dataListener);
@@ -649,7 +708,12 @@ describe('ImmichConnector', () => {
     });
 
     it('handles people with unnamed entries filtered', async () => {
-      const asset = makeAsset({ people: [{ id: 'p1', name: 'Alice' }, { id: 'p2', name: '' }] });
+      const asset = makeAsset({
+        people: [
+          { id: 'p1', name: 'Alice' },
+          { id: 'p2', name: '' },
+        ],
+      });
       vi.stubGlobal('fetch', mockFetchForSync([asset]));
       const dataListener = vi.fn();
       connector.on('data', dataListener);

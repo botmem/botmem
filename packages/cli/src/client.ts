@@ -425,12 +425,17 @@ export class BotmemClient {
   async getEntityGraph(
     value: string,
     limit?: number,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): Promise<{
     entity: string;
-    memories: any[];
-    relatedEntities: any[];
-    contacts: any[];
+    memories: Array<{
+      id: string;
+      eventTime?: string;
+      sourceType: string;
+      connectorType: string;
+      text: string;
+    }>;
+    relatedEntities: Array<{ value: string; type: string; count: number }>;
+    contacts: Array<{ id: string; displayName: string }>;
     memoryCount: number;
   }> {
     const qs = limit ? `?limit=${limit}` : '';
