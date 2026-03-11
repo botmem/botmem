@@ -32,11 +32,17 @@ export class PostHogExceptionFilter extends BaseExceptionFilter {
     // For HttpExceptions, delegate to NestJS default handler (safe serialization).
     // For unknown errors (which may contain circular refs like Socket objects),
     // send a plain response to avoid "Converting circular structure to JSON".
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse();
+
+    // Don't attempt to send if headers already sent (e.g. streaming/redirect responses)
+    if (response.headersSent) return;
+
     if (exception instanceof HttpException) {
       super.catch(exception, host);
     } else {
-      const ctx = host.switchToHttp();
-      const response = ctx.getResponse();
+      // Non-HttpException errors may contain circular refs (Socket objects etc.)
+      // Send a plain response to avoid "Converting circular structure to JSON"
       const message = exception instanceof Error ? exception.message : 'Internal server error';
       response.status(status).json({
         statusCode: status,
