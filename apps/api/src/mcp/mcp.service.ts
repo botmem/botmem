@@ -48,7 +48,20 @@ export class McpService implements OnModuleDestroy {
         throw new UnauthorizedException('Session user mismatch');
       }
       session.lastAccess = Date.now();
-      await session.transport.handleRequest(req, res, req.body);
+      this.logger.debug(
+        `MCP request on session ${sessionId}: ${JSON.stringify(req.body?.method || req.body)}`,
+      );
+      try {
+        await session.transport.handleRequest(req, res, req.body);
+      } catch (err: unknown) {
+        this.logger.error(
+          `MCP session ${sessionId} handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal MCP error' });
+        }
+      }
       return;
     }
 
@@ -57,8 +70,6 @@ export class McpService implements OnModuleDestroy {
       const server = this.createServer(userId);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        // Store session as soon as transport generates the ID (before response is sent)
-        // to avoid race conditions with follow-up requests from fast clients
         onsessioninitialized: (newSessionId: string) => {
           this.sessions.set(newSessionId, {
             server,
@@ -69,12 +80,33 @@ export class McpService implements OnModuleDestroy {
           this.logger.log(`MCP session created: ${newSessionId} for user ${userId}`);
         },
       });
+
+      transport.onclose = () => {
+        this.logger.warn(`MCP transport closed unexpectedly`);
+      };
+      transport.onerror = (err: Error) => {
+        this.logger.error(`MCP transport error: ${err.message}`, err.stack);
+      };
+
       await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      try {
+        await transport.handleRequest(req, res, req.body);
+      } catch (err: unknown) {
+        this.logger.error(
+          `MCP handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal MCP error' });
+        }
+      }
       return;
     }
 
     // Invalid or expired session
+    this.logger.warn(
+      `MCP invalid session request: method=${req.method}, sessionId=${sessionId}, activeSessions=${this.sessions.size}`,
+    );
     res.status(400).json({ error: 'Invalid or missing session' });
   }
 

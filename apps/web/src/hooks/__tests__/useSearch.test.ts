@@ -66,7 +66,7 @@ describe('useSearch', () => {
   });
 
   it('ignores terms shorter than minLength', () => {
-    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as any);
+    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as never);
 
     const { result } = renderHook(() => useSearch({ minLength: 3 }));
 
@@ -82,7 +82,7 @@ describe('useSearch', () => {
   });
 
   it('searches after debounce', async () => {
-    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as any);
+    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as never);
     const onResults = vi.fn();
 
     const { result } = renderHook(() => useSearch({ debounceMs: 300, onResults }));
@@ -122,7 +122,7 @@ describe('useSearch', () => {
   });
 
   it('clears results when term becomes empty after having results', async () => {
-    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as any);
+    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as never);
     const onClear = vi.fn();
 
     const { result } = renderHook(() => useSearch({ debounceMs: 100, onClear }));

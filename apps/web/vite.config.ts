@@ -11,6 +11,15 @@ export default defineConfig({
     },
     conditions: ['source'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
+    },
+  },
   server: {
     port: 12412,
     strictPort: false,

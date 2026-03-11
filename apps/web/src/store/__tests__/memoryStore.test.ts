@@ -52,7 +52,7 @@ const sampleMemories = [
 describe('memoryStore', () => {
   beforeEach(() => {
     useMemoryStore.setState({
-      memories: sampleMemories as any,
+      memories: sampleMemories as never,
       query: '',
       filters: { source: null, minImportance: 0 },
     });

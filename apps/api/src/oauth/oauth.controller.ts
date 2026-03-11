@@ -47,6 +47,7 @@ export class OAuthController {
   }
 
   @Post('register')
+  @Public()
   async register(
     @Body() body: { client_name: string; redirect_uris: string[]; grant_types?: string[] },
   ) {

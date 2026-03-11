@@ -12,7 +12,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mockOk(data: any) {
+function mockOk(data: unknown) {
   mockFetch.mockResolvedValue({
     ok: true,
     json: () => Promise.resolve(data),
@@ -57,7 +57,10 @@ describe('api', () => {
     it('creates account via POST', async () => {
       mockOk({ id: 'a1', type: 'gmail' });
       await api.createAccount({ connectorType: 'gmail', identifier: 'test' });
-      expect(mockFetch).toHaveBeenCalledWith('/api/accounts', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/accounts',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -65,7 +68,10 @@ describe('api', () => {
     it('updates account via PATCH', async () => {
       mockOk({ id: 'a1', schedule: 'hourly' });
       await api.updateAccount('a1', { schedule: 'hourly' });
-      expect(mockFetch).toHaveBeenCalledWith('/api/accounts/a1', expect.objectContaining({ method: 'PATCH' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/accounts/a1',
+        expect.objectContaining({ method: 'PATCH' }),
+      );
     });
   });
 
@@ -73,7 +79,10 @@ describe('api', () => {
     it('deletes account via DELETE', async () => {
       mockOk({ ok: true });
       await api.deleteAccount('a1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/accounts/a1', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/accounts/a1',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
   });
 
@@ -89,7 +98,10 @@ describe('api', () => {
     it('sends POST with params', async () => {
       mockOk({ type: 'complete' });
       await api.completeAuth('gmail', { code: 'abc' });
-      expect(mockFetch).toHaveBeenCalledWith('/api/auth/gmail/complete', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/auth/gmail/complete',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -119,7 +131,10 @@ describe('api', () => {
     it('cancels job via DELETE', async () => {
       mockOk({ ok: true });
       await api.cancelJob('j1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/jobs/j1', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/jobs/j1',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
   });
 
@@ -152,7 +167,10 @@ describe('api', () => {
       mockOk({ items: [], fallback: false });
       const result = await api.searchMemories('hello', undefined, 50);
       expect(result.items).toEqual([]);
-      expect(mockFetch).toHaveBeenCalledWith('/api/memories/search', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memories/search',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -172,13 +190,19 @@ describe('api', () => {
     it('pins via POST', async () => {
       mockOk({ ok: true });
       await api.pinMemory('m1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/memories/m1/pin', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memories/m1/pin',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('unpins via DELETE', async () => {
       mockOk({ ok: true });
       await api.unpinMemory('m1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/memories/m1/pin', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memories/m1/pin',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
   });
 
@@ -186,7 +210,10 @@ describe('api', () => {
     it('records via POST', async () => {
       mockOk({ ok: true });
       await api.recordRecall('m1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/memories/m1/recall', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memories/m1/recall',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -200,43 +227,64 @@ describe('api', () => {
     it('searchContacts via POST', async () => {
       mockOk([]);
       await api.searchContacts('alice');
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/search', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/search',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('updateContact via PATCH', async () => {
       mockOk({ id: 'c1' });
       await api.updateContact('c1', { displayName: 'New' });
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/c1', expect.objectContaining({ method: 'PATCH' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/c1',
+        expect.objectContaining({ method: 'PATCH' }),
+      );
     });
 
     it('mergeContacts via POST', async () => {
       mockOk({});
       await api.mergeContacts('c1', 'c2');
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/c1/merge', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/c1/merge',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('deleteContact via DELETE', async () => {
       mockOk({});
       await api.deleteContact('c1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/c1', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/c1',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
 
     it('dismissSuggestion via POST', async () => {
       mockOk({});
       await api.dismissSuggestion('c1', 'c2');
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/suggestions/dismiss', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/suggestions/dismiss',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('removeIdentifier via DELETE', async () => {
       mockOk({});
       await api.removeIdentifier('c1', 'i1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/c1/identifiers/i1', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/c1/identifiers/i1',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
 
     it('splitContact via POST', async () => {
       mockOk({});
       await api.splitContact('c1', ['i1', 'i2']);
-      expect(mockFetch).toHaveBeenCalledWith('/api/people/c1/split', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/people/c1/split',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -282,13 +330,19 @@ describe('api', () => {
     it('createMemoryBank', async () => {
       mockOk({ id: 'b1', name: 'Test', isDefault: false });
       await api.createMemoryBank('Test');
-      expect(mockFetch).toHaveBeenCalledWith('/api/memory-banks', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memory-banks',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('deleteMemoryBank', async () => {
       mockOk({ deleted: true, memoriesDeleted: 5 });
       await api.deleteMemoryBank('b1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/memory-banks/b1', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memory-banks/b1',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
   });
 
@@ -302,7 +356,10 @@ describe('api', () => {
     it('updateSettings via PATCH', async () => {
       mockOk({ key: 'new' });
       await api.updateSettings({ key: 'new' });
-      expect(mockFetch).toHaveBeenCalledWith('/api/settings', expect.objectContaining({ method: 'PATCH' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/settings',
+        expect.objectContaining({ method: 'PATCH' }),
+      );
     });
   });
 
@@ -310,7 +367,10 @@ describe('api', () => {
     it('purgeMemories', async () => {
       mockOk({});
       await api.purgeMemories();
-      expect(mockFetch).toHaveBeenCalledWith('/api/memories/purge', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memories/purge',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('retryFailedMemories', async () => {
@@ -322,7 +382,10 @@ describe('api', () => {
     it('backfillEnrich', async () => {
       mockOk({ jobId: 'j1', enqueued: 10, total: 10 });
       await api.backfillEnrich('gmail');
-      expect(mockFetch).toHaveBeenCalledWith('/api/memories/backfill-enrich', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/memories/backfill-enrich',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -336,13 +399,19 @@ describe('api', () => {
     it('createApiKey', async () => {
       mockOk({ key: 'sk-xxx', id: 'k1', name: 'test', lastFour: 'xxxx' });
       await api.createApiKey('test');
-      expect(mockFetch).toHaveBeenCalledWith('/api/api-keys', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/api-keys',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
 
     it('revokeApiKey', async () => {
       mockOk({ success: true });
       await api.revokeApiKey('k1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/api-keys/k1', expect.objectContaining({ method: 'DELETE' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/api-keys/k1',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
   });
 
@@ -356,7 +425,10 @@ describe('api', () => {
     it('setMe', async () => {
       mockOk({});
       await api.setMe('c1');
-      expect(mockFetch).toHaveBeenCalledWith('/api/me/set', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/me/set',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 
@@ -370,7 +442,10 @@ describe('api', () => {
     it('retryFailedJobs', async () => {
       mockOk({ ok: true, retried: 3 });
       await api.retryFailedJobs();
-      expect(mockFetch).toHaveBeenCalledWith('/api/jobs/retry-failed', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/jobs/retry-failed',
+        expect.objectContaining({ method: 'POST' }),
+      );
     });
   });
 });
@@ -379,12 +454,16 @@ describe('WebSocket helpers', () => {
   it('subscribeToChannel sends subscribe message', () => {
     const ws = { send: vi.fn() } as unknown as WebSocket;
     subscribeToChannel(ws, 'logs');
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ event: 'subscribe', data: { channel: 'logs' } }));
+    expect(ws.send).toHaveBeenCalledWith(
+      JSON.stringify({ event: 'subscribe', data: { channel: 'logs' } }),
+    );
   });
 
   it('unsubscribeFromChannel sends unsubscribe message', () => {
     const ws = { send: vi.fn() } as unknown as WebSocket;
     unsubscribeFromChannel(ws, 'logs');
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ event: 'unsubscribe', data: { channel: 'logs' } }));
+    expect(ws.send).toHaveBeenCalledWith(
+      JSON.stringify({ event: 'unsubscribe', data: { channel: 'logs' } }),
+    );
   });
 });

@@ -722,7 +722,7 @@ function HowItWorks() {
         </div>
 
         {/* Step indicators below */}
-        <div className="mt-6 flex justify-center gap-2" aria-hidden="true">
+        <div className="mt-6 flex justify-center gap-2">
           {HOW_IT_WORKS_TABS.map((t, i) => (
             <button
               key={t.id}
@@ -1035,8 +1035,7 @@ export function LandingPage() {
       'Open-source personal memory system. Ingest Gmail, Slack, WhatsApp, iMessage, photos, and locations into one AI-powered searchable memory. Self-hosted, local-first, privacy-focused. MCP server for Claude, Cursor, and AI agents.',
     canonical: 'https://botmem.xyz/',
     ogTitle: 'Botmem — Your Life, Searchable',
-    ogDescription:
-      'Self-hosted personal memory. Search your entire digital life locally with AI.',
+    ogDescription: 'Self-hosted personal memory. Search your entire digital life locally with AI.',
   });
 
   useEffect(() => {

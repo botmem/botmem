@@ -14,8 +14,22 @@ import { api } from '../../lib/api';
 import { useApiKeys } from '../useApiKeys';
 
 const mockKeys = [
-  { id: 'k1', name: 'Key 1', lastFour: 'abcd', createdAt: '2025-01-01', expiresAt: null, revokedAt: null },
-  { id: 'k2', name: 'Key 2', lastFour: 'efgh', createdAt: '2025-01-02', expiresAt: '2026-01-01', revokedAt: null },
+  {
+    id: 'k1',
+    name: 'Key 1',
+    lastFour: 'abcd',
+    createdAt: '2025-01-01',
+    expiresAt: null,
+    revokedAt: null,
+  },
+  {
+    id: 'k2',
+    name: 'Key 2',
+    lastFour: 'efgh',
+    createdAt: '2025-01-02',
+    expiresAt: '2026-01-01',
+    revokedAt: null,
+  },
 ];
 
 describe('useApiKeys', () => {
@@ -24,7 +38,7 @@ describe('useApiKeys', () => {
   });
 
   it('fetches keys on mount', async () => {
-    vi.mocked(api.listApiKeys).mockResolvedValue(mockKeys as any);
+    vi.mocked(api.listApiKeys).mockResolvedValue(mockKeys as never);
 
     const { result } = renderHook(() => useApiKeys());
 
@@ -50,8 +64,13 @@ describe('useApiKeys', () => {
   });
 
   it('createKey calls API and refreshes list', async () => {
-    vi.mocked(api.listApiKeys).mockResolvedValue(mockKeys as any);
-    vi.mocked(api.createApiKey).mockResolvedValue({ key: 'bm_sk_newkey', id: 'k3', name: 'New Key', lastFour: 'ijkl' } as any);
+    vi.mocked(api.listApiKeys).mockResolvedValue(mockKeys as never);
+    vi.mocked(api.createApiKey).mockResolvedValue({
+      key: 'bm_sk_newkey',
+      id: 'k3',
+      name: 'New Key',
+      lastFour: 'ijkl',
+    });
 
     const { result } = renderHook(() => useApiKeys());
 
@@ -68,8 +87,8 @@ describe('useApiKeys', () => {
   });
 
   it('revokeKey calls API and refreshes list', async () => {
-    vi.mocked(api.listApiKeys).mockResolvedValue(mockKeys as any);
-    vi.mocked(api.revokeApiKey).mockResolvedValue(undefined as any);
+    vi.mocked(api.listApiKeys).mockResolvedValue(mockKeys as never);
+    vi.mocked(api.revokeApiKey).mockResolvedValue({ success: true });
 
     const { result } = renderHook(() => useApiKeys());
 

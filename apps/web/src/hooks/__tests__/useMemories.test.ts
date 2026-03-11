@@ -24,7 +24,7 @@ const sampleMemories = [
 describe('useMemories', () => {
   beforeEach(() => {
     useMemoryStore.setState({
-      memories: sampleMemories as any,
+      memories: sampleMemories as never,
       query: '',
       filters: { source: null, minImportance: 0 },
     });

@@ -27,14 +27,9 @@ export function Logo({ variant = 'full', className, height }: LogoProps) {
   }
 
   const src = resolvedTheme === 'light' ? '/logo-light.svg' : '/logo.svg';
+  // SVG viewBox is 210×52 → aspect ratio 210/52 ≈ 4.038
+  const h = height ?? 36;
+  const w = Math.round(h * (210 / 52));
 
-  return (
-    <img
-      src={src}
-      alt="Botmem"
-      height={height ?? 36}
-      className={className}
-      style={{ width: 'auto' }}
-    />
-  );
+  return <img src={src} alt="Botmem" height={h} width={w} className={className} />;
 }

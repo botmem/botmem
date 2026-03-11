@@ -14,12 +14,19 @@ vi.mock('../../lib/api', () => ({
 }));
 
 vi.mock('../../lib/ws', () => ({
-  sharedWs: { subscribe: vi.fn(), unsubscribe: vi.fn(), onMessage: vi.fn(), offMessage: vi.fn(), connect: vi.fn() },
+  sharedWs: {
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+    onMessage: vi.fn(),
+    offMessage: vi.fn(),
+    connect: vi.fn(),
+  },
 }));
 
 vi.mock('../authStore', () => ({
   useAuthStore: Object.assign(
-    (sel: (state: Record<string, unknown>) => unknown) => sel({ accessToken: 'tok', user: { id: 'u1' } }),
+    (sel: (state: Record<string, unknown>) => unknown) =>
+      sel({ accessToken: 'tok', user: { id: 'u1' } }),
     {
       getState: () => ({ accessToken: 'tok', user: { id: 'u1' }, refreshSession: vi.fn() }),
       setState: vi.fn(),
@@ -30,7 +37,7 @@ vi.mock('../authStore', () => ({
 
 vi.mock('../memoryBankStore', () => ({
   useMemoryBankStore: Object.assign(
-    (sel: any) => sel({ activeMemoryBankId: null }),
+    (sel: (state: Record<string, unknown>) => unknown) => sel({ activeMemoryBankId: null }),
     { getState: () => ({ activeMemoryBankId: null }), setState: vi.fn(), subscribe: vi.fn() },
   ),
 }));
@@ -48,7 +55,16 @@ describe('memoryStore extended', () => {
   describe('loadMemories', () => {
     it('fetches and maps memories', async () => {
       (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-        items: [{ id: 'm1', sourceType: 'email', connectorType: 'gmail', text: 'Hello', eventTime: '2026-01-01', pinned: false }],
+        items: [
+          {
+            id: 'm1',
+            sourceType: 'email',
+            connectorType: 'gmail',
+            text: 'Hello',
+            eventTime: '2026-01-01',
+            pinned: false,
+          },
+        ],
         total: 1,
       });
       await useMemoryStore.getState().loadMemories();
@@ -60,7 +76,9 @@ describe('memoryStore extended', () => {
     });
 
     it('handles error', async () => {
-      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useMemoryStore.getState().loadMemories();
       expect(useMemoryStore.getState().loading).toBe(false);
     });
@@ -78,7 +96,23 @@ describe('memoryStore extended', () => {
   describe('loadMoreMemories', () => {
     it('appends memories', async () => {
       useMemoryStore.setState({
-        memories: [{ id: 'm0', source: 'email', sourceConnector: 'gmail', accountIdentifier: null, text: '', time: '', ingestTime: '', factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' }, weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }, entities: [], claims: [], metadata: {}, pinned: false }] as any,
+        memories: [
+          {
+            id: 'm0',
+            source: 'email',
+            sourceConnector: 'gmail',
+            accountIdentifier: null,
+            text: '',
+            time: '',
+            ingestTime: '',
+            factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' },
+            weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 },
+            entities: [],
+            claims: [],
+            metadata: {},
+            pinned: false,
+          },
+        ] as unknown as ReturnType<typeof useMemoryStore.getState>['memories'],
         hasMore: true,
         loadingMore: false,
         query: '',
@@ -105,7 +139,9 @@ describe('memoryStore extended', () => {
 
     it('handles error', async () => {
       useMemoryStore.setState({ hasMore: true, loadingMore: false, query: '', memories: [] });
-      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useMemoryStore.getState().loadMoreMemories();
       expect(useMemoryStore.getState().loadingMore).toBe(false);
     });
@@ -128,7 +164,9 @@ describe('memoryStore extended', () => {
     });
 
     it('handles search error', async () => {
-      (api.searchMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.searchMemories as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useMemoryStore.getState().searchMemories('test');
       expect(useMemoryStore.getState().loading).toBe(false);
     });
@@ -137,7 +175,23 @@ describe('memoryStore extended', () => {
   describe('pinMemory / unpinMemory', () => {
     it('pins a memory', async () => {
       useMemoryStore.setState({
-        memories: [{ id: 'm1', pinned: false, source: 'email', sourceConnector: 'gmail', accountIdentifier: null, text: '', time: '', ingestTime: '', factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' }, weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }, entities: [], claims: [], metadata: {} }] as any,
+        memories: [
+          {
+            id: 'm1',
+            pinned: false,
+            source: 'email',
+            sourceConnector: 'gmail',
+            accountIdentifier: null,
+            text: '',
+            time: '',
+            ingestTime: '',
+            factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' },
+            weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 },
+            entities: [],
+            claims: [],
+            metadata: {},
+          },
+        ] as unknown as ReturnType<typeof useMemoryStore.getState>['memories'],
       });
       (api.pinMemory as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
       await useMemoryStore.getState().pinMemory('m1');
@@ -146,7 +200,23 @@ describe('memoryStore extended', () => {
 
     it('unpins a memory', async () => {
       useMemoryStore.setState({
-        memories: [{ id: 'm1', pinned: true, source: 'email', sourceConnector: 'gmail', accountIdentifier: null, text: '', time: '', ingestTime: '', factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' }, weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }, entities: [], claims: [], metadata: {} }] as any,
+        memories: [
+          {
+            id: 'm1',
+            pinned: true,
+            source: 'email',
+            sourceConnector: 'gmail',
+            accountIdentifier: null,
+            text: '',
+            time: '',
+            ingestTime: '',
+            factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: '' },
+            weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 },
+            entities: [],
+            claims: [],
+            metadata: {},
+          },
+        ] as unknown as ReturnType<typeof useMemoryStore.getState>['memories'],
       });
       (api.unpinMemory as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
       await useMemoryStore.getState().unpinMemory('m1');
@@ -156,7 +226,29 @@ describe('memoryStore extended', () => {
 
   describe('mergeGraphDelta', () => {
     it('adds new nodes and links', () => {
-      useMemoryStore.setState({ graphData: { nodes: [{ id: 'n1', label: 'A', source: 'email', sourceConnector: 'gmail', importance: 0.5, factuality: 'UNVERIFIED', cluster: 0, nodeType: 'memory', entities: [], connectors: [], text: '', weights: {}, eventTime: '', metadata: {} }], links: [] } });
+      useMemoryStore.setState({
+        graphData: {
+          nodes: [
+            {
+              id: 'n1',
+              label: 'A',
+              source: 'email',
+              sourceConnector: 'gmail',
+              importance: 0.5,
+              factuality: 'UNVERIFIED',
+              cluster: 0,
+              nodeType: 'memory',
+              entities: [],
+              connectors: [],
+              text: '',
+              weights: {},
+              eventTime: '',
+              metadata: {},
+            },
+          ],
+          links: [],
+        },
+      });
       useMemoryStore.getState().mergeGraphDelta({
         nodes: [{ id: 'n2', label: 'B' }],
         contacts: [{ id: 'c1', label: 'Person' }],
@@ -169,8 +261,32 @@ describe('memoryStore extended', () => {
     });
 
     it('deduplicates nodes', () => {
-      useMemoryStore.setState({ graphData: { nodes: [{ id: 'n1', label: 'A', source: 'email', sourceConnector: 'gmail', importance: 0.5, factuality: 'UNVERIFIED', cluster: 0, nodeType: 'memory', entities: [], connectors: [], text: '', weights: {}, eventTime: '', metadata: {} }], links: [] } });
-      useMemoryStore.getState().mergeGraphDelta({ nodes: [{ id: 'n1', label: 'A-dup' }], links: [] });
+      useMemoryStore.setState({
+        graphData: {
+          nodes: [
+            {
+              id: 'n1',
+              label: 'A',
+              source: 'email',
+              sourceConnector: 'gmail',
+              importance: 0.5,
+              factuality: 'UNVERIFIED',
+              cluster: 0,
+              nodeType: 'memory',
+              entities: [],
+              connectors: [],
+              text: '',
+              weights: {},
+              eventTime: '',
+              metadata: {},
+            },
+          ],
+          links: [],
+        },
+      });
+      useMemoryStore
+        .getState()
+        .mergeGraphDelta({ nodes: [{ id: 'n1', label: 'A-dup' }], links: [] });
       expect(useMemoryStore.getState().graphData.nodes).toHaveLength(1);
     });
   });
@@ -186,7 +302,12 @@ describe('memoryStore extended', () => {
       useMemoryStore.setState({ graphData: { nodes: [], links: [] } });
       useMemoryStore.getState().mergeGraphDeltaBatch([
         { nodes: [{ id: 'n1', label: 'A' }], links: [], contacts: [], contactEdges: [] },
-        { nodes: [{ id: 'n2', label: 'B' }], links: [{ source: 'n1', target: 'n2', type: 'related' }], contacts: [], contactEdges: [] },
+        {
+          nodes: [{ id: 'n2', label: 'B' }],
+          links: [{ source: 'n1', target: 'n2', type: 'related' }],
+          contacts: [],
+          contactEdges: [],
+        },
       ]);
       const g = useMemoryStore.getState().graphData;
       expect(g.nodes).toHaveLength(2);
@@ -196,7 +317,13 @@ describe('memoryStore extended', () => {
 
   describe('reset', () => {
     it('resets all state', () => {
-      useMemoryStore.setState({ memories: [{ id: 'x' }] as any, query: 'test', loading: true });
+      useMemoryStore.setState({
+        memories: [{ id: 'x' }] as unknown as ReturnType<
+          typeof useMemoryStore.getState
+        >['memories'],
+        query: 'test',
+        loading: true,
+      });
       useMemoryStore.getState().reset();
       const s = useMemoryStore.getState();
       expect(s.memories).toHaveLength(0);
@@ -233,7 +360,9 @@ describe('memoryStore extended', () => {
     });
 
     it('handles error', async () => {
-      (api.getGraphData as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.getGraphData as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useMemoryStore.getState().loadGraph();
       expect(useMemoryStore.getState().graphLoading).toBe(false);
     });
