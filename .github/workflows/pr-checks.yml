@@ -1,0 +1,132 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  quality-gate:
+    name: Lint, Test & Coverage
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Skip CI for dependabot PRs — they only change lockfile/versions
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+
+  repo-hygiene:
+    name: Repo Hygiene Checks
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for open Dependabot PRs
+        id: check_dependabot_prs
+        run: |
+          echo "Checking for open Dependabot PRs..."
+
+          OPEN_DEPENDABOT_PRS=$(gh pr list --author "app/dependabot" --state open --json number,title,url 2>/dev/null || echo "[]")
+
+          if [ -z "$OPEN_DEPENDABOT_PRS" ] || [ "$OPEN_DEPENDABOT_PRS" == "[]" ]; then
+            echo "No open Dependabot PRs found."
+            echo "has_dependabot_prs=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PR_COUNT=$(echo "$OPEN_DEPENDABOT_PRS" | jq 'length' 2>/dev/null || echo "0")
+
+          if [ "$PR_COUNT" -gt 0 ]; then
+            echo ""
+            echo "Found $PR_COUNT open Dependabot PR(s):"
+            echo "$OPEN_DEPENDABOT_PRS" | jq -r '.[] | "  - PR #\(.number): \(.title) — \(.url)"'
+            echo ""
+            echo "Please merge or close Dependabot PRs before merging this PR."
+            echo "has_dependabot_prs=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_dependabot_prs=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for stale branches
+        id: check_stale_branches
+        run: |
+          echo "Checking for stale branches (no commits in 15+ days)..."
+
+          CURRENT_DATE=$(date +%s)
+          STALE_BRANCHES=()
+
+          git fetch --all --quiet 2>/dev/null || true
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            EPOCH=$(echo "$line" | awk '{print $1}')
+            BRANCH=$(echo "$line" | awk '{print $2}' | sed 's|origin/||')
+
+            [ "$BRANCH" = "main" ] && continue
+            [[ "$BRANCH" == HEAD* ]] && continue
+
+            DAYS_SINCE_COMMIT=$(( (CURRENT_DATE - EPOCH) / 86400 ))
+
+            if [ $DAYS_SINCE_COMMIT -ge 15 ]; then
+              STALE_BRANCHES+=("$BRANCH (last commit: $DAYS_SINCE_COMMIT days ago)")
+              echo "Stale branch found: $BRANCH (last commit: $DAYS_SINCE_COMMIT days ago)"
+            fi
+          done < <(git for-each-ref --format='%(committerdate:unix) %(refname:short)' refs/remotes/origin/)
+
+          if [ ${#STALE_BRANCHES[@]} -gt 0 ]; then
+            echo ""
+            echo "Found ${#STALE_BRANCHES[@]} stale branch(es):"
+            printf '%s\n' "${STALE_BRANCHES[@]}"
+            echo ""
+            echo "Please clean up stale branches before merging this PR."
+            echo "has_stale_branches=true" >> $GITHUB_OUTPUT
+          else
+            echo "No stale branches found."
+            echo "has_stale_branches=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail if hygiene checks failed
+        if: steps.check_dependabot_prs.outputs.has_dependabot_prs == 'true' || steps.check_stale_branches.outputs.has_stale_branches == 'true'
+        run: |
+          REASONS=()
+          if [ "${{ steps.check_stale_branches.outputs.has_stale_branches }}" == "true" ]; then
+            REASONS+=("Stale branches found")
+          fi
+          if [ "${{ steps.check_dependabot_prs.outputs.has_dependabot_prs }}" == "true" ]; then
+            REASONS+=("Open Dependabot PRs found")
+          fi
+          echo "PR checks failed: ${REASONS[*]}"
+          exit 1
