@@ -76,7 +76,7 @@ export function ContactsPage() {
           <button
             key={value}
             onClick={() => setEntityFilter(value)}
-            className={`font-mono text-xs font-bold uppercase px-4 py-2 cursor-pointer transition-colors ${
+            className={`font-mono text-xs font-bold uppercase px-4 py-3 min-h-[44px] cursor-pointer transition-colors ${
               entityFilter === value
                 ? 'bg-nb-lime text-black'
                 : 'bg-nb-surface text-nb-muted hover:text-nb-text'
@@ -165,7 +165,7 @@ export function ContactsPage() {
           <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
             <button
               onClick={() => selectContact(null)}
-              className="border-2 border-nb-border w-9 h-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+              className="border-2 border-nb-border w-11 h-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
             >
               <svg
                 width="16"

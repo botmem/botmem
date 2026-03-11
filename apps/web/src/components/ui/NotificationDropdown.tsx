@@ -63,10 +63,10 @@ export function NotificationDropdown({
       <button
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          'relative border-3 border-nb-border bg-nb-surface shadow-nb p-2',
+          'relative border-3 border-nb-border bg-nb-surface shadow-nb p-3',
           'hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm',
           'active:translate-x-[4px] active:translate-y-[4px] active:shadow-none',
-          'transition-all duration-100 cursor-pointer'
+          'transition-all duration-100 cursor-pointer',
         )}
       >
         <svg
@@ -94,8 +94,8 @@ export function NotificationDropdown({
       {open && (
         <div
           className={cn(
-            'absolute right-0 top-full mt-2 z-50 w-80',
-            'border-3 border-nb-border bg-nb-surface shadow-nb'
+            'absolute right-0 top-full mt-2 z-50 w-[calc(100vw-2rem)] sm:w-80',
+            'border-3 border-nb-border bg-nb-surface shadow-nb',
           )}
         >
           {/* Header */}
@@ -127,7 +127,7 @@ export function NotificationDropdown({
                   className={cn(
                     'flex items-start gap-2 px-3 py-2 border-b border-nb-border/30 cursor-pointer',
                     'hover:bg-nb-surface-muted transition-colors',
-                    !n.read && 'bg-nb-surface-muted/50'
+                    !n.read && 'bg-nb-surface-muted/50',
                   )}
                 >
                   {/* Level dot */}
@@ -141,7 +141,7 @@ export function NotificationDropdown({
                     <p
                       className={cn(
                         'font-mono text-xs leading-tight truncate',
-                        n.read ? 'text-nb-muted' : 'text-nb-text font-medium'
+                        n.read ? 'text-nb-muted' : 'text-nb-text font-medium',
                       )}
                     >
                       {n.message}
@@ -157,7 +157,7 @@ export function NotificationDropdown({
                       e.stopPropagation();
                       onDismiss(n.id);
                     }}
-                    className="mt-0.5 shrink-0 text-nb-muted hover:text-nb-text transition-colors cursor-pointer"
+                    className="shrink-0 text-nb-muted hover:text-nb-text transition-colors cursor-pointer p-2 -m-1"
                   >
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                       <path

@@ -191,18 +191,18 @@ function IdentityHeader({
   return (
     <Card className="p-0 overflow-hidden mb-6" data-tour="me-identity">
       <div className="bg-nb-lime h-2" />
-      <div className="p-6 flex items-center gap-6">
+      <div className="p-4 sm:p-6 flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6">
         <Avatar
           contactId={identity.contactId ?? undefined}
           src={selectedAvatar?.url}
           fallbackInitials={(identity.name ?? '?')[0]?.toUpperCase() ?? '?'}
           isSelf
           size="lg"
-          className="w-24 h-24 shrink-0"
+          className="w-20 h-20 sm:w-24 sm:h-24 shrink-0"
         />
 
-        <div className="flex-1 min-w-0">
-          <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text truncate">
+        <div className="flex-1 min-w-0 text-center sm:text-left">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-nb-text truncate">
             {identity.name ?? 'Unknown'}
           </h1>
           <div className="mt-2 flex flex-wrap gap-3">
@@ -366,7 +366,7 @@ function TopEntitiesCloud({ topEntities }: { topEntities: MeData['topEntities'] 
             {topEntities.map((e) => {
               const maxCount = topEntities[0]?.count ?? 1;
               const ratio = Math.max(0.5, e.count / maxCount);
-              const fontSize = 10 + Math.round(ratio * 10);
+              const fontSize = 12 + Math.round(ratio * 8);
               return (
                 <span
                   key={e.name}

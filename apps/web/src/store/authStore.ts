@@ -9,6 +9,7 @@ import {
   sendEmailVerification,
 } from 'firebase/auth';
 import { firebaseAuth, googleProvider, githubProvider } from '../lib/firebase';
+import { trackEvent, resetUser } from '../lib/posthog';
 
 interface AuthState {
   user: User | null;
@@ -71,6 +72,7 @@ export const useAuthStore = create<AuthState>()(
             method: 'POST',
             body: JSON.stringify({ email, password }),
           });
+          trackEvent('login', { method: 'email' });
           set({
             user: data.user,
             accessToken: data.accessToken,
@@ -79,6 +81,10 @@ export const useAuthStore = create<AuthState>()(
             recoveryKey: data.recoveryKey ?? null,
           });
         } catch (err: unknown) {
+          trackEvent('login_failed', {
+            method: 'email',
+            error: err instanceof Error ? err.message : 'unknown',
+          });
           set({ error: err instanceof Error ? err.message : 'Login failed', isLoading: false });
           throw err;
         }
@@ -104,6 +110,7 @@ export const useAuthStore = create<AuthState>()(
               throw new Error(body.message || 'Backend sync failed');
             }
             const data = await res.json();
+            trackEvent('signup', { method: 'firebase_email' });
             set({
               user: data.user,
               accessToken: idToken,
@@ -120,6 +127,7 @@ export const useAuthStore = create<AuthState>()(
               method: 'POST',
               body: JSON.stringify({ email, password, name }),
             });
+            trackEvent('signup', { method: 'email' });
             set({
               user: data.user,
               accessToken: data.accessToken,
@@ -138,6 +146,7 @@ export const useAuthStore = create<AuthState>()(
                 : err instanceof Error
                   ? err.message
                   : 'Signup failed';
+          trackEvent('signup_failed', { error: msg });
           set({ error: msg, isLoading: false });
           throw err;
         }
@@ -164,6 +173,7 @@ export const useAuthStore = create<AuthState>()(
       dismissRecoveryKey: () => set({ recoveryKey: null }),
 
       logout: async () => {
+        trackEvent('logout');
         // Sign out of Firebase if in firebase mode
         if (isFirebaseMode && firebaseAuth.currentUser) {
           await firebaseSignOut(firebaseAuth).catch(() => {});
@@ -173,6 +183,7 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           // Logout should always clear state even if API call fails
         }
+        resetUser();
         set({ user: null, accessToken: null, error: null });
       },
 
@@ -256,6 +267,7 @@ export const useAuthStore = create<AuthState>()(
       completeOnboarding: async () => {
         const { user, accessToken } = get();
         if (!user) return;
+        trackEvent('onboarding_completed');
         set({ user: { ...user, onboarded: true } });
         try {
           await fetch(`${API_BASE}/complete-onboarding`, {
@@ -297,6 +309,7 @@ export const useAuthStore = create<AuthState>()(
           }
           const data = await res.json();
 
+          trackEvent('login', { method: `firebase_${provider}` });
           // Store Firebase ID token as the accessToken — used for Bearer auth on all API calls
           set({
             user: data.user,
@@ -315,6 +328,10 @@ export const useAuthStore = create<AuthState>()(
             set({ isLoading: false });
             return;
           }
+          trackEvent('login_failed', {
+            method: `firebase_${provider}`,
+            error: err instanceof Error ? err.message : 'unknown',
+          });
           set({
             error: err instanceof Error ? err.message : 'Firebase login failed',
             isLoading: false,

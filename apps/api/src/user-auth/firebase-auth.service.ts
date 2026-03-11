@@ -5,6 +5,7 @@ import { ConfigService } from '../config/config.service';
 import { UsersService } from './users.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { UserKeyService } from '../crypto/user-key.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 @Injectable()
 export class FirebaseAuthService implements OnModuleInit {
@@ -16,6 +17,7 @@ export class FirebaseAuthService implements OnModuleInit {
     private usersService: UsersService,
     private memoryBanksService: MemoryBanksService,
     private userKeyService: UserKeyService,
+    private analytics: AnalyticsService,
   ) {}
 
   onModuleInit() {
@@ -54,6 +56,14 @@ export class FirebaseAuthService implements OnModuleInit {
       // Existing user — try 2-tier DEK lookup
       const dek = await this.userKeyService.getDek(user.id);
       const needsRecoveryKey = !dek && !!user.recoveryKeyHash;
+      this.analytics.capture(
+        'user_logged_in',
+        {
+          auth_method: 'firebase',
+          firebase_provider: decoded.firebase?.sign_in_provider ?? 'unknown',
+        },
+        user.id,
+      );
       return { user, recoveryKey: undefined, needsRecoveryKey };
     }
 
@@ -76,6 +86,14 @@ export class FirebaseAuthService implements OnModuleInit {
     await this.memoryBanksService.getOrCreateDefault(newUser!.id);
     await this.userKeyService.storeDek(newUser!.id, dek);
 
+    this.analytics.capture(
+      'user_registered',
+      {
+        auth_method: 'firebase',
+        firebase_provider: decoded.firebase?.sign_in_provider ?? 'unknown',
+      },
+      newUser!.id,
+    );
     this.logger.log(
       `Created local user ${newUser!.id} for Firebase UID ${decoded.uid} (recovery key generated)`,
     );

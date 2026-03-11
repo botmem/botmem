@@ -8,6 +8,7 @@ import { ConfigService } from '../../config/config.service';
 import { MailService } from '../../mail/mail.service';
 import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 import { UserKeyService } from '../../crypto/user-key.service';
+import { AnalyticsService } from '../../analytics/analytics.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import * as bcrypt from 'bcrypt';
 
@@ -98,6 +99,10 @@ describe('UserAuthService', () => {
             getDek: vi.fn().mockResolvedValue(Buffer.from('a'.repeat(32))),
             storeDek: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: AnalyticsService,
+          useValue: { capture: vi.fn() },
         },
         {
           provide: getQueueToken('reencrypt'),

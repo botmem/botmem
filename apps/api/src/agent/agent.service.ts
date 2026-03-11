@@ -76,7 +76,16 @@ export class AgentService {
       limit?: number;
       userId?: string;
     },
-  ): Promise<{ results: EnrichedMemory[]; query: string; parsed?: { temporal: { from: string; to: string } | null; temporalFallback?: boolean; intent: string; cleanQuery: string } }> {
+  ): Promise<{
+    results: EnrichedMemory[];
+    query: string;
+    parsed?: {
+      temporal: { from: string; to: string } | null;
+      temporalFallback?: boolean;
+      intent: string;
+      cleanQuery: string;
+    };
+  }> {
     const limit = options?.limit ?? 20;
     const searchResponse = await this.memoryService.search(
       query,
@@ -86,7 +95,9 @@ export class AgentService {
       options?.userId,
     );
 
-    const enriched = await Promise.all(searchResponse.items.map((r) => this.enrichMemory(r.id, r.score, options?.userId)));
+    const enriched = await Promise.all(
+      searchResponse.items.map((r) => this.enrichMemory(r.id, r.score, options?.userId)),
+    );
 
     // Group by thread (same sourceId prefix for emails, or same sourceId for conversations)
     const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
@@ -105,55 +116,56 @@ export class AgentService {
       limit?: number;
     } = {},
   ): Promise<{ results: Record<string, EnrichedMemory[]>; totalCount: number }> {
-    const db = this.dbService.db;
-    const days = options.days ?? 7;
-    const limit = options.limit ?? 100;
-    const cutoff = new Date(Date.now() - days * 86400000);
+    return this.dbService.withCurrentUser(async (db) => {
+      const days = options.days ?? 7;
+      const limit = options.limit ?? 100;
+      const cutoff = new Date(Date.now() - days * 86400000);
 
-    const conditions = [sql`${memories.eventTime} >= ${cutoff}`];
-    if (options.connectorType) {
-      conditions.push(eq(memories.connectorType, options.connectorType));
-    }
-    if (options.sourceType) {
-      conditions.push(eq(memories.sourceType, options.sourceType));
-    }
+      const conditions = [sql`${memories.eventTime} >= ${cutoff}`];
+      if (options.connectorType) {
+        conditions.push(eq(memories.connectorType, options.connectorType));
+      }
+      if (options.sourceType) {
+        conditions.push(eq(memories.sourceType, options.sourceType));
+      }
 
-    let memoryIds: Set<string> | null = null;
-    if (options.contactId) {
+      let memoryIds: Set<string> | null = null;
+      if (options.contactId) {
+        const rows = await db
+          .select({ memoryId: memoryContacts.memoryId })
+          .from(memoryContacts)
+          .where(eq(memoryContacts.contactId, options.contactId));
+        memoryIds = new Set(rows.map((r) => r.memoryId));
+      }
+
       const rows = await db
-        .select({ memoryId: memoryContacts.memoryId })
-        .from(memoryContacts)
-        .where(eq(memoryContacts.contactId, options.contactId));
-      memoryIds = new Set(rows.map((r) => r.memoryId));
-    }
+        .select()
+        .from(memories)
+        .where(and(...conditions))
+        .orderBy(desc(memories.eventTime))
+        .limit(limit);
 
-    const rows = await db
-      .select()
-      .from(memories)
-      .where(and(...conditions))
-      .orderBy(desc(memories.eventTime))
-      .limit(limit);
+      let filtered = rows;
+      if (memoryIds) {
+        filtered = rows.filter((r) => memoryIds!.has(r.id));
+      }
 
-    let filtered = rows;
-    if (memoryIds) {
-      filtered = rows.filter((r) => memoryIds!.has(r.id));
-    }
+      const enriched: EnrichedMemory[] = [];
+      for (const row of filtered) {
+        const e = await this.enrichMemory(row.id);
+        if (e) enriched.push(e);
+      }
 
-    const enriched: EnrichedMemory[] = [];
-    for (const row of filtered) {
-      const e = await this.enrichMemory(row.id);
-      if (e) enriched.push(e);
-    }
+      // Group by date
+      const grouped: Record<string, EnrichedMemory[]> = {};
+      for (const mem of enriched) {
+        const dateKey = mem.eventTime.toISOString().slice(0, 10); // YYYY-MM-DD
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push(mem);
+      }
 
-    // Group by date
-    const grouped: Record<string, EnrichedMemory[]> = {};
-    for (const mem of enriched) {
-      const dateKey = mem.eventTime.toISOString().slice(0, 10); // YYYY-MM-DD
-      if (!grouped[dateKey]) grouped[dateKey] = [];
-      grouped[dateKey].push(mem);
-    }
-
-    return { results: grouped, totalCount: enriched.length };
+      return { results: grouped, totalCount: enriched.length };
+    });
   }
 
   // ── remember ───────────────────────────────────────────────────────
@@ -162,18 +174,20 @@ export class AgentService {
     const id = randomUUID();
     const now = new Date();
 
-    await this.dbService.db.insert(memories).values({
-      id,
-      accountId: null,
-      connectorType: 'agent',
-      sourceType: 'note',
-      sourceId: `agent-${id}`,
-      text,
-      eventTime: now,
-      ingestTime: now,
-      metadata: JSON.stringify(metadata || {}),
-      embeddingStatus: 'pending',
-      createdAt: now,
+    await this.dbService.withCurrentUser(async (db) => {
+      await db.insert(memories).values({
+        id,
+        accountId: null,
+        connectorType: 'agent',
+        sourceType: 'note',
+        sourceId: `agent-${id}`,
+        text,
+        eventTime: now,
+        ingestTime: now,
+        metadata: JSON.stringify(metadata || {}),
+        embeddingStatus: 'pending',
+        createdAt: now,
+      });
     });
 
     // Generate embedding immediately
@@ -186,10 +200,9 @@ export class AgentService {
         connector_type: 'agent',
         event_time: now,
       });
-      await this.dbService.db
-        .update(memories)
-        .set({ embeddingStatus: 'done' })
-        .where(eq(memories.id, id));
+      await this.dbService.withCurrentUser(async (db) => {
+        await db.update(memories).set({ embeddingStatus: 'done' }).where(eq(memories.id, id));
+      });
     } catch (err) {
       this.logger.warn(`Failed to embed new memory ${id}: ${err}`);
     }
@@ -205,7 +218,9 @@ export class AgentService {
 
     await this.memoryService.delete(memoryId);
     // Also clean up memory_contacts links
-    await this.dbService.db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memoryId));
+    await this.dbService.withCurrentUser(async (db) => {
+      await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memoryId));
+    });
 
     return { deleted: true };
   }
@@ -232,76 +247,50 @@ export class AgentService {
       identifiersByType[ident.identifierType].push(ident.identifierValue);
     }
 
-    // Get all memories for this contact
-    const db = this.dbService.db;
-    const memRows = await db
-      .select({ memoryId: memoryContacts.memoryId })
-      .from(memoryContacts)
-      .where(eq(memoryContacts.contactId, contactId));
+    return this.dbService.withCurrentUser(async (db) => {
+      // Get all memories for this contact
+      const memRows = await db
+        .select({ memoryId: memoryContacts.memoryId })
+        .from(memoryContacts)
+        .where(eq(memoryContacts.contactId, contactId));
 
-    const memoryIdSet = memRows.map((r) => r.memoryId);
-    const totalMemories = memoryIdSet.length;
+      const memoryIdSet = memRows.map((r) => r.memoryId);
+      const totalMemories = memoryIdSet.length;
 
-    // Fetch recent 50 memories with full data
-    const recentRows = memoryIdSet.length
-      ? await db
-          .select()
-          .from(memories)
-          .where(
-            sql`${memories.id} IN (${sql.join(
-              memoryIdSet.map((id) => sql`${id}`),
-              sql`, `,
-            )})`,
-          )
-          .orderBy(desc(memories.eventTime))
-          .limit(50)
-      : [];
+      // Fetch recent 50 memories with full data
+      const recentRows = memoryIdSet.length
+        ? await db
+            .select()
+            .from(memories)
+            .where(
+              sql`${memories.id} IN (${sql.join(
+                memoryIdSet.map((id) => sql`${id}`),
+                sql`, `,
+              )})`,
+            )
+            .orderBy(desc(memories.eventTime))
+            .limit(50)
+        : [];
 
-    const recentMemories: EnrichedMemory[] = [];
-    for (const row of recentRows) {
-      const e = await this.enrichMemory(row.id);
-      if (e) recentMemories.push(e);
-    }
-
-    // Stats: by connector
-    const byConnector: Record<string, number> = {};
-    for (const row of recentRows) {
-      byConnector[row.connectorType] = (byConnector[row.connectorType] || 0) + 1;
-    }
-
-    // If we have more memories than the 50 we fetched, get full connector breakdown
-    if (totalMemories > 50 && memoryIdSet.length) {
-      const connectorCounts = await db
-        .select({
-          connectorType: memories.connectorType,
-          count: sql<number>`COUNT(*)`,
-        })
-        .from(memories)
-        .where(
-          sql`${memories.id} IN (${sql.join(
-            memoryIdSet.map((id) => sql`${id}`),
-            sql`, `,
-          )})`,
-        )
-        .groupBy(memories.connectorType);
-      for (const row of connectorCounts) {
-        byConnector[row.connectorType] = row.count;
+      const recentMemories: EnrichedMemory[] = [];
+      for (const row of recentRows) {
+        const e = await this.enrichMemory(row.id);
+        if (e) recentMemories.push(e);
       }
-    }
 
-    // Date range
-    let dateRange: { earliest: Date; latest: Date } | null = null;
-    if (recentRows.length) {
-      const allTimes = recentRows.map((r) => r.eventTime).sort((a, b) => a.getTime() - b.getTime());
-      dateRange = {
-        earliest: allTimes[0],
-        latest: allTimes[allTimes.length - 1],
-      };
+      // Stats: by connector
+      const byConnector: Record<string, number> = {};
+      for (const row of recentRows) {
+        byConnector[row.connectorType] = (byConnector[row.connectorType] || 0) + 1;
+      }
 
-      // If there are more memories, get the true earliest
+      // If we have more memories than the 50 we fetched, get full connector breakdown
       if (totalMemories > 50 && memoryIdSet.length) {
-        const earliestRow = await db
-          .select({ eventTime: memories.eventTime })
+        const connectorCounts = await db
+          .select({
+            connectorType: memories.connectorType,
+            count: sql<number>`COUNT(*)`,
+          })
           .from(memories)
           .where(
             sql`${memories.id} IN (${sql.join(
@@ -309,18 +298,47 @@ export class AgentService {
               sql`, `,
             )})`,
           )
-          .orderBy(memories.eventTime)
-          .limit(1);
-        if (earliestRow.length) dateRange!.earliest = earliestRow[0].eventTime;
+          .groupBy(memories.connectorType);
+        for (const row of connectorCounts) {
+          byConnector[row.connectorType] = row.count;
+        }
       }
-    }
 
-    return {
-      contact,
-      identifiersByType,
-      recentMemories,
-      stats: { totalMemories, byConnector, dateRange },
-    };
+      // Date range
+      let dateRange: { earliest: Date; latest: Date } | null = null;
+      if (recentRows.length) {
+        const allTimes = recentRows
+          .map((r) => r.eventTime)
+          .sort((a, b) => a.getTime() - b.getTime());
+        dateRange = {
+          earliest: allTimes[0],
+          latest: allTimes[allTimes.length - 1],
+        };
+
+        // If there are more memories, get the true earliest
+        if (totalMemories > 50 && memoryIdSet.length) {
+          const earliestRow = await db
+            .select({ eventTime: memories.eventTime })
+            .from(memories)
+            .where(
+              sql`${memories.id} IN (${sql.join(
+                memoryIdSet.map((id) => sql`${id}`),
+                sql`, `,
+              )})`,
+            )
+            .orderBy(memories.eventTime)
+            .limit(1);
+          if (earliestRow.length) dateRange!.earliest = earliestRow[0].eventTime;
+        }
+      }
+
+      return {
+        contact,
+        identifiersByType,
+        recentMemories,
+        stats: { totalMemories, byConnector, dateRange },
+      };
+    });
   }
 
   // ── summarize ──────────────────────────────────────────────────────
@@ -330,7 +348,13 @@ export class AgentService {
     maxResults = 10,
     userId?: string,
   ): Promise<{ summary: string | null; memories: EnrichedMemory[]; sourceIds: string[] }> {
-    const { items: searchResults } = await this.memoryService.search(query, undefined, maxResults, false, userId);
+    const { items: searchResults } = await this.memoryService.search(
+      query,
+      undefined,
+      maxResults,
+      false,
+      userId,
+    );
 
     const enriched: EnrichedMemory[] = [];
     for (const r of searchResults) {
@@ -384,9 +408,9 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
   }> {
     const memStats = await this.memoryService.getStats();
 
-    const contactCount = await this.dbService.db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(contacts);
+    const contactCount = await this.dbService.withCurrentUser((db) =>
+      db.select({ count: sql<number>`COUNT(*)` }).from(contacts),
+    );
 
     return {
       memories: {
@@ -399,29 +423,36 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
       },
       embedding: {
         backend: this.config.aiBackend,
-        model: this.config.aiBackend === 'openrouter' ? this.config.openrouterEmbedModel : this.config.ollamaEmbedModel,
+        model:
+          this.config.aiBackend === 'openrouter'
+            ? this.config.openrouterEmbedModel
+            : this.config.ollamaEmbedModel,
       },
     };
   }
 
   // ── Private helpers ────────────────────────────────────────────────
 
-  private async enrichMemory(memoryId: string, score?: number, userId?: string): Promise<EnrichedMemory | null> {
-    const db = this.dbService.db;
-
+  private async enrichMemory(
+    memoryId: string,
+    score?: number,
+    userId?: string,
+  ): Promise<EnrichedMemory | null> {
     const mem = await this.memoryService.getById(memoryId, userId);
     if (!mem) return null;
 
     // Fetch linked contacts
-    const mcRows = await db
-      .select({
-        contactId: memoryContacts.contactId,
-        role: memoryContacts.role,
-        displayName: contacts.displayName,
-      })
-      .from(memoryContacts)
-      .innerJoin(contacts, eq(memoryContacts.contactId, contacts.id))
-      .where(eq(memoryContacts.memoryId, memoryId));
+    const mcRows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({
+          contactId: memoryContacts.contactId,
+          role: memoryContacts.role,
+          displayName: contacts.displayName,
+        })
+        .from(memoryContacts)
+        .innerJoin(contacts, eq(memoryContacts.contactId, contacts.id))
+        .where(eq(memoryContacts.memoryId, memoryId)),
+    );
 
     return {
       id: mem.id,
