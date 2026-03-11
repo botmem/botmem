@@ -87,9 +87,9 @@ function createMockPluginRegistry() {
  * for the embed processor's core flow.
  */
 function createMockDb() {
-  const rawEvents: any[] = [];
-  const memories: any[] = [];
-  const accounts: any[] = [];
+  const rawEvents: Record<string, unknown>[] = [];
+  const memories: Record<string, unknown>[] = [];
+  const accounts: Record<string, unknown>[] = [];
 
   // Seed data
   const now = new Date();
@@ -138,7 +138,7 @@ function createMockDb() {
     update: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
     execute: vi.fn().mockResolvedValue({ rows: [] }),
-  } as any;
+  } as Record<string, ReturnType<typeof vi.fn>>;
 
   return db;
 }
@@ -171,21 +171,23 @@ describe('EmbedProcessor', () => {
     };
 
     const processor = new EmbedProcessor(
-      { db } as any,
+      { db } as unknown as import('../../db/db.service').DbService,
       ollama,
       qdrant,
-      memoryService as any,
-      createMockConnectorsService() as any,
-      createMockAccountsService() as any,
-      contactsService as any,
-      events as any,
-      logsService as any,
-      createMockJobsService() as any,
-      createMockSettingsService() as any,
-      createMockPluginRegistry() as any,
-      { capture: vi.fn() } as any,
-      configService as any,
-      enrichQueue as any,
+      memoryService as unknown as import('../memory.service').MemoryService,
+      createMockConnectorsService() as unknown as import('../../connectors/connectors.service').ConnectorsService,
+      createMockAccountsService() as unknown as import('../../accounts/accounts.service').AccountsService,
+      contactsService as unknown as import('../../contacts/contacts.service').ContactsService,
+      events as unknown as import('../../events/events.service').EventsService,
+      logsService as unknown as import('../../logs/logs.service').LogsService,
+      createMockJobsService() as unknown as import('../../jobs/jobs.service').JobsService,
+      createMockSettingsService() as unknown as import('../../settings/settings.service').SettingsService,
+      createMockPluginRegistry() as unknown as import('../../plugins/plugin-registry').PluginRegistry,
+      {
+        capture: vi.fn(),
+      } as unknown as import('../../analytics/analytics.service').AnalyticsService,
+      configService as unknown as import('../../config/config.service').ConfigService,
+      enrichQueue as unknown as import('bullmq').Queue,
     );
 
     expect(processor).toBeDefined();

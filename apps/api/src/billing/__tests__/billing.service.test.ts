@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BillingService } from '../billing.service';
+import type { ConfigService } from '../../config/config.service';
 
 // Mock Stripe at module level
 vi.mock('stripe', () => {
@@ -21,15 +22,15 @@ vi.mock('stripe', () => {
   return { default: MockStripe };
 });
 
-function createChainDb(results: any[] = []) {
+function createChainDb(results: unknown[][] = []) {
   let callIdx = 0;
-  const chain: any = {
+  const chain: Record<string, ReturnType<typeof vi.fn>> = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn(() => {
       const val = callIdx < results.length ? results[callIdx] : [];
       callIdx++;
-      const p: any = Promise.resolve(val);
+      const p = Promise.resolve(val) as Promise<unknown> & { limit: ReturnType<typeof vi.fn> };
       p.limit = vi.fn(() => Promise.resolve(val));
       return p;
     }),
@@ -41,9 +42,14 @@ function createChainDb(results: any[] = []) {
 
 describe('BillingService', () => {
   let service: BillingService;
-  let mockDb: any;
-  let dbService: any;
-  let config: any;
+  let mockDb: ReturnType<typeof createChainDb>;
+  let dbService: { db: ReturnType<typeof createChainDb> };
+  let config: {
+    isSelfHosted: boolean;
+    stripeSecretKey: string;
+    stripePriceId: string;
+    frontendUrl: string;
+  };
 
   describe('cloud mode', () => {
     beforeEach(() => {
@@ -55,14 +61,20 @@ describe('BillingService', () => {
         stripePriceId: 'price_test123',
         frontendUrl: 'http://localhost:12412',
       };
-      service = new BillingService(dbService, config as any);
+      service = new BillingService(
+        dbService as unknown as import('../../db/db.service').DbService,
+        config as unknown as ConfigService,
+      );
     });
 
     describe('getOrCreateStripeCustomer', () => {
       it('returns existing stripeCustomerId if present', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: 'cus_existing' }]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const result = await service.getOrCreateStripeCustomer('user-1', 'test@example.com');
         expect(result).toBe('cus_existing');
@@ -71,7 +83,10 @@ describe('BillingService', () => {
       it('creates Stripe customer when none exists', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: null }]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const result = await service.getOrCreateStripeCustomer('user-1', 'test@example.com');
         expect(result).toBe('cus_test123');
@@ -81,7 +96,10 @@ describe('BillingService', () => {
       it('creates Stripe customer when user has no record', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const result = await service.getOrCreateStripeCustomer('user-1', 'test@example.com');
         expect(result).toBe('cus_test123');
@@ -93,7 +111,10 @@ describe('BillingService', () => {
         // First call: getOrCreateStripeCustomer select, second: update
         mockDb = createChainDb([[{ stripeCustomerId: 'cus_existing' }]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const result = await service.createCheckoutSession('user-1', 'test@example.com');
         expect(result).toEqual({ url: 'https://checkout.stripe.com/test' });
@@ -104,7 +125,10 @@ describe('BillingService', () => {
       it('returns portal URL when customer exists', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: 'cus_existing' }]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const result = await service.createPortalSession('user-1');
         expect(result).toEqual({ url: 'https://billing.stripe.com/portal' });
@@ -113,7 +137,10 @@ describe('BillingService', () => {
       it('re-creates customer when stripeCustomerId is null', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: null, email: 'test@example.com' }]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const result = await service.createPortalSession('user-1');
         expect(result).toEqual({ url: 'https://billing.stripe.com/portal' });
@@ -122,7 +149,10 @@ describe('BillingService', () => {
       it('throws when user not found', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         await expect(service.createPortalSession('user-1')).rejects.toThrow('User not found');
       });
@@ -130,9 +160,14 @@ describe('BillingService', () => {
 
     describe('getBillingInfo', () => {
       it('returns pro plan for active subscription', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date('2026-04-01') }]]);
+        mockDb = createChainDb([
+          [{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date('2026-04-01') }],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const info = await service.getBillingInfo('user-1');
         expect(info.plan).toBe('pro');
@@ -142,9 +177,19 @@ describe('BillingService', () => {
       });
 
       it('returns pro plan for trialing subscription', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: 'trialing', subscriptionCurrentPeriodEnd: new Date('2026-04-01') }]]);
+        mockDb = createChainDb([
+          [
+            {
+              subscriptionStatus: 'trialing',
+              subscriptionCurrentPeriodEnd: new Date('2026-04-01'),
+            },
+          ],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const info = await service.getBillingInfo('user-1');
         expect(info.plan).toBe('pro');
@@ -152,9 +197,14 @@ describe('BillingService', () => {
       });
 
       it('returns free plan for canceled subscription', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: 'canceled', subscriptionCurrentPeriodEnd: null }]]);
+        mockDb = createChainDb([
+          [{ subscriptionStatus: 'canceled', subscriptionCurrentPeriodEnd: null }],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const info = await service.getBillingInfo('user-1');
         expect(info.plan).toBe('free');
@@ -163,9 +213,14 @@ describe('BillingService', () => {
       });
 
       it('returns free plan for past_due subscription', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: 'past_due', subscriptionCurrentPeriodEnd: null }]]);
+        mockDb = createChainDb([
+          [{ subscriptionStatus: 'past_due', subscriptionCurrentPeriodEnd: null }],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const info = await service.getBillingInfo('user-1');
         expect(info.plan).toBe('free');
@@ -175,7 +230,10 @@ describe('BillingService', () => {
       it('returns free plan when no user found', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const info = await service.getBillingInfo('user-1');
         expect(info.plan).toBe('free');
@@ -184,9 +242,14 @@ describe('BillingService', () => {
       });
 
       it('returns free when subscriptionStatus is null', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: null, subscriptionCurrentPeriodEnd: null }]]);
+        mockDb = createChainDb([
+          [{ subscriptionStatus: null, subscriptionCurrentPeriodEnd: null }],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         const info = await service.getBillingInfo('user-1');
         expect(info.plan).toBe('free');
@@ -196,9 +259,14 @@ describe('BillingService', () => {
 
     describe('getUserPlan', () => {
       it('returns pro for active user', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date() }]]);
+        mockDb = createChainDb([
+          [{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date() }],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         expect(await service.getUserPlan('user-1')).toBe('pro');
       });
@@ -206,7 +274,10 @@ describe('BillingService', () => {
       it('returns free for non-subscribed user', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         expect(await service.getUserPlan('user-1')).toBe('free');
       });
@@ -214,9 +285,14 @@ describe('BillingService', () => {
 
     describe('isProUser', () => {
       it('returns true for active subscriber', async () => {
-        mockDb = createChainDb([[{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date() }]]);
+        mockDb = createChainDb([
+          [{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date() }],
+        ]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         expect(await service.isProUser('user-1')).toBe(true);
       });
@@ -224,7 +300,10 @@ describe('BillingService', () => {
       it('returns false for free user', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
-        service = new BillingService(dbService, config as any);
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+        );
 
         expect(await service.isProUser('user-1')).toBe(false);
       });
@@ -241,7 +320,7 @@ describe('BillingService', () => {
               subscription: 'sub_123',
             },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
         expect(mockDb.update).toHaveBeenCalled();
@@ -256,7 +335,7 @@ describe('BillingService', () => {
         const event = {
           type: 'checkout.session.completed',
           data: { object: { client_reference_id: null, customer: 'cus_123' } },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
         expect(mockDb.update).not.toHaveBeenCalled();
@@ -273,7 +352,7 @@ describe('BillingService', () => {
               current_period_end: 1710000000,
             },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
         expect(mockDb.update).toHaveBeenCalled();
@@ -287,36 +366,57 @@ describe('BillingService', () => {
         const event = {
           type: 'customer.subscription.updated',
           data: {
-            object: { id: 'sub_123', status: 'trialing', customer: 'cus_123', current_period_end: 1710000000 },
+            object: {
+              id: 'sub_123',
+              status: 'trialing',
+              customer: 'cus_123',
+              current_period_end: 1710000000,
+            },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
-        expect(mockDb.set).toHaveBeenCalledWith(expect.objectContaining({ subscriptionStatus: 'trialing' }));
+        expect(mockDb.set).toHaveBeenCalledWith(
+          expect.objectContaining({ subscriptionStatus: 'trialing' }),
+        );
       });
 
       it('handles customer.subscription.updated with past_due status', async () => {
         const event = {
           type: 'customer.subscription.updated',
           data: {
-            object: { id: 'sub_123', status: 'past_due', customer: 'cus_123', current_period_end: 1710000000 },
+            object: {
+              id: 'sub_123',
+              status: 'past_due',
+              customer: 'cus_123',
+              current_period_end: 1710000000,
+            },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
-        expect(mockDb.set).toHaveBeenCalledWith(expect.objectContaining({ subscriptionStatus: 'past_due' }));
+        expect(mockDb.set).toHaveBeenCalledWith(
+          expect.objectContaining({ subscriptionStatus: 'past_due' }),
+        );
       });
 
       it('handles customer.subscription.updated with canceled status', async () => {
         const event = {
           type: 'customer.subscription.updated',
           data: {
-            object: { id: 'sub_123', status: 'canceled', customer: 'cus_123', current_period_end: 1710000000 },
+            object: {
+              id: 'sub_123',
+              status: 'canceled',
+              customer: 'cus_123',
+              current_period_end: 1710000000,
+            },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
-        expect(mockDb.set).toHaveBeenCalledWith(expect.objectContaining({ subscriptionStatus: 'canceled' }));
+        expect(mockDb.set).toHaveBeenCalledWith(
+          expect.objectContaining({ subscriptionStatus: 'canceled' }),
+        );
       });
 
       it('handles customer.subscription.deleted', async () => {
@@ -325,7 +425,7 @@ describe('BillingService', () => {
           data: {
             object: { id: 'sub_123', customer: 'cus_123' },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
         expect(mockDb.set).toHaveBeenCalledWith({
@@ -341,7 +441,7 @@ describe('BillingService', () => {
           data: {
             object: { customer: 'cus_123' },
           },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
         expect(mockDb.set).toHaveBeenCalledWith({ subscriptionStatus: 'past_due' });
@@ -351,14 +451,17 @@ describe('BillingService', () => {
         const event = {
           type: 'invoice.payment_failed',
           data: { object: { customer: null } },
-        } as any;
+        } as unknown as import('stripe').Stripe.Event;
 
         await service.handleWebhookEvent(event);
         expect(mockDb.update).not.toHaveBeenCalled();
       });
 
       it('handles unknown event type gracefully', async () => {
-        const event = { type: 'some.unknown.event', data: { object: {} } } as any;
+        const event = {
+          type: 'some.unknown.event',
+          data: { object: {} },
+        } as unknown as import('stripe').Stripe.Event;
         await expect(service.handleWebhookEvent(event)).resolves.toBeUndefined();
       });
     });
@@ -374,11 +477,14 @@ describe('BillingService', () => {
         stripePriceId: '',
         frontendUrl: 'http://localhost:12412',
       };
-      service = new BillingService(dbService, config as any);
+      service = new BillingService(
+        dbService as unknown as import('../../db/db.service').DbService,
+        config as unknown as ConfigService,
+      );
     });
 
     it('does not initialize Stripe', () => {
-      expect((service as any).stripe).toBeNull();
+      expect((service as unknown as { stripe: unknown }).stripe).toBeNull();
     });
 
     it('isProUser always returns true', async () => {

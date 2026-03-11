@@ -1,22 +1,36 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MemoryService } from '../memory.service';
+import type { DbService } from '../../db/db.service';
 
-function makeDbService(db: any) {
+function makeDbService(db: Record<string, ReturnType<typeof vi.fn>>) {
   return {
     db,
-    withCurrentUser: vi.fn().mockImplementation((fn: any) => fn(db)),
-  } as any;
+    withCurrentUser: vi.fn().mockImplementation((fn: (d: typeof db) => unknown) => fn(db)),
+  } as unknown as DbService;
 }
 
 describe('MemoryService', () => {
   let service: MemoryService;
-  let aiService: any;
-  let qdrantService: any;
-  let connectorsService: any;
-  let pluginRegistry: any;
-  let cryptoService: any;
-  let userKeyService: any;
-  let mockDb: any;
+  let aiService: {
+    embed: ReturnType<typeof vi.fn>;
+    rerank: ReturnType<typeof vi.fn>;
+    generate: ReturnType<typeof vi.fn>;
+  };
+  let qdrantService: {
+    search: ReturnType<typeof vi.fn>;
+    ensureCollection: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
+  let connectorsService: { get: ReturnType<typeof vi.fn> };
+  let pluginRegistry: {
+    getReranker: ReturnType<typeof vi.fn>;
+    getScorers: ReturnType<typeof vi.fn>;
+    fireHook: ReturnType<typeof vi.fn>;
+  };
+  let cryptoService: Record<string, ReturnType<typeof vi.fn>>;
+  let userKeyService: { getKey: ReturnType<typeof vi.fn>; getDek: ReturnType<typeof vi.fn> };
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
 
   const fakeMemoryRow = {
     id: 'mem-1',
@@ -74,9 +88,11 @@ describe('MemoryService', () => {
       encrypt: vi.fn().mockImplementation((v: string) => v),
       decrypt: vi.fn().mockImplementation((v: string) => v),
       isEncrypted: vi.fn().mockReturnValue(false),
-      encryptMemoryFields: vi.fn().mockImplementation((f: any) => f),
-      decryptMemoryFields: vi.fn().mockImplementation((m: any) => m),
-      decryptMemoryFieldsWithKey: vi.fn().mockImplementation((m: any) => m),
+      encryptMemoryFields: vi.fn().mockImplementation((f: Record<string, string | null>) => f),
+      decryptMemoryFields: vi.fn().mockImplementation((m: Record<string, string | null>) => m),
+      decryptMemoryFieldsWithKey: vi
+        .fn()
+        .mockImplementation((m: Record<string, string | null>) => m),
     };
 
     userKeyService = {
@@ -100,15 +116,19 @@ describe('MemoryService', () => {
       set: vi.fn().mockReturnThis(),
       delete: vi.fn().mockReturnThis(),
       execute: vi.fn().mockResolvedValue({ rows: [] }),
-      transaction: vi.fn().mockImplementation(async (fn: any) => {
-        const tx = {
-          delete: vi.fn().mockReturnThis(),
-          where: vi.fn().mockResolvedValue(undefined),
-        };
-        return fn(tx);
-      }),
+      transaction: vi
+        .fn()
+        .mockImplementation(
+          async (fn: (tx: Record<string, ReturnType<typeof vi.fn>>) => unknown) => {
+            const tx = {
+              delete: vi.fn().mockReturnThis(),
+              where: vi.fn().mockResolvedValue(undefined),
+            };
+            return fn(tx);
+          },
+        ),
       then: vi.fn().mockImplementation((fn: (...args: unknown[]) => unknown) => fn([])),
-    } as any;
+    } as Record<string, ReturnType<typeof vi.fn>>;
 
     service = new MemoryService(
       makeDbService(mockDb),

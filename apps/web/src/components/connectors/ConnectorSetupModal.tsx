@@ -124,10 +124,24 @@ function reducer(state: ModalState, action: ModalAction): ModalState {
   }
 }
 
-function schemaToFields(schema: Record<string, any>): SchemaField[] {
+interface JsonSchemaProperty {
+  title?: string;
+  description?: string;
+  type?: string;
+  readOnly?: boolean;
+  default?: string | number;
+}
+
+interface JsonSchema {
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  authMethods?: AuthMethod[];
+}
+
+function schemaToFields(schema: JsonSchema): SchemaField[] {
   if (!schema?.properties) return [];
   const requiredFields: string[] = schema.required || [];
-  return Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
+  return Object.entries(schema.properties).map(([name, prop]) => ({
     name,
     label: prop.title || name,
     placeholder: prop.description || '',
@@ -162,13 +176,13 @@ function QrAuthView({
     api
       .initiateAuth(connectorType, {})
       .then((result) => {
-        if (result.type === 'qr-code') {
+        if (result.type === 'qr-code' && result.qrData) {
           dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
           const ws = createWsConnection();
           wsRef.current = ws;
           ws.onopen = () => {
             waitForAuth(ws)
-              .then(() => subscribeToChannel(ws, result.wsChannel))
+              .then(() => subscribeToChannel(ws, result.wsChannel || ''))
               .catch(() => ws.close());
           };
           ws.onmessage = (evt) => {
@@ -265,7 +279,7 @@ function FormView({
     try {
       if (editAccountId) {
         const account = await api.reauthAccount(connectorType, editAccountId, state.values);
-        onConnect(account?.identifier || connectorType);
+        onConnect((account as { identifier?: string }).identifier || connectorType);
         dispatch({ type: 'RESET_VALUES' });
         onClose();
         return;
@@ -276,7 +290,7 @@ function FormView({
         returnTo: window.location.pathname,
       });
 
-      if (result.type === 'redirect') {
+      if (result.type === 'redirect' && result.url) {
         window.location.href = result.url;
         return;
       }
@@ -408,13 +422,13 @@ export function ConnectorSetupModal({
     api
       .initiateAuth(connectorType, {})
       .then((result) => {
-        if (result.type === 'qr-code') {
+        if (result.type === 'qr-code' && result.qrData) {
           dispatch({ type: 'QR_RECEIVED', qrData: result.qrData });
           const ws = createWsConnection();
           wsRef.current = ws;
           ws.onopen = () => {
             waitForAuth(ws)
-              .then(() => subscribeToChannel(ws, result.wsChannel))
+              .then(() => subscribeToChannel(ws, result.wsChannel || ''))
               .catch(() => ws.close());
           };
           ws.onmessage = (evt) => {
@@ -463,7 +477,7 @@ export function ConnectorSetupModal({
             api
               .initiateAuth(connectorType, { returnTo: window.location.pathname })
               .then((result) => {
-                if (result.type === 'redirect') window.location.href = result.url;
+                if (result.type === 'redirect' && result.url) window.location.href = result.url;
               })
               .catch(() => {
                 dispatch({ type: 'CREDENTIALS_CHECKED' });
@@ -485,7 +499,7 @@ export function ConnectorSetupModal({
 
     const manifest = manifests.find((m) => m.id === connectorType);
     if (manifest?.configSchema) {
-      const schema = manifest.configSchema as Record<string, any>;
+      const schema = manifest.configSchema as JsonSchema;
       dispatch({
         type: 'SET_FIELDS',
         fields: schemaToFields(schema),
@@ -495,10 +509,11 @@ export function ConnectorSetupModal({
       api
         .getConnectorSchema(connectorType)
         .then(({ schema }) => {
+          const typedSchema = schema as JsonSchema;
           dispatch({
             type: 'SET_FIELDS',
-            fields: schemaToFields(schema),
-            authMethods: schema.authMethods,
+            fields: schemaToFields(typedSchema),
+            authMethods: typedSchema.authMethods,
           });
         })
         .catch(() => {

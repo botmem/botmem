@@ -1,5 +1,13 @@
 import { WebClient } from '@slack/web-api';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+import type { Member, Profile } from '@slack/web-api/dist/types/response/UsersListResponse.js';
+import type {
+  MessageElement,
+  FileElement,
+  Attachment as SlackAttachment,
+  Reaction,
+} from '@slack/web-api/dist/types/response/ConversationsHistoryResponse.js';
+import type { User as SlackUser } from '@slack/web-api/dist/types/response/UsersInfoResponse.js';
 
 /** Delay helper for rate limiting */
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -39,12 +47,11 @@ async function fetchUserMap(client: WebClient): Promise<Map<string, UserProfile>
     let cursor: string | undefined;
     do {
       const res = await client.users.list({ limit: 200, cursor });
-      for (const u of res.members || []) {
+      for (const u of (res.members || []) as Member[]) {
         if (!u.id) continue;
-        const profile = (u as any).profile || {};
+        const profile: Partial<Profile> = u.profile || {};
         // Try every possible name field — bots use different fields
-        const realName =
-          profile.real_name_normalized || profile.real_name || (u as any).real_name || '';
+        const realName = profile.real_name_normalized || profile.real_name || u.real_name || '';
         const displayName = profile.display_name_normalized || profile.display_name || '';
         const name = u.name || '';
         const bestName = realName || displayName || name;
@@ -212,10 +219,11 @@ export async function syncSlack(
     if (!ch.user || users.has(ch.user)) continue;
     try {
       const info = await client.users.info({ user: ch.user });
-      const p = (info.user as any)?.profile || {};
-      const realName = p.real_name_normalized || p.real_name || (info.user as any)?.real_name || '';
+      const userInfo = info.user as SlackUser | undefined;
+      const p: Partial<Profile> = userInfo?.profile || {};
+      const realName = p.real_name_normalized || p.real_name || userInfo?.real_name || '';
       const displayName = p.display_name_normalized || p.display_name || '';
-      const name = (info.user as any)?.name || '';
+      const name = userInfo?.name || '';
       const bestName = realName || displayName || name;
       if (bestName) {
         users.set(ch.user, {
@@ -290,11 +298,11 @@ export async function syncSlack(
       if (dmPartnerId && !users.has(dmPartnerId)) {
         try {
           const info = await client.users.info({ user: dmPartnerId });
-          const p = (info.user as any)?.profile || {};
-          const realName =
-            p.real_name_normalized || p.real_name || (info.user as any)?.real_name || '';
+          const userInfo = info.user as SlackUser | undefined;
+          const p: Partial<Profile> = userInfo?.profile || {};
+          const realName = p.real_name_normalized || p.real_name || userInfo?.real_name || '';
           const displayName = p.display_name_normalized || p.display_name || '';
-          const name = (info.user as any)?.name || '';
+          const name = userInfo?.name || '';
           const bestName = realName || displayName || name;
           if (bestName) {
             users.set(dmPartnerId, {
@@ -345,7 +353,7 @@ export async function syncSlack(
 
           const rawText = msg.text || '';
           const normalizedText = normalizeSlackText(rawText, users);
-          const authorId = msg.user || (msg as any).bot_id;
+          const authorId = msg.user || (msg as MessageElement).bot_id;
           const authorName = authorId ? userName(users, authorId) : 'bot';
 
           // Determine self-context
@@ -373,7 +381,7 @@ export async function syncSlack(
           for (const mid of mentionedIds) addRole(mid, 'mentioned');
 
           // Reactions — who reacted to this message
-          const reactions = (msg as any).reactions || [];
+          const reactions: Reaction[] = (msg as MessageElement).reactions || [];
           const reactionContext: string[] = [];
           for (const reaction of reactions) {
             const reactors = (reaction.users || []) as string[];
@@ -384,7 +392,8 @@ export async function syncSlack(
 
           // Build thread context if this message has replies
           let threadContext = '';
-          const hasReplies = msg.thread_ts === msg.ts && (msg as any).reply_count > 0;
+          const hasReplies =
+            msg.thread_ts === msg.ts && ((msg as MessageElement).reply_count ?? 0) > 0;
           if (hasReplies) {
             await delay(REPLY_FETCH_DELAY); // Rate limit: conversations.replies is Tier 3
             const thread = await fetchThreadContext(client, channel.id!, msg.ts, users, selfId);
@@ -394,25 +403,26 @@ export async function syncSlack(
 
           // Extract file and attachment context
           let filesContext = '';
-          const files = (msg as any).files || [];
-          const attachments = (msg as any).attachments || [];
+          const files: FileElement[] = (msg as MessageElement).files || [];
+          const msgAttachments: SlackAttachment[] = (msg as MessageElement).attachments || [];
           if (files.length > 0) {
             const fileLines = files.map(
-              (f: any) => `[file: ${f.name || 'untitled'}${f.filetype ? ` (${f.filetype})` : ''}]`,
+              (f: FileElement) =>
+                `[file: ${f.name || 'untitled'}${f.filetype ? ` (${f.filetype})` : ''}]`,
             );
             filesContext += fileLines.join(' ');
           }
-          if (attachments.length > 0) {
-            const attachLines = attachments
-              .filter((a: any) => a.title || a.text || a.from_url)
-              .map((a: any) => {
+          if (msgAttachments.length > 0) {
+            const attachLines = msgAttachments
+              .filter((a: SlackAttachment) => a.title || a.text || a.from_url)
+              .map((a: SlackAttachment) => {
                 const parts = [];
                 if (a.title) parts.push(a.title);
                 if (a.text) parts.push(normalizeSlackText(a.text, users));
                 if (a.from_url) parts.push(a.from_url);
                 return `[link: ${parts.join(' - ')}]`;
               });
-            filesContext += (filesContext ? ' ' : '') + attachLines.join(' ');
+            filesContext += (filesContext ? ' ' : '') + (attachLines as string[]).join(' ');
           }
 
           // Prefix channel name for search/embedding context
@@ -440,14 +450,14 @@ export async function syncSlack(
                 channelId: channel.id,
                 channelType: convType,
                 threadTs: msg.thread_ts,
-                replyCount: (msg as any).reply_count || 0,
+                replyCount: (msg as MessageElement).reply_count || 0,
                 isSelf: !!isSelf,
                 selfId,
                 senderId: msg.user,
                 senderName: authorName,
                 participantProfiles,
                 participantRoles: roles,
-                reactions: reactions.map((r: any) => ({
+                reactions: reactions.map((r: Reaction) => ({
                   name: r.name,
                   count: r.count,
                   users: (r.users || []).map((uid: string) => userName(users, uid)),

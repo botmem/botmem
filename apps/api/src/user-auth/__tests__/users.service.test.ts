@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UsersService } from '../users.service';
+import type { DbService } from '../../db/db.service';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let mockDb: any;
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
 
   const fakeUser = {
     id: 'user-1',
@@ -31,7 +32,7 @@ describe('UsersService', () => {
       set: vi.fn().mockReturnThis(),
       delete: vi.fn().mockReturnThis(),
     };
-    service = new UsersService({ db: mockDb } as any);
+    service = new UsersService({ db: mockDb } as unknown as DbService);
   });
 
   describe('createUser', () => {

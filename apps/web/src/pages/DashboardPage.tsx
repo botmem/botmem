@@ -46,7 +46,7 @@ export function DashboardPage() {
   const [reauthOpen, setReauthOpen] = useState(false);
 
   const onSearchResults = useCallback(
-    async (results: any) => {
+    async (results: { memoryIds: Set<string> }) => {
       if (loadGraphForIds) await loadGraphForIds([...results.memoryIds]);
     },
     [loadGraphForIds],

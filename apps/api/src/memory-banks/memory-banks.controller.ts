@@ -17,7 +17,7 @@ export class MemoryBanksController {
     const banksList = await this.memoryBanksService.list(user.id);
     const counts = await this.memoryBanksService.getMemoryCounts(user.id);
     return {
-      memoryBanks: banksList.map((b: any) => ({
+      memoryBanks: banksList.map((b) => ({
         ...b,
         memoryCount: counts[b.id] || 0,
       })),

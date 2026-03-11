@@ -12,7 +12,7 @@ function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService
 
 describe('QdrantService', () => {
   let service: QdrantService;
-  let mockClient: any;
+  let mockClient: Record<string, ReturnType<typeof vi.fn>>;
 
   beforeEach(() => {
     service = new QdrantService(createMockConfig());
@@ -30,7 +30,7 @@ describe('QdrantService', () => {
       setPayload: vi.fn(),
       getCollections: vi.fn(),
     };
-    (service as any).client = mockClient;
+    (service as unknown as { client: typeof mockClient }).client = mockClient;
   });
 
   describe('ensureCollection', () => {
@@ -80,7 +80,12 @@ describe('QdrantService', () => {
     });
 
     it('logs error for other failures', async () => {
-      const logSpy = vi.spyOn((service as any).logger, 'error').mockImplementation(() => {});
+      const logSpy = vi
+        .spyOn(
+          (service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger,
+          'error',
+        )
+        .mockImplementation(() => {});
       mockClient.createPayloadIndex.mockRejectedValue(new Error('connection refused'));
 
       await service.ensureTemporalIndex();
@@ -121,7 +126,12 @@ describe('QdrantService', () => {
     });
 
     it('handles init failure gracefully', async () => {
-      const logSpy = vi.spyOn((service as any).logger, 'error').mockImplementation(() => {});
+      const logSpy = vi
+        .spyOn(
+          (service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger,
+          'error',
+        )
+        .mockImplementation(() => {});
       mockClient.collectionExists.mockRejectedValue(new Error('connection refused'));
 
       await service.onModuleInit();
@@ -137,18 +147,18 @@ describe('QdrantService', () => {
       await service.upsert('mem-1', [0.1, 0.2], { source_type: 'email' });
 
       expect(mockClient.upsert).toHaveBeenCalledWith('memories', {
-        points: [{
-          id: 'mem-1',
-          vector: [0.1, 0.2],
-          payload: { source_type: 'email' },
-        }],
+        points: [
+          {
+            id: 'mem-1',
+            vector: [0.1, 0.2],
+            payload: { source_type: 'email' },
+          },
+        ],
       });
     });
 
     it('retries on "Not Found" and creates collection', async () => {
-      mockClient.upsert
-        .mockRejectedValueOnce(new Error('Not Found'))
-        .mockResolvedValueOnce({});
+      mockClient.upsert.mockRejectedValueOnce(new Error('Not Found')).mockResolvedValueOnce({});
       mockClient.collectionExists.mockResolvedValue({ exists: false });
       mockClient.createCollection.mockResolvedValue(true);
 
@@ -197,7 +207,10 @@ describe('QdrantService', () => {
 
       await service.search([0.1], 5, filter);
 
-      expect(mockClient.search).toHaveBeenCalledWith('memories', expect.objectContaining({ filter }));
+      expect(mockClient.search).toHaveBeenCalledWith(
+        'memories',
+        expect.objectContaining({ filter }),
+      );
     });
 
     it('returns empty array and creates collection on "Not Found"', async () => {
@@ -212,9 +225,7 @@ describe('QdrantService', () => {
     });
 
     it('handles null payload gracefully', async () => {
-      mockClient.search.mockResolvedValue([
-        { id: 'mem-1', score: 0.5, payload: null },
-      ]);
+      mockClient.search.mockResolvedValue([{ id: 'mem-1', score: 0.5, payload: null }]);
 
       const results = await service.search([0.1], 5);
       expect(results[0].payload).toEqual({});
@@ -245,7 +256,10 @@ describe('QdrantService', () => {
 
       await service.recommend('mem-1', 5, filter);
 
-      expect(mockClient.recommend).toHaveBeenCalledWith('memories', expect.objectContaining({ filter }));
+      expect(mockClient.recommend).toHaveBeenCalledWith(
+        'memories',
+        expect.objectContaining({ filter }),
+      );
     });
 
     it('returns empty array on error', async () => {

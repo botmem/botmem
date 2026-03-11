@@ -161,7 +161,9 @@ export class BillingService {
           .update(users)
           .set({
             subscriptionStatus: status,
-            subscriptionCurrentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+            subscriptionCurrentPeriodEnd: new Date(
+              (subscription as unknown as Record<string, number>).current_period_end * 1000,
+            ),
           })
           .where(eq(users.stripeCustomerId, subscription.customer as string));
         this.logger.log(`Subscription ${subscription.id} updated → ${status}`);

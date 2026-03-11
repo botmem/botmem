@@ -1,6 +1,155 @@
+import type { ConnectorManifest, ConnectorAccount, Job } from '@botmem/shared';
 import { useAuthStore } from '../store/authStore';
 
 const API_BASE = '/api';
+
+// --- API response shape types ---
+
+export interface ApiConnector {
+  id: string;
+  name: string;
+  authType: string;
+  configSchema?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ApiAccount {
+  id: string;
+  connectorType: string;
+  identifier: string;
+  schedule?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiJob {
+  id: string;
+  accountId: string;
+  status: string;
+  progress?: number;
+  total?: number;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiLogEntry {
+  id: string;
+  timestamp: string;
+  level: string;
+  connectorType?: string;
+  connector?: string;
+  stage?: string;
+  message: string;
+  [key: string]: unknown;
+}
+
+export interface ApiMemoryItem {
+  id: string;
+  sourceType?: string;
+  connectorType?: string;
+  accountIdentifier?: string;
+  text?: string;
+  eventTime?: string;
+  createdAt?: string;
+  ingestTime?: string;
+  factuality?: string | Record<string, unknown>;
+  weights?: string | Record<string, number>;
+  entities?: string | Array<{ type: string; value: string }>;
+  claims?: string | Array<{ id: string; type: string; text: string }>;
+  metadata?: string | Record<string, unknown>;
+  pinned?: boolean | number;
+  score?: number;
+  [key: string]: unknown;
+}
+
+export interface ApiContact {
+  id: string;
+  displayName: string;
+  entityType?: string;
+  avatars?: string | Array<{ url: string; source: string }>;
+  identifiers?: Array<{
+    id: string;
+    identifierType?: string;
+    type?: string;
+    identifierValue?: string;
+    value?: string;
+    isPrimary?: boolean;
+    connectorType?: string;
+  }>;
+  memoryCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiContactMemory {
+  id: string;
+  eventTime?: string;
+  createdAt?: string;
+  connectorType?: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiGraphNode {
+  id: string;
+  label?: string;
+  type?: string;
+  connectorType?: string;
+  importance?: number;
+  factuality?: string;
+  cluster?: number;
+  nodeType?: string;
+  entities?: string[];
+  connectors?: string[];
+  text?: string;
+  weights?: Record<string, number>;
+  eventTime?: string;
+  metadata?: Record<string, unknown>;
+  avatarUrl?: string;
+  thumbnailDataUrl?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiGraphEdge {
+  source: string;
+  target: string;
+  type?: string;
+  strength?: number;
+  [key: string]: unknown;
+}
+
+export interface ApiGraphData {
+  nodes: ApiGraphNode[];
+  links?: ApiGraphEdge[];
+  edges?: ApiGraphEdge[];
+}
+
+export interface ApiSearchResponse {
+  items: ApiMemoryItem[];
+  fallback: boolean;
+  resolvedEntities?: {
+    contacts: { id: string; displayName: string }[];
+    topicWords: string[];
+    topicMatchCount: number;
+  };
+  parsed?: {
+    temporal: { from: string; to: string } | null;
+    temporalFallback?: boolean;
+    entities: { id: string; displayName: string }[];
+    intent: 'recall' | 'browse' | 'find';
+    cleanQuery: string;
+  };
+}
+
+export interface ApiMemoryStats {
+  total: number;
+  bySource: Record<string, number>;
+  byConnector: Record<string, number>;
+  needsRecoveryKey?: boolean;
+}
+
+// --- Request helper ---
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const state = useAuthStore.getState();
@@ -60,41 +209,72 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Connectors
-  listConnectors: () => request<{ connectors: any[] }>('/connectors'),
-  getConnectorSchema: (type: string) => request<{ schema: any }>(`/connectors/${type}/schema`),
+  listConnectors: () => request<{ connectors: ConnectorManifest[] }>('/connectors'),
+  getConnectorSchema: (type: string) =>
+    request<{
+      schema: {
+        type?: string;
+        properties?: Record<
+          string,
+          {
+            title?: string;
+            description?: string;
+            type?: string;
+            readOnly?: boolean;
+            default?: string | number;
+          }
+        >;
+        required?: string[];
+        authMethods?: Array<{ id: string; label: string; fields: string[] }>;
+        [key: string]: unknown;
+      };
+    }>(`/connectors/${type}/schema`),
   getConnectorStatus: (type: string) =>
     request<{ ready: boolean; status: string; message?: string }>(`/connectors/${type}/status`),
 
   // Accounts
-  listAccounts: () => request<{ accounts: any[] }>('/accounts'),
+  listAccounts: () => request<{ accounts: ConnectorAccount[] }>('/accounts'),
   createAccount: (data: { connectorType: string; identifier: string }) =>
-    request<any>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
+    request<ConnectorAccount>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
   updateAccount: (id: string, data: { schedule?: string }) =>
-    request<any>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteAccount: (id: string) => request<any>(`/accounts/${id}`, { method: 'DELETE' }),
+    request<ConnectorAccount>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteAccount: (id: string) => request<{ ok: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
 
   // Auth
   hasCredentials: (type: string) =>
     request<{ hasSavedCredentials: boolean }>(`/auth/${type}/has-credentials`),
   initiateAuth: (type: string, config: Record<string, unknown>) =>
-    request<any>(`/auth/${type}/initiate`, { method: 'POST', body: JSON.stringify({ config }) }),
-  completeAuth: (type: string, params: Record<string, unknown>) =>
-    request<any>(`/auth/${type}/complete`, { method: 'POST', body: JSON.stringify({ params }) }),
+    request<{
+      redirectUrl?: string;
+      url?: string;
+      qrData?: string;
+      type?: string;
+      wsChannel?: string;
+      identifier?: string;
+      account?: { identifier?: string; [key: string]: unknown };
+      [key: string]: unknown;
+    }>(`/auth/${type}/initiate`, { method: 'POST', body: JSON.stringify({ config }) }),
+  completeAuth: <
+    T = { ok: boolean; accountId?: string; identifier?: string; [key: string]: unknown },
+  >(
+    type: string,
+    params: Record<string, unknown>,
+  ) => request<T>(`/auth/${type}/complete`, { method: 'POST', body: JSON.stringify({ params }) }),
   reauthAccount: (type: string, accountId: string, config: Record<string, unknown>) =>
-    request<any>(`/auth/${type}/reauth/${accountId}`, {
+    request<{ ok: boolean; [key: string]: unknown }>(`/auth/${type}/reauth/${accountId}`, {
       method: 'POST',
       body: JSON.stringify({ config }),
     }),
 
   // Jobs
   listJobs: (accountId?: string) =>
-    request<{ jobs: any[] }>(`/jobs${accountId ? `?accountId=${accountId}` : ''}`),
+    request<{ jobs: Job[] }>(`/jobs${accountId ? `?accountId=${accountId}` : ''}`),
   triggerSync: (accountId: string, memoryBankId?: string) =>
-    request<{ job: any }>(`/jobs/sync/${accountId}`, {
+    request<{ job: Job }>(`/jobs/sync/${accountId}`, {
       method: 'POST',
       body: JSON.stringify({ memoryBankId: memoryBankId || undefined }),
     }),
-  cancelJob: (id: string) => request<any>(`/jobs/${id}`, { method: 'DELETE' }),
+  cancelJob: (id: string) => request<{ ok: boolean }>(`/jobs/${id}`, { method: 'DELETE' }),
   retryFailedJobs: () =>
     request<{ ok: boolean; retried: number }>('/jobs/retry-failed', { method: 'POST' }),
   getQueueStats: () =>
@@ -112,7 +292,7 @@ export const api = {
     if (params?.accountId) query.set('accountId', params.accountId);
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
-    return request<{ logs: any[]; total: number }>(`/logs?${query}`);
+    return request<{ logs: ApiLogEntry[]; total: number }>(`/logs?${query}`);
   },
 
   // Memories
@@ -122,15 +302,7 @@ export const api = {
     limit?: number,
     memoryBankId?: string,
   ) =>
-    request<{
-      items: any[];
-      fallback: boolean;
-      resolvedEntities?: {
-        contacts: { id: string; displayName: string }[];
-        topicWords: string[];
-        topicMatchCount: number;
-      };
-    }>('/memories/search', {
+    request<ApiSearchResponse>('/memories/search', {
       method: 'POST',
       body: JSON.stringify({ query, filters, limit, memoryBankId: memoryBankId || undefined }),
     }),
@@ -149,20 +321,20 @@ export const api = {
     if (params?.sourceType) query.set('sourceType', params.sourceType);
     if (params?.sortBy) query.set('sortBy', params.sortBy);
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
-    return request<{ items: any[]; total: number }>(`/memories?${query}`);
+    return request<{ items: ApiMemoryItem[]; total: number }>(`/memories?${query}`);
   },
-  getMemory: (id: string) => request<any>(`/memories/${id}`),
+  getMemory: (id: string) => request<ApiMemoryItem>(`/memories/${id}`),
   pinMemory: (id: string) => request<{ ok: boolean }>(`/memories/${id}/pin`, { method: 'POST' }),
   unpinMemory: (id: string) =>
     request<{ ok: boolean }>(`/memories/${id}/pin`, { method: 'DELETE' }),
   recordRecall: (id: string) =>
     request<{ ok: boolean }>(`/memories/${id}/recall`, { method: 'POST' }),
-  deleteMemory: (id: string) => request<any>(`/memories/${id}`, { method: 'DELETE' }),
+  deleteMemory: (id: string) => request<{ ok: boolean }>(`/memories/${id}`, { method: 'DELETE' }),
   getMemoryStats: (params?: { memoryBankId?: string }) => {
     const query = new URLSearchParams();
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     const qs = query.toString();
-    return request<any>(`/memories/stats${qs ? `?${qs}` : ''}`);
+    return request<ApiMemoryStats>(`/memories/stats${qs ? `?${qs}` : ''}`);
   },
   getGraphData: (params?: {
     memoryLimit?: number;
@@ -176,23 +348,30 @@ export const api = {
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     if (params?.memoryIds?.length) query.set('memoryIds', params.memoryIds.join(','));
     const qs = query.toString();
-    return request<any>(`/memories/graph${qs ? `?${qs}` : ''}`);
+    return request<ApiGraphData>(`/memories/graph${qs ? `?${qs}` : ''}`);
   },
-  getGraphSeeds: () => request<any>('/memories/graph/seeds'),
-  getGraphNeighbors: (nodeId: string) => request<any>(`/memories/graph/neighbors/${nodeId}`),
+  getGraphSeeds: () => request<ApiGraphData>('/memories/graph/seeds'),
+  getGraphNeighbors: (nodeId: string) =>
+    request<ApiGraphData>(`/memories/graph/neighbors/${nodeId}`),
 
   // Contacts
-  listContacts: (params?: { limit?: number; offset?: number; entityType?: string }) => {
+  // Contact endpoints use generics so consuming code can specify its own type
+  // (e.g. ContactOption in MePage, Contact in contactStore)
+  listContacts: <T = ApiContact>(params?: {
+    limit?: number;
+    offset?: number;
+    entityType?: string;
+  }) => {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.entityType) query.set('entityType', params.entityType);
-    return request<{ items: any[]; total: number }>(`/people?${query}`);
+    return request<{ items: T[]; total: number }>(`/people?${query}`);
   },
-  getContact: (id: string) => request<any>(`/people/${id}`),
-  getContactMemories: (id: string) => request<any[]>(`/people/${id}/memories`),
-  searchContacts: (query: string) =>
-    request<any[]>('/people/search', { method: 'POST', body: JSON.stringify({ query }) }),
+  getContact: <T = ApiContact>(id: string) => request<T>(`/people/${id}`),
+  getContactMemories: (id: string) => request<ApiContactMemory[]>(`/people/${id}/memories`),
+  searchContacts: <T = ApiContact>(query: string) =>
+    request<T[]>('/people/search', { method: 'POST', body: JSON.stringify({ query }) }),
   updateContact: (
     id: string,
     data: {
@@ -200,35 +379,36 @@ export const api = {
       avatars?: Array<{ url: string; source: string }>;
       metadata?: Record<string, unknown>;
     },
-  ) => request<any>(`/people/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  ) => request<ApiContact>(`/people/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   mergeContacts: (targetId: string, sourceId: string) =>
-    request<any>(`/people/${targetId}/merge`, {
+    request<{ ok: boolean }>(`/people/${targetId}/merge`, {
       method: 'POST',
       body: JSON.stringify({ sourceId }),
     }),
-  deleteContact: (id: string) => request<any>(`/people/${id}`, { method: 'DELETE' }),
-  getMergeSuggestions: () =>
-    request<Array<{ contact1: any; contact2: any; reason: string }>>('/people/suggestions'),
+  deleteContact: (id: string) => request<{ ok: boolean }>(`/people/${id}`, { method: 'DELETE' }),
+  getMergeSuggestions: <T = ApiContact>() =>
+    request<Array<{ contact1: T; contact2: T; reason: string }>>('/people/suggestions'),
   dismissSuggestion: (contactId1: string, contactId2: string) =>
-    request<any>('/people/suggestions/dismiss', {
+    request<{ ok: boolean }>('/people/suggestions/dismiss', {
       method: 'POST',
       body: JSON.stringify({ contactId1, contactId2 }),
     }),
   undismissSuggestion: (contactId1: string, contactId2: string) =>
-    request<any>('/people/suggestions/undismiss', {
+    request<{ ok: boolean }>('/people/suggestions/undismiss', {
       method: 'POST',
       body: JSON.stringify({ contactId1, contactId2 }),
     }),
-  removeIdentifier: (contactId: string, identifierId: string) =>
-    request<any>(`/people/${contactId}/identifiers/${identifierId}`, { method: 'DELETE' }),
+  removeIdentifier: <T = ApiContact>(contactId: string, identifierId: string) =>
+    request<T>(`/people/${contactId}/identifiers/${identifierId}`, { method: 'DELETE' }),
   splitContact: (contactId: string, identifierIds: string[]) =>
-    request<any>(`/people/${contactId}/split`, {
+    request<{ ok: boolean }>(`/people/${contactId}/split`, {
       method: 'POST',
       body: JSON.stringify({ identifierIds }),
     }),
 
   // Me
-  getMe: () => request<any>('/me'),
+  // Returns MeData shape — typed at call site via MePage
+  getMe: <T = Record<string, unknown>>() => request<T>('/me'),
   getMeStatus: () => request<{ isSet: boolean; contactId: string | null }>('/me/status'),
   getMeMergeCandidates: () =>
     request<
@@ -240,8 +420,8 @@ export const api = {
         identifiers: Array<{ identifierType: string; identifierValue: string }>;
       }>
     >('/me/merge-candidates'),
-  setMe: (contactId: string) =>
-    request<any>('/me/set', { method: 'POST', body: JSON.stringify({ contactId }) }),
+  setMe: <T = { ok: boolean }>(contactId: string) =>
+    request<T>('/me/set', { method: 'POST', body: JSON.stringify({ contactId }) }),
   setPreferredAvatar: (avatarIndex: number) =>
     request<{ ok: boolean }>('/me/avatar', {
       method: 'PATCH',
@@ -298,7 +478,10 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   renameMemoryBank: (id: string, name: string) =>
-    request<any>(`/memory-banks/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+    request<{ ok: boolean }>(`/memory-banks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
   deleteMemoryBank: (id: string) =>
     request<{ deleted: boolean; memoriesDeleted: number }>(`/memory-banks/${id}`, {
       method: 'DELETE',
@@ -334,8 +517,9 @@ export const api = {
   createPortalSession: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
 
   // Admin / Danger Zone
-  purgeMemories: () => request<any>('/memories/purge', { method: 'POST' }),
-  resetVectorIndex: () => request<any>('/memories/vector-index/reset', { method: 'POST' }),
+  purgeMemories: () => request<{ ok: boolean }>('/memories/purge', { method: 'POST' }),
+  resetVectorIndex: () =>
+    request<{ ok: boolean }>('/memories/vector-index/reset', { method: 'POST' }),
 
   // Demo Data
   seedDemoData: () =>

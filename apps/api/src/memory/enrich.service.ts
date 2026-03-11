@@ -74,7 +74,7 @@ export class EnrichService {
     // Deduplicate: collapse entities with the same type + normalized name/value
     const seenEntityKeys = new Set<string>();
     const entities = rawEntities.filter((e) => {
-      const key = `${e.type}::${((e as any).name || (e as any).value || '').toLowerCase().trim()}`;
+      const key = `${e.type}::${((e as Record<string, unknown>).name || (e as Record<string, unknown>).value || '').toString().toLowerCase().trim()}`;
       if (seenEntityKeys.has(key)) return false;
       seenEntityKeys.add(key);
       return true;
@@ -182,9 +182,7 @@ export class EnrichService {
     connectorType: string,
   ): Promise<{ label: string; confidence: number; rationale: string } | null> {
     try {
-      const response = await this.ai.generate(
-        factualityPrompt(text, sourceType, connectorType),
-      );
+      const response = await this.ai.generate(factualityPrompt(text, sourceType, connectorType));
       const parsed = this.parseJsonObject(response);
       if (parsed && parsed.label && typeof parsed.confidence === 'number') {
         return parsed as { label: string; confidence: number; rationale: string };
@@ -205,11 +203,15 @@ export class EnrichService {
         .where(eq(memories.id, memoryId));
       const srcClaims: string[] = [];
       try {
-        srcClaims.push(...JSON.parse(srcMem?.claims || '[]').map((c: any) => c.text || c));
+        srcClaims.push(
+          ...JSON.parse(srcMem?.claims || '[]').map((c: Record<string, unknown> | string) =>
+            typeof c === 'string' ? c : (c.text as string) || String(c),
+          ),
+        );
       } catch {
         /* empty */
       }
-      const srcFact = srcMem?.factuality as any;
+      const srcFact = srcMem?.factuality as Record<string, unknown> | null;
       const srcFactLabel = srcFact?.label || 'UNVERIFIED';
 
       for (const result of results) {
@@ -221,7 +223,7 @@ export class EnrichService {
               .select({ factuality: memories.factuality })
               .from(memories)
               .where(eq(memories.id, result.id));
-            const dstFact = dstMem?.factuality as any;
+            const dstFact = dstMem?.factuality as Record<string, unknown> | null;
             const dstFactLabel = dstFact?.label || 'UNVERIFIED';
 
             if (result.score >= 0.92 && srcFactLabel === 'FACT' && dstFactLabel === 'FACT') {
@@ -267,7 +269,7 @@ export class EnrichService {
     }
   }
 
-  private parseJsonArray(text: string): any[] {
+  private parseJsonArray(text: string): unknown[] {
     try {
       const match = text.match(/\[[\s\S]*\]/);
       if (match) return JSON.parse(match[0]);

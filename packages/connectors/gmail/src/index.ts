@@ -200,7 +200,7 @@ export class GmailConnector extends BaseConnector {
     for (const att of event.content?.attachments || []) {
       entities.push({
         type: 'file',
-        id: `file:${(att as any).filename || att.uri}`,
+        id: `file:${(att as { filename?: string; uri: string }).filename || att.uri}`,
         role: 'attachment',
       });
     }

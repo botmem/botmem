@@ -485,7 +485,8 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     const noThread: EnrichedMemory[] = [];
 
     for (const mem of results) {
-      const threadId = (mem.metadata as any)?.threadId || (mem.metadata as any)?.thread_id;
+      const meta = mem.metadata as Record<string, unknown> | null;
+      const threadId = meta?.threadId || meta?.thread_id;
       if (threadId) {
         const existing = threadMap.get(threadId) || [];
         existing.push(mem);

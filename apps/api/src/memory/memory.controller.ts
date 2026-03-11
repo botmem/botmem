@@ -28,6 +28,7 @@ import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
+import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
 import { BackfillEnrichDto } from './dto/backfill-enrich.dto';
 
@@ -470,7 +471,7 @@ export class MemoryController {
     const memory = await this.memoryService.getById(id, user.id);
     if (!memory) return res.status(HttpStatus.NOT_FOUND).json({ error: 'not found' });
 
-    let metadata: any = {};
+    let metadata: Record<string, unknown> = {};
     try {
       metadata =
         typeof memory.metadata === 'string' ? JSON.parse(memory.metadata) : memory.metadata || {};
@@ -539,6 +540,7 @@ export class MemoryController {
     return this.memoryService.getById(id, user.id);
   }
 
+  @ReadOnly()
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(
@@ -577,7 +579,10 @@ export class MemoryController {
       `);
 
       return {
-        updated: (result1 as any).changes + (result2 as any).changes + (result3 as any).changes,
+        updated:
+          ((result1 as unknown as { changes: number }).changes ?? 0) +
+          ((result2 as unknown as { changes: number }).changes ?? 0) +
+          ((result3 as unknown as { changes: number }).changes ?? 0),
         message: 'Replaced "Unknown" sender labels with "A member" in WhatsApp memories',
       };
     });

@@ -5,14 +5,14 @@ import type { Job } from 'bullmq';
 // ---- mock factories ----
 
 function mockDbService() {
-  const chainResult: any[] = [];
+  const chainResult: Record<string, unknown>[] = [];
   const chain = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
     all: vi.fn(() => chainResult),
-    then: vi.fn((resolve: any) => resolve(chainResult)),
+    then: vi.fn((resolve: (val: typeof chainResult) => unknown) => resolve(chainResult)),
   };
   const updateChain = {
     set: vi.fn().mockReturnThis(),
@@ -31,14 +31,14 @@ function mockDbService() {
   };
 }
 
-function createProcessor(overrides: Record<string, any> = {}) {
+function createProcessor(overrides: Record<string, unknown> = {}) {
   const dbService = mockDbService();
   const contactsService = { resolveContact: vi.fn(), linkMemory: vi.fn() };
   const enrichService = { enrich: vi.fn().mockResolvedValue(undefined) };
   const crypto = {
     isEncrypted: vi.fn().mockReturnValue(false),
-    decryptMemoryFields: vi.fn((m: any) => m),
-    encryptMemoryFields: vi.fn((m: any) => ({
+    decryptMemoryFields: vi.fn((m: Record<string, string>) => m),
+    encryptMemoryFields: vi.fn((m: Record<string, string>) => ({
       text: `enc:${m.text}`,
       entities: `enc:${m.entities}`,
       claims: `enc:${m.claims}`,
@@ -82,16 +82,16 @@ function createProcessor(overrides: Record<string, any> = {}) {
   };
 
   const processor = new BackfillProcessor(
-    deps.dbService as any,
-    deps.contactsService as any,
-    deps.accountsService as any,
-    deps.enrichService as any,
-    deps.crypto as any,
-    deps.userKeyService as any,
-    deps.events as any,
-    deps.jobsService as any,
-    deps.settingsService as any,
-    deps.config as any,
+    deps.dbService as unknown as import('../../db/db.service').DbService,
+    deps.contactsService as unknown as import('../../contacts/contacts.service').ContactsService,
+    deps.accountsService as unknown as import('../../accounts/accounts.service').AccountsService,
+    deps.enrichService as unknown as import('../enrich.service').EnrichService,
+    deps.crypto as unknown as import('../../crypto/crypto.service').CryptoService,
+    deps.userKeyService as unknown as import('../../crypto/user-key.service').UserKeyService,
+    deps.events as unknown as import('../../events/events.service').EventsService,
+    deps.jobsService as unknown as import('../../jobs/jobs.service').JobsService,
+    deps.settingsService as unknown as import('../../settings/settings.service').SettingsService,
+    deps.config as unknown as import('../../config/config.service').ConfigService,
   );
 
   // WorkerHost has a getter-only `worker` property. Use defineProperty to override.
@@ -108,8 +108,8 @@ function createProcessor(overrides: Record<string, any> = {}) {
   return { processor, ...deps };
 }
 
-function fakeJob(name: string, data: any): Job<any> {
-  return { name, data } as unknown as Job<any>;
+function fakeJob(name: string, data: Record<string, unknown>): Job {
+  return { name, data } as unknown as Job;
 }
 
 // ---- tests ----
@@ -238,7 +238,7 @@ describe('BackfillProcessor', () => {
         from: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
-        then: vi.fn((resolve: any) => {
+        then: vi.fn((resolve: (val: unknown[]) => unknown) => {
           if (callCount.n === 1)
             resolve([{ accountId: null }]); // bootstrap: memory accountId (no account → skip user lookup)
           else if (callCount.n === 2)
@@ -268,7 +268,7 @@ describe('BackfillProcessor', () => {
           return undefined;
         }),
       };
-      return chain as any;
+      return chain as unknown as ReturnType<typeof vi.fn>;
     });
 
     contactsService.resolveContact.mockResolvedValue({ id: 'contact-1' });

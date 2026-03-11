@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MemoryBanksService } from '../memory-banks.service';
+import type { DbService } from '../../db/db.service';
 
 describe('MemoryBanksService', () => {
   let service: MemoryBanksService;
-  let mockDb: any;
-  let qdrantService: any;
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
+  let qdrantService: { remove: ReturnType<typeof vi.fn> };
 
   const fakeBank = {
     id: 'bank-1',
@@ -32,7 +33,10 @@ describe('MemoryBanksService', () => {
       remove: vi.fn().mockResolvedValue(undefined),
     };
 
-    service = new MemoryBanksService({ db: mockDb } as any, qdrantService);
+    service = new MemoryBanksService(
+      { db: mockDb } as unknown as DbService,
+      qdrantService as unknown as import('../../memory/qdrant.service').QdrantService,
+    );
   });
 
   describe('create', () => {
@@ -88,7 +92,9 @@ describe('MemoryBanksService', () => {
     it('throws if new name conflicts', async () => {
       mockDb.where.mockResolvedValueOnce([fakeBank]); // getById
       mockDb.where.mockResolvedValueOnce([{ ...fakeBank, id: 'bank-2', name: 'Personal' }]); // conflict
-      await expect(service.rename('user-1', 'bank-1', 'Personal')).rejects.toThrow('already exists');
+      await expect(service.rename('user-1', 'bank-1', 'Personal')).rejects.toThrow(
+        'already exists',
+      );
     });
   });
 

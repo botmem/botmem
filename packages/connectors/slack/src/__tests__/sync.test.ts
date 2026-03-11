@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 const { mockConversationsList, mockConversationsHistory, mockConversationsReplies, mockUsersList } =
   vi.hoisted(() => ({
@@ -37,14 +38,15 @@ vi.mock('@slack/web-api', () => ({
 
 import { syncSlack } from '../sync.js';
 
-const makeCtx = (cursor?: string) => ({
-  accountId: 'acc-1',
-  auth: { accessToken: 'xoxb-test' },
-  cursor: cursor || null,
-  jobId: 'j1',
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  signal: AbortSignal.timeout(5000),
-});
+const makeCtx = (cursor?: string): SyncContext =>
+  ({
+    accountId: 'acc-1',
+    auth: { accessToken: 'xoxb-test' },
+    cursor: cursor || null,
+    jobId: 'j1',
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    signal: AbortSignal.timeout(5000),
+  }) as SyncContext;
 
 describe('syncSlack', () => {
   it('fetches all conversation types and normalizes messages with context', async () => {
@@ -62,15 +64,19 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    const result = await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    const result = await syncSlack(makeCtx(), (e) => events.push(e));
 
     // 2 contact events (alice + bob) + 1 message per channel × 2 channels = 4
     expect(result.processed).toBe(4);
 
     // Filter out contact events to test message events
-    const contactEvents = events.filter((e: any) => e.content.metadata?.type === 'contact');
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const contactEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type === 'contact',
+    );
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(contactEvents.length).toBe(2);
     expect(msgEvents.length).toBe(2);
 
@@ -115,10 +121,12 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
 
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
     expect(msgEvents[0].content.text).toContain('[general]');
     expect(msgEvents[0].content.text).toContain('Parent message');
@@ -145,10 +153,12 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
     // 2 contact events + 1 normal message (subtype message skipped)
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
   });
 
@@ -191,10 +201,12 @@ describe('syncSlack', () => {
       messages: [{ ts: '1700000000.000', text: 'Hello <@U2>', user: 'U1', reply_count: 0 }],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
 
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
     const profiles = msgEvents[0].content.metadata.participantProfiles;
     expect(profiles).toBeDefined();
@@ -246,18 +258,19 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
 
     // 2 contact events + 1 message + 2 file events = 5
     const msgEvents = events.filter(
-      (e: any) => e.sourceType === 'message' && e.content.metadata?.type !== 'contact',
+      (e: ConnectorDataEvent) =>
+        e.sourceType === 'message' && e.content.metadata?.type !== 'contact',
     );
     expect(msgEvents.length).toBe(1);
     expect(msgEvents[0].content.text).toContain('[file: report.pdf (pdf)]');
 
     // File events
-    const fileEvents = events.filter((e: any) => e.sourceType === 'file');
+    const fileEvents = events.filter((e: ConnectorDataEvent) => e.sourceType === 'file');
     expect(fileEvents.length).toBe(2);
     expect(fileEvents[0].content.metadata.fileName).toBe('report.pdf');
     expect(fileEvents[0].content.metadata.mimetype).toBe('application/pdf');
@@ -279,7 +292,7 @@ describe('syncSlack', () => {
 
     mockConversationsHistory.mockResolvedValue({ messages: [] });
 
-    await syncSlack(makeCtx(cursorState) as any, vi.fn());
+    await syncSlack(makeCtx(cursorState), vi.fn());
     expect(mockConversationsHistory).toHaveBeenCalledWith(
       expect.objectContaining({ oldest: '1700000000.000' }),
     );
@@ -303,10 +316,12 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
 
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.text).toContain('Reactions:');
     expect(msgEvents[0].content.text).toContain('thumbsup');
     expect(msgEvents[0].content.metadata.reactions[0].name).toBe('thumbsup');
@@ -332,9 +347,11 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.text).toContain('[link: Article');
     expect(msgEvents[0].content.text).toContain('Summary of the article');
     expect(msgEvents[0].content.text).toContain('https://example.com');
@@ -347,14 +364,14 @@ describe('syncSlack', () => {
     });
 
     mockConversationsHistory.mockResolvedValue({
-      messages: [
-        { ts: '1700000000.000', text: 'Hey Bob', user: 'USELF', reply_count: 0 },
-      ],
+      messages: [{ ts: '1700000000.000', text: 'Hey Bob', user: 'USELF', reply_count: 0 }],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.metadata.isSelf).toBe(true);
     expect(msgEvents[0].content.metadata.channelType).toBe('dm');
   });
@@ -372,9 +389,11 @@ describe('syncSlack', () => {
       messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.metadata.channelType).toBe('group-dm');
     expect(msgEvents[1].content.metadata.channelType).toBe('private-channel');
   });
@@ -392,9 +411,11 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
   });
 
@@ -410,9 +431,11 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.text).toContain('@unknown_user');
   });
 
@@ -433,9 +456,11 @@ describe('syncSlack', () => {
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.text).toContain('Example (https://example.com)');
     expect(msgEvents[0].content.text).toContain('https://test.com');
   });
@@ -456,9 +481,11 @@ describe('syncSlack', () => {
         response_metadata: {},
       });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(2);
   });
 
@@ -474,10 +501,12 @@ describe('syncSlack', () => {
       messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
     });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     const ctx = makeCtx();
-    await syncSlack(ctx as any, (e) => events.push(e));
-    expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining("Could not identify self"));
+    await syncSlack(ctx, (e) => events.push(e));
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Could not identify self'),
+    );
   });
 
   it('handles user list fetch failure gracefully', async () => {
@@ -492,10 +521,12 @@ describe('syncSlack', () => {
       messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
     // Should still emit message events even without user resolution
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
   });
 
@@ -507,15 +538,23 @@ describe('syncSlack', () => {
 
     mockConversationsHistory.mockResolvedValue({
       messages: [
-        { ts: '1700000000.000', thread_ts: '1700000000.000', text: 'Parent', user: 'U1', reply_count: 3 },
+        {
+          ts: '1700000000.000',
+          thread_ts: '1700000000.000',
+          text: 'Parent',
+          user: 'U1',
+          reply_count: 3,
+        },
       ],
     });
 
     mockConversationsReplies.mockRejectedValueOnce(new Error('replies fail'));
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents[0].content.text).not.toContain('--- thread replies ---');
   });
 
@@ -526,14 +565,14 @@ describe('syncSlack', () => {
     });
 
     mockConversationsHistory.mockResolvedValue({
-      messages: [
-        { ts: '1700000000.000', text: 'Bot message', bot_id: 'B123', reply_count: 0 },
-      ],
+      messages: [{ ts: '1700000000.000', text: 'Bot message', bot_id: 'B123', reply_count: 0 }],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
   });
 
@@ -547,10 +586,12 @@ describe('syncSlack', () => {
       messages: [{ ts: '1700000000.000', text: 'Hi', user: 'U1', reply_count: 0 }],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
     // Should only get events from the valid channel
-    const msgEvents = events.filter((e: any) => e.content.metadata?.type !== 'contact');
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
     expect(msgEvents.length).toBe(1);
   });
 
@@ -569,15 +610,20 @@ describe('syncSlack', () => {
           reply_count: 0,
           files: [
             { id: 'F1', name: 'no-url.txt' },
-            { id: 'F2', name: 'valid.pdf', mimetype: 'application/pdf', url_private: 'https://files.slack.com/valid.pdf' },
+            {
+              id: 'F2',
+              name: 'valid.pdf',
+              mimetype: 'application/pdf',
+              url_private: 'https://files.slack.com/valid.pdf',
+            },
           ],
         },
       ],
     });
 
-    const events: any[] = [];
-    await syncSlack(makeCtx() as any, (e) => events.push(e));
-    const fileEvents = events.filter((e: any) => e.sourceType === 'file');
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const fileEvents = events.filter((e: ConnectorDataEvent) => e.sourceType === 'file');
     expect(fileEvents.length).toBe(1); // Only the valid file
   });
 });

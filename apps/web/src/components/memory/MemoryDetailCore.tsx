@@ -3,7 +3,37 @@ import { cn } from '@/lib/utils';
 import { Badge } from '../ui/Badge';
 import { AuthedImage } from '../ui/AuthedImage';
 
-function hasThumbnail(source: string, metadata?: Record<string, any>): boolean {
+interface MemoryMetadata {
+  senderName?: string;
+  senderPhone?: string;
+  fromMe?: boolean;
+  isGroup?: boolean;
+  chatId?: string;
+  chatName?: string;
+  selfPhone?: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  channel?: string;
+  channelType?: string;
+  people?: Array<{ name?: string } | string>;
+  cameraMake?: string;
+  cameraModel?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  lat?: number;
+  lon?: number;
+  regions?: string[];
+  activity?: string[];
+  fileName?: string;
+  fileUrl?: string;
+  width?: number;
+  height?: number;
+  [key: string]: unknown;
+}
+
+function hasThumbnail(source: string, metadata?: MemoryMetadata): boolean {
   return (source === 'file' || source === 'photo') && !!metadata?.fileUrl;
 }
 
@@ -24,7 +54,7 @@ function ContextRow({
   );
 }
 
-function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
+function MemoryContext({ metadata }: { metadata: MemoryMetadata }) {
   const rows: { label: string; value: string; bold?: boolean }[] = [];
 
   // WhatsApp / message sender + recipient
@@ -69,7 +99,7 @@ function MemoryContext({ metadata }: { metadata: Record<string, any> }) {
 
   // Photo metadata
   if (metadata.people?.length) {
-    const names = metadata.people.map((p: any) => p.name || p).join(', ');
+    const names = metadata.people.map((p) => (typeof p === 'string' ? p : p.name || '')).join(', ');
     rows.push({ label: 'People', value: names });
   }
   if (metadata.cameraMake || metadata.cameraModel) {
@@ -117,7 +147,7 @@ interface MemoryDetailCoreProps {
   weights?: Record<string, number>;
   entities?: Array<{ type: string; value: string }> | string[];
   claims?: Array<{ id: string; type: string; text: string }>;
-  metadata?: Record<string, any>;
+  metadata?: MemoryMetadata;
   importance?: number;
   connectionCount?: number;
   compact?: boolean;

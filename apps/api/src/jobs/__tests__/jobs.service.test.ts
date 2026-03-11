@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { JobsService } from '../jobs.service';
+import type { DbService } from '../../db/db.service';
 
 describe('JobsService', () => {
   let service: JobsService;
-  let mockDb: any;
-  let syncQueue: any;
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
+  let syncQueue: {
+    add: ReturnType<typeof vi.fn>;
+    getJob: ReturnType<typeof vi.fn>;
+    getRepeatableJobs: ReturnType<typeof vi.fn>;
+  };
 
   const fakeJob = {
     id: 'job-1',
@@ -41,10 +46,17 @@ describe('JobsService', () => {
       getRepeatableJobs: vi.fn().mockResolvedValue([]),
     };
 
-    const traceContext = { current: vi.fn().mockReturnValue(undefined) } as any;
+    const traceContext = { current: vi.fn().mockReturnValue(undefined) } as unknown as {
+      current: ReturnType<typeof vi.fn>;
+    };
 
     service = new JobsService(
-      { db: mockDb, withCurrentUser: vi.fn().mockImplementation((fn: any) => fn(mockDb)) } as any,
+      {
+        db: mockDb,
+        withCurrentUser: vi
+          .fn()
+          .mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+      } as unknown as DbService,
       syncQueue,
       traceContext,
     );

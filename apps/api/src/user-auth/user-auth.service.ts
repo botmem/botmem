@@ -184,11 +184,11 @@ export class UserAuthService {
   }
 
   async refresh(oldRefreshToken: string) {
-    let payload: any;
+    let payload: Record<string, unknown>;
     try {
       payload = this.jwt.verify(oldRefreshToken, {
         secret: this.config.jwtRefreshSecret,
-      });
+      }) as Record<string, unknown>;
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -298,7 +298,7 @@ export class UserAuthService {
       { sub: userId, email },
       {
         secret: this.config.jwtAccessSecret,
-        expiresIn: this.config.jwtAccessExpiresIn as any,
+        expiresIn: this.config.jwtAccessExpiresIn as string | number,
         algorithm: 'HS256',
       },
     );
@@ -310,7 +310,7 @@ export class UserAuthService {
     };
     const refreshToken = this.jwt.sign(refreshPayload, {
       secret: this.config.jwtRefreshSecret,
-      expiresIn: this.config.jwtRefreshExpiresIn as any,
+      expiresIn: this.config.jwtRefreshExpiresIn as string | number,
       algorithm: 'HS256',
     });
 
@@ -325,7 +325,14 @@ export class UserAuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private sanitizeUser(user: any) {
+  private sanitizeUser(user: {
+    id: string;
+    email: string;
+    name: string | null;
+    onboarded: boolean | null;
+    subscriptionStatus: string | null;
+    createdAt: Date | string;
+  }) {
     return {
       id: user.id,
       email: user.email,

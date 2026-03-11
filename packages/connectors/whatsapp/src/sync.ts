@@ -6,9 +6,19 @@ import {
   downloadContentFromMessage,
   DisconnectReason,
   type proto,
+  type WAMessage,
+  type WAMessageKey,
 } from '@whiskeysockets/baileys';
+import type {
+  BaileysEventMap,
+  Contact as BaileysContact,
+  GroupMetadata,
+  MediaType,
+} from '@whiskeysockets/baileys';
+import type { Boom } from '@hapi/boom';
 import type { Transform } from 'stream';
 import pino from 'pino';
+import type { LogFn } from 'pino';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
@@ -47,11 +57,11 @@ function makeCacheStore(): {
   del(key: string): void;
   flushAll(): void;
 } {
-  const store = new Map<string, any>();
+  const store = new Map<string, unknown>();
   return {
     get: <T>(key: string) => store.get(key) as T | undefined,
     set: <T>(key: string, value: T) => {
-      store.set(key, value);
+      store.set(key, value as unknown);
     },
     del: (key: string) => {
       store.delete(key);
@@ -79,7 +89,7 @@ export function setDecryptFailureCallback(cb: (count: number) => void) {
 const logger = pino({
   level: 'silent',
   hooks: {
-    logMethod(inputArgs: any[], _method: any) {
+    logMethod(inputArgs: Parameters<LogFn>, _method: LogFn) {
       const msg = typeof inputArgs[0] === 'string' ? inputArgs[0] : inputArgs[1];
       if (typeof msg === 'string' && msg.includes('failed to decrypt')) {
         decryptFailCount++;
@@ -98,7 +108,7 @@ const logger = pino({
       // even at 'silent' level.
     },
   },
-}) as any;
+}) as pino.Logger;
 
 let cachedVersion: { version: [number, number, number]; fetchedAt: number } | null = null;
 const VERSION_TTL = 60 * 60 * 1000;
@@ -116,7 +126,7 @@ async function getWhatsAppVersion(): Promise<[number, number, number]> {
   }
 }
 
-function extractText(msg: any): string {
+function extractText(msg: WAMessage): string {
   return (
     msg.message?.conversation ||
     msg.message?.extendedTextMessage?.text ||
@@ -129,23 +139,28 @@ function extractText(msg: any): string {
 }
 
 /** Detect the message type for rich metadata */
-function detectMessageType(msg: any): { type: string; mimeType?: string; fileName?: string } {
+function detectMessageType(msg: WAMessage): { type: string; mimeType?: string; fileName?: string } {
   const m = msg.message;
   if (!m) return { type: 'unknown' };
 
-  if (m.imageMessage) return { type: 'image', mimeType: m.imageMessage.mimetype };
-  if (m.videoMessage) return { type: 'video', mimeType: m.videoMessage.mimetype };
-  if (m.audioMessage) return { type: 'audio', mimeType: m.audioMessage.mimetype };
-  if (m.stickerMessage) return { type: 'sticker', mimeType: m.stickerMessage.mimetype };
+  if (m.imageMessage) return { type: 'image', mimeType: m.imageMessage.mimetype || undefined };
+  if (m.videoMessage) return { type: 'video', mimeType: m.videoMessage.mimetype || undefined };
+  if (m.audioMessage) return { type: 'audio', mimeType: m.audioMessage.mimetype || undefined };
+  if (m.stickerMessage)
+    return { type: 'sticker', mimeType: m.stickerMessage.mimetype || undefined };
   if (m.documentMessage)
     return {
       type: 'document',
-      mimeType: m.documentMessage.mimetype,
-      fileName: m.documentMessage.fileName,
+      mimeType: m.documentMessage.mimetype || undefined,
+      fileName: m.documentMessage.fileName || undefined,
     };
   if (m.documentWithCaptionMessage?.message?.documentMessage) {
     const doc = m.documentWithCaptionMessage.message.documentMessage;
-    return { type: 'document', mimeType: doc.mimetype, fileName: doc.fileName };
+    return {
+      type: 'document',
+      mimeType: doc.mimetype || undefined,
+      fileName: doc.fileName || undefined,
+    };
   }
   if (m.contactMessage || m.contactsArrayMessage) return { type: 'contact_card' };
   if (m.locationMessage || m.liveLocationMessage) return { type: 'location' };
@@ -156,7 +171,7 @@ function detectMessageType(msg: any): { type: string; mimeType?: string; fileNam
 }
 
 /** Extract shared contact vCards from a message */
-function extractContactCards(msg: any): Array<{ displayName: string; vcard: string }> {
+function extractContactCards(msg: WAMessage): Array<{ displayName: string; vcard: string }> {
   const m = msg.message;
   if (!m) return [];
 
@@ -169,7 +184,7 @@ function extractContactCards(msg: any): Array<{ displayName: string; vcard: stri
     ];
   }
   if (m.contactsArrayMessage?.contacts) {
-    return m.contactsArrayMessage.contacts.map((c: any) => ({
+    return m.contactsArrayMessage.contacts.map((c) => ({
       displayName: c.displayName || '',
       vcard: c.vcard || '',
     }));
@@ -179,15 +194,15 @@ function extractContactCards(msg: any): Array<{ displayName: string; vcard: stri
 
 /** Extract location data from a message */
 function extractLocation(
-  msg: any,
+  msg: WAMessage,
 ): { lat: number; lng: number; name?: string; address?: string } | null {
   const loc = msg.message?.locationMessage || msg.message?.liveLocationMessage;
   if (!loc) return null;
   return {
-    lat: loc.degreesLatitude,
-    lng: loc.degreesLongitude,
-    name: loc.name,
-    address: loc.address,
+    lat: loc.degreesLatitude ?? 0,
+    lng: loc.degreesLongitude ?? 0,
+    name: loc.name || undefined,
+    address: loc.address || undefined,
   };
 }
 
@@ -229,13 +244,13 @@ function nameFromVcard(vcard: string): string {
 
 /** Download image or document media and return base64-encoded content */
 async function downloadMedia(
-  msg: any,
+  msg: WAMessage,
 ): Promise<{ base64: string; mimetype: string; fileName?: string } | null> {
   const m = msg.message;
   if (!m) return null;
 
-  let mediaMsg: any = null;
-  let mediaType: string = '';
+  let mediaMsg: proto.IMessage[keyof proto.IMessage] | null = null;
+  let mediaType: MediaType | '' = '';
   let mime = '';
   let fileName = '';
 
@@ -251,16 +266,25 @@ async function downloadMedia(
   } else if (m.documentWithCaptionMessage?.message?.documentMessage) {
     mediaMsg = m.documentWithCaptionMessage.message.documentMessage;
     mediaType = 'document';
-    mime = mediaMsg.mimetype || 'application/octet-stream';
-    fileName = mediaMsg.fileName || '';
+    mime = (mediaMsg as proto.Message.IDocumentMessage).mimetype || 'application/octet-stream';
+    fileName = (mediaMsg as proto.Message.IDocumentMessage).fileName || '';
   }
 
-  if (!mediaMsg || !mediaMsg.mediaKey || !mediaMsg.directPath) return null;
+  if (
+    !mediaMsg ||
+    !(mediaMsg as { mediaKey?: unknown }).mediaKey ||
+    !(mediaMsg as { directPath?: unknown }).directPath
+  )
+    return null;
+  if (!mediaType) return null;
 
   try {
     // Small jitter before media download to avoid burst requests
     await jitter(200, 800);
-    const stream: Transform = await downloadContentFromMessage(mediaMsg, mediaType as any);
+    const stream: Transform = await downloadContentFromMessage(
+      mediaMsg as Parameters<typeof downloadContentFromMessage>[0],
+      mediaType,
+    );
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -356,8 +380,8 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
     msgRetryCounterCache: makeCacheStore(),
   });
 
-  if (sock.ws && typeof (sock.ws as any).on === 'function') {
-    (sock.ws as any).on('error', () => {});
+  if (sock.ws && typeof sock.ws.on === 'function') {
+    sock.ws.on('error', () => {});
   }
 
   sock.ev.on('creds.update', saveCreds);
@@ -393,9 +417,8 @@ function resolveIdentity(
 /**
  * Extract mentioned JIDs from the message's context info.
  */
-function extractMentions(msg: any): string[] {
-  const ctx =
-    msg.message?.extendedTextMessage?.contextInfo || msg.message?.conversation?.contextInfo;
+function extractMentions(msg: WAMessage): string[] {
+  const ctx = msg.message?.extendedTextMessage?.contextInfo;
   return ctx?.mentionedJid || [];
 }
 
@@ -417,7 +440,7 @@ export async function syncWhatsApp(
     sock = await createSyncSocket(sessionDir);
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('WhatsApp connection timeout')), 30_000);
-      sock.ev.on('connection.update', (update: any) => {
+      sock.ev.on('connection.update', (update) => {
         ctx.logger.info(`connection.update: ${JSON.stringify(update)}`);
         if (update.connection === 'open') {
           clearTimeout(timeout);
@@ -432,7 +455,7 @@ export async function syncWhatsApp(
   }
 
   const syncStartTime = Date.now();
-  const selfJid = (sock as any).user?.id || '';
+  const selfJid = sock.user?.id || '';
   const selfPhone = phoneFromJid(selfJid);
   const isFirstSync = !!existingSock;
   const IDLE_TIMEOUT_MS = isFirstSync ? IDLE_TIMEOUT_FIRST_MS : IDLE_TIMEOUT_RESYNC_MS;
@@ -461,14 +484,14 @@ export async function syncWhatsApp(
   let historyMsgCount = 0;
 
   // Listen for LID → phone mappings
-  sock.ev.on('chats.phoneNumberShare' as any, (data: any) => {
+  sock.ev.on('chats.phoneNumberShare', (data: BaileysEventMap['chats.phoneNumberShare']) => {
     if (data.lid && data.jid) {
       lidToPhone.set(phoneFromJid(data.lid), phoneFromJid(data.jid));
     }
   });
 
   // Listen for contacts.upsert — Baileys delivers contact info here
-  sock.ev.on('contacts.upsert' as any, (contacts: any[]) => {
+  sock.ev.on('contacts.upsert', (contacts: BaileysContact[]) => {
     for (const c of contacts) {
       const id = c.id || '';
       const lid = c.lid || '';
@@ -496,7 +519,7 @@ export async function syncWhatsApp(
   });
 
   // Listen for contacts.update — carries push name changes
-  sock.ev.on('contacts.update' as any, (updates: any[]) => {
+  sock.ev.on('contacts.update', (updates: Partial<BaileysContact>[]) => {
     for (const u of updates) {
       const id = u.id || '';
       const name = u.notify || u.name || u.verifiedName || '';
@@ -512,7 +535,7 @@ export async function syncWhatsApp(
   });
 
   // Listen for group participant updates
-  sock.ev.on('group-participants.update' as any, (data: any) => {
+  sock.ev.on('group-participants.update', (data: BaileysEventMap['group-participants.update']) => {
     const groupJid = data.id;
     if (!groupJid) return;
     if (!groupParticipants.has(groupJid)) {
@@ -526,9 +549,9 @@ export async function syncWhatsApp(
   });
 
   // Per-chat oldest message tracking for on-demand fetching
-  const chatOldest = new Map<string, { key: any; ts: number }>();
+  const chatOldest = new Map<string, { key: WAMessageKey; ts: number }>();
 
-  const processMessage = async (msg: any, source: string, skipMedia = false) => {
+  const processMessage = async (msg: WAMessage, source: string, skipMedia = false) => {
     if (!msg.message) return;
 
     const msgType = detectMessageType(msg);
@@ -783,9 +806,13 @@ export async function syncWhatsApp(
     ctx.signal.addEventListener('abort', finish, { once: true });
 
     // Detect mid-sync disconnection (e.g. user logged out from phone)
-    sock.ev.on('connection.update', (update: any) => {
+    sock.ev.on('connection.update', (update) => {
       if (update.connection === 'close') {
-        const statusCode = (update.lastDisconnect?.error as any)?.output?.statusCode ?? 0;
+        const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
+        const statusCode =
+          disconnectError && 'output' in disconnectError
+            ? (disconnectError as Boom).output.statusCode
+            : 0;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
         const isBadSession = statusCode === DisconnectReason.badSession;
         const isMultidevice = statusCode === DisconnectReason.multideviceMismatch;
@@ -808,7 +835,7 @@ export async function syncWhatsApp(
     });
 
     // History sync — buffer messages, index contacts immediately
-    sock.ev.on('messaging-history.set', (data: any) => {
+    sock.ev.on('messaging-history.set', (data: BaileysEventMap['messaging-history.set']) => {
       historyBatches++;
       const messages = data.messages || [];
       const chats = data.chats || [];
@@ -875,7 +902,7 @@ export async function syncWhatsApp(
     });
 
     // Real-time + offline messages — process immediately (identity maps are warm)
-    sock.ev.on('messages.upsert', (upsert: any) => {
+    sock.ev.on('messages.upsert', (upsert: BaileysEventMap['messages.upsert']) => {
       const msgs = upsert.messages || [];
       const type = upsert.type === 'notify' ? 'realtime' : 'append';
       ctx.logger.info(`messages.upsert: ${msgs.length} msgs, type=${upsert.type}`);
@@ -918,7 +945,7 @@ export async function syncWhatsApp(
   if (
     !ctx.signal.aborted &&
     chatOldest.size > 0 &&
-    typeof (sock as any).fetchMessageHistory === 'function'
+    typeof sock.fetchMessageHistory === 'function'
   ) {
     const elapsedMs = Date.now() - syncStartTime;
     const remainingMs = MAX_SYNC_MS - elapsedMs;
@@ -954,7 +981,7 @@ export async function syncWhatsApp(
 
         const beforeCount = processed;
         try {
-          await (sock as any).fetchMessageHistory(ON_DEMAND_MSGS_PER_FETCH, currentKey, currentTs);
+          await sock.fetchMessageHistory(ON_DEMAND_MSGS_PER_FETCH, currentKey, currentTs);
         } catch (err: unknown) {
           ctx.logger.info(
             `fetchMessageHistory failed for ${chatJid}: ${err instanceof Error ? err.message : String(err)}`,
@@ -997,11 +1024,11 @@ export async function syncWhatsApp(
   // NOTE: In Baileys v7, group participants only have LID-based IDs (no phoneNumber field)
   try {
     ctx.logger.info('Fetching group metadata...');
-    const groups = await (sock as any).groupFetchAllParticipating();
+    const groups: Record<string, GroupMetadata> = await sock.groupFetchAllParticipating();
     let totalParticipants = 0;
     const allGroupLids = new Set<string>();
 
-    for (const [groupJid, meta] of Object.entries(groups) as [string, any][]) {
+    for (const [groupJid, meta] of Object.entries(groups)) {
       if (meta.subject) chatNames.set(groupJid, meta.subject);
       const participants = meta.participants || [];
       totalParticipants += participants.length;

@@ -6,12 +6,14 @@ import {
   fetchLatestBaileysVersion,
   type proto,
 } from '@whiskeysockets/baileys';
+import type { BaileysEventMap } from '@whiskeysockets/baileys';
+import type { Boom } from '@hapi/boom';
 import * as QRCode from 'qrcode';
 import pino from 'pino';
 import { mkdirSync } from 'fs';
 import type { AuthContext } from '@botmem/connector-sdk';
 
-const logger = pino({ level: 'warn' }) as any;
+const logger = pino({ level: 'warn' }) as pino.Logger;
 
 /** Message store for decrypt retry — shared with sync.ts via module scope */
 const authMessageStore = new Map<string, proto.IMessage>();
@@ -40,11 +42,11 @@ function makeCacheStore(): {
   del(key: string): void;
   flushAll(): void;
 } {
-  const store = new Map<string, any>();
+  const store = new Map<string, unknown>();
   return {
     get: <T>(key: string) => store.get(key) as T | undefined,
     set: <T>(key: string, value: T) => {
-      store.set(key, value);
+      store.set(key, value as unknown);
     },
     del: (key: string) => {
       store.delete(key);
@@ -121,8 +123,8 @@ export async function startQrAuth(
       msgRetryCounterCache: makeCacheStore(),
     });
 
-    if (sock.ws && typeof (sock.ws as any).on === 'function') {
-      (sock.ws as any).on('error', (err: Error) => {
+    if (sock.ws && typeof sock.ws.on === 'function') {
+      sock.ws.on('error', (err: Error) => {
         console.debug('[WhatsApp] WebSocket error:', err.message);
       });
     }
@@ -130,12 +132,12 @@ export async function startQrAuth(
     sock.ev.on('creds.update', saveCreds);
 
     // Store incoming messages for decrypt retry
-    sock.ev.on('messaging-history.set' as any, (data: any) => {
+    sock.ev.on('messaging-history.set', (data: BaileysEventMap['messaging-history.set']) => {
       for (const msg of data.messages || []) {
         storeAuthMessage(msg.key, msg.message);
       }
     });
-    sock.ev.on('messages.upsert', (upsert: any) => {
+    sock.ev.on('messages.upsert', (upsert: BaileysEventMap['messages.upsert']) => {
       for (const msg of upsert.messages || []) {
         storeAuthMessage(msg.key, msg.message);
       }
@@ -159,7 +161,11 @@ export async function startQrAuth(
       if (connection === 'close') {
         if (connected) return;
 
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const disconnectError = lastDisconnect?.error as Boom | Error | undefined;
+        const statusCode =
+          disconnectError && 'output' in disconnectError
+            ? (disconnectError as Boom).output.statusCode
+            : 0;
 
         if (FATAL_CODES.has(statusCode)) {
           callbacks.onError(new Error(`WhatsApp authentication failed (${statusCode})`));

@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import type { GraphNode } from '@botmem/shared';
 import type { UIAction, SearchState } from './graphReducers';
+import type { ForceGraphInstance, SimulationNode } from './graphTypes';
 import { api } from '../../lib/api';
 
 interface UseGraphEffectsArgs {
@@ -8,14 +9,19 @@ interface UseGraphEffectsArgs {
   isFullscreen: boolean;
   selfNodeId: string | null;
   search: SearchState;
-  filteredNodes: any[];
-  graphRef: React.RefObject<any>;
+  filteredNodes: GraphNode[];
+  graphRef: React.RefObject<ForceGraphInstance | null>;
   dispatchUI: React.Dispatch<UIAction>;
 }
 
 export function useGraphEffects({
-  selectedNode, isFullscreen, selfNodeId, search,
-  filteredNodes, graphRef, dispatchUI,
+  selectedNode,
+  isFullscreen,
+  selfNodeId,
+  search,
+  filteredNodes,
+  graphRef,
+  dispatchUI,
 }: UseGraphEffectsArgs) {
   // Fetch contact details when a contact/group/device node is selected
   useEffect(() => {
@@ -27,7 +33,9 @@ export function useGraphEffects({
     Promise.all([
       api.getContact(contactId).catch(() => null),
       api.getContactMemories(contactId).catch(() => []),
-    ]).then(([detail, memories]) => dispatchUI({ type: 'setContactInfo', info: { detail, memories } }));
+    ]).then(([detail, memories]) =>
+      dispatchUI({ type: 'setContactInfo', info: { detail, memories } }),
+    );
   }, [selectedNode?.id, selectedNode?.nodeType]);
 
   // On entering fullscreen: show hint, auto-select "me" node
@@ -35,12 +43,12 @@ export function useGraphEffects({
     if (isFullscreen) {
       const timer = setTimeout(() => dispatchUI({ type: 'setShowHint', value: false }), 4000);
       if (selfNodeId) {
-        const meNode = filteredNodes.find((n) => n.id === selfNodeId) as any;
+        const meNode = filteredNodes.find((n) => n.id === selfNodeId) as SimulationNode | undefined;
         if (meNode) {
           dispatchUI({ type: 'selectNode', node: meNode });
           setTimeout(() => {
             if (graphRef.current && meNode.x !== undefined) {
-              graphRef.current.centerAt(meNode.x, meNode.y, 500);
+              graphRef.current.centerAt(meNode.x, meNode.y || 0, 500);
               graphRef.current.zoom(2.5, 500);
             }
           }, 100);
@@ -56,14 +64,17 @@ export function useGraphEffects({
     let topId: string | null = null;
     let topScore = -1;
     for (const [id, score] of search.results.scoreMap) {
-      if (score > topScore) { topScore = score; topId = id; }
+      if (score > topScore) {
+        topScore = score;
+        topId = id;
+      }
     }
     if (topId) {
-      const node = filteredNodes.find((n: any) => n.id === topId) as any;
+      const node = filteredNodes.find((n) => n.id === topId) as SimulationNode | undefined;
       if (node) {
         dispatchUI({ type: 'selectNode', node });
         if (graphRef.current && node.x !== undefined) {
-          graphRef.current.centerAt(node.x, node.y, 400);
+          graphRef.current.centerAt(node.x, node.y || 0, 400);
         }
       }
     }

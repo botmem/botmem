@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { SyncContext, ConnectorDataEvent, ProgressEvent } from '@botmem/connector-sdk';
 
 const mockConnectionsList = vi.hoisted(() => vi.fn());
 
@@ -21,7 +22,7 @@ vi.mock('googleapis', () => ({
 
 import { syncContacts } from '../contacts.js';
 
-function makeCtx(overrides: Record<string, unknown> = {}) {
+function makeCtx(overrides: Record<string, unknown> = {}): SyncContext {
   return {
     accountId: 'acc-1',
     auth: { accessToken: 'tok', refreshToken: 'rt' },
@@ -30,7 +31,7 @@ function makeCtx(overrides: Record<string, unknown> = {}) {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     signal: AbortSignal.timeout(5000),
     ...overrides,
-  } as any;
+  } as SyncContext;
 }
 
 const makeContact = (overrides: Record<string, unknown> = {}) => ({
@@ -73,10 +74,14 @@ describe('syncContacts', () => {
         data: { connections: [makeContact()], nextPageToken: undefined },
       });
 
-    const events: any[] = [];
-    const progress: any[] = [];
+    const events: ConnectorDataEvent[] = [];
+    const progress: ProgressEvent[] = [];
 
-    const result = await syncContacts(makeCtx(), (e) => events.push(e), (p) => progress.push(p));
+    const result = await syncContacts(
+      makeCtx(),
+      (e) => events.push(e),
+      (p) => progress.push(p),
+    );
 
     expect(result.processed).toBe(1);
     expect(events).toHaveLength(1);
@@ -113,7 +118,7 @@ describe('syncContacts', () => {
       .mockResolvedValueOnce({ data: { totalPeople: 0, connections: [] } })
       .mockResolvedValueOnce({ data: { connections: [], nextPageToken: undefined } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     const result = await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
 
     expect(result.processed).toBe(0);
@@ -125,11 +130,13 @@ describe('syncContacts', () => {
       .mockRejectedValueOnce(new Error('API disabled'))
       .mockResolvedValueOnce({ data: { connections: [makeContact()], nextPageToken: undefined } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     const ctx = makeCtx();
     const result = await syncContacts(ctx, (e) => events.push(e), vi.fn());
 
-    expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to get contacts count'));
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to get contacts count'),
+    );
     expect(result.processed).toBe(1);
   });
 
@@ -153,12 +160,14 @@ describe('syncContacts', () => {
       })
       .mockResolvedValueOnce({
         data: {
-          connections: [makeContact({ resourceName: 'people/c2', names: [{ displayName: 'Bob' }] })],
+          connections: [
+            makeContact({ resourceName: 'people/c2', names: [{ displayName: 'Bob' }] }),
+          ],
           nextPageToken: undefined,
         },
       });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     const result = await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
     expect(result.processed).toBe(2);
     expect(events).toHaveLength(2);
@@ -173,7 +182,7 @@ describe('syncContacts', () => {
       .mockResolvedValueOnce({ data: { totalPeople: 1 } })
       .mockResolvedValueOnce({ data: { connections: [minimal], nextPageToken: undefined } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
 
     expect(events[0].content.text).toBe('Contact: Unknown');
@@ -186,7 +195,7 @@ describe('syncContacts', () => {
       .mockResolvedValueOnce({ data: { totalPeople: 1 } })
       .mockResolvedValueOnce({ data: { connections: [noName], nextPageToken: undefined } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.metadata.name).toBe('Unknown');
   });
@@ -216,7 +225,7 @@ describe('syncContacts', () => {
       .mockResolvedValueOnce({ data: { totalPeople: 1 } })
       .mockResolvedValueOnce({ data: { connections: [contact], nextPageToken: undefined } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].content.text).toContain('Birthday: ????-12-25');
   });
@@ -227,7 +236,7 @@ describe('syncContacts', () => {
       .mockResolvedValueOnce({ data: { totalPeople: 1 } })
       .mockResolvedValueOnce({ data: { connections: [contact], nextPageToken: undefined } });
 
-    const events: any[] = [];
+    const events: ConnectorDataEvent[] = [];
     await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
     expect(events[0].sourceId).toBe('contact-0');
   });

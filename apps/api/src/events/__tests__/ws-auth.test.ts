@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventsGateway } from '../events.gateway';
+import type { JwtService } from '@nestjs/jwt';
+import type { ConfigService } from '../../config/config.service';
+import type { DbService } from '../../db/db.service';
 import { EventsService } from '../events.service';
 import { WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
@@ -10,7 +13,7 @@ describe('EventsGateway WebSocket Auth', () => {
   let jwtService: { verify: ReturnType<typeof vi.fn> };
   let configService: { jwtAccessSecret: string };
   let eventsService: EventsService;
-  let dbService: { db: any };
+  let dbService: { db: Record<string, unknown> };
 
   beforeEach(() => {
     jwtService = { verify: vi.fn() };
@@ -20,9 +23,9 @@ describe('EventsGateway WebSocket Auth', () => {
 
     gateway = new EventsGateway(
       eventsService,
-      jwtService as any,
-      configService as any,
-      dbService as any,
+      jwtService as unknown as JwtService,
+      configService as unknown as ConfigService,
+      dbService as unknown as DbService,
     );
   });
 

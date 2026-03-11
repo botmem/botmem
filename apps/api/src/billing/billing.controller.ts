@@ -70,7 +70,7 @@ export class BillingController {
       return res.status(400).json({ error: 'Billing not available' });
     }
 
-    const rawBody = (req as any).rawBody;
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
     if (!rawBody) {
       this.logger.error('Raw body not available for webhook verification');
       return res.status(400).json({ error: 'Raw body not available' });

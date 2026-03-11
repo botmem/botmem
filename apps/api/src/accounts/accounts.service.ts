@@ -79,7 +79,7 @@ export class AccountsService {
   ) {
     await this.getById(id); // throws if not found
     const { lastSyncAt, ...rest } = data;
-    const toSet: any = { ...rest, updatedAt: new Date() };
+    const toSet: Record<string, unknown> = { ...rest, updatedAt: new Date() };
     if (lastSyncAt) {
       toSet.lastSyncAt = new Date(lastSyncAt);
     }

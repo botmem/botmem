@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SettingsService } from '../settings.service';
+import type { DbService } from '../../db/db.service';
 
 describe('SettingsService', () => {
   let service: SettingsService;
-  let mockDb: any;
+  let mockDb: Record<string, ReturnType<typeof vi.fn>>;
 
   beforeEach(() => {
     mockDb = {
@@ -17,7 +18,7 @@ describe('SettingsService', () => {
         { key: 'custom_key', value: 'custom_val' },
       ]),
     };
-    service = new SettingsService({ db: mockDb } as any);
+    service = new SettingsService({ db: mockDb } as unknown as DbService);
   });
 
   describe('onModuleInit', () => {

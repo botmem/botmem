@@ -33,7 +33,15 @@ export function ContactDetailPanel({
   onDelete,
 }: ContactDetailPanelProps) {
   const [editName, setEditName] = useState(contact.displayName);
-  const [memories, setMemories] = useState<any[]>([]);
+  const [memories, setMemories] = useState<
+    Array<{
+      id: string;
+      eventTime?: string;
+      createdAt?: string;
+      connectorType?: string;
+      text?: string;
+    }>
+  >([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [splitIds, setSplitIds] = useState<Set<string>>(new Set());
   const [showMergeSearch, setShowMergeSearch] = useState(false);
@@ -281,11 +289,11 @@ export function ContactDetailPanel({
             {memories.length === 0 && (
               <p className="font-mono text-xs text-nb-muted">No linked memories</p>
             )}
-            {memories.map((m: any) => (
+            {memories.map((m) => (
               <div key={m.id} className="border-2 border-nb-border p-2 bg-nb-surface-muted">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="font-mono text-[10px] text-nb-muted">
-                    {formatDate(m.eventTime || m.createdAt)}
+                    {formatDate(m.eventTime || m.createdAt || '')}
                   </span>
                   <Badge className="text-[10px] py-0">{m.connectorType}</Badge>
                 </div>

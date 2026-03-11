@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BillingController } from '../billing.controller';
 import { BadRequestException } from '@nestjs/common';
+import type { BillingService } from '../billing.service';
+import type { ConfigService } from '../../config/config.service';
 
 vi.mock('stripe', () => {
   const MockStripe = vi.fn().mockImplementation(() => ({
@@ -13,15 +15,19 @@ vi.mock('stripe', () => {
 
 describe('BillingController', () => {
   let controller: BillingController;
-  let billingService: any;
-  let config: any;
+  let billingService: Record<string, ReturnType<typeof vi.fn>>;
+  let config: { isSelfHosted: boolean; stripeSecretKey: string; stripeWebhookSecret: string };
   const user = { id: 'user-1', email: 'test@example.com' };
 
   describe('cloud mode', () => {
     beforeEach(() => {
       billingService = {
-        createCheckoutSession: vi.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/test' }),
-        createPortalSession: vi.fn().mockResolvedValue({ url: 'https://billing.stripe.com/portal' }),
+        createCheckoutSession: vi
+          .fn()
+          .mockResolvedValue({ url: 'https://checkout.stripe.com/test' }),
+        createPortalSession: vi
+          .fn()
+          .mockResolvedValue({ url: 'https://billing.stripe.com/portal' }),
         getBillingInfo: vi.fn().mockResolvedValue({
           plan: 'pro',
           status: 'active',
@@ -35,14 +41,20 @@ describe('BillingController', () => {
         stripeSecretKey: 'sk_test_xxx',
         stripeWebhookSecret: 'whsec_test',
       };
-      controller = new BillingController(billingService, config as any);
+      controller = new BillingController(
+        billingService as unknown as BillingService,
+        config as unknown as ConfigService,
+      );
     });
 
     describe('POST /checkout', () => {
       it('returns checkout URL', async () => {
         const result = await controller.createCheckout(user);
         expect(result).toEqual({ url: 'https://checkout.stripe.com/test' });
-        expect(billingService.createCheckoutSession).toHaveBeenCalledWith('user-1', 'test@example.com');
+        expect(billingService.createCheckoutSession).toHaveBeenCalledWith(
+          'user-1',
+          'test@example.com',
+        );
       });
     });
 
@@ -70,11 +82,18 @@ describe('BillingController', () => {
     describe('POST /webhook', () => {
       it('verifies signature and processes event', async () => {
         const mockEvent = { type: 'checkout.session.completed', data: { object: {} } };
-        const stripe = (controller as any).stripe;
+        const stripe = (
+          controller as unknown as {
+            stripe: { webhooks: { constructEvent: ReturnType<typeof vi.fn> } };
+          }
+        ).stripe;
         stripe.webhooks.constructEvent.mockReturnValue(mockEvent);
 
-        const req = { rawBody: Buffer.from('raw') } as any;
-        const res = { json: vi.fn().mockReturnThis(), status: vi.fn().mockReturnThis() } as any;
+        const req = { rawBody: Buffer.from('raw') } as unknown as { rawBody: Buffer };
+        const res = {
+          json: vi.fn().mockReturnThis(),
+          status: vi.fn().mockReturnThis(),
+        } as unknown as { json: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> };
 
         await controller.handleWebhook(req, res, 'sig_test');
 
@@ -88,8 +107,11 @@ describe('BillingController', () => {
       });
 
       it('returns 400 when rawBody is missing', async () => {
-        const req = {} as any;
-        const res = { json: vi.fn().mockReturnThis(), status: vi.fn().mockReturnThis() } as any;
+        const req = {} as unknown as { rawBody?: Buffer };
+        const res = {
+          json: vi.fn().mockReturnThis(),
+          status: vi.fn().mockReturnThis(),
+        } as unknown as { json: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> };
 
         await controller.handleWebhook(req, res, 'sig_test');
 
@@ -98,13 +120,20 @@ describe('BillingController', () => {
       });
 
       it('returns 400 when signature verification fails', async () => {
-        const stripe = (controller as any).stripe;
+        const stripe = (
+          controller as unknown as {
+            stripe: { webhooks: { constructEvent: ReturnType<typeof vi.fn> } };
+          }
+        ).stripe;
         stripe.webhooks.constructEvent.mockImplementation(() => {
           throw new Error('Invalid signature');
         });
 
-        const req = { rawBody: Buffer.from('raw') } as any;
-        const res = { json: vi.fn().mockReturnThis(), status: vi.fn().mockReturnThis() } as any;
+        const req = { rawBody: Buffer.from('raw') } as unknown as { rawBody: Buffer };
+        const res = {
+          json: vi.fn().mockReturnThis(),
+          status: vi.fn().mockReturnThis(),
+        } as unknown as { json: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> };
 
         await controller.handleWebhook(req, res, 'bad_sig');
 
@@ -127,7 +156,10 @@ describe('BillingController', () => {
         stripeSecretKey: '',
         stripeWebhookSecret: '',
       };
-      controller = new BillingController(billingService, config as any);
+      controller = new BillingController(
+        billingService as unknown as BillingService,
+        config as unknown as ConfigService,
+      );
     });
 
     it('POST /checkout throws BadRequestException', async () => {
@@ -147,8 +179,11 @@ describe('BillingController', () => {
     });
 
     it('POST /webhook returns 400', async () => {
-      const req = { rawBody: Buffer.from('raw') } as any;
-      const res = { json: vi.fn().mockReturnThis(), status: vi.fn().mockReturnThis() } as any;
+      const req = { rawBody: Buffer.from('raw') } as unknown as { rawBody: Buffer };
+      const res = {
+        json: vi.fn().mockReturnThis(),
+        status: vi.fn().mockReturnThis(),
+      } as unknown as { json: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> };
 
       await controller.handleWebhook(req, res, 'sig_test');
 

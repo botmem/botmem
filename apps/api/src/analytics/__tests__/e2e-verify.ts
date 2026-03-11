@@ -22,9 +22,17 @@ async function verify() {
     const noopClient: PostHog | null = null; // mirrors AnalyticsService with empty key
     // Simulating capture on null client (no-op)
     noopClient?.capture({ distinctId: 'server', event: 'test' });
-    results.push({ check: 'VER-05: No-op capture (no key)', pass: true, detail: 'No error thrown' });
-  } catch (e: any) {
-    results.push({ check: 'VER-05: No-op capture (no key)', pass: false, detail: e.message });
+    results.push({
+      check: 'VER-05: No-op capture (no key)',
+      pass: true,
+      detail: 'No error thrown',
+    });
+  } catch (e: unknown) {
+    results.push({
+      check: 'VER-05: No-op capture (no key)',
+      pass: false,
+      detail: (e as Error).message,
+    });
   }
 
   // If API key is set, verify real capture
@@ -51,8 +59,12 @@ async function verify() {
         pass: true,
         detail: `Event sent to ${HOST}`,
       });
-    } catch (e: any) {
-      results.push({ check: 'Backend capture with real key', pass: false, detail: e.message });
+    } catch (e: unknown) {
+      results.push({
+        check: 'Backend capture with real key',
+        pass: false,
+        detail: (e as Error).message,
+      });
     }
   } else {
     results.push({

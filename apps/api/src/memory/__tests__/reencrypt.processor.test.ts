@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-function makeWorkerProperty(processor: any) {
+function makeWorkerProperty(processor: Record<string, unknown>) {
   Object.defineProperty(processor, 'worker', {
     value: { on: vi.fn(), concurrency: 1 },
     writable: true,
@@ -8,7 +8,7 @@ function makeWorkerProperty(processor: any) {
   });
 }
 
-function makeJob(overrides: Record<string, any> = {}) {
+function makeJob(overrides: Record<string, unknown> = {}) {
   return {
     data: {
       userId: 'user-1',
@@ -31,7 +31,7 @@ function makeCrypto() {
 }
 
 // Helper to build a mock DB that returns specific sequences of results for select queries
-function makeDb(banks: any[], countRows: any[], batchRows: any[]) {
+function makeDb(banks: unknown[], countRows: unknown[], batchRows: unknown[]) {
   let selectCall = 0;
   const updateSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
   const updateFn = vi.fn().mockReturnValue({ set: updateSet });
@@ -74,7 +74,10 @@ describe('ReencryptProcessor', () => {
       memoryBankId: 'b1',
     };
     const { db, updateFn } = makeDb([{ id: 'b1' }], [mem1], [mem1]);
-    const processor = new (ReencryptProcessor as any)({ db }, crypto);
+    const processor = new (ReencryptProcessor as unknown as new (...args: unknown[]) => {
+      process: (job: unknown) => Promise<void>;
+      worker: unknown;
+    })({ db }, crypto);
     makeWorkerProperty(processor);
 
     await processor.process(makeJob());
@@ -97,7 +100,10 @@ describe('ReencryptProcessor', () => {
       memoryBankId: 'b1',
     };
     const { db } = makeDb([{ id: 'b1' }], [mem0], [mem0]);
-    const processor = new (ReencryptProcessor as any)({ db }, crypto);
+    const processor = new (ReencryptProcessor as unknown as new (...args: unknown[]) => {
+      process: (job: unknown) => Promise<void>;
+      worker: unknown;
+    })({ db }, crypto);
     makeWorkerProperty(processor);
 
     await processor.process(makeJob());
@@ -124,7 +130,10 @@ describe('ReencryptProcessor', () => {
       memoryBankId: 'b1',
     };
     const { db, updateFn } = makeDb([{ id: 'b1' }], [mem], [mem]);
-    const processor = new (ReencryptProcessor as any)({ db }, crypto);
+    const processor = new (ReencryptProcessor as unknown as new (...args: unknown[]) => {
+      process: (job: unknown) => Promise<void>;
+      worker: unknown;
+    })({ db }, crypto);
     makeWorkerProperty(processor);
 
     // Should not throw
@@ -146,7 +155,10 @@ describe('ReencryptProcessor', () => {
       memoryBankId: 'b1',
     };
     const { db } = makeDb([{ id: 'b1' }], [mem], [mem]);
-    const processor = new (ReencryptProcessor as any)({ db }, crypto);
+    const processor = new (ReencryptProcessor as unknown as new (...args: unknown[]) => {
+      process: (job: unknown) => Promise<void>;
+      worker: unknown;
+    })({ db }, crypto);
     makeWorkerProperty(processor);
 
     const job = makeJob();
@@ -161,7 +173,10 @@ describe('ReencryptProcessor', () => {
     const { ReencryptProcessor } = await import('../reencrypt.processor');
     const crypto = makeCrypto();
     const { db } = makeDb([], [], []);
-    const processor = new (ReencryptProcessor as any)({ db }, crypto);
+    const processor = new (ReencryptProcessor as unknown as new (...args: unknown[]) => {
+      process: (job: unknown) => Promise<void>;
+      worker: unknown;
+    })({ db }, crypto);
     makeWorkerProperty(processor);
 
     const job = makeJob();
