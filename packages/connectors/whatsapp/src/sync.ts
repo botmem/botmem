@@ -196,13 +196,15 @@ function extractContactCards(msg: WAMessage): Array<{ displayName: string; vcard
 function extractLocation(
   msg: WAMessage,
 ): { lat: number; lng: number; name?: string; address?: string } | null {
-  const loc = msg.message?.locationMessage || msg.message?.liveLocationMessage;
+  const locMsg = msg.message?.locationMessage;
+  const liveLoc = msg.message?.liveLocationMessage;
+  const loc = locMsg || liveLoc;
   if (!loc) return null;
   return {
     lat: loc.degreesLatitude ?? 0,
     lng: loc.degreesLongitude ?? 0,
-    name: loc.name || undefined,
-    address: loc.address || undefined,
+    name: locMsg?.name || undefined,
+    address: locMsg?.address || undefined,
   };
 }
 
