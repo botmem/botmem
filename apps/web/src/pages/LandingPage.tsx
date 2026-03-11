@@ -4,6 +4,7 @@ import { cn } from '../lib/utils';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { PublicFooter } from '../components/layout/PublicFooter';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -1027,6 +1028,16 @@ function OpenSourceCTA() {
 
 export function LandingPage() {
   const mainRef = useRef<HTMLDivElement>(null);
+
+  usePageMeta({
+    title: 'Botmem — Your Life, Searchable. Personal Memory for AI Agents.',
+    description:
+      'Open-source personal memory system. Ingest Gmail, Slack, WhatsApp, iMessage, photos, and locations into one AI-powered searchable memory. Self-hosted, local-first, privacy-focused. MCP server for Claude, Cursor, and AI agents.',
+    canonical: 'https://botmem.xyz/',
+    ogTitle: 'Botmem — Your Life, Searchable',
+    ogDescription:
+      'Self-hosted personal memory. Search your entire digital life locally with AI.',
+  });
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { PublicNavbar } from '../components/layout/PublicNavbar';
 import { PublicFooter } from '../components/layout/PublicFooter';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -123,6 +124,12 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 
 export function PricingPage() {
   const mainRef = useRef<HTMLDivElement>(null);
+
+  usePageMeta({
+    title: 'Pricing — Free Self-Hosted or Managed Pro',
+    description:
+      'Botmem pricing: self-host free forever with all features, or get managed Pro hosting for $14.99/month. Open source personal memory with Gmail, Slack, WhatsApp integration. No data lock-in.',
+  });
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
