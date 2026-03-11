@@ -43,8 +43,10 @@ export default function OAuthConsentPage() {
   useEffect(() => {
     if (!clientId) return;
     fetch(`/oauth/client-info?client_id=${encodeURIComponent(clientId)}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.client_name) setClientName(d.client_name); })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.client_name) setClientName(d.client_name);
+      })
       .catch(() => {});
   }, [clientId]);
 
@@ -120,7 +122,9 @@ export default function OAuthConsentPage() {
       if (data.redirect_uri) {
         setStep('done');
         // Small delay so user sees the success state before redirect
-        setTimeout(() => { window.location.href = data.redirect_uri; }, 500);
+        setTimeout(() => {
+          window.location.href = data.redirect_uri;
+        }, 500);
       } else {
         // No redirect (e.g. headless flow) — show done message
         setStep('done');
@@ -203,9 +207,7 @@ export default function OAuthConsentPage() {
           {(step === 'consent' || step === 'recovery') && user && (
             <div className="border-3 border-nb-border bg-nb-surface p-4 shadow-nb">
               <div className="font-mono text-sm text-nb-muted">Signed in as</div>
-              <div className="font-display font-bold text-nb-text">
-                {user.email || 'User'}
-              </div>
+              <div className="font-display font-bold text-nb-text">{user.email || 'User'}</div>
             </div>
           )}
 
@@ -222,6 +224,7 @@ export default function OAuthConsentPage() {
                 <Input
                   label="Recovery Key"
                   type="text"
+                  data-ph-mask
                   value={recoveryKey}
                   onChange={(e) => setRecoveryKey(e.target.value)}
                   placeholder="Your 32-byte base64 recovery key"
@@ -242,8 +245,8 @@ export default function OAuthConsentPage() {
                 Authorize Access?
               </h2>
               <p className="font-mono text-sm text-nb-text mb-4">
-                <span className="font-bold text-nb-pink">{clientName || clientId}</span>{' '}
-                wants to access your memories.
+                <span className="font-bold text-nb-pink">{clientName || clientId}</span> wants to
+                access your memories.
               </p>
 
               <div className="mb-5">
@@ -290,9 +293,7 @@ export default function OAuthConsentPage() {
               <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-2">
                 Authorized
               </h2>
-              <p className="font-mono text-sm text-nb-muted">
-                Redirecting you now...
-              </p>
+              <p className="font-mono text-sm text-nb-muted">Redirecting you now...</p>
             </div>
           )}
 

@@ -186,7 +186,10 @@ export function OnboardingSteps() {
                 Save This Key
               </span>
             </div>
-            <code className="block font-mono text-lg text-nb-text break-all select-all leading-relaxed mt-1">
+            <code
+              data-ph-mask
+              className="block font-mono text-lg text-nb-text break-all select-all leading-relaxed mt-1"
+            >
               {recoveryKey}
             </code>
             <button
