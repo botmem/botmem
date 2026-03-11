@@ -23,8 +23,8 @@
     "@botmem/connector-sdk": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.19.15",
     "typescript": "catalog:",
-    "@types/node": "^22.0.0",
     "vitest": "catalog:"
   }
 }

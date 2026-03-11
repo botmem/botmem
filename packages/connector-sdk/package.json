@@ -20,7 +20,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.19.15",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
