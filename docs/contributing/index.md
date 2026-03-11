@@ -22,20 +22,22 @@ pnpm install
 ### Start Infrastructure
 
 ```bash
-docker compose up -d   # PostgreSQL + Redis + Qdrant
+docker compose up -d postgres redis qdrant   # Start backing services only
 ```
 
 ### Configure Environment
 
 ```bash
-echo "DATABASE_URL=postgresql://botmem:botmem@localhost:5432/botmem" > .env
+cp .env.example .env   # Edit as needed; defaults work for local dev
 ```
 
 ### Start Development Servers
 
 ```bash
-pnpm dev   # Starts API (:12412) + Web UI (:12412) via Turbo
+pnpm dev
 ```
+
+This automatically builds all workspace packages (`@botmem/shared`, `@botmem/connector-sdk`, connectors), then starts the NestJS API on `:12412`. The API embeds Vite middleware to serve the React frontend on the same port — no separate web server needed.
 
 ### Verify
 
@@ -45,12 +47,12 @@ curl http://localhost:12412/api/version
 
 ## Available Commands
 
-| Command      | Description                                   |
-| ------------ | --------------------------------------------- |
-| `pnpm dev`   | Start all dev servers (Turbo, concurrency 20) |
-| `pnpm build` | Build all packages                            |
-| `pnpm lint`  | Lint everything                               |
-| `pnpm test`  | Run Vitest across all workspaces              |
+| Command      | Description                                                    |
+| ------------ | -------------------------------------------------------------- |
+| `pnpm dev`   | Build deps + start API with embedded Vite frontend on `:12412` |
+| `pnpm build` | Build all packages                                             |
+| `pnpm lint`  | Lint everything                                                |
+| `pnpm test`  | Run Vitest across all workspaces                               |
 
 ## Monorepo Structure
 
