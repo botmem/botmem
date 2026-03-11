@@ -112,10 +112,6 @@ export class ConfigService implements OnModuleInit {
     return process.env.OLLAMA_PASSWORD || '';
   }
 
-  get ollamaEmbedDimension(): number {
-    return parseInt(process.env.OLLAMA_EMBED_DIMENSION || '1024', 10);
-  }
-
   get qdrantUrl(): string {
     return process.env.QDRANT_URL || 'http://localhost:6333';
   }
@@ -279,7 +275,38 @@ export class ConfigService implements OnModuleInit {
   }
 
   get embedDimension(): number {
-    return parseInt(process.env.EMBED_DIMENSION || '1024', 10);
+    if (process.env.EMBED_DIMENSION) {
+      return parseInt(process.env.EMBED_DIMENSION, 10);
+    }
+    // Auto-detect from model name
+    return this.inferEmbedDimension();
+  }
+
+  private inferEmbedDimension(): number {
+    const model =
+      this.aiBackend === 'openrouter' ? this.openrouterEmbedModel : this.ollamaEmbedModel;
+    const m = model.toLowerCase();
+
+    // Known model → dimension mappings
+    if (m.includes('nomic-embed-text')) return 768;
+    if (m.includes('mxbai-embed-large')) return 1024;
+    if (m.includes('gemini-embedding')) return 3072;
+    if (m.includes('all-minilm')) return 384;
+    if (m.includes('bge-large')) return 1024;
+    if (m.includes('bge-small')) return 384;
+    if (m.includes('bge-m3')) return 1024;
+    if (m.includes('e5-large')) return 1024;
+    if (m.includes('e5-small')) return 384;
+    if (m.includes('snowflake-arctic-embed')) return 1024;
+    if (m.includes('text-embedding-3-large')) return 3072;
+    if (m.includes('text-embedding-3-small')) return 1536;
+    if (m.includes('text-embedding-ada')) return 1536;
+
+    this.logger.warn(
+      `Unknown embedding model "${model}" — defaulting to 1024 dimensions. ` +
+        `Set EMBED_DIMENSION in .env if this is wrong.`,
+    );
+    return 1024;
   }
 
   /** Sensible concurrency defaults based on AI backend (local GPU vs cloud API) */

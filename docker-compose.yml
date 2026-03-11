@@ -1,4 +1,30 @@
 services:
+  botmem:
+    image: ghcr.io/botmem/botmem:latest
+    ports:
+      - '12412:12412'
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://botmem:botmem@postgres:5432/botmem
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:12412/api/version || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   postgres:
     image: postgres:17-alpine
     ports:

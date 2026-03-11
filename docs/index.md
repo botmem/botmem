@@ -52,19 +52,15 @@ Get Botmem running in under five minutes:
 git clone https://github.com/botmem/botmem.git
 cd botmem
 
-# Start infrastructure (PostgreSQL + Redis + Qdrant)
+# Configure environment
+cp .env.example .env    # Edit .env — set OLLAMA_BASE_URL to your Ollama host
+
+# Start everything (Botmem + PostgreSQL + Redis + Qdrant)
 docker compose up -d
-
-# Install dependencies
-pnpm install
-
-# Set required env var
-echo "DATABASE_URL=postgresql://botmem:botmem@localhost:5432/botmem" > .env
-
-# Start the development servers
-pnpm dev
 ```
 
 The API and web UI serve on `http://localhost:12412`. Sign up, connect your first data source, and start searching.
+
+For development, see the [quickstart guide](/guide/quickstart).
 
 Want someone else to handle the infrastructure? [Botmem Pro](https://botmem.xyz) ($14.99/mo) runs the same open-source code with managed hosting and preconfigured AI.

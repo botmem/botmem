@@ -66,15 +66,16 @@ jobs:
           file: ./Dockerfile
           push: true
           build-args: |
+            VITE_AUTH_PROVIDER=firebase
             VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_HOST=https://t.botmem.xyz
             VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
             VITE_FIREBASE_AUTH_DOMAIN=botmem-app.firebaseapp.com
             VITE_FIREBASE_PROJECT_ID=botmem-app
             VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
-            VITE_FIREBASE_MESSAGING_SENDER_ID=958102222848
-            VITE_FIREBASE_APP_ID=1:958102222848:web:1ced1d9c98222557ebc0e5
-            VITE_FIREBASE_MEASUREMENT_ID=G-VY98K4Q9FJ
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            VITE_FIREBASE_MEASUREMENT_ID=${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
           tags: |
             ghcr.io/botmem/botmem:latest
             ghcr.io/botmem/botmem:${{ github.sha }}

@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 import * as dotenv from 'dotenv';
-dotenv.config();
+import { join, resolve } from 'path';
+
+// Resolve .env from the monorepo root, not the cwd (which may be apps/api/)
+dotenv.config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
@@ -8,7 +11,6 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
 import { ConfigService } from './config/config.service';
-import { join } from 'path';
 import { readFileSync } from 'fs';
 import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
