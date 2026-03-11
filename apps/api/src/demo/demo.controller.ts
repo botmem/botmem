@@ -1,4 +1,5 @@
 import { Controller, Post, Delete, Logger } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
@@ -6,6 +7,8 @@ import { DemoService } from './demo.service';
 import { DbService } from '../db/db.service';
 import * as schema from '../db/schema';
 
+@ApiTags('Demo')
+@ApiBearerAuth()
 @Controller('demo')
 export class DemoController {
   private readonly logger = new Logger(DemoController.name);

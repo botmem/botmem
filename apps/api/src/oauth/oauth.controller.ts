@@ -16,12 +16,15 @@ import type { Request } from 'express';
 import { Response } from 'express';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { OAuthService } from './oauth.service';
 import { UsersService } from '../user-auth/users.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { ConfigService } from '../config/config.service';
 
+@ApiTags('OAuth')
+@ApiBearerAuth()
 @Controller('oauth')
 export class OAuthController {
   private readonly logger = new Logger(OAuthController.name);

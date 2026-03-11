@@ -1,10 +1,13 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { MemoryBanksService } from './memory-banks.service';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CreateMemoryBankDto } from './dto/create-memory-bank.dto';
 import { RenameMemoryBankDto } from './dto/rename-memory-bank.dto';
 
+@ApiTags('Memory Banks')
+@ApiBearerAuth()
 @Controller('memory-banks')
 export class MemoryBanksController {
   constructor(private memoryBanksService: MemoryBanksService) {}
@@ -23,10 +26,7 @@ export class MemoryBanksController {
 
   @RequiresJwt()
   @Post()
-  async create(
-    @CurrentUser() user: { id: string },
-    @Body() dto: CreateMemoryBankDto,
-  ) {
+  async create(@CurrentUser() user: { id: string }, @Body() dto: CreateMemoryBankDto) {
     return this.memoryBanksService.create(user.id, dto.name);
   }
 
@@ -42,10 +42,7 @@ export class MemoryBanksController {
 
   @RequiresJwt()
   @Delete(':id')
-  async remove(
-    @CurrentUser() user: { id: string },
-    @Param('id') id: string,
-  ) {
+  async remove(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.memoryBanksService.remove(user.id, id);
   }
 }

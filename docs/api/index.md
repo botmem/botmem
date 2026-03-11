@@ -4,6 +4,10 @@ The Botmem REST API is served by a NestJS application on port 12412 (configurabl
 
 **Base URL:** `http://localhost:12412/api`
 
+::: tip Interactive API Explorer
+The full OpenAPI spec is auto-generated from source code. Try the [Swagger UI](/api/docs) for interactive exploration, or see the [OpenAPI Schema](/api/openapi) page for type generation.
+:::
+
 ## Authentication
 
 All API endpoints require authentication (except `GET /api/version`). Include a Bearer token in the `Authorization` header:

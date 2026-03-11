@@ -1,0 +1,646 @@
+/* ── Botmem Neobrutalist Swagger Theme ────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+
+/* ── Dark mode (default) ──────────────────────────────────────────── */
+:root {
+  --nb-bg: #0D0D0D;
+  --nb-surface: #1A1A2E;
+  --nb-surface-hover: #252540;
+  --nb-surface-muted: #2A2A45;
+  --nb-border: #E0E0E0;
+  --nb-text: #F0F0F0;
+  --nb-muted: #888888;
+  --nb-lime: #C4F53A;
+  --nb-pink: #FF6B9D;
+  --nb-blue: #4ECDC4;
+  --nb-purple: #A855F7;
+  --nb-orange: #FF8A50;
+  --nb-red: #EF4444;
+  --nb-green: #22C55E;
+  --nb-yellow: #FFE66D;
+  --nb-shadow: 4px 4px 0 rgba(255, 255, 255, 0.12);
+  --nb-shadow-sm: 2px 2px 0 rgba(255, 255, 255, 0.12);
+  --nb-shadow-lg: 6px 6px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* ── Light mode ───────────────────────────────────────────────────── */
+@media (prefers-color-scheme: light) {
+  :root {
+    --nb-bg: #F5F5F0;
+    --nb-surface: #FFFFFF;
+    --nb-surface-hover: #EFEFEA;
+    --nb-surface-muted: #E5E5E0;
+    --nb-border: #0D0D0D;
+    --nb-text: #0D0D0D;
+    --nb-muted: #555550;
+    --nb-shadow: 4px 4px 0 rgba(0, 0, 0, 0.15);
+    --nb-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.15);
+    --nb-shadow-lg: 6px 6px 0 rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* ── Global ───────────────────────────────────────────────────────── */
+* { border-radius: 0 !important; }
+
+html, body {
+  background: var(--nb-bg) !important;
+  color: var(--nb-text) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+
+::selection {
+  background-color: var(--nb-lime);
+  color: #000;
+}
+
+/* ── Topbar ───────────────────────────────────────────────────────── */
+.swagger-ui .topbar {
+  background: var(--nb-surface) !important;
+  border-bottom: 4px solid var(--nb-border) !important;
+  padding: 0 20px !important;
+}
+
+.swagger-ui .topbar-wrapper {
+  padding: 10px 0 !important;
+}
+
+.swagger-ui .topbar-wrapper .link {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  font-size: 16px !important;
+  color: var(--nb-text) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+/* Hide default Swagger logo */
+.swagger-ui .topbar-wrapper .link svg { display: none !important; }
+
+/* Show BOTMEM text */
+.swagger-ui .topbar-wrapper .link::before {
+  content: 'BOTMEM';
+  color: var(--nb-lime);
+  font-size: 16px;
+  letter-spacing: 0.15em;
+}
+
+/* Hide the "swagger" text inside the link */
+.swagger-ui .topbar-wrapper .link span { font-size: 0 !important; }
+
+/* Explore bar */
+.swagger-ui .topbar .download-url-wrapper .download-url-button {
+  background: var(--nb-lime) !important;
+  color: #000 !important;
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  border: 3px solid var(--nb-border) !important;
+  box-shadow: var(--nb-shadow-sm);
+  padding: 6px 16px !important;
+  font-size: 11px !important;
+  cursor: pointer !important;
+  transition: all 100ms !important;
+}
+
+.swagger-ui .topbar .download-url-wrapper .download-url-button:hover {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+.swagger-ui .topbar input[type=text] {
+  background: var(--nb-bg) !important;
+  color: var(--nb-text) !important;
+  border: 3px solid var(--nb-border) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 13px !important;
+  padding: 6px 12px !important;
+}
+
+.swagger-ui .topbar input[type=text]:focus {
+  border-color: var(--nb-lime) !important;
+  outline: none !important;
+}
+
+/* ── Main wrapper ─────────────────────────────────────────────────── */
+.swagger-ui {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .wrapper {
+  background: var(--nb-bg) !important;
+  max-width: 1200px !important;
+  padding: 0 20px !important;
+}
+
+/* ── Info header ──────────────────────────────────────────────────── */
+.swagger-ui .info {
+  margin: 20px 0 12px !important;
+  padding: 20px !important;
+  border: 3px solid var(--nb-border) !important;
+  background: var(--nb-surface) !important;
+  box-shadow: var(--nb-shadow) !important;
+}
+
+.swagger-ui .info hgroup.main { margin: 0 !important; }
+
+.swagger-ui .info .title {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--nb-text) !important;
+  font-size: 24px !important;
+}
+
+.swagger-ui .info .title small {
+  background: var(--nb-lime) !important;
+  color: #000 !important;
+  border: 2px solid var(--nb-border) !important;
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  padding: 1px 8px !important;
+  font-size: 11px !important;
+  vertical-align: middle !important;
+}
+
+.swagger-ui .info .title small pre {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: #000 !important;
+  padding: 0 !important;
+}
+
+.swagger-ui .info .description,
+.swagger-ui .info .description p,
+.swagger-ui .info .description .markdown p {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-muted) !important;
+  font-size: 13px !important;
+}
+
+/* ── Authorize + Scheme container ─────────────────────────────────── */
+.swagger-ui .scheme-container {
+  background: var(--nb-bg) !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 8px 0 !important;
+  margin: 0 !important;
+}
+
+/* ── Filter bar ───────────────────────────────────────────────────── */
+.swagger-ui .filter-container {
+  background: var(--nb-bg) !important;
+  border: none !important;
+  margin: 0 0 8px !important;
+  padding: 0 !important;
+}
+
+.swagger-ui .filter-container input[type=text] {
+  background: var(--nb-surface) !important;
+  color: var(--nb-text) !important;
+  border: 3px solid var(--nb-border) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  padding: 8px 12px !important;
+}
+
+.swagger-ui .filter-container input[type=text]:focus {
+  border-color: var(--nb-lime) !important;
+}
+
+/* ── Tag groups ───────────────────────────────────────────────────── */
+.swagger-ui .opblock-tag-section {
+  margin-bottom: 4px !important;
+}
+
+.swagger-ui .opblock-tag {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  font-size: 14px !important;
+  color: var(--nb-text) !important;
+  background: var(--nb-surface) !important;
+  border: 3px solid var(--nb-border) !important;
+  border-bottom-width: 3px !important;
+  padding: 10px 16px !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  transition: all 100ms !important;
+}
+
+.swagger-ui .opblock-tag:hover {
+  background: var(--nb-surface-hover) !important;
+  border-color: var(--nb-lime) !important;
+}
+
+.swagger-ui .opblock-tag small {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-muted) !important;
+  font-size: 11px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+}
+
+.swagger-ui .opblock-tag svg { fill: var(--nb-muted) !important; }
+
+/* ── Operation blocks ─────────────────────────────────────────────── */
+.swagger-ui .opblock {
+  background: var(--nb-surface) !important;
+  border: 3px solid var(--nb-border) !important;
+  box-shadow: none !important;
+  margin: 0 0 4px !important;
+}
+
+/* HTTP method colors — left accent border */
+.swagger-ui .opblock.opblock-get    { border-left: 6px solid var(--nb-blue) !important; }
+.swagger-ui .opblock.opblock-post   { border-left: 6px solid var(--nb-lime) !important; }
+.swagger-ui .opblock.opblock-put    { border-left: 6px solid var(--nb-orange) !important; }
+.swagger-ui .opblock.opblock-patch  { border-left: 6px solid var(--nb-purple) !important; }
+.swagger-ui .opblock.opblock-delete { border-left: 6px solid var(--nb-red) !important; }
+
+/* Method badge */
+.swagger-ui .opblock .opblock-summary-method {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.05em !important;
+  color: #000 !important;
+  border: 2px solid var(--nb-border) !important;
+  padding: 4px 10px !important;
+  min-width: 60px !important;
+  text-align: center !important;
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary-method    { background: var(--nb-blue) !important; }
+.swagger-ui .opblock.opblock-post .opblock-summary-method   { background: var(--nb-lime) !important; }
+.swagger-ui .opblock.opblock-put .opblock-summary-method    { background: var(--nb-orange) !important; }
+.swagger-ui .opblock.opblock-patch .opblock-summary-method  { background: var(--nb-purple) !important; }
+.swagger-ui .opblock.opblock-delete .opblock-summary-method { background: var(--nb-red) !important; }
+
+/* Path */
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock .opblock-summary-path a,
+.swagger-ui .opblock .opblock-summary-path a span {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-text) !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+
+.swagger-ui .opblock .opblock-summary-description {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-muted) !important;
+  font-size: 11px !important;
+}
+
+/* Summary row */
+.swagger-ui .opblock-summary {
+  cursor: pointer !important;
+  padding: 6px 10px !important;
+  border: none !important;
+}
+
+.swagger-ui .opblock-summary:hover {
+  background: var(--nb-surface-hover) !important;
+}
+
+/* Expanded body */
+.swagger-ui .opblock .opblock-body {
+  border-top: 2px solid var(--nb-border) !important;
+  background: var(--nb-bg) !important;
+}
+
+.swagger-ui .opblock .opblock-section-header {
+  background: var(--nb-surface-muted) !important;
+  border-bottom: 2px solid var(--nb-border) !important;
+  box-shadow: none !important;
+}
+
+.swagger-ui .opblock .opblock-section-header h4 {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 11px !important;
+  letter-spacing: 0.08em !important;
+  color: var(--nb-text) !important;
+}
+
+/* ── Parameters ───────────────────────────────────────────────────── */
+.swagger-ui table thead tr th,
+.swagger-ui table thead tr td {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  letter-spacing: 0.08em !important;
+  color: var(--nb-muted) !important;
+  border-bottom: 2px solid var(--nb-border) !important;
+  padding: 6px 10px !important;
+}
+
+.swagger-ui table tbody tr td {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-text) !important;
+  border-bottom: 1px solid var(--nb-surface-muted) !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+}
+
+.swagger-ui .parameter__name {
+  font-weight: 600 !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .parameter__name.required::after { color: var(--nb-red) !important; }
+.swagger-ui .parameter__type { color: var(--nb-blue) !important; }
+.swagger-ui .parameter__in { color: var(--nb-muted) !important; font-size: 10px !important; }
+
+/* ── Inputs ───────────────────────────────────────────────────────── */
+.swagger-ui input[type=text],
+.swagger-ui input[type=password],
+.swagger-ui input[type=email],
+.swagger-ui input[type=file],
+.swagger-ui input[type=search],
+.swagger-ui textarea,
+.swagger-ui select {
+  background: var(--nb-bg) !important;
+  color: var(--nb-text) !important;
+  border: 3px solid var(--nb-border) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 13px !important;
+  padding: 8px 12px !important;
+}
+
+.swagger-ui input:focus,
+.swagger-ui textarea:focus,
+.swagger-ui select:focus {
+  border-color: var(--nb-lime) !important;
+  outline: none !important;
+}
+
+.swagger-ui select { cursor: pointer !important; }
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.swagger-ui .btn {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  font-size: 11px !important;
+  border: 3px solid var(--nb-border) !important;
+  box-shadow: var(--nb-shadow-sm) !important;
+  cursor: pointer !important;
+  transition: all 100ms !important;
+  padding: 6px 16px !important;
+}
+
+.swagger-ui .btn:hover {
+  transform: translate(2px, 2px) !important;
+  box-shadow: none !important;
+}
+
+.swagger-ui .btn:active {
+  transform: translate(4px, 4px) !important;
+  box-shadow: none !important;
+}
+
+.swagger-ui .btn.execute {
+  background: var(--nb-lime) !important;
+  color: #000 !important;
+}
+
+.swagger-ui .btn.cancel {
+  background: var(--nb-surface-muted) !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .btn.authorize {
+  background: transparent !important;
+  color: var(--nb-lime) !important;
+  border-color: var(--nb-lime) !important;
+}
+
+.swagger-ui .btn.authorize svg { fill: var(--nb-lime) !important; }
+
+.swagger-ui .try-out__btn {
+  background: var(--nb-surface-muted) !important;
+  color: var(--nb-text) !important;
+}
+
+/* ── Responses ────────────────────────────────────────────────────── */
+.swagger-ui .responses-wrapper { background: var(--nb-bg) !important; }
+.swagger-ui .responses-inner { padding: 12px !important; }
+
+.swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5 {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 11px !important;
+  letter-spacing: 0.05em !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .response-col_status {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .response-col_description {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-muted) !important;
+}
+
+/* ── Code blocks ──────────────────────────────────────────────────── */
+.swagger-ui .highlight-code,
+.swagger-ui .microlight,
+.swagger-ui pre.microlight {
+  background: var(--nb-bg) !important;
+  color: var(--nb-text) !important;
+  border: 2px solid var(--nb-border) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 12px !important;
+  padding: 12px !important;
+}
+
+.swagger-ui .copy-to-clipboard__btn {
+  background: var(--nb-surface-muted) !important;
+}
+
+/* ── Models / Schemas ─────────────────────────────────────────────── */
+.swagger-ui section.models {
+  border: 3px solid var(--nb-border) !important;
+  background: var(--nb-surface) !important;
+}
+
+.swagger-ui section.models h4 {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  font-size: 14px !important;
+  color: var(--nb-text) !important;
+  border-bottom: 3px solid var(--nb-border) !important;
+  margin: 0 !important;
+  padding: 10px 16px !important;
+}
+
+.swagger-ui section.models h4 svg { fill: var(--nb-muted) !important; }
+
+.swagger-ui section.models .model-container {
+  margin: 0 !important;
+  border-bottom: 1px solid var(--nb-surface-muted) !important;
+  background: var(--nb-surface) !important;
+}
+
+.swagger-ui .model-box {
+  background: var(--nb-bg) !important;
+  border: 2px solid var(--nb-border) !important;
+  padding: 10px !important;
+}
+
+.swagger-ui .model-title {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .model {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .prop-type { color: var(--nb-blue) !important; }
+.swagger-ui .prop-format { color: var(--nb-muted) !important; }
+.swagger-ui .model .property { color: var(--nb-blue) !important; }
+.swagger-ui .model .property.primitive { color: var(--nb-lime) !important; }
+
+/* ── Auth dialog ──────────────────────────────────────────────────── */
+.swagger-ui .dialog-ux .modal-ux {
+  background: var(--nb-surface) !important;
+  border: 4px solid var(--nb-border) !important;
+  box-shadow: var(--nb-shadow-lg) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-header {
+  border-bottom: 3px solid var(--nb-border) !important;
+  padding: 14px 20px !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-header h3 {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-content {
+  padding: 20px !important;
+  background: var(--nb-surface) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-content p {
+  color: var(--nb-muted) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-content label {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  letter-spacing: 0.08em !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui .auth-container {
+  border: 2px solid var(--nb-border) !important;
+  background: var(--nb-bg) !important;
+  padding: 14px !important;
+  margin: 10px 0 !important;
+}
+
+.swagger-ui .dialog-ux .backdrop-ux {
+  background: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* ── Auth lock icon ───────────────────────────────────────────────── */
+.swagger-ui .authorization__btn {
+  border: none !important;
+  box-shadow: none !important;
+  padding: 2px !important;
+}
+
+.swagger-ui .authorization__btn svg { fill: var(--nb-lime) !important; }
+.swagger-ui .authorization__btn.unlocked svg { fill: var(--nb-muted) !important; }
+
+/* ── Arrows ───────────────────────────────────────────────────────── */
+.swagger-ui .expand-operation svg,
+.swagger-ui .arrow svg {
+  fill: var(--nb-muted) !important;
+}
+
+/* ── Markdown ─────────────────────────────────────────────────────── */
+.swagger-ui .markdown p,
+.swagger-ui .markdown li,
+.swagger-ui .renderedMarkdown p {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--nb-muted) !important;
+}
+
+.swagger-ui .markdown code,
+.swagger-ui .renderedMarkdown code {
+  background: var(--nb-bg) !important;
+  color: var(--nb-lime) !important;
+  border: 1px solid var(--nb-surface-muted) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  padding: 1px 5px !important;
+}
+
+/* ── Loading ──────────────────────────────────────────────────────── */
+.swagger-ui .loading-container { background: var(--nb-bg) !important; }
+.swagger-ui .loading-container .loading::after {
+  color: var(--nb-lime) !important;
+  font-family: 'Space Mono', monospace !important;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────── */
+.swagger-ui .tab li {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  letter-spacing: 0.05em !important;
+  color: var(--nb-muted) !important;
+  cursor: pointer !important;
+}
+
+.swagger-ui .tab li.active { color: var(--nb-text) !important; }
+.swagger-ui .tab li::after { background: var(--nb-lime) !important; }
+
+/* ── Global text ──────────────────────────────────────────────────── */
+.swagger-ui a { color: var(--nb-lime) !important; }
+.swagger-ui a:hover { color: var(--nb-text) !important; text-decoration: underline !important; }
+
+.swagger-ui p, .swagger-ui span, .swagger-ui label {
+  color: var(--nb-text);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.swagger-ui h1, .swagger-ui h2, .swagger-ui h3, .swagger-ui h4, .swagger-ui h5 {
+  font-family: 'Space Mono', monospace !important;
+  color: var(--nb-text) !important;
+}
+
+.swagger-ui input[type=checkbox] { accent-color: var(--nb-lime) !important; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────── */
+.swagger-ui ::-webkit-scrollbar { width: 8px; height: 8px; }
+.swagger-ui ::-webkit-scrollbar-track { background: var(--nb-bg); }
+.swagger-ui ::-webkit-scrollbar-thumb { background: var(--nb-surface-muted); border: 1px solid var(--nb-border); }
+.swagger-ui ::-webkit-scrollbar-thumb:hover { background: var(--nb-muted); }
