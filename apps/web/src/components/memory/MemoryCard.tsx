@@ -17,6 +17,12 @@ function hasThumbnail(memory: Memory): boolean {
   return (memory.source === 'file' || memory.source === 'photo') && !!memory.metadata?.fileUrl;
 }
 
+/** Heuristic: text that is still encrypted (base64 ciphertext, no spaces). */
+function looksEncrypted(text: string | null | undefined): boolean {
+  if (!text || text.length < 32) return false;
+  return /^[A-Za-z0-9+/=]{32,}$/.test(text.trim());
+}
+
 interface MemoryCardProps {
   memory: Memory;
   onClick: () => void;
@@ -92,9 +98,11 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
         </div>
       )}
 
-      <p data-ph-mask className="font-mono text-sm mb-3 text-nb-text">
-        {truncate(memory.text, 150)}
-      </p>
+      {!(hasThumbnail(memory) && looksEncrypted(memory.text)) && (
+        <p data-ph-mask className="font-mono text-sm mb-3 text-nb-text">
+          {truncate(memory.text, 150)}
+        </p>
+      )}
 
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs text-nb-muted">{formatRelative(memory.time)}</span>

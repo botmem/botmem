@@ -13,15 +13,12 @@ import { SettingsService } from '../settings/settings.service';
 import { rawEvents, memories } from '../db/schema';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
+const INVISIBLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
+// eslint-disable-next-line no-control-regex
+const CONTROL_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
 
 function sanitizeText(text: string): string {
-  return text
-    .replace(
-      // eslint-disable-next-line no-control-regex
-      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g,
-      '',
-    )
-    .trim();
+  return text.replace(INVISIBLE_RE, '').replace(CONTROL_RE, '').trim();
 }
 
 @Processor('clean')
