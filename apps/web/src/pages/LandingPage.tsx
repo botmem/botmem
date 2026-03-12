@@ -142,46 +142,85 @@ function Navbar() {
   );
 }
 
+function HeroVideo() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.25 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div className="bg-nb-surface border-3 border-nb-border shadow-nb-lg overflow-hidden aspect-video">
+      <video
+        ref={videoRef}
+        autoPlay={isVisible}
+        loop
+        muted
+        playsInline
+        preload="none"
+        className="w-full h-full object-cover"
+        aria-label="Demo showing an AI agent using Botmem to file a pet insurance claim by searching personal memories"
+        {...(isVisible ? { src: '/videos/hero.mp4' } : {})}
+      />
+    </div>
+  );
+}
+
 function Hero() {
   return (
-    <section className="px-4 sm:px-6 pt-20 pb-24 max-w-6xl mx-auto" aria-labelledby="hero-heading">
-      <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+    <section
+      className="px-4 sm:px-6 pt-10 sm:pt-14 pb-16 max-w-6xl mx-auto"
+      aria-labelledby="hero-heading"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-8">
         <div>
           <h1
             id="hero-heading"
             className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold uppercase leading-[1.1] tracking-tight"
           >
-            YOUR LIFE,
-            <br />
-            <span className="text-nb-lime">SEARCHABLE.</span>
+            YOUR LIFE, <span className="text-nb-lime">SEARCHABLE.</span>
           </h1>
-          <p className="mt-6 font-mono text-lg text-nb-muted leading-relaxed max-w-lg">
+          <p className="mt-4 font-mono text-base text-nb-muted leading-relaxed max-w-lg">
             Local-first personal memory from your email, messages, photos, and locations. All on
             your hardware.
           </p>
-          <div className="mt-8 flex flex-wrap gap-4">
-            <Link
-              to="/signup"
-              className="font-display text-sm font-bold px-8 py-3 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
-            >
-              START FREE
-            </Link>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-display text-sm font-bold px-8 py-3 bg-transparent text-nb-text border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none hover:bg-nb-surface active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
-            >
-              VIEW ON GITHUB
-            </a>
-          </div>
         </div>
-        <TerminalBlock />
+        <div className="flex flex-wrap gap-3 shrink-0">
+          <Link
+            to="/signup"
+            className="font-display text-sm font-bold px-6 py-2.5 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
+          >
+            START FREE
+          </Link>
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-display text-sm font-bold px-6 py-2.5 bg-transparent text-nb-text border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none hover:bg-nb-surface active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
+          >
+            VIEW ON GITHUB
+          </a>
+        </div>
       </div>
+      <HeroVideo />
     </section>
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function TerminalBlock() {
   return (
     <div
@@ -259,6 +298,7 @@ function ResultLine({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ProblemSection() {
   const problems = [
     { name: 'GMAIL', desc: 'Separate search, separate context' },
@@ -497,6 +537,54 @@ const HOW_IT_WORKS_TABS = [
     ],
   },
   {
+    id: 'openclaw',
+    label: 'OPENCLAW',
+    audience: 'For Agent Platforms',
+    titleBar: 'openclaw.config.json',
+    lines: [
+      {
+        type: 'result' as const,
+        text: '{',
+      },
+      {
+        type: 'result' as const,
+        text: '  "plugins": [{',
+      },
+      {
+        type: 'result' as const,
+        text: '    "package": "@botmem/openclaw-plugin",',
+      },
+      {
+        type: 'result' as const,
+        text: '    "config": {',
+      },
+      {
+        type: 'result' as const,
+        text: '      "apiUrl": "https://botmem.xyz",',
+      },
+      {
+        type: 'result' as const,
+        text: '      "apiKey": "bm_sk_..."',
+      },
+      {
+        type: 'result' as const,
+        text: '    }',
+      },
+      {
+        type: 'result' as const,
+        text: '  }]',
+      },
+      {
+        type: 'result' as const,
+        text: '}',
+      },
+      {
+        type: 'comment' as const,
+        text: '# 7 tools: search, ask, remember, forget, timeline, people',
+      },
+    ],
+  },
+  {
     id: 'cli',
     label: 'CLI',
     audience: 'For Developers',
@@ -597,7 +685,7 @@ function HowItWorks() {
           HOW IT <span className="text-nb-lime">WORKS</span>
         </h2>
         <p className="font-mono text-sm text-nb-muted mt-4 text-center max-w-xl mx-auto leading-relaxed">
-          Three ways to query your memories. Pick what fits your workflow.
+          Four ways to query your memories. Pick what fits your workflow.
         </p>
 
         {/* Tab buttons */}
@@ -1067,9 +1155,6 @@ export function LandingPage() {
       <main id="main-content">
         <div className="landing-fade-in">
           <Hero />
-        </div>
-        <div className="landing-fade-in">
-          <ProblemSection />
         </div>
         <div className="landing-fade-in">
           <FeaturesSection />
