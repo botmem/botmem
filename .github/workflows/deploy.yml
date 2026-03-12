@@ -260,8 +260,8 @@ jobs:
             --notes-file /tmp/changelog.md \
             --target "${{ github.sha }}"
 
-  publish-cli:
-    name: Publish @botmem/cli to npm
+  publish-npm:
+    name: Publish packages to npm
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: build-and-push
     permissions:
@@ -289,13 +289,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build CLI
-        run: pnpm --filter @botmem/cli build
-
-      - name: Determine version and publish
-        working-directory: packages/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Determine version
+        id: version
         run: |
           git fetch --tags
           LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
@@ -313,11 +308,32 @@ jobs:
             fi
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
           fi
-          echo "Publishing CLI version: $VERSION"
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Next npm version: $VERSION"
 
-          # Skip publish if this version already exists on npm
+      - name: Build and publish @botmem/cli
+        working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm build
+          VERSION="${{ steps.version.outputs.version }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
           if npm view "@botmem/cli@$VERSION" version 2>/dev/null; then
+            echo "Version $VERSION already published — skipping"
+          else
+            npm publish --access public --tag latest
+          fi
+
+      - name: Build and publish @botmem/openclaw-plugin
+        working-directory: packages/openclaw-plugin
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm build
+          VERSION="${{ steps.version.outputs.version }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          if npm view "@botmem/openclaw-plugin@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"
           else
             npm publish --access public --tag latest
