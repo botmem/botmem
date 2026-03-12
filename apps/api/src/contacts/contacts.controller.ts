@@ -42,38 +42,23 @@ export class ContactsController {
     @Query('offset') offset?: string,
     @Query('entityType') entityType?: string,
   ) {
-    const t0 = performance.now();
-    const result = await this.contactsService.list({
+    return this.contactsService.list({
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
       entityType,
       userId: user.id,
     });
-    this.logger.log(
-      `[PROFILE] GET /people (${entityType}, offset=${offset || 0}, limit=${limit || 50}) → ${result.items.length}/${result.total} items in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
-    return result;
   }
 
   @Get('suggestions')
   async getSuggestions(@CurrentUser() user: { id: string }) {
-    const t0 = performance.now();
-    const result = await this.contactsService.getSuggestions(user.id);
-    this.logger.log(
-      `[PROFILE] GET /people/suggestions → ${result.length} suggestions in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
-    return result;
+    return this.contactsService.getSuggestions(user.id);
   }
 
   @RequiresJwt()
   @Post('auto-merge')
   async autoMerge() {
-    const t0 = performance.now();
-    const result = await this.contactsService.autoMerge();
-    this.logger.log(
-      `[PROFILE] POST /people/auto-merge → ${JSON.stringify(result)} in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
-    return result;
+    return this.contactsService.autoMerge();
   }
 
   @RequiresJwt()
@@ -219,20 +204,12 @@ export class ContactsController {
 
   @Get(':id')
   async getById(@Param('id') id: string) {
-    const t0 = performance.now();
-    const result = await this.contactsService.getById(id);
-    this.logger.log(`[PROFILE] GET /people/${id} in ${(performance.now() - t0).toFixed(0)}ms`);
-    return result;
+    return this.contactsService.getById(id);
   }
 
   @Get(':id/memories')
   async getMemories(@CurrentUser() user: { id: string }, @Param('id') id: string) {
-    const t0 = performance.now();
-    const result = await this.contactsService.getMemories(id, undefined, user.id);
-    this.logger.log(
-      `[PROFILE] GET /people/${id}/memories → ${Array.isArray(result) ? result.length : '?'} in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
-    return result;
+    return this.contactsService.getMemories(id, undefined, user.id);
   }
 
   @RequiresJwt()
@@ -264,23 +241,13 @@ export class ContactsController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(@Body() dto: SearchContactsDto) {
-    const t0 = performance.now();
-    const result = await this.contactsService.search(dto.query);
-    this.logger.log(
-      `[PROFILE] POST /people/search q="${dto.query}" → ${result.length} results in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
-    return result;
+    return this.contactsService.search(dto.query);
   }
 
   @RequiresJwt()
   @Post(':id/merge')
   async merge(@Param('id') id: string, @Body() dto: MergeContactDto) {
-    const t0 = performance.now();
-    const result = await this.contactsService.mergeContacts(id, dto.sourceId);
-    this.logger.log(
-      `[PROFILE] POST /people/${id}/merge (source=${dto.sourceId}) in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
-    return result;
+    return this.contactsService.mergeContacts(id, dto.sourceId);
   }
 
   @RequiresJwt()
@@ -292,22 +259,14 @@ export class ContactsController {
   @RequiresJwt()
   @Post('suggestions/dismiss')
   async dismissSuggestion(@Body() dto: DismissSuggestionDto) {
-    const t0 = performance.now();
     await this.contactsService.dismissSuggestion(dto.contactId1, dto.contactId2);
-    this.logger.log(
-      `[PROFILE] POST /people/suggestions/dismiss in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
     return { dismissed: true };
   }
 
   @RequiresJwt()
   @Post('suggestions/undismiss')
   async undismissSuggestion(@Body() dto: DismissSuggestionDto) {
-    const t0 = performance.now();
     await this.contactsService.undismissSuggestion(dto.contactId1, dto.contactId2);
-    this.logger.log(
-      `[PROFILE] POST /people/suggestions/undismiss in ${(performance.now() - t0).toFixed(0)}ms`,
-    );
     return { undismissed: true };
   }
 }

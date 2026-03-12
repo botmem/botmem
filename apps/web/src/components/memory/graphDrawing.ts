@@ -382,7 +382,7 @@ export function renderNode(
     // Use data URI from node directly, fall back to proxy for legacy URLs
     const avatarImg = node.avatarUrl?.startsWith('data:')
       ? getAvatarImage(node.avatarUrl)
-      : node.id
+      : node.avatarUrl && node.id
         ? getAuthedImage(`/api/people/${node.id.replace('contact-', '')}/avatar`, rc.authToken)
         : null;
 
