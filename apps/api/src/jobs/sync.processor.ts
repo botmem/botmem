@@ -293,9 +293,28 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           error: errMsg,
           completedAt: new Date(),
         });
-        await this.accountsService.update(accountId, { status: 'error', lastError: errMsg });
+
+        // WhatsApp session/connection errors → 'disconnected' (shows RECONNECT button)
+        const isSessionError =
+          errMsg.includes('reconnect') ||
+          errMsg.includes('re-scan QR') ||
+          errMsg.includes('session expired') ||
+          errMsg.includes('session files missing') ||
+          errMsg.includes('Another WhatsApp Web session');
+        const accountStatus = isSessionError ? 'disconnected' : 'error';
+
+        await this.accountsService.update(accountId, { status: accountStatus, lastError: errMsg });
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'failed' });
         this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_failed', jobId });
+
+        // Broadcast notification so frontend updates in real-time
+        if (isSessionError) {
+          this.events.emitToChannel('notifications', 'connector:warning', {
+            connectorType,
+            message: errMsg,
+            action: 'reauth',
+          });
+        }
       }
       throw err;
     } finally {

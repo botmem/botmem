@@ -433,6 +433,17 @@ export async function syncWhatsApp(
   const sessionDir = ctx.auth.raw?.sessionDir as string;
   if (!sessionDir) throw new Error('No WhatsApp session found');
 
+  // Check for missing/deleted session files before attempting connection
+  if (!existingSock) {
+    const credsPath = join(sessionDir, 'creds.json');
+    if (!existsSync(sessionDir) || !existsSync(credsPath)) {
+      const reason = 'WhatsApp session files missing — please reconnect (re-scan QR)';
+      ctx.logger.error(reason);
+      if (onDisconnect) onDisconnect(reason, DisconnectReason.loggedOut);
+      throw new Error(reason);
+    }
+  }
+
   let sock: WaSock;
 
   if (existingSock) {
@@ -449,8 +460,23 @@ export async function syncWhatsApp(
           resolve();
         }
         if (update.connection === 'close') {
+          const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
+          const statusCode =
+            disconnectError && 'output' in disconnectError
+              ? (disconnectError as Boom).output.statusCode
+              : 0;
           clearTimeout(timeout);
-          reject(new Error('WhatsApp connection closed during sync'));
+          // Provide actionable error for connection-phase failures
+          const isReplaced = statusCode === DisconnectReason.connectionReplaced;
+          const isBadSession = statusCode === DisconnectReason.badSession;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+          const reason = isReplaced
+            ? 'Another WhatsApp Web session is active — close it and retry sync'
+            : isBadSession || isLoggedOut
+              ? 'WhatsApp session expired — please reconnect (re-scan QR)'
+              : 'WhatsApp connection closed during sync';
+          if (onDisconnect) onDisconnect(reason, statusCode);
+          reject(new Error(reason));
         }
       });
     });
@@ -807,7 +833,7 @@ export async function syncWhatsApp(
     }
     ctx.signal.addEventListener('abort', finish, { once: true });
 
-    // Detect mid-sync disconnection (e.g. user logged out from phone)
+    // Detect mid-sync disconnection (e.g. user logged out from phone, session conflict)
     sock.ev.on('connection.update', (update) => {
       if (update.connection === 'close') {
         const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
@@ -818,15 +844,17 @@ export async function syncWhatsApp(
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
         const isBadSession = statusCode === DisconnectReason.badSession;
         const isMultidevice = statusCode === DisconnectReason.multideviceMismatch;
-        const isFatal = isLoggedOut || isBadSession || isMultidevice;
+        const isReplaced = statusCode === DisconnectReason.connectionReplaced;
 
-        const reason = isFatal
-          ? isLoggedOut
-            ? 'Session logged out from phone'
-            : isBadSession
-              ? 'Session expired or corrupted'
-              : 'Multi-device mismatch'
-          : 'Connection lost during sync';
+        const reason = isLoggedOut
+          ? 'Session logged out from phone — please reconnect (re-scan QR)'
+          : isBadSession
+            ? 'Session expired or corrupted — please reconnect (re-scan QR)'
+            : isMultidevice
+              ? 'Multi-device mismatch — please reconnect (re-scan QR)'
+              : isReplaced
+                ? 'Another WhatsApp Web session is active — close it and retry sync'
+                : 'Connection lost during sync';
 
         ctx.logger.error(`WhatsApp disconnected during sync: ${reason} (code ${statusCode})`);
         disconnectedDuringSync = true;
