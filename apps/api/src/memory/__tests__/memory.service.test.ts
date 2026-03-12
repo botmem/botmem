@@ -165,7 +165,7 @@ describe('MemoryService', () => {
       mockDb.execute.mockResolvedValueOnce({ rows: [] });
 
       await service.search('meeting with john');
-      expect(aiService.embed).toHaveBeenCalled();
+      expect(aiService.embedQuery).toHaveBeenCalled();
       expect(qdrantService.search).toHaveBeenCalled();
     });
 
