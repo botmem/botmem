@@ -15,6 +15,9 @@ import { useMemories } from '../hooks/useMemories';
 import { useSearch } from '../hooks/useSearch';
 import { useJobStore } from '../store/jobStore';
 import { useMemoryBankStore } from '../store/memoryBankStore';
+import { useTourStore } from '../store/tourStore';
+import { api } from '../lib/api';
+import { Button } from '../components/ui/Button';
 
 const dashTabs = [
   { id: 'overview', label: 'OVERVIEW' },
@@ -46,6 +49,35 @@ export function DashboardPage() {
   const { retrying, retryAllFailed } = useJobStore();
   const [activeTab, setActiveTab] = useState('overview');
   const [reauthOpen, setReauthOpen] = useState(false);
+
+  // Demo data banner
+  const demoMode = useTourStore((s) => s.demoMode);
+  const [hasDemoData, setHasDemoData] = useState(false);
+  const [clearingDemo, setClearingDemo] = useState(false);
+  const [demoBannerDismissed, setDemoBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    api
+      .getDemoStatus()
+      .then((s) => setHasDemoData(s.hasDemoData))
+      .catch(() => {});
+  }, [demoMode]);
+
+  const handleClearDemo = async () => {
+    setClearingDemo(true);
+    try {
+      await api.clearDemoData();
+      setHasDemoData(false);
+      useTourStore.getState().startTour(false); // clear demoMode
+      // Refresh dashboard data
+      loadGraph();
+    } catch {
+      // ignore
+    } finally {
+      setClearingDemo(false);
+    }
+  };
 
   const onSearchResults = useCallback(
     async (results: { memoryIds: Set<string> }) => {
@@ -108,6 +140,26 @@ export function DashboardPage() {
     <PageContainer>
       <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
+
+      {hasDemoData && !demoBannerDismissed && (
+        <div className="mt-4 border-3 border-nb-border bg-yellow-950/20 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="font-mono text-sm text-yellow-400">
+            You're viewing demo data. Delete it when you're ready to connect your real accounts.
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button size="sm" variant="danger" disabled={clearingDemo} onClick={handleClearDemo}>
+              {clearingDemo ? 'DELETING...' : 'DELETE DEMO DATA'}
+            </Button>
+            <button
+              onClick={() => setDemoBannerDismissed(true)}
+              className="font-mono text-xs text-nb-muted hover:text-nb-text cursor-pointer transition-colors px-1"
+              aria-label="Dismiss demo data banner"
+            >
+              X
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4" style={{ minHeight: '35rem' }}>
         {activeTab === 'overview' && (
