@@ -54,6 +54,7 @@ export default defineConfig({
           { text: 'Overview', link: '/agent-api/' },
           { text: 'CLI Reference', link: '/agent-api/cli' },
           { text: 'Tools Reference', link: '/agent-api/tools-reference' },
+          { text: 'OpenClaw Plugin', link: '/agent-api/openclaw' },
           { text: 'Examples', link: '/agent-api/examples' },
         ],
       },
