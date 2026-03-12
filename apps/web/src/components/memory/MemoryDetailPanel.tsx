@@ -50,7 +50,7 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
       </div>
 
       {memory.pinned && (
-        <div className="mb-3 px-2 py-1 bg-amber-400/20 border-2 border-amber-400 text-xs font-mono uppercase text-amber-600">
+        <div className="mb-3 px-2 py-1 bg-amber-400/20 border-2 border-amber-400 text-xs font-mono uppercase text-amber-300">
           Pinned - Score floor 0.75, no recency decay
         </div>
       )}

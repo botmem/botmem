@@ -66,6 +66,10 @@ async function bootstrap() {
     },
   );
 
+  // Gzip/deflate compression for all responses (huge win for mobile Lighthouse)
+  const compression = (await import('compression')).default;
+  server.use(compression());
+
   const cookieParser = (await import('cookie-parser')).default;
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), { rawBody: true });
   app.use(cookieParser());

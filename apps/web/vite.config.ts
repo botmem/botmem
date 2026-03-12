@@ -12,10 +12,14 @@ export default defineConfig({
     conditions: ['source'],
   },
   build: {
+    target: 'es2020',
+    cssMinify: 'lightningcss',
     rollupOptions: {
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'firebase-vendor': ['firebase/app', 'firebase/auth'],
+          'analytics-vendor': ['posthog-js'],
         },
       },
     },

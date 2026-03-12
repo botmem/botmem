@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
@@ -6,7 +6,9 @@ import { ReauthModal } from '../components/ui/ReauthModal';
 import { ConnectorLogFeed } from '../components/dashboard/ConnectorLogFeed';
 import { JobTable } from '../components/dashboard/JobTable';
 import { PipelineView } from '../components/dashboard/PipelineView';
-import { MemoryGraph } from '../components/memory/MemoryGraph';
+const MemoryGraph = lazy(() =>
+  import('../components/memory/MemoryGraph').then((m) => ({ default: m.MemoryGraph })),
+);
 import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
@@ -140,15 +142,23 @@ export function DashboardPage() {
                   </button>
                 </div>
               )}
-              <MemoryGraph
-                data={graphData}
-                onReloadPreview={loadGraph}
-                graphPreview={graphPreview}
-                graphLoading={graphLoading}
-                onLoadAll={loadFullGraph}
-                onLoadGraphForIds={loadGraphForIds}
-                search={graphSearch}
-              />
+              <Suspense
+                fallback={
+                  <div className="h-64 flex items-center justify-center text-nb-muted font-mono text-sm">
+                    Loading graph...
+                  </div>
+                }
+              >
+                <MemoryGraph
+                  data={graphData}
+                  onReloadPreview={loadGraph}
+                  graphPreview={graphPreview}
+                  graphLoading={graphLoading}
+                  onLoadAll={loadFullGraph}
+                  onLoadGraphForIds={loadGraphForIds}
+                  search={graphSearch}
+                />
+              </Suspense>
             </div>
 
             {/* Metrics cards */}

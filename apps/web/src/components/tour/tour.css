@@ -25,14 +25,14 @@
 .botmem-tour-popover .driver-popover-description {
   font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
   font-size: 13px !important;
-  color: var(--color-nb-muted, #999) !important;
+  color: var(--color-nb-muted, #9CA3AF) !important;
   line-height: 1.5 !important;
 }
 
 .botmem-tour-popover .driver-popover-progress-text {
   font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
   font-size: 11px !important;
-  color: var(--color-nb-muted, #999) !important;
+  color: var(--color-nb-muted, #9CA3AF) !important;
 }
 
 .botmem-tour-popover .driver-popover-navigation-btns button {
@@ -60,11 +60,11 @@
 
 .botmem-tour-popover .driver-popover-navigation-btns .driver-popover-prev-btn {
   background: var(--color-nb-surface, #1a1a2e) !important;
-  color: var(--color-nb-muted, #999) !important;
+  color: var(--color-nb-text, #F0F0F0) !important;
 }
 
 .botmem-tour-popover .driver-popover-close-btn {
-  color: var(--color-nb-muted, #999) !important;
+  color: var(--color-nb-text, #F0F0F0) !important;
 }
 
 .botmem-tour-popover .driver-popover-close-btn:hover {

@@ -51,6 +51,16 @@ const serveStatic = !isDev && existsSync(webDistPath);
           ServeStaticModule.forRoot({
             rootPath: webDistPath,
             exclude: ['/api/{*path}'],
+            serveStaticOptions: {
+              maxAge: '1y',
+              immutable: true,
+              setHeaders: (res: any, path: string) => {
+                // Hashed assets get immutable cache; HTML gets no-cache for SPA routing
+                if (path.endsWith('.html')) {
+                  res.setHeader('Cache-Control', 'no-cache');
+                }
+              },
+            },
           }),
         ]
       : []),
