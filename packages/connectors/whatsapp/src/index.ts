@@ -11,7 +11,7 @@ import type {
   PipelineContext,
 } from '@botmem/connector-sdk';
 import type { makeWASocket } from '@whiskeysockets/baileys';
-import { startQrAuth } from './qr-auth.js';
+import { startQrAuth, type QrAuthCallbacks } from './qr-auth.js';
 import { syncWhatsApp, setDecryptFailureCallback } from './sync.js';
 
 interface WarmSession {
@@ -209,6 +209,33 @@ export class WhatsAppConnector extends BaseConnector {
         jid: params.jid as string,
       },
     };
+  }
+
+  /**
+   * Start QR auth through a tunnel relay instead of connecting directly to WhatsApp.
+   * Baileys connects to the relay WS URL; the browser proxies frames to WhatsApp.
+   */
+  async initiateTunnelAuth(
+    relayUrl: string,
+    _authStateTransport: unknown,
+    callbacks: QrAuthCallbacks,
+  ): Promise<void> {
+    const sessionId = `wa-tunnel-${Date.now()}-${++this.sessionCounter}`;
+    const sessionDir = `./data/whatsapp/${sessionId}`;
+
+    await startQrAuth(
+      sessionDir,
+      {
+        onQrCode: callbacks.onQrCode,
+        onConnected: (auth: AuthContext, sock) => {
+          this.authSockets.set(sessionDir, sock);
+          sock.ev.buffer();
+          callbacks.onConnected({ raw: { ...auth.raw, sessionDir, tunnelMode: true } }, sock);
+        },
+        onError: callbacks.onError,
+      },
+      { waWebSocketUrl: relayUrl },
+    );
   }
 
   async validateAuth(auth: AuthContext): Promise<boolean> {

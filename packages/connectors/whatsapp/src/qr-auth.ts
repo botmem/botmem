@@ -92,11 +92,22 @@ const RECONNECT_CODES = new Set([
   DisconnectReason.timedOut,
 ]);
 
+export interface QrAuthOptions {
+  maxRetries?: number;
+  /** Custom WebSocket URL for Baileys to connect to (e.g. tunnel relay) instead of WhatsApp directly */
+  waWebSocketUrl?: string;
+}
+
 export async function startQrAuth(
   sessionDir: string,
   callbacks: QrAuthCallbacks,
-  maxRetries = 10,
+  maxRetriesOrOptions: number | QrAuthOptions = 10,
 ): Promise<void> {
+  const opts =
+    typeof maxRetriesOrOptions === 'number'
+      ? { maxRetries: maxRetriesOrOptions }
+      : maxRetriesOrOptions;
+  const maxRetries = opts.maxRetries ?? 10;
   let retries = 0;
   let qrShown = false;
   let connected = false;
@@ -108,7 +119,7 @@ export async function startQrAuth(
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const version = await getWhatsAppVersion();
 
-    const sock = makeWASocket({
+    const socketConfig: Parameters<typeof makeWASocket>[0] = {
       auth: {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -121,7 +132,11 @@ export async function startQrAuth(
       markOnlineOnConnect: false,
       getMessage: getAuthMessage,
       msgRetryCounterCache: makeCacheStore(),
-    });
+    };
+    if (opts.waWebSocketUrl) {
+      (socketConfig as Record<string, unknown>).waWebSocketUrl = opts.waWebSocketUrl;
+    }
+    const sock = makeWASocket(socketConfig);
 
     if (sock.ws && typeof sock.ws.on === 'function') {
       sock.ws.on('error', (err: Error) => {

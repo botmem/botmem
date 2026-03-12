@@ -14,6 +14,7 @@ import { ConnectorsService } from '../connectors/connectors.service';
 import { AuthService } from '../auth/auth.service';
 import { WaTunnelService } from './wa-tunnel.service';
 import type { WhatsAppConnector } from '@botmem/connector-whatsapp';
+import type { AuthContext } from '@botmem/connector-sdk';
 
 interface TunnelClientState {
   userId: string | null;
@@ -211,7 +212,7 @@ export class WaTunnelGateway implements OnGatewayConnection, OnGatewayDisconnect
           this.sendJson(client, { event: 'qr:update', data: { qrData: qrDataUrl } });
         }
       },
-      onConnected: async (auth, _sock) => {
+      onConnected: async (auth: AuthContext, _sock: unknown) => {
         this.sendJson(client, {
           event: 'auth:status',
           data: { status: 'connecting', step: 'Device linked, setting up...' },
