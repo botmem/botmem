@@ -14,6 +14,16 @@ services:
       # Use host.docker.internal if Ollama runs on the host machine (not in Docker).
       # Use http://ollama:11434 if using the bundled Ollama container (--profile ollama).
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Pass through .env settings so they aren't silently ignored
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      APP_SECRET: ${APP_SECRET:-dev-app-secret-change-in-production}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-in-production}
+      OAUTH_JWT_SECRET: ${OAUTH_JWT_SECRET:-dev-oauth-jwt-secret-change-in-production}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      OLLAMA_TEXT_MODEL: ${OLLAMA_TEXT_MODEL:-qwen3:0.6b}
+      OLLAMA_VL_MODEL: ${OLLAMA_VL_MODEL:-qwen3-vl:2b}
+      SYNC_DEBUG_LIMIT: ${SYNC_DEBUG_LIMIT:-500}
     depends_on:
       postgres:
         condition: service_healthy

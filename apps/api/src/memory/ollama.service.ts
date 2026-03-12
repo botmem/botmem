@@ -36,7 +36,10 @@ export class OllamaService implements OnModuleInit {
       });
       this.logger.log(`Pre-warmed embedding model: ${this.embedModel}`);
     } catch {
-      this.logger.warn('Failed to pre-warm embedding model');
+      this.logger.warn(
+        `Failed to pre-warm embedding model "${this.embedModel}" at ${this.baseUrl}. ` +
+          `This is normal if Ollama is still loading. The model will be loaded on first use.`,
+      );
     }
   }
 
