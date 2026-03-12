@@ -281,7 +281,10 @@ describe('sync module', () => {
       await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
         'WhatsApp session disconnected',
       );
-      expect(onDisconnect).toHaveBeenCalledWith('Session logged out from phone', 401);
+      expect(onDisconnect).toHaveBeenCalledWith(
+        'Session logged out from phone — please reconnect (re-scan QR)',
+        401,
+      );
     });
 
     it('handles signal abort', async () => {
@@ -1505,7 +1508,10 @@ describe('sync module', () => {
       await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
         'WhatsApp session disconnected',
       );
-      expect(onDisconnect).toHaveBeenCalledWith('Session expired or corrupted', 500);
+      expect(onDisconnect).toHaveBeenCalledWith(
+        'Session expired or corrupted — please reconnect (re-scan QR)',
+        500,
+      );
     });
 
     it('handles multidevice mismatch disconnect', async () => {
@@ -1551,7 +1557,10 @@ describe('sync module', () => {
       await expect(syncWhatsApp(ctx as any, emit, mockSock as any, onDisconnect)).rejects.toThrow(
         'WhatsApp session disconnected',
       );
-      expect(onDisconnect).toHaveBeenCalledWith('Multi-device mismatch', 411);
+      expect(onDisconnect).toHaveBeenCalledWith(
+        'Multi-device mismatch — please reconnect (re-scan QR)',
+        411,
+      );
     });
 
     it('handles non-fatal disconnect code', async () => {
