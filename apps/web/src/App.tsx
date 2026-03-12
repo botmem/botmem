@@ -38,9 +38,7 @@ const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
 const MePage = lazy(() => import('./pages/MePage').then((m) => ({ default: m.MePage })));
-const LandingPage = lazy(() =>
-  import('./pages/LandingPage').then((m) => ({ default: m.LandingPage })),
-);
+import { LandingPage } from './pages/LandingPage';
 const PricingPage = lazy(() =>
   import('./pages/PricingPage').then((m) => ({ default: m.PricingPage })),
 );
@@ -124,8 +122,8 @@ function LoadingScreen() {
 function LandingOrApp() {
   const { user, isLoading } = useAuth();
 
-  if (isLoading) return <LoadingScreen />;
-  if (!user) return <LandingPage />;
+  // Show landing page immediately while auth loads — no loading screen for visitors
+  if (isLoading || !user) return <LandingPage />;
   if (!user.onboarded) return <Navigate to="/onboarding" replace />;
   return (
     <>
