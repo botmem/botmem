@@ -21,10 +21,10 @@ Botmem is configured through environment variables. All variables have sensible 
 
 Botmem supports two AI backends — **Ollama** (local, default) and **OpenRouter** (cloud API). Set `AI_BACKEND` to switch between them.
 
-| Variable          | Default  | Description                                                         |
-| ----------------- | -------- | ------------------------------------------------------------------- |
-| `AI_BACKEND`      | `ollama` | AI backend: `ollama` or `openrouter`                                |
-| `EMBED_DIMENSION` | `1024`   | Embedding vector dimension (1024 for Ollama/mxbai, 3072 for Gemini) |
+| Variable          | Default  | Description                                                                                           |
+| ----------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `AI_BACKEND`      | `ollama` | AI backend: `ollama` or `openrouter`                                                                  |
+| `EMBED_DIMENSION` | _(auto)_ | Embedding vector dimension (auto-detected from model; 768 for nomic, 1024 for mxbai, 3072 for Gemini) |
 
 #### Ollama (default)
 
@@ -88,7 +88,9 @@ Reranking improves search result quality by re-scoring initial vector matches. O
 | `APP_SECRET` | `dev-app-secret-change-in-production` | AES-256-GCM key for encrypting credentials at rest |
 
 ::: danger Production secrets
-In production (`NODE_ENV=production`), the server will log a warning if `APP_SECRET`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, or `OAUTH_JWT_SECRET` are still set to their default values. Generate secure secrets with: `openssl rand -base64 48`
+For public-facing deployments, you **must** change `APP_SECRET`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, and `OAUTH_JWT_SECRET` from their defaults. Generate secure secrets with: `openssl rand -base64 48`
+
+The server logs `Using default dev secrets (OK for local/self-hosted)` when defaults are detected. For actual production deployments (Stripe configured or `PRODUCTION_DEPLOY=true`), the server will refuse to start with default secrets.
 :::
 
 ### Billing (Managed tier only)

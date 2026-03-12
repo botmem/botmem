@@ -155,8 +155,9 @@ QDRANT_URL=http://qdrant:6333
 AI_BACKEND=ollama
 OLLAMA_BASE_URL=http://your-ollama-host:11434
 
-# Production mode
+# Production mode — enforces custom secrets (server refuses to start with defaults)
 NODE_ENV=production
+PRODUCTION_DEPLOY=true
 ```
 
 ::: danger Generate unique secrets

@@ -41,6 +41,25 @@ export class QdrantService implements OnModuleInit {
         vectors: { size: vectorSize, distance: 'Cosine' },
         optimizers_config: { indexing_threshold: 1000 },
       });
+      return;
+    }
+
+    // Verify existing collection has matching vector dimensions
+    try {
+      const info = await this.client.getCollection(QdrantService.COLLECTION);
+      const existingSize = (info.config?.params?.vectors as { size?: number })?.size;
+      if (existingSize && existingSize !== vectorSize) {
+        throw new Error(
+          `Qdrant collection "memories" has vector size ${existingSize} but configured EMBED_DIMENSION is ${vectorSize}. ` +
+            `Either delete the collection and re-sync (Qdrant dashboard → Delete), or set EMBED_DIMENSION=${existingSize} in .env.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Qdrant collection')) throw err;
+      this.logger.warn(
+        'Could not verify Qdrant vector dimensions',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 

@@ -12,6 +12,7 @@ import { OllamaService } from './ollama.service';
 import { OpenRouterService } from './openrouter.service';
 import { AiCacheService } from './ai-cache.service';
 import { AiService } from './ai.service';
+import { GeminiEmbedService } from './gemini-embed.service';
 import { RerankService } from './rerank.service';
 import { QdrantService } from './qdrant.service';
 import { EnrichService } from './enrich.service';
@@ -51,6 +52,7 @@ import { MemoryController } from './memory.controller';
   providers: [
     OllamaService,
     OpenRouterService,
+    GeminiEmbedService,
     AiCacheService,
     RerankService,
     AiService,
