@@ -43,7 +43,7 @@ export default defineConfig({
         'src/memory/embed.processor.ts',
         'src/me/me.service.ts',
         'src/memory/memory.service.ts',
-        'src/contacts/contacts.service.ts',
+        'src/people/people.service.ts',
         'src/billing/**',
       ],
       thresholds: {
