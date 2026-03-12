@@ -28,7 +28,7 @@ import { DemoModule } from './demo/demo.module';
 import { PlanGuard } from './billing/plan.guard';
 import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './user-auth/jwt-auth.guard';
 import { FirebaseAuthModule } from './user-auth/firebase-auth.module';
 import { FirebaseAuthGuard } from './user-auth/firebase-auth.guard';
@@ -78,10 +78,6 @@ import { TracingModule } from './tracing/tracing.module';
     {
       provide: APP_GUARD,
       useClass: AuthProviderGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
     },
     {
       provide: APP_GUARD,
