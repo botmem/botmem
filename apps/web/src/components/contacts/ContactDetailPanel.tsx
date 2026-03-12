@@ -139,7 +139,7 @@ export function ContactDetailPanel({
         {/* Avatar */}
         <div className="flex gap-2 flex-wrap">
           <Avatar
-            contactId={contact.id}
+            contactId={contact.avatars?.length > 0 ? contact.id : undefined}
             fallbackInitials={contact.displayName.slice(0, 2).toUpperCase()}
             isSelf={isSelf}
             size="lg"

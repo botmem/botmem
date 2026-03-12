@@ -91,8 +91,9 @@ export function MergeTinder({
     setSwipeDir('up');
     if (last.type === 'skip' && onUndismiss) {
       onUndismiss(last.suggestion.contact1.id, last.suggestion.contact2.id);
-      // Reinsert the suggestion at the current index so it becomes the active card
+      // Reinsert at position 0 and reset index to show it
       onReinsertSuggestion?.(last.suggestion);
+      setIndex(0);
     }
     setTimeout(() => setSwipeDir(null), 100);
   }, [onUndismiss, onReinsertSuggestion]);
