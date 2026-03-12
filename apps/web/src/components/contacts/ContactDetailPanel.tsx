@@ -148,10 +148,14 @@ export function ContactDetailPanel({
 
         {/* Editable name */}
         <div>
-          <label className="font-display text-xs font-bold uppercase tracking-wider text-nb-muted">
+          <label
+            htmlFor="contact-display-name"
+            className="font-display text-xs font-bold uppercase tracking-wider text-nb-muted"
+          >
             Display Name
           </label>
           <input
+            id="contact-display-name"
             type="text"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
@@ -241,7 +245,6 @@ export function ContactDetailPanel({
                 onChange={(e) => setMergeSearch(e.target.value)}
                 placeholder="Search person to absorb..."
                 className="w-full border-2 border-nb-border bg-nb-surface font-mono text-xs text-nb-text px-2 py-1.5 placeholder:text-nb-muted"
-                autoFocus
               />
               {mergeResults.length > 0 && (
                 <div className="mt-1 flex flex-col gap-0.5">

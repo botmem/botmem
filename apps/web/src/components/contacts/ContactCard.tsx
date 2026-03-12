@@ -33,7 +33,12 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && onClick) onClick();
+      }}
       className={cn(
         'border-3 border-nb-border bg-nb-surface shadow-nb p-3 cursor-pointer transition-all duration-100',
         'hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm',
@@ -75,9 +80,9 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
           </h3>
 
           <div className="flex flex-wrap gap-1 mt-1">
-            {shownIds.map((ident, i) => (
+            {shownIds.map((ident) => (
               <Badge
-                key={i}
+                key={`${ident.type}-${ident.value}`}
                 color={IDENTIFIER_COLORS[ident.type]}
                 className="text-[10px] py-0 leading-tight"
               >

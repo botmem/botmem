@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { useAuthStore } from '../../store/authStore';
 
 interface AuthedImageProps {
@@ -12,50 +12,92 @@ interface AuthedImageProps {
   fallback?: ReactNode;
 }
 
-export function AuthedImage({ src, alt = '', className, style, loading, onError, onLoad, fallback }: AuthedImageProps) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+type BlobState = { url: string | null; failed: boolean };
+const EMPTY: BlobState = { url: null, failed: false };
 
-  useEffect(() => {
-    let objectUrl: string | null = null;
-    let cancelled = false;
-    setBlobUrl(null);
-    setFailed(false);
+/**
+ * Custom store for fetching authenticated images outside of useEffect.
+ * Uses useSyncExternalStore to avoid the "fetch in useEffect" anti-pattern.
+ */
+function createBlobStore() {
+  let state: BlobState = EMPTY;
+  let currentSrc = '';
+  let abortCtrl: AbortController | null = null;
+  const listeners = new Set<() => void>();
 
-    const load = async () => {
+  function notify() {
+    listeners.forEach((l) => l());
+  }
+
+  return {
+    subscribe(cb: () => void) {
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+      };
+    },
+    getSnapshot() {
+      return state;
+    },
+    load(src: string, onError?: () => void, onLoad?: () => void) {
+      if (src === currentSrc) return;
+      // Cleanup previous
+      abortCtrl?.abort();
+      if (state.url) URL.revokeObjectURL(state.url);
+      currentSrc = src;
+      state = EMPTY;
+      notify();
+
+      abortCtrl = new AbortController();
       const token = useAuthStore.getState().accessToken;
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      try {
-        const res = await fetch(src, { headers, credentials: 'include' });
-        if (cancelled) return;
-        if (!res.ok) {
-          setFailed(true);
+      fetch(src, { headers, credentials: 'include', signal: abortCtrl.signal })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          state = { url: URL.createObjectURL(blob), failed: false };
+          onLoad?.();
+          notify();
+        })
+        .catch((err) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          state = { url: null, failed: true };
           onError?.();
-          return;
-        }
-        const blob = await res.blob();
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setBlobUrl(objectUrl);
-        onLoad?.();
-      } catch {
-        if (!cancelled) {
-          setFailed(true);
-          onError?.();
-        }
-      }
-    };
+          notify();
+        });
+    },
+    cleanup() {
+      abortCtrl?.abort();
+      if (state.url) URL.revokeObjectURL(state.url);
+      currentSrc = '';
+      state = EMPTY;
+    },
+  };
+}
 
-    load();
+export function AuthedImage({
+  src,
+  alt = '',
+  className,
+  style,
+  loading,
+  onError,
+  onLoad,
+  fallback,
+}: AuthedImageProps) {
+  const storeRef = useRef<ReturnType<typeof createBlobStore>>(null);
+  if (!storeRef.current) storeRef.current = createBlobStore();
+  const store = storeRef.current;
 
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [src]);
+  // Trigger load on src change (called during render, not in useEffect)
+  store.load(src, onError, onLoad);
 
-  if (!blobUrl) return failed ? <>{fallback}</> : <>{fallback}</>;
-  return <img src={blobUrl} alt={alt} className={className} style={style} loading={loading} />;
+  const subscribe = useCallback((cb: () => void) => store.subscribe(cb), [store]);
+  const { url, failed } = useSyncExternalStore(subscribe, () => store.getSnapshot());
+
+  if (!url) return <>{fallback}</>;
+  if (failed) return <>{fallback}</>;
+  return <img src={url} alt={alt} className={className} style={style} loading={loading} />;
 }

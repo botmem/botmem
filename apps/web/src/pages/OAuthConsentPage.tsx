@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
@@ -11,6 +11,35 @@ const SCOPE_LABELS: Record<string, string> = {
   search: 'Search your memories',
   contacts: 'Access your contacts',
 };
+
+function createClientNameStore() {
+  let name = '';
+  let loadedFor = '';
+  const listeners = new Set<() => void>();
+  const notify = () => listeners.forEach((l) => l());
+  return {
+    subscribe: (cb: () => void) => {
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+      };
+    },
+    getSnapshot: () => name,
+    load(clientId: string) {
+      if (!clientId || clientId === loadedFor) return;
+      loadedFor = clientId;
+      fetch(`/oauth/client-info?client_id=${encodeURIComponent(clientId)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.client_name) {
+            name = d.client_name;
+            notify();
+          }
+        })
+        .catch(() => {});
+    },
+  };
+}
 
 export default function OAuthConsentPage() {
   const [searchParams] = useSearchParams();
@@ -27,28 +56,19 @@ export default function OAuthConsentPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'login' | 'consent' | 'recovery' | 'done'>('login');
-  const [clientName, setClientName] = useState('');
 
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.accessToken);
 
-  // If already logged in, skip to consent step
-  useEffect(() => {
-    if (user && accessToken) {
-      setStep('consent');
-    }
-  }, [user, accessToken]);
+  // Derive step from auth state (replaces useEffect)
+  const derivedStep = user && accessToken && step === 'login' ? 'consent' : step;
 
-  // Fetch client display name
-  useEffect(() => {
-    if (!clientId) return;
-    fetch(`/oauth/client-info?client_id=${encodeURIComponent(clientId)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.client_name) setClientName(d.client_name);
-      })
-      .catch(() => {});
-  }, [clientId]);
+  // Fetch client name via external store (replaces useEffect + fetch)
+  const storeRef = useRef<ReturnType<typeof createClientNameStore>>(null);
+  if (!storeRef.current) storeRef.current = createClientNameStore();
+  storeRef.current.load(clientId);
+  const subscribe = useCallback((cb: () => void) => storeRef.current!.subscribe(cb), []);
+  const clientName = useSyncExternalStore(subscribe, () => storeRef.current!.getSnapshot());
 
   const scopes = scope.split(/[\s,]+/).filter(Boolean);
   const missingParams = !clientId || !redirectUri;
@@ -174,7 +194,7 @@ export default function OAuthConsentPage() {
 
         <div className="flex flex-col gap-5">
           {/* Login section */}
-          {step === 'login' && (
+          {derivedStep === 'login' && (
             <div className="border-3 border-nb-border bg-nb-surface p-6 shadow-nb">
               <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-4">
                 Sign In
@@ -204,7 +224,7 @@ export default function OAuthConsentPage() {
           )}
 
           {/* Logged in indicator */}
-          {(step === 'consent' || step === 'recovery') && user && (
+          {(derivedStep === 'consent' || derivedStep === 'recovery') && user && (
             <div className="border-3 border-nb-border bg-nb-surface p-4 shadow-nb">
               <div className="font-mono text-sm text-nb-muted">Signed in as</div>
               <div className="font-display font-bold text-nb-text">{user.email || 'User'}</div>
@@ -212,7 +232,7 @@ export default function OAuthConsentPage() {
           )}
 
           {/* Recovery key step — only shown when server says DEK is cold */}
-          {step === 'recovery' && (
+          {derivedStep === 'recovery' && (
             <form onSubmit={handleAuthorizeWithKey} className="flex flex-col gap-5">
               <div className="border-3 border-nb-border bg-nb-surface p-6 shadow-nb">
                 <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-1">
@@ -239,7 +259,7 @@ export default function OAuthConsentPage() {
           )}
 
           {/* Consent section */}
-          {step === 'consent' && (
+          {derivedStep === 'consent' && (
             <div className="border-3 border-nb-border bg-nb-surface p-6 shadow-nb">
               <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-3">
                 Authorize Access?
@@ -287,7 +307,7 @@ export default function OAuthConsentPage() {
           )}
 
           {/* Done — authorization complete */}
-          {step === 'done' && (
+          {derivedStep === 'done' && (
             <div className="border-3 border-nb-lime bg-nb-lime/10 p-6 shadow-nb text-center">
               <div className="text-nb-lime text-4xl font-bold mb-3">&#10003;</div>
               <h2 className="font-display text-xl font-bold uppercase text-nb-text mb-2">

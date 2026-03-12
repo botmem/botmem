@@ -97,9 +97,9 @@ export function MemoryBanksTab() {
       {/* Bank list */}
       {loading ? (
         <div className="flex flex-col gap-3">
-          {[1, 2].map((i) => (
+          {[1, 2].map((_, i) => (
             <div
-              key={i}
+              key={`skel-bank-${i}`}
               className="h-16 border-3 border-nb-border bg-nb-surface-muted"
               style={{ animation: 'pulse-bar 1.5s ease-in-out infinite' }}
             />
@@ -128,7 +128,6 @@ export function MemoryBanksTab() {
                           setEditName('');
                         }
                       }}
-                      autoFocus
                       className="flex-1 border-3 border-nb-lime px-3 py-1.5 font-mono text-sm bg-nb-surface text-nb-text focus:outline-none"
                     />
                     <button

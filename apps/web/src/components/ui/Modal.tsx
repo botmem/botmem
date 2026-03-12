@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback } from 'react';
 
 interface ModalProps {
   open: boolean;
@@ -8,22 +8,29 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = '';
-      };
-    }
-  }, [open]);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    },
+    [onClose],
+  );
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center animate-[fadeIn_150ms_ease-out]">
-      <div
-        className="absolute inset-0 bg-black/60 animate-[fadeIn_100ms_ease-out]"
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-center justify-center animate-[fadeIn_150ms_ease-out]"
+      onKeyDown={handleKeyDown}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/60 animate-[fadeIn_100ms_ease-out] cursor-default"
         onClick={onClose}
+        aria-label="Close dialog"
+        tabIndex={-1}
       />
       <div className="relative border-4 border-nb-border bg-nb-surface shadow-nb-lg p-6 w-full max-w-lg mx-4 animate-[slideUp_150ms_ease-out]">
         <div className="flex items-center justify-between mb-4">
@@ -31,6 +38,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
           <button
             onClick={onClose}
             className="border-3 border-nb-border size-9 flex items-center justify-center font-bold text-lg hover:bg-nb-red hover:text-white transition-colors cursor-pointer text-nb-text"
+            aria-label="Close"
           >
             X
           </button>

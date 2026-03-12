@@ -130,8 +130,8 @@ function MemoryContext({ metadata }: { metadata: MemoryMetadata }) {
 
   return (
     <div className="border-2 border-nb-border p-2 bg-nb-surface-muted font-mono text-xs flex flex-col gap-0.5">
-      {rows.map((r, i) => (
-        <ContextRow key={i} label={r.label} value={r.value} bold={r.bold} />
+      {rows.map((r) => (
+        <ContextRow key={r.label} label={r.label} value={r.value} bold={r.bold} />
       ))}
     </div>
   );
@@ -209,12 +209,18 @@ export function MemoryDetailCore({
       {/* Thumbnail */}
       {hasThumbnail(source, metadata) && (
         <div
+          role="button"
+          tabIndex={0}
           className={cn(
             'border-3 border-nb-border overflow-hidden',
             compact ? 'max-h-56' : 'max-h-80',
             onThumbnailClick && 'cursor-zoom-in',
           )}
           onClick={() => onThumbnailClick?.(`/api/memories/${id}/thumbnail`)}
+          onKeyDown={(e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && onThumbnailClick)
+              onThumbnailClick(`/api/memories/${id}/thumbnail`);
+          }}
         >
           <AuthedImage
             src={`/api/memories/${id}/thumbnail`}

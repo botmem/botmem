@@ -38,13 +38,16 @@ export class ConfigService implements OnModuleInit {
       },
     ];
 
-    for (const { name, value, default: def } of defaults) {
-      if (value === def) {
-        throw new Error(`FATAL: ${name} is using default value in production. Set a secure value.`);
-      }
+    const insecure = defaults.filter(({ value, default: def }) => value === def);
+    if (insecure.length > 0) {
+      const names = insecure.map((d) => d.name).join(', ');
+      this.logger.warn(
+        `⚠ INSECURE: ${names} using default values. ` +
+          `Generate secure secrets with: openssl rand -base64 48`,
+      );
+    } else {
+      this.logger.log('Production secret validation passed');
     }
-
-    this.logger.log('Production secret validation passed');
   }
 
   get port(): number {

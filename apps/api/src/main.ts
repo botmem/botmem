@@ -154,6 +154,42 @@ async function bootstrap() {
     });
   }
 
+  // Production static file serving (replaces @nestjs/serve-static to avoid its
+  // error handler converting throttle 429s and other API errors into 404s)
+  if (!isDev) {
+    const { existsSync } = await import('fs');
+    const webDistPath = join(__dirname, '..', '..', 'web', 'dist');
+    if (existsSync(webDistPath)) {
+      const serveStatic = (await import('serve-static')).default;
+      server.use(
+        serveStatic(webDistPath, {
+          maxAge: '1y',
+          immutable: true,
+          setHeaders: (res, path) => {
+            if (path.endsWith('.html')) {
+              res.setHeader('Cache-Control', 'no-cache');
+            }
+          },
+        }),
+      );
+      // SPA catch-all: non-API GET requests fall through to index.html
+      const indexPath = join(webDistPath, 'index.html');
+      server.get('*', (req: Request, res: Response, next: NextFunction) => {
+        if (
+          req.originalUrl.startsWith('/api') ||
+          req.originalUrl.startsWith('/events') ||
+          req.originalUrl.startsWith('/.well-known') ||
+          (req.originalUrl.startsWith('/oauth') && !req.originalUrl.startsWith('/oauth/consent')) ||
+          req.originalUrl.startsWith('/mcp')
+        ) {
+          return next();
+        }
+        res.setHeader('Cache-Control', 'no-cache');
+        res.sendFile(indexPath);
+      });
+    }
+  }
+
   // Swagger / OpenAPI docs
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Botmem API')

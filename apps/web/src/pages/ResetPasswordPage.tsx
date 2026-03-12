@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
@@ -15,12 +15,12 @@ export function ResetPasswordPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  // Clear token from URL after reading it
-  useEffect(() => {
-    if (token) {
-      window.history.replaceState({}, '', '/reset-password');
-    }
-  }, [token]);
+  // Clear token from URL once (during render, not in useEffect)
+  const clearedRef = useRef(false);
+  if (token && !clearedRef.current) {
+    clearedRef.current = true;
+    window.history.replaceState({}, '', '/reset-password');
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

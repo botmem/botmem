@@ -1,10 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { RlsInterceptor } from './db/rls.interceptor';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
-import type { Response } from 'express';
-import { existsSync } from 'fs';
 import { ConfigModule } from './config/config.module';
 import { DbModule } from './db/db.module';
 import { ConnectorsModule } from './connectors/connectors.module';
@@ -40,31 +36,9 @@ import { AuthProviderGuard } from './user-auth/auth-provider.guard';
 import { WriteScopeGuard } from './user-auth/write-scope.guard';
 import { TracingModule } from './tracing/tracing.module';
 
-const isDev = process.env.NODE_ENV !== 'production';
-const webDistPath = join(__dirname, '..', '..', 'web', 'dist');
-const serveStatic = !isDev && existsSync(webDistPath);
-
 @Module({
   controllers: [VersionController, HealthController],
   imports: [
-    ...(serveStatic
-      ? [
-          ServeStaticModule.forRoot({
-            rootPath: webDistPath,
-            exclude: ['/api/{*path}'],
-            serveStaticOptions: {
-              maxAge: '1y',
-              immutable: true,
-              setHeaders: (res: Response, path: string) => {
-                // Hashed assets get immutable cache; HTML gets no-cache for SPA routing
-                if (path.endsWith('.html')) {
-                  res.setHeader('Cache-Control', 'no-cache');
-                }
-              },
-            },
-          }),
-        ]
-      : []),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
     TracingModule,
     AnalyticsModule,

@@ -46,7 +46,6 @@ export function ReauthModal({ open, onClose }: ReauthModalProps) {
           value={recoveryKey}
           onChange={(e) => setRecoveryKey(e.target.value)}
           placeholder="Paste your recovery key here"
-          autoFocus
           rows={2}
           className="w-full border-3 border-nb-border px-4 py-3 font-mono text-sm bg-nb-bg text-nb-text focus:outline-none focus:border-nb-lime placeholder:text-nb-muted resize-none"
         />

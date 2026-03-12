@@ -22,7 +22,10 @@ export function Skeleton({ className, variant = 'line', count = 1 }: SkeletonPro
     return (
       <div className={cn('flex flex-col gap-3', className)}>
         {items.map((_, i) => (
-          <div key={i} className="border-3 border-nb-border bg-nb-surface shadow-nb p-4">
+          <div
+            key={`skel-card-${i}`}
+            className="border-3 border-nb-border bg-nb-surface shadow-nb p-4"
+          >
             <SkeletonBlock className="h-4 w-2/3 mb-3" />
             <SkeletonBlock className="h-3 w-full mb-2" />
             <SkeletonBlock className="h-3 w-4/5" />
@@ -47,7 +50,7 @@ export function Skeleton({ className, variant = 'line', count = 1 }: SkeletonPro
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       {items.map((_, i) => (
-        <SkeletonBlock key={i} className="h-3 w-full" />
+        <SkeletonBlock key={`skel-line-${i}`} className="h-3 w-full" />
       ))}
     </div>
   );

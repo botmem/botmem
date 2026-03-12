@@ -62,7 +62,10 @@ export function IntegrationsTab() {
 
       {/* API URL */}
       <div className="mb-6">
-        <label className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2">
+        <label
+          htmlFor="api-endpoint"
+          className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2"
+        >
           API Endpoint
         </label>
         <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3">
@@ -78,7 +81,10 @@ export function IntegrationsTab() {
 
       {/* MCP Endpoint */}
       <div className="mb-6">
-        <label className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2">
+        <label
+          htmlFor="mcp-endpoint"
+          className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2"
+        >
           MCP Endpoint
         </label>
         <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3">
@@ -98,7 +104,10 @@ export function IntegrationsTab() {
 
       {/* MCP Config for agents */}
       <div className="mb-6">
-        <label className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2">
+        <label
+          htmlFor="mcp-config"
+          className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2"
+        >
           MCP Server Config
         </label>
         <p className="font-mono text-xs text-nb-muted mb-3">
@@ -124,7 +133,10 @@ export function IntegrationsTab() {
 
       {/* CLI */}
       <div className="border-t-3 border-nb-border pt-4">
-        <label className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2">
+        <label
+          htmlFor="cli-install"
+          className="font-display text-sm font-bold uppercase tracking-wider text-nb-text block mb-2"
+        >
           CLI
         </label>
         <div className="flex items-center gap-2">
