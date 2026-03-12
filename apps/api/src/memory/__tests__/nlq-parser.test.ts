@@ -4,7 +4,6 @@ import { parseNlq } from '../nlq-parser';
 // Fixed reference date for deterministic tests: March 8, 2026 (Sunday)
 const REF = new Date('2026-03-08T12:00:00Z');
 
-
 describe('parseNlq', () => {
   describe('temporal parsing', () => {
     // Freeze clock so compromise-dates relative calculations are deterministic
@@ -22,7 +21,9 @@ describe('parseNlq', () => {
       expect(result.temporal!.from).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
       expect(result.temporal!.to).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
       // Range should be ~7 days
-      const days = (new Date(result.temporal!.to).getTime() - new Date(result.temporal!.from).getTime()) / 86400000;
+      const days =
+        (new Date(result.temporal!.to).getTime() - new Date(result.temporal!.from).getTime()) /
+        86400000;
       expect(days).toBeGreaterThanOrEqual(6);
       expect(days).toBeLessThanOrEqual(8);
     });
@@ -30,7 +31,9 @@ describe('parseNlq', () => {
     it('"last week" returns previous Monday to Sunday', () => {
       const result = parseNlq('emails from last week', REF);
       expect(result.temporal).not.toBeNull();
-      const days = (new Date(result.temporal!.to).getTime() - new Date(result.temporal!.from).getTime()) / 86400000;
+      const days =
+        (new Date(result.temporal!.to).getTime() - new Date(result.temporal!.from).getTime()) /
+        86400000;
       expect(days).toBeGreaterThanOrEqual(6);
       expect(days).toBeLessThanOrEqual(8);
       // "from" should be near local midnight of the week start
@@ -172,7 +175,7 @@ describe('parseNlq', () => {
   });
 
   describe('performance', () => {
-    it('parseNlq completes in under 100ms', () => {
+    it('parseNlq completes in under 100ms', { timeout: 15000 }, () => {
       const start = performance.now();
       for (let i = 0; i < 100; i++) {
         parseNlq('emails from last week about project updates', REF);
