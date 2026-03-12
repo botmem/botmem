@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "data-analysis": {
+      "source": "supercent-io/skills-template",
+      "sourceType": "github",
+      "computedHash": "d380eb6230b7a285a63b11e18c6c7eeae37f2dd502610ec390975ae1b8627b29"
+    },
     "nestjs-best-practices": {
       "source": "kadajett/agent-nestjs-skills",
       "sourceType": "github",

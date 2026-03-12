@@ -98,6 +98,7 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
     'recall_count',
     'key_version',
     'enriched_at',
+    'search_tokens',
     'created_at',
   ],
   memory_links: ['id', 'src_memory_id', 'dst_memory_id', 'link_type', 'strength', 'created_at'],

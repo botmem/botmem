@@ -1,5 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+import { isNoise } from '@botmem/connector-sdk';
 import type { Member, Profile } from '@slack/web-api/dist/types/response/UsersListResponse.js';
 import type {
   MessageElement,
@@ -272,6 +273,8 @@ export async function syncSlack(
   }
   if (processed > 0) emitProgress?.(processed);
 
+  let filteredCount = 0;
+
   // Paginate through ALL conversations
   let channelListCursor = cursorState.channelList || undefined;
   let hasMoreChannels = true;
@@ -348,11 +351,35 @@ export async function syncSlack(
             'channel_unarchive',
             'pinned_item',
             'unpinned_item',
+            'bot_message',
+            'me_message',
+            'file_comment',
           ]);
-          if (msg.subtype && skipSubtypes.has(msg.subtype)) continue;
+          if (msg.subtype && skipSubtypes.has(msg.subtype)) {
+            filteredCount++;
+            continue;
+          }
+
+          // Skip bot messages (bot_id present means it's from an integration)
+          if ((msg as MessageElement).bot_id) {
+            filteredCount++;
+            continue;
+          }
+
+          // Skip integration notifications (GitHub, Jira, etc.)
+          if ((msg as MessageElement & { app_id?: string }).app_id) {
+            filteredCount++;
+            continue;
+          }
 
           const rawText = msg.text || '';
           const normalizedText = normalizeSlackText(rawText, users);
+
+          // Apply shared noise filter on message text
+          if (normalizedText && isNoise(normalizedText, {})) {
+            filteredCount++;
+            continue;
+          }
           const authorId = msg.user || (msg as MessageElement).bot_id;
           const authorName = authorId ? userName(users, authorId) : 'bot';
 
@@ -513,7 +540,9 @@ export async function syncSlack(
     cursorState.channelList = channelListCursor;
   }
 
-  ctx.logger.info(`Synced ${processed} Slack events (messages + contacts + files)`);
+  ctx.logger.info(
+    `Synced ${processed} Slack events (messages + contacts + files, ${filteredCount} noise filtered)`,
+  );
 
   return {
     cursor: JSON.stringify(cursorState),

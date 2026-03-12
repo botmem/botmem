@@ -1,4 +1,4 @@
-import { BaseConnector } from '@botmem/connector-sdk';
+import { BaseConnector, isNoise } from '@botmem/connector-sdk';
 import type {
   ConnectorManifest,
   AuthContext,
@@ -10,6 +10,22 @@ import type {
   PipelineContext,
 } from '@botmem/connector-sdk';
 import { ImsgClient } from './imsg-client.js';
+
+/** Tapback/reaction prefixes used by iMessage */
+const TAPBACK_PREFIXES = [
+  'Loved "',
+  'Liked "',
+  'Disliked "',
+  'Laughed at "',
+  'Emphasized "',
+  'Questioned "',
+  'Removed a like',
+  'Removed a heart',
+  'Removed a dislike',
+  'Removed a laugh',
+  'Removed an emphasis',
+  'Removed a question mark',
+];
 
 const DEFAULT_HOST = 'localhost';
 const DEFAULT_PORT = 19876;
@@ -48,7 +64,7 @@ export class IMessageConnector extends BaseConnector {
       },
     },
     entities: ['person', 'message'],
-    pipeline: { clean: false, embed: true, enrich: true },
+    pipeline: { clean: false, embed: true, enrich: false },
     trustScore: 0.8,
   };
 
@@ -165,6 +181,7 @@ export class IMessageConnector extends BaseConnector {
       const startCursor = ctx.cursor || undefined;
       let latestTimestamp: string | null = null;
       let processed = 0;
+      let filteredCount = 0;
 
       for (const chat of chats) {
         if (ctx.signal.aborted) break;
@@ -181,12 +198,34 @@ export class IMessageConnector extends BaseConnector {
         for (const msg of messages) {
           if (ctx.signal.aborted) break;
 
+          const text = msg.text || '';
+          const hasAttachments = msg.attachments && msg.attachments.length > 0;
+
+          // Skip null/empty text messages without attachments (delivery/read receipts)
+          if (!text && !hasAttachments) {
+            filteredCount++;
+            continue;
+          }
+
+          // Skip tapback reactions (e.g. 'Loved "hey"', 'Liked "ok"')
+          if (text && TAPBACK_PREFIXES.some((prefix) => text.startsWith(prefix))) {
+            filteredCount++;
+            ctx.logger.debug(`Noise filtered (tapback): ${text.slice(0, 60)}`);
+            continue;
+          }
+
+          // Apply shared noise filter on message text
+          if (text && isNoise(text, {})) {
+            filteredCount++;
+            continue;
+          }
+
           this.emitData({
             sourceType: 'message',
             sourceId: msg.guid || `imsg-${msg.id}`,
             timestamp: msg.created_at,
             content: {
-              text: msg.text || '',
+              text,
               participants: msg.participants || [msg.sender],
               metadata: {
                 chatId: msg.chat_id,
@@ -205,13 +244,15 @@ export class IMessageConnector extends BaseConnector {
           processed++;
 
           if (processed % PROGRESS_INTERVAL === 0) {
-            this.emit('progress', { processed });
+            this.emitProgress({ processed });
           }
         }
       }
 
-      ctx.logger.info(`Synced ${processed} iMessages from ${chats.length} chats`);
-      this.emit('progress', { processed });
+      ctx.logger.info(
+        `Synced ${processed} iMessages from ${chats.length} chats (${filteredCount} noise filtered)`,
+      );
+      this.emitProgress({ processed });
 
       return {
         cursor: latestTimestamp || ctx.cursor,

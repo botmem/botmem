@@ -47,7 +47,7 @@ export class WhatsAppConnector extends BaseConnector {
       properties: {},
     },
     entities: ['person', 'message'],
-    pipeline: { clean: true, embed: true, enrich: true },
+    pipeline: { clean: true, embed: true, enrich: false },
     trustScore: 0.8,
   };
 

@@ -115,7 +115,18 @@ export class OpenRouterService implements OnModuleInit {
 
         messages.push({ role: 'user', content });
 
-        const body: Record<string, unknown> = { model, messages };
+        const body: Record<string, unknown> = {
+          model,
+          messages,
+          // Suppress reasoning/thinking tokens to avoid paying for hidden CoT
+          reasoning: { effort: 'none' },
+          // Cap output tokens — enrichment tasks need short structured output
+          max_tokens: format ? 512 : 1024,
+          // Provider-specific overrides for models that use different thinking params
+          provider: {
+            require_parameters: false,
+          },
+        };
         if (format) {
           body.response_format = { type: 'json_object' };
         }

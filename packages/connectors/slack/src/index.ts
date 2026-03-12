@@ -62,7 +62,7 @@ export class SlackConnector extends BaseConnector {
       required: [],
     },
     entities: ['person', 'channel', 'message', 'file'],
-    pipeline: { clean: true, embed: true, enrich: true },
+    pipeline: { clean: true, embed: true, enrich: false },
     trustScore: 0.9,
   };
 

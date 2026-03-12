@@ -8,7 +8,15 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  customType,
 } from 'drizzle-orm/pg-core';
+
+/** Custom Drizzle type for PostgreSQL tsvector columns */
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return 'tsvector';
+  },
+});
 
 export const accounts = pgTable(
   'accounts',
@@ -105,6 +113,7 @@ export const memories = pgTable(
     recallCount: integer('recall_count').notNull().default(0),
     keyVersion: integer('key_version').notNull().default(0), // 0 = APP_SECRET encrypted, >= 1 = user key
     pipelineComplete: boolean('pipeline_complete').notNull().default(false),
+    searchTokens: tsvector('search_tokens'), // pre-computed tsvector from plaintext (before encryption)
     enrichedAt: timestamp('enriched_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },

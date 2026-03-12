@@ -1,5 +1,6 @@
 import { google, type gmail_v1 } from 'googleapis';
 import type { SyncContext, ConnectorDataEvent, ProgressEvent } from '@botmem/connector-sdk';
+import { isNoise, isAutomatedSender } from '@botmem/connector-sdk';
 import { createOAuth2Client } from './oauth.js';
 
 const BATCH_SIZE = 500; // Gmail API max for messages.list
@@ -12,10 +13,13 @@ export async function syncGmail(
 ): Promise<{ cursor: string | null; hasMore: boolean; processed: number }> {
   const clientId = ctx.auth.raw?.clientId as string | undefined;
   const clientSecret = ctx.auth.raw?.clientSecret as string | undefined;
-  const redirectUri = (ctx.auth.raw?.redirectUri as string | undefined) || 'http://localhost:12412/api/auth/gmail/callback';
-  const auth = clientId && clientSecret
-    ? createOAuth2Client(clientId, clientSecret, redirectUri)
-    : new google.auth.OAuth2();
+  const redirectUri =
+    (ctx.auth.raw?.redirectUri as string | undefined) ||
+    'http://localhost:12412/api/auth/gmail/callback';
+  const auth =
+    clientId && clientSecret
+      ? createOAuth2Client(clientId, clientSecret, redirectUri)
+      : new google.auth.OAuth2();
   auth.setCredentials({
     access_token: ctx.auth.accessToken,
     refresh_token: ctx.auth.refreshToken,
@@ -39,6 +43,22 @@ export async function syncGmail(
 
   const messages = res.data.messages || [];
   const total = totalMessages;
+
+  let filteredCount = 0;
+
+  /** Labels that indicate promotional/social noise — skip these */
+  const NOISE_LABELS = new Set(['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL']);
+
+  /** Labels that indicate personal/important mail — always keep */
+  const KEEP_LABELS = new Set([
+    'INBOX',
+    'SENT',
+    'IMPORTANT',
+    'STARRED',
+    'CATEGORY_UPDATES',
+    'CATEGORY_PERSONAL',
+    'CATEGORY_FORUMS',
+  ]);
 
   ctx.logger.info(`Fetched ${messages.length} message IDs, estimated total: ${total}`);
   emitProgress({ processed: 0, total });
@@ -70,9 +90,42 @@ export async function syncGmail(
       const date = headers.find((h) => h.name === 'Date')?.value || '';
       const messageId = headers.find((h) => h.name === 'Message-ID')?.value || '';
       const inReplyTo = headers.find((h) => h.name === 'In-Reply-To')?.value || '';
+      const listUnsubscribe = headers.find((h) => h.name === 'List-Unsubscribe')?.value || '';
+
+      const labels = detail.data.labelIds || [];
+
+      // Filter by Gmail label: skip CATEGORY_PROMOTIONS and CATEGORY_SOCIAL
+      // unless the message also has a KEEP label (e.g. STARRED, IMPORTANT)
+      const hasNoiseLabel = labels.some((l) => NOISE_LABELS.has(l));
+      const hasKeepLabel = labels.some((l) => KEEP_LABELS.has(l));
+      if (hasNoiseLabel && !hasKeepLabel) {
+        filteredCount++;
+        continue;
+      }
+
+      // Filter by List-Unsubscribe header (marketing/newsletter)
+      // but keep if it has a keep label (user explicitly cares about it)
+      if (listUnsubscribe && !hasKeepLabel) {
+        filteredCount++;
+        continue;
+      }
+
+      // Filter by automated sender patterns
+      if (isAutomatedSender({ from })) {
+        filteredCount++;
+        continue;
+      }
 
       const body = extractBody(detail.data.payload);
       const attachments = extractAttachments(detail.data.payload);
+
+      const fullText = `${subject}\n\n${body}`;
+
+      // Apply shared noise filter on subject + body
+      if (isNoise(fullText, { from, labels })) {
+        filteredCount++;
+        continue;
+      }
 
       // Prefer Gmail internalDate (epoch ms, always reliable) over parsed Date header
       let timestamp: string;
@@ -90,7 +143,7 @@ export async function syncGmail(
         sourceId: detail.data.id!,
         timestamp,
         content: {
-          text: `${subject}\n\n${body}`,
+          text: fullText,
           participants: [from, to, cc].filter(Boolean),
           attachments: attachments.length > 0 ? attachments : undefined,
           metadata: {
@@ -100,7 +153,7 @@ export async function syncGmail(
             cc: cc || undefined,
             messageId: messageId || undefined,
             inReplyTo: inReplyTo || undefined,
-            labels: detail.data.labelIds,
+            labels,
             threadId: detail.data.threadId,
             snippet: detail.data.snippet,
             sizeEstimate: detail.data.sizeEstimate,
@@ -114,7 +167,7 @@ export async function syncGmail(
     emitProgress({ processed, total });
   }
 
-  ctx.logger.info(`Synced ${processed} emails`);
+  ctx.logger.info(`Synced ${processed} emails (${filteredCount} noise filtered)`);
 
   return {
     cursor: res.data.nextPageToken || null,
@@ -177,7 +230,8 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
 function extractAttachments(
   payload: gmail_v1.Schema$MessagePart | undefined,
 ): Array<{ uri: string; mimeType: string; filename?: string; size?: number }> {
-  const attachments: Array<{ uri: string; mimeType: string; filename?: string; size?: number }> = [];
+  const attachments: Array<{ uri: string; mimeType: string; filename?: string; size?: number }> =
+    [];
   if (!payload?.parts) return attachments;
 
   for (const part of payload.parts) {

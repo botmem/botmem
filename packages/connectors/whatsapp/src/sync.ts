@@ -22,6 +22,7 @@ import type { LogFn } from 'pino';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+import { isNoise } from '@botmem/connector-sdk';
 
 /**
  * Simple in-memory message store for Baileys getMessage callback.
@@ -579,13 +580,38 @@ export async function syncWhatsApp(
   // Per-chat oldest message tracking for on-demand fetching
   const chatOldest = new Map<string, { key: WAMessageKey; ts: number }>();
 
+  let filteredCount = 0;
+
   const processMessage = async (msg: WAMessage, source: string, skipMedia = false) => {
     if (!msg.message) return;
 
+    const m = msg.message;
     const msgType = detectMessageType(msg);
 
     // Skip protocol messages (read receipts, etc.)
-    if (msgType.type === 'protocol' || msgType.type === 'reaction') return;
+    if (msgType.type === 'protocol' || msgType.type === 'reaction') {
+      filteredCount++;
+      return;
+    }
+
+    // Skip ephemeral/view-once media — disappearing content, not persistent memory
+    if (
+      m.ephemeralMessage ||
+      m.viewOnceMessage ||
+      m.viewOnceMessageV2 ||
+      m.viewOnceMessageV2Extension
+    ) {
+      filteredCount++;
+      ctx.logger.debug(`Noise filtered (ephemeral/view-once): msg ${msg.key?.id}`);
+      return;
+    }
+
+    // Skip system messages (group setting changes, participant adds/removes, etc.)
+    if (m.groupInviteMessage || m.bcallMessage || m.callLogMesssage) {
+      filteredCount++;
+      ctx.logger.debug(`Noise filtered (system): msg ${msg.key?.id}`);
+      return;
+    }
 
     const text = extractText(msg);
     const contactCards = extractContactCards(msg);
@@ -597,7 +623,17 @@ export async function syncWhatsApp(
     const remoteJid = msg.key?.remoteJid || '';
 
     // Skip WhatsApp Status/Story posts — ephemeral broadcasts, not conversations
-    if (remoteJid === 'status@broadcast') return;
+    if (remoteJid === 'status@broadcast') {
+      filteredCount++;
+      return;
+    }
+
+    // Apply shared noise filter on extracted text
+    if (text && isNoise(text, {})) {
+      filteredCount++;
+      ctx.logger.debug(`Noise filtered (shared): ${text.slice(0, 80)}...`);
+      return;
+    }
 
     // Baileys history uses top-level participant (LID format)
     const participantJid = msg.key?.participant || msg.participant || '';
@@ -1123,7 +1159,7 @@ export async function syncWhatsApp(
   }
 
   ctx.logger.info(
-    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
+    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${filteredCount} noise filtered, ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
   );
   return { cursor: null, hasMore: false, processed };
 }

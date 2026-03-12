@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { EnrichService } from './enrich.service';
 import { MemoryService } from './memory.service';
@@ -131,6 +131,27 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           `afterEnrich hook failed for memory ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
+
+    // Compute search_tokens from plaintext BEFORE encryption so FTS works on encrypted memories.
+    // The tsvector is non-sensitive (stemmed word positions, no raw text) and stored unencrypted.
+    if (mem?.text) {
+      try {
+        const updateTokens = (db: typeof this.dbService.db) =>
+          db
+            .update(memories)
+            .set({ searchTokens: sql`to_tsvector('english', ${mem.text})` })
+            .where(eq(memories.id, memoryId));
+        if (ownerUserId) {
+          await this.dbService.withUserId(ownerUserId, updateTokens);
+        } else {
+          await updateTokens(this.dbService.db);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[enrich] search_tokens update failed for ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     // Encrypt memory fields at rest — must succeed before marking done.
     // If user key is missing, this throws and BullMQ retries with backoff.

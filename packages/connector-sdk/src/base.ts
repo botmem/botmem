@@ -13,6 +13,7 @@ import type {
   EnrichResult,
   PipelineContext,
 } from './types.js';
+import { detectNoiseReason } from './noise-filter.js';
 
 export abstract class BaseConnector extends EventEmitter {
   static DEBUG_SYNC_LIMIT = 50;
@@ -20,6 +21,7 @@ export abstract class BaseConnector extends EventEmitter {
   abstract readonly manifest: ConnectorManifest;
 
   private _emitCount = 0;
+  private _filteredCount = 0;
   private _abortController: AbortController | null = null;
 
   abstract initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult>;
@@ -39,6 +41,26 @@ export abstract class BaseConnector extends EventEmitter {
     return { ...ctx, signal: this._abortController.signal };
   }
 
+  /**
+   * Check if an event should be emitted (not noise).
+   * Returns true if the event is clean, false if it was filtered as noise.
+   */
+  shouldEmit(event: ConnectorDataEvent): boolean {
+    const text = event.content?.text || '';
+    const metadata = event.content?.metadata || {};
+
+    // Skip noise filtering for contact-type events — always keep those
+    if (metadata.type === 'contact') return true;
+
+    const reason = detectNoiseReason(text, metadata);
+    if (reason) {
+      this._filteredCount++;
+      this.log('debug', `Noise filtered (${reason}): ${text.slice(0, 80)}...`);
+      return false;
+    }
+    return true;
+  }
+
   emitData(event: ConnectorDataEvent): boolean {
     if (BaseConnector.DEBUG_SYNC_LIMIT > 0 && this._emitCount >= BaseConnector.DEBUG_SYNC_LIMIT) {
       if (this._emitCount === BaseConnector.DEBUG_SYNC_LIMIT) {
@@ -51,6 +73,12 @@ export abstract class BaseConnector extends EventEmitter {
       this._emitCount++;
       return false;
     }
+
+    // Apply noise filtering before emitting
+    if (!this.shouldEmit(event)) {
+      return false;
+    }
+
     this._emitCount++;
     return this.emit('data', event);
   }
@@ -59,13 +87,19 @@ export abstract class BaseConnector extends EventEmitter {
     return BaseConnector.DEBUG_SYNC_LIMIT > 0 && this._emitCount >= BaseConnector.DEBUG_SYNC_LIMIT;
   }
 
+  /** Number of events filtered as noise during this sync */
+  get filteredCount(): number {
+    return this._filteredCount;
+  }
+
   resetSyncLimit(): void {
     this._emitCount = 0;
+    this._filteredCount = 0;
     this._abortController = null;
   }
 
   emitProgress(event: ProgressEvent): boolean {
-    return this.emit('progress', event);
+    return this.emit('progress', { ...event, filteredCount: this._filteredCount });
   }
 
   protected log(level: LogEvent['level'], message: string): void {

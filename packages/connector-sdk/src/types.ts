@@ -81,6 +81,7 @@ export interface SyncResult {
 export interface ProgressEvent {
   processed: number;
   total?: number;
+  filteredCount?: number;
 }
 
 export interface LogEvent {

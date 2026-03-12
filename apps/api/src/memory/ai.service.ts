@@ -6,9 +6,41 @@ import { GeminiEmbedService, EmbedPart } from './gemini-embed.service';
 import { AiCacheService } from './ai-cache.service';
 import { RerankService } from './rerank.service';
 
+/** In-memory LRU cache for query embeddings (avoids re-embedding identical/recent queries) */
+class EmbedLruCache {
+  private cache = new Map<string, { vector: number[]; ts: number }>();
+  constructor(
+    private maxSize: number,
+    private ttlMs: number,
+  ) {}
+
+  get(key: string): number[] | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > this.ttlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+    // Move to end (most recently used)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.vector;
+  }
+
+  set(key: string, vector: number[]) {
+    if (this.cache.size >= this.maxSize) {
+      // Evict oldest (first entry)
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
+    this.cache.set(key, { vector, ts: Date.now() });
+  }
+}
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
+  private readonly queryEmbedCache = new EmbedLruCache(1000, 5 * 60 * 1000); // 1000 entries, 5min TTL
 
   constructor(
     private readonly config: ConfigService,
@@ -63,6 +95,20 @@ export class AiService {
       .catch(() => {});
 
     return result;
+  }
+
+  /**
+   * Embed a search query with in-memory LRU caching.
+   * Same/similar queries within 5min skip the embedding call entirely.
+   */
+  async embedQuery(text: string): Promise<number[]> {
+    const key = text.toLowerCase().trim();
+    const cached = this.queryEmbedCache.get(key);
+    if (cached) return cached;
+
+    const vector = await this.embed(text);
+    this.queryEmbedCache.set(key, vector);
+    return vector;
   }
 
   async embedMultimodal(parts: EmbedPart[], retries?: number): Promise<number[]> {

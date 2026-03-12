@@ -380,7 +380,7 @@ export class MemoryService {
     query: string,
     filters?: SearchFilters,
     limit = 20,
-    rerank = false,
+    rerank?: boolean,
     userId?: string,
     memoryBankId?: string,
     memoryBankIds?: string[],
@@ -483,9 +483,26 @@ export class MemoryService {
     const hasContacts = resolvedContacts.length > 0;
     const hasTopics = topicWords.length > 0;
 
-    // Phase 2: Vector search (use clean query for embeddings, apply effectiveFilters)
-    const vector = await this.ai.embed(embeddingQuery);
+    // Phase 2: Vector search (use cached query embedding, apply effectiveFilters)
+    const vector = await this.ai.embedQuery(embeddingQuery);
     const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
+
+    // Fire temporal and non-temporal Qdrant queries in parallel when temporal filters are active.
+    // This eliminates the latency penalty of the temporal fallback path.
+    const hasTemporal = !!(nlq.temporal && effectiveFilters.from);
+    let fallbackQdrantPromise: Promise<Array<{ id: string; score: number }>> | null = null;
+    if (hasTemporal) {
+      const fallbackFilters = { ...effectiveFilters };
+      delete fallbackFilters.from;
+      delete fallbackFilters.to;
+      const fallbackQdrantFilter = this.buildQdrantFilter(fallbackFilters);
+      fallbackQdrantPromise = this.qdrant.search(
+        vector,
+        effectiveLimit * 2,
+        Object.keys(fallbackQdrantFilter).length ? fallbackQdrantFilter : undefined,
+      );
+    }
+
     const qdrantResults = await this.qdrant.search(
       vector,
       effectiveLimit * 5,
@@ -578,7 +595,7 @@ export class MemoryService {
           let tsQuery = searchWords.map((w) => `${w}:*`).join(' & ');
           let ftsResults = await this.dbService.withCurrentUser((db) =>
             db.execute(
-              sql`SELECT id FROM memories WHERE to_tsvector('english', text) @@ to_tsquery('english', ${tsQuery})${temporalFrom}${temporalTo} LIMIT ${limit * 2}`,
+              sql`SELECT id FROM memories WHERE search_tokens IS NOT NULL AND search_tokens @@ to_tsquery('english', ${tsQuery})${temporalFrom}${temporalTo} LIMIT ${limit * 2}`,
             ),
           );
           // If AND returns nothing and multi-word, retry with OR
@@ -586,7 +603,7 @@ export class MemoryService {
             tsQuery = searchWords.map((w) => `${w}:*`).join(' | ');
             ftsResults = await this.dbService.withCurrentUser((db) =>
               db.execute(
-                sql`SELECT id FROM memories WHERE to_tsvector('english', text) @@ to_tsquery('english', ${tsQuery})${temporalFrom}${temporalTo} LIMIT ${limit * 2}`,
+                sql`SELECT id FROM memories WHERE search_tokens IS NOT NULL AND search_tokens @@ to_tsquery('english', ${tsQuery})${temporalFrom}${temporalTo} LIMIT ${limit * 2}`,
               ),
             );
           }
@@ -663,9 +680,10 @@ export class MemoryService {
       candidateRows.push({ id, row });
     }
 
-    // Rerank top 15 candidates (opt-in — too slow for default search)
+    // Rerank top 15 candidates (default on for small result sets, opt-out via rerank=false)
     const rerankScores = new Map<string, number>();
-    if (rerank) {
+    const shouldRerank = rerank ?? candidateRows.length <= 15;
+    if (shouldRerank) {
       const sortedCandidates = [...candidateRows].sort(
         (a, b) => (semanticScores.get(b.id) ?? 0) - (semanticScores.get(a.id) ?? 0),
       );
@@ -679,8 +697,13 @@ export class MemoryService {
       }
     }
 
-    // Score all candidates
-    const results: SearchResult[] = [];
+    // Score all candidates (defer decryption until final results are selected)
+    const scoredCandidates: Array<{
+      id: string;
+      row: (typeof candidateRows)[0]['row'];
+      score: number;
+      weights: SearchResult['weights'];
+    }> = [];
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
       const rerankScore = rerankScores.get(id) ?? 0;
@@ -696,31 +719,30 @@ export class MemoryService {
       const boostedScore = Math.min(score * textMultiplier * contactMultiplier, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
-      results.push(this.toSearchResult(row, boostedScore, boostedWeights, userId, resolvedKey));
+      scoredCandidates.push({ id, row, score: boostedScore, weights: boostedWeights });
     }
 
     const MIN_SCORE = 0.35;
-    const scored = results.filter((r) => r.score >= MIN_SCORE);
-    const finalItems = scored.sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
+    const filtered = scoredCandidates.filter((c) => c.score >= MIN_SCORE);
+    const topCandidates = filtered.sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
+    // Only decrypt the final top-N results (avoids expensive AES-256-GCM on filtered-out candidates)
+    const finalItems = topCandidates.map((c) =>
+      this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey),
+    );
 
-    // Temporal fallback: if NLQ temporal was applied and zero results, retry without temporal
+    // Temporal fallback: use the pre-fetched non-temporal Qdrant results (already in flight)
     let temporalFallback = false;
     let returnItems = finalItems;
-    if (nlq.temporal && effectiveFilters.from && finalItems.length === 0) {
+    if (hasTemporal && finalItems.length === 0 && fallbackQdrantPromise) {
+      const fallbackQdrantResults = await fallbackQdrantPromise;
       const fallbackFilters = { ...effectiveFilters };
       delete fallbackFilters.from;
       delete fallbackFilters.to;
-      const fallbackQdrantFilter = this.buildQdrantFilter(fallbackFilters);
-      const fallbackQdrantResults = await this.qdrant.search(
-        vector,
-        effectiveLimit * 2,
-        Object.keys(fallbackQdrantFilter).length ? fallbackQdrantFilter : undefined,
-      );
       const fallbackIds = new Set(fallbackQdrantResults.map((p) => p.id));
       const fallbackBatch = await this.fetchMemoryRowsBatch([...fallbackIds]);
       const fallbackScores = new Map<string, number>();
       for (const p of fallbackQdrantResults) fallbackScores.set(p.id, p.score);
-      const fallbackResults: SearchResult[] = [];
+      const fallbackScoredCandidates: typeof scoredCandidates = [];
       for (const [fid, frow] of fallbackBatch) {
         if (fallbackFilters.sourceType && frow.memory.sourceType !== fallbackFilters.sourceType)
           continue;
@@ -735,12 +757,15 @@ export class MemoryService {
           frow.memory,
           nlq.intent,
         );
-        fallbackResults.push(this.toSearchResult(frow, score, weights, userId, resolvedKey));
+        fallbackScoredCandidates.push({ id: fid, row: frow, score, weights });
       }
-      returnItems = fallbackResults
-        .filter((r) => r.score >= MIN_SCORE)
+      const topFallback = fallbackScoredCandidates
+        .filter((c) => c.score >= MIN_SCORE)
         .sort((a, b) => b.score - a.score)
         .slice(0, effectiveLimit);
+      returnItems = topFallback.map((c) =>
+        this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey),
+      );
       temporalFallback = true;
     }
 

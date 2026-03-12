@@ -1,18 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { eq, and } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { memories, memoryLinks } from '../db/schema';
-import { entityExtractionPrompt, factualityPrompt, ENTITY_FORMAT_SCHEMA } from './prompts';
+import {
+  entityExtractionPrompt,
+  enrichmentPrompt,
+  ENTITY_FORMAT_SCHEMA,
+  ENRICHMENT_FORMAT_SCHEMA,
+} from './prompts';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { normalizeEntities } from './entity-normalizer';
 
 const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
+
+/** Messages shorter than this with no URLs/attachments skip enrichment entirely */
+const TRIVIAL_MESSAGE_MAX_CHARS = 30;
+
+/** Source types that benefit from factuality classification */
+const FACTUALITY_SOURCE_TYPES = new Set(['email', 'document']);
 
 @Injectable()
 export class EnrichService {
@@ -53,6 +64,26 @@ export class EnrichService {
     }
   }
 
+  /**
+   * Check if a memory is trivial (short, no URLs, no attachments) and can skip enrichment.
+   */
+  private isTrivialMessage(text: string, metadata: string | null): boolean {
+    if (text.length > TRIVIAL_MESSAGE_MAX_CHARS) return false;
+    // Check for URLs
+    if (/https?:\/\/\S+/.test(text)) return false;
+    // Check for attachments in metadata
+    if (metadata) {
+      try {
+        const parsed = JSON.parse(metadata);
+        if (parsed.attachments?.length > 0) return false;
+        if (parsed.fileUrl || parsed.fileBase64) return false;
+      } catch {
+        // ignore parse errors
+      }
+    }
+    return true;
+  }
+
   async enrich(memoryId: string): Promise<void> {
     const rows = await this.dbService.db.select().from(memories).where(eq(memories.id, memoryId));
 
@@ -61,6 +92,33 @@ export class EnrichService {
     const mid = memoryId.slice(0, 8);
     const pipelineStart = Date.now();
 
+    // Skip enrichment for trivial messages (short, no URLs, no attachments)
+    if (this.isTrivialMessage(memory.text, memory.metadata)) {
+      // Still compute base weights
+      const ageDays = (Date.now() - new Date(memory.eventTime).getTime()) / (1000 * 60 * 60 * 24);
+      const recency = Math.exp(-0.015 * ageDays);
+      const trust = this.getTrustScore(memory.connectorType);
+      const weights = { semantic: 0, rerank: 0, recency, importance: 0.5, trust, final: 0 };
+      const defaultFactuality = JSON.stringify({
+        label: 'UNVERIFIED',
+        confidence: 0.5,
+        rationale: 'trivial message — skipped enrichment',
+      });
+
+      await this.dbService.db
+        .update(memories)
+        .set({ weights: JSON.stringify(weights), factuality: defaultFactuality })
+        .where(eq(memories.id, memoryId));
+
+      this.addLog(
+        memory.connectorType,
+        memory.accountId,
+        'info',
+        `[enrich:skip] ${mid} trivial message (${memory.text.length} chars) — skipped enrichment`,
+      );
+      return;
+    }
+
     this.addLog(
       memory.connectorType,
       memory.accountId,
@@ -68,18 +126,48 @@ export class EnrichService {
       `[enrich:start] ${memory.sourceType} ${mid} (${memory.text.length} chars)`,
     );
 
-    // Entity extraction
-    let t0 = Date.now();
-    const rawEntities = await this.extractEntities(memory.text);
-    // Deduplicate: collapse entities with the same type + normalized name/value
+    let entities: Array<{ type: string; value: string }> = [];
+    let factuality: { label: string; confidence: number; rationale: string } | null = null;
+    let entityMs = 0;
+    let factMs = 0;
+
+    const shouldClassifyFactuality = FACTUALITY_SOURCE_TYPES.has(memory.sourceType);
+
+    if (shouldClassifyFactuality) {
+      // Combined prompt: extract entities AND classify factuality in one LLM call
+      const t0 = Date.now();
+      const result = await this.extractEntitiesAndFactuality(
+        memory.text,
+        memory.sourceType,
+        memory.connectorType,
+      );
+      entities = result.entities;
+      factuality = result.factuality;
+      entityMs = Date.now() - t0;
+      factMs = 0; // Combined call — no separate factuality timing
+    } else {
+      // Entity extraction only — skip factuality for messages/photos/locations
+      const t0 = Date.now();
+      entities = await this.extractEntities(memory.text, memory.sourceType, memory.connectorType);
+      entityMs = Date.now() - t0;
+
+      // Default factuality for non-email sources
+      factuality = {
+        label: 'UNVERIFIED',
+        confidence: 0.5,
+        rationale: `default for ${memory.sourceType} — factuality classification skipped`,
+      };
+    }
+
+    // Deduplicate entities
     const seenEntityKeys = new Set<string>();
-    const entities = rawEntities.filter((e) => {
+    entities = entities.filter((e) => {
       const key = `${e.type}::${((e as Record<string, unknown>).name || (e as Record<string, unknown>).value || '').toString().toLowerCase().trim()}`;
       if (seenEntityKeys.has(key)) return false;
       seenEntityKeys.add(key);
       return true;
     });
-    const entityMs = Date.now() - t0;
+
     if (entities.length) {
       await this.dbService.db
         .update(memories)
@@ -90,17 +178,9 @@ export class EnrichService {
       memory.connectorType,
       memory.accountId,
       'info',
-      `[enrich:entities] ${mid} → ${entities.length} entities in ${entityMs}ms`,
+      `[enrich:entities] ${mid} → ${entities.length} entities in ${entityMs}ms${shouldClassifyFactuality ? ' (combined with factuality)' : ''}`,
     );
 
-    // Factuality labeling
-    t0 = Date.now();
-    const factuality = await this.classifyFactuality(
-      memory.text,
-      memory.sourceType,
-      memory.connectorType,
-    );
-    const factMs = Date.now() - t0;
     if (factuality) {
       await this.dbService.db
         .update(memories)
@@ -113,11 +193,11 @@ export class EnrichService {
       memory.connectorType,
       memory.accountId,
       'info',
-      `[enrich:factuality] ${mid} → ${factLabel} (${factConf}) in ${factMs}ms`,
+      `[enrich:factuality] ${mid} → ${factLabel} (${factConf})${shouldClassifyFactuality ? '' : ' (default — skipped LLM)'}${factMs ? ` in ${factMs}ms` : ''}`,
     );
 
     // Graph link creation — find similar memories via Qdrant
-    t0 = Date.now();
+    const t0 = Date.now();
     await this.createLinks(memoryId);
     const linkMs = Date.now() - t0;
 
@@ -138,7 +218,7 @@ export class EnrichService {
       memory.connectorType,
       memory.accountId,
       'info',
-      `[enrich:done] ${mid} in ${totalMs}ms — entities=${entityMs}ms(${entities.length}) factuality=${factMs}ms(${factLabel}) links=${linkMs}ms`,
+      `[enrich:done] ${mid} in ${totalMs}ms — entities=${entityMs}ms(${entities.length}) factuality=${factLabel} links=${linkMs}ms`,
     );
   }
 
@@ -161,10 +241,17 @@ export class EnrichService {
     });
   }
 
-  private async extractEntities(text: string): Promise<Array<{ type: string; value: string }>> {
+  /**
+   * Extract entities only (for non-email sources where factuality is skipped).
+   */
+  private async extractEntities(
+    text: string,
+    sourceType?: string,
+    connectorType?: string,
+  ): Promise<Array<{ type: string; value: string }>> {
     try {
       const response = await this.ai.generate(
-        entityExtractionPrompt(text),
+        entityExtractionPrompt(text, sourceType, connectorType),
         undefined,
         2,
         ENTITY_FORMAT_SCHEMA,
@@ -176,20 +263,42 @@ export class EnrichService {
     }
   }
 
-  private async classifyFactuality(
+  /**
+   * Combined entity extraction + factuality classification in a single LLM call.
+   * Used for emails and documents where factuality adds value.
+   * Saves one LLM call per memory compared to separate calls.
+   */
+  private async extractEntitiesAndFactuality(
     text: string,
     sourceType: string,
     connectorType: string,
-  ): Promise<{ label: string; confidence: number; rationale: string } | null> {
+  ): Promise<{
+    entities: Array<{ type: string; value: string }>;
+    factuality: { label: string; confidence: number; rationale: string } | null;
+  }> {
     try {
-      const response = await this.ai.generate(factualityPrompt(text, sourceType, connectorType));
+      const response = await this.ai.generate(
+        enrichmentPrompt(text, sourceType, connectorType),
+        undefined,
+        2,
+        ENRICHMENT_FORMAT_SCHEMA,
+      );
       const parsed = this.parseJsonObject(response);
-      if (parsed && parsed.label && typeof parsed.confidence === 'number') {
-        return parsed as { label: string; confidence: number; rationale: string };
+      if (!parsed) return { entities: [], factuality: null };
+
+      const entities = normalizeEntities(
+        (parsed.entities as Array<{ type: string; value: string }>) || [],
+      );
+
+      let factuality: { label: string; confidence: number; rationale: string } | null = null;
+      const fact = parsed.factuality as Record<string, unknown> | undefined;
+      if (fact && fact.label && typeof fact.confidence === 'number') {
+        factuality = fact as { label: string; confidence: number; rationale: string };
       }
-      return null;
+
+      return { entities, factuality };
     } catch {
-      return null;
+      return { entities: [], factuality: null };
     }
   }
 
@@ -214,55 +323,83 @@ export class EnrichService {
       const srcFact = srcMem?.factuality as Record<string, unknown> | null;
       const srcFactLabel = srcFact?.label || 'UNVERIFIED';
 
-      for (const result of results) {
-        if (result.score >= SIMILARITY_THRESHOLD && result.id !== memoryId) {
-          let linkType = 'related';
+      // Filter candidates above threshold
+      const candidates = results.filter(
+        (r) => r.score >= SIMILARITY_THRESHOLD && r.id !== memoryId,
+      );
+      if (!candidates.length) return;
 
-          if (srcClaims.length > 0) {
-            const [dstMem] = await this.dbService.db
-              .select({ factuality: memories.factuality })
-              .from(memories)
-              .where(eq(memories.id, result.id));
-            const dstFact = dstMem?.factuality as Record<string, unknown> | null;
-            const dstFactLabel = dstFact?.label || 'UNVERIFIED';
+      // Batch check existing links in both directions to avoid N individual queries
+      const candidateIds = candidates.map((c) => c.id);
+      const existingLinks = await this.dbService.db
+        .select({ srcMemoryId: memoryLinks.srcMemoryId, dstMemoryId: memoryLinks.dstMemoryId })
+        .from(memoryLinks)
+        .where(
+          sql`(${memoryLinks.srcMemoryId} = ${memoryId} AND ${memoryLinks.dstMemoryId} IN (${sql.join(
+            candidateIds.map((id) => sql`${id}`),
+            sql`, `,
+          )}))
+           OR (${memoryLinks.dstMemoryId} = ${memoryId} AND ${memoryLinks.srcMemoryId} IN (${sql.join(
+             candidateIds.map((id) => sql`${id}`),
+             sql`, `,
+           )}))`,
+        );
 
-            if (result.score >= 0.92 && srcFactLabel === 'FACT' && dstFactLabel === 'FACT') {
-              linkType = 'supports';
-            } else if (
-              result.score >= 0.85 &&
-              ((srcFactLabel === 'FACT' && dstFactLabel === 'FICTION') ||
-                (srcFactLabel === 'FICTION' && dstFactLabel === 'FACT'))
-            ) {
-              linkType = 'contradicts';
-            }
-          }
+      const linkedPairs = new Set(existingLinks.map((l) => `${l.srcMemoryId}::${l.dstMemoryId}`));
 
-          // Check for existing link in both directions to prevent duplicates
-          const existingLink = await this.dbService.db
-            .select({ id: memoryLinks.id })
-            .from(memoryLinks)
-            .where(
-              and(eq(memoryLinks.srcMemoryId, memoryId), eq(memoryLinks.dstMemoryId, result.id)),
-            )
-            .limit(1);
-          const reverseLink = await this.dbService.db
-            .select({ id: memoryLinks.id })
-            .from(memoryLinks)
-            .where(
-              and(eq(memoryLinks.srcMemoryId, result.id), eq(memoryLinks.dstMemoryId, memoryId)),
-            )
-            .limit(1);
-          if (!existingLink.length && !reverseLink.length) {
-            await this.dbService.db.insert(memoryLinks).values({
-              id: randomUUID(),
-              srcMemoryId: memoryId,
-              dstMemoryId: result.id,
-              linkType,
-              strength: result.score,
-              createdAt: new Date(),
-            });
+      // Batch fetch destination factuality for candidates with claims
+      let dstFactMap = new Map<string, string>();
+      if (srcClaims.length > 0 && candidateIds.length > 0) {
+        const dstRows = await this.dbService.db
+          .select({ id: memories.id, factuality: memories.factuality })
+          .from(memories)
+          .where(
+            sql`${memories.id} IN (${sql.join(
+              candidateIds.map((id) => sql`${id}`),
+              sql`, `,
+            )})`,
+          );
+        dstFactMap = new Map(
+          dstRows.map((r) => [
+            r.id,
+            ((r.factuality as Record<string, unknown> | null)?.label as string) || 'UNVERIFIED',
+          ]),
+        );
+      }
+
+      for (const result of candidates) {
+        // Check both directions
+        if (
+          linkedPairs.has(`${memoryId}::${result.id}`) ||
+          linkedPairs.has(`${result.id}::${memoryId}`)
+        ) {
+          continue;
+        }
+
+        let linkType = 'related';
+
+        if (srcClaims.length > 0) {
+          const dstFactLabel = dstFactMap.get(result.id) || 'UNVERIFIED';
+
+          if (result.score >= 0.92 && srcFactLabel === 'FACT' && dstFactLabel === 'FACT') {
+            linkType = 'supports';
+          } else if (
+            result.score >= 0.85 &&
+            ((srcFactLabel === 'FACT' && dstFactLabel === 'FICTION') ||
+              (srcFactLabel === 'FICTION' && dstFactLabel === 'FACT'))
+          ) {
+            linkType = 'contradicts';
           }
         }
+
+        await this.dbService.db.insert(memoryLinks).values({
+          id: randomUUID(),
+          srcMemoryId: memoryId,
+          dstMemoryId: result.id,
+          linkType,
+          strength: result.score,
+          createdAt: new Date(),
+        });
       }
     } catch {
       // Link creation is best-effort
