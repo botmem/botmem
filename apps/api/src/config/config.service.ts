@@ -9,11 +9,6 @@ export class ConfigService implements OnModuleInit {
       throw new Error('FATAL: DATABASE_URL environment variable is required');
     }
     this.validateProductionSecrets();
-
-    // Warn in dev mode if APP_SECRET is using the default value
-    if (this.appSecret === 'dev-app-secret-change-in-production') {
-      this.logger.warn('APP_SECRET is using default value. Set a secure value for production.');
-    }
   }
 
   validateProductionSecrets(): void {
@@ -37,16 +32,25 @@ export class ConfigService implements OnModuleInit {
     ];
 
     const insecure = defaults.filter(({ value, default: def }) => value === def);
-    const isProduction = process.env.NODE_ENV === 'production';
+    // Self-hosted Docker sets NODE_ENV=production for Express optimizations,
+    // but that doesn't mean it's a public deployment. Only warn loudly when
+    // there's evidence this is a real production deploy (Stripe configured or
+    // explicit PRODUCTION_DEPLOY=true flag).
+    const isRealProduction =
+      process.env.NODE_ENV === 'production' &&
+      (!!this.stripeSecretKey || process.env.PRODUCTION_DEPLOY === 'true');
 
-    if (insecure.length > 0 && isProduction) {
+    if (insecure.length > 0 && isRealProduction) {
       const names = insecure.map((d) => d.name).join(', ');
-      this.logger.warn(
-        `⚠ INSECURE: ${names} using default values in production! ` +
+      throw new Error(
+        `FATAL: ${names} using default values in production deployment! ` +
           `Generate secure secrets with: openssl rand -base64 48`,
       );
     } else if (insecure.length > 0) {
-      this.logger.log('Using default dev secrets (OK for local/self-hosted dev)');
+      this.logger.log(
+        'Using default dev secrets (OK for local/self-hosted). ' +
+          'For public deployments, generate custom secrets: openssl rand -base64 48',
+      );
     } else {
       this.logger.log('All secrets are custom-configured');
     }
@@ -233,6 +237,30 @@ export class ConfigService implements OnModuleInit {
     return val === 'openrouter' ? 'openrouter' : 'ollama';
   }
 
+  // --- Embedding Backend (decoupled from AI_BACKEND) ---
+
+  get embedBackend(): 'ollama' | 'openrouter' | 'gemini' {
+    const val = process.env.EMBED_BACKEND || '';
+    if (val === 'gemini') return 'gemini';
+    if (val === 'openrouter') return 'openrouter';
+    if (val === 'ollama') return 'ollama';
+    return this.aiBackend; // default: follow AI_BACKEND
+  }
+
+  // --- Gemini ---
+
+  get geminiApiKey(): string {
+    return process.env.GEMINI_API_KEY || '';
+  }
+
+  get geminiEmbedModel(): string {
+    return process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-2-preview';
+  }
+
+  get geminiEmbedDimensions(): number {
+    return parseInt(process.env.GEMINI_EMBED_DIMENSIONS || '3072', 10);
+  }
+
   // --- OpenRouter ---
 
   get openrouterApiKey(): string {
@@ -288,8 +316,10 @@ export class ConfigService implements OnModuleInit {
   }
 
   private inferEmbedDimension(): number {
+    if (this.embedBackend === 'gemini') return this.geminiEmbedDimensions;
+
     const model =
-      this.aiBackend === 'openrouter' ? this.openrouterEmbedModel : this.ollamaEmbedModel;
+      this.embedBackend === 'openrouter' ? this.openrouterEmbedModel : this.ollamaEmbedModel;
     const m = model.toLowerCase();
 
     // Known model → dimension mappings
@@ -316,10 +346,14 @@ export class ConfigService implements OnModuleInit {
 
   /** Sensible concurrency defaults based on AI backend (local GPU vs cloud API) */
   get aiConcurrency(): { embed: number; enrich: number; memory: number; backfill: number } {
+    // Embed concurrency follows embedBackend (cloud APIs can handle high concurrency)
+    const embedConcurrency =
+      this.embedBackend === 'gemini' || this.embedBackend === 'openrouter' ? 64 : 8;
+
     if (this.aiBackend === 'openrouter') {
-      return { embed: 64, enrich: 64, memory: 64, backfill: 16 };
+      return { embed: embedConcurrency, enrich: 64, memory: 64, backfill: 16 };
     }
     // Ollama: conservative — single GPU, one inference at a time is fastest
-    return { embed: 8, enrich: 8, memory: 16, backfill: 2 };
+    return { embed: embedConcurrency, enrich: 8, memory: 16, backfill: 2 };
   }
 }
