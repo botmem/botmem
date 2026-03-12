@@ -138,11 +138,25 @@ describe('UsersService', () => {
   });
 
   describe('saveRefreshToken', () => {
-    it('saves and returns token data', async () => {
-      const result = await service.saveRefreshToken('user-1', 'hash', 'fam-1', new Date());
+    it('saves and returns token data with Date expiresAt', async () => {
+      const expires = new Date('2026-12-31');
+      const result = await service.saveRefreshToken('user-1', 'hash', 'fam-1', expires);
       expect(result.userId).toBe('user-1');
       expect(result.tokenHash).toBe('hash');
       expect(result.family).toBe('fam-1');
+      expect(result.id).toBeDefined();
+      expect(result.createdAt).toBeInstanceOf(Date);
+      expect(mockDb.insert).toHaveBeenCalled();
+    });
+
+    it('accepts string expiresAt and converts to Date', async () => {
+      const result = await service.saveRefreshToken(
+        'user-1',
+        'hash2',
+        'fam-2',
+        '2026-12-31T00:00:00Z',
+      );
+      expect(result.userId).toBe('user-1');
       expect(mockDb.insert).toHaveBeenCalled();
     });
   });
@@ -190,9 +204,22 @@ describe('UsersService', () => {
   });
 
   describe('createPasswordReset', () => {
-    it('creates reset token', async () => {
-      const result = await service.createPasswordReset('user-1', 'hash', new Date());
+    it('creates reset token with Date expiresAt', async () => {
+      const result = await service.createPasswordReset('user-1', 'hash', new Date('2026-12-31'));
       expect(result.userId).toBe('user-1');
+      expect(result.tokenHash).toBe('hash');
+      expect(result.id).toBeDefined();
+      expect(result.createdAt).toBeInstanceOf(Date);
+    });
+
+    it('accepts string expiresAt', async () => {
+      const result = await service.createPasswordReset(
+        'user-1',
+        'hash2',
+        '2026-12-31T00:00:00Z',
+      );
+      expect(result.userId).toBe('user-1');
+      expect(mockDb.insert).toHaveBeenCalled();
     });
   });
 
@@ -201,6 +228,41 @@ describe('UsersService', () => {
       mockDb.limit.mockResolvedValueOnce([{ id: 'r-1', tokenHash: 'hash' }]);
       const result = await service.findPasswordReset('hash');
       expect(result!.tokenHash).toBe('hash');
+    });
+
+    it('returns null when not found', async () => {
+      mockDb.limit.mockResolvedValueOnce([]);
+      const result = await service.findPasswordReset('nonexistent');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('markResetUsed', () => {
+    it('sets usedAt on password reset', async () => {
+      await service.markResetUsed('reset-1');
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(mockDb.set).toHaveBeenCalled();
+    });
+  });
+
+  describe('invalidateUserResets', () => {
+    it('marks all unused resets as used', async () => {
+      await service.invalidateUserResets('user-1');
+      expect(mockDb.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('updateEncryptionSalt', () => {
+    it('updates encryption salt', async () => {
+      await service.updateEncryptionSalt('user-1', 'newSalt');
+      expect(mockDb.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('updateRecoveryKeyHash', () => {
+    it('updates recovery key hash', async () => {
+      await service.updateRecoveryKeyHash('user-1', 'newHash');
+      expect(mockDb.update).toHaveBeenCalled();
     });
   });
 
