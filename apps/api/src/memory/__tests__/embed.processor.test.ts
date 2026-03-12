@@ -21,7 +21,7 @@ function createMockQdrant(): QdrantService {
 
 function createMockContactsService() {
   return {
-    resolveContact: vi.fn().mockResolvedValue({ id: 'contact-1', name: 'Test' }),
+    resolvePerson: vi.fn().mockResolvedValue({ id: 'contact-1', name: 'Test' }),
     linkMemoryContact: vi.fn().mockResolvedValue(undefined),
     linkMemory: vi.fn().mockResolvedValue(undefined),
   };
@@ -177,7 +177,7 @@ describe('EmbedProcessor', () => {
       memoryService as unknown as import('../memory.service').MemoryService,
       createMockConnectorsService() as unknown as import('../../connectors/connectors.service').ConnectorsService,
       createMockAccountsService() as unknown as import('../../accounts/accounts.service').AccountsService,
-      contactsService as unknown as import('../../contacts/contacts.service').ContactsService,
+      contactsService as unknown as import('../../people/people.service').PeopleService,
       events as unknown as import('../../events/events.service').EventsService,
       logsService as unknown as import('../../logs/logs.service').LogsService,
       createMockJobsService() as unknown as import('../../jobs/jobs.service').JobsService,

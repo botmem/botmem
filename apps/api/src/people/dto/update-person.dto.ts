@@ -9,7 +9,7 @@ export class AvatarDto {
   source!: string;
 }
 
-export class UpdateContactDto {
+export class UpdatePersonDto {
   @IsOptional()
   @IsString()
   displayName?: string;

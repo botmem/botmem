@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePhone, normalizeIdentifier } from '../contacts.service';
+import { normalizePhone, normalizeIdentifier } from '../people.service';
 
 describe('normalizePhone', () => {
   it('converts 00 prefix to +', () => {

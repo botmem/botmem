@@ -5,9 +5,9 @@ import { DbService } from '../db/db.service';
 import { MemoryService } from '../memory/memory.service';
 import { AiService } from '../memory/ai.service';
 import { QdrantService } from '../memory/qdrant.service';
-import { ContactsService, ContactWithIdentifiers } from '../contacts/contacts.service';
+import { PeopleService, PersonWithIdentifiers } from '../people/people.service';
 import { ConfigService } from '../config/config.service';
-import { memories, contacts, memoryContacts } from '../db/schema';
+import { memories, people, memoryPeople } from '../db/schema';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ export class AgentService {
     private memoryService: MemoryService,
     private ai: AiService,
     private qdrant: QdrantService,
-    private contactsService: ContactsService,
+    private peopleService: PeopleService,
     private config: ConfigService,
   ) {}
 
@@ -132,9 +132,9 @@ export class AgentService {
       let memoryIds: Set<string> | null = null;
       if (options.contactId) {
         const rows = await db
-          .select({ memoryId: memoryContacts.memoryId })
-          .from(memoryContacts)
-          .where(eq(memoryContacts.contactId, options.contactId));
+          .select({ memoryId: memoryPeople.memoryId })
+          .from(memoryPeople)
+          .where(eq(memoryPeople.personId, options.contactId));
         memoryIds = new Set(rows.map((r) => r.memoryId));
       }
 
@@ -219,7 +219,7 @@ export class AgentService {
     await this.memoryService.delete(memoryId);
     // Also clean up memory_contacts links
     await this.dbService.withCurrentUser(async (db) => {
-      await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memoryId));
+      await db.delete(memoryPeople).where(eq(memoryPeople.memoryId, memoryId));
     });
 
     return { deleted: true };
@@ -228,7 +228,7 @@ export class AgentService {
   // ── context ────────────────────────────────────────────────────────
 
   async context(contactId: string): Promise<{
-    contact: ContactWithIdentifiers;
+    contact: PersonWithIdentifiers;
     identifiersByType: Record<string, string[]>;
     recentMemories: EnrichedMemory[];
     stats: {
@@ -237,7 +237,7 @@ export class AgentService {
       dateRange: { earliest: Date; latest: Date } | null;
     };
   } | null> {
-    const contact = await this.contactsService.getById(contactId);
+    const contact = await this.peopleService.getById(contactId);
     if (!contact) return null;
 
     // Identifiers grouped by type
@@ -250,9 +250,9 @@ export class AgentService {
     return this.dbService.withCurrentUser(async (db) => {
       // Get all memories for this contact
       const memRows = await db
-        .select({ memoryId: memoryContacts.memoryId })
-        .from(memoryContacts)
-        .where(eq(memoryContacts.contactId, contactId));
+        .select({ memoryId: memoryPeople.memoryId })
+        .from(memoryPeople)
+        .where(eq(memoryPeople.personId, contactId));
 
       const memoryIdSet = memRows.map((r) => r.memoryId);
       const totalMemories = memoryIdSet.length;
@@ -409,7 +409,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     const memStats = await this.memoryService.getStats();
 
     const contactCount = await this.dbService.withCurrentUser((db) =>
-      db.select({ count: sql<number>`COUNT(*)` }).from(contacts),
+      db.select({ count: sql<number>`COUNT(*)` }).from(people),
     );
 
     return {
@@ -445,13 +445,13 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     const mcRows = await this.dbService.withCurrentUser((db) =>
       db
         .select({
-          contactId: memoryContacts.contactId,
-          role: memoryContacts.role,
-          displayName: contacts.displayName,
+          contactId: memoryPeople.personId,
+          role: memoryPeople.role,
+          displayName: people.displayName,
         })
-        .from(memoryContacts)
-        .innerJoin(contacts, eq(memoryContacts.contactId, contacts.id))
-        .where(eq(memoryContacts.memoryId, memoryId)),
+        .from(memoryPeople)
+        .innerJoin(people, eq(memoryPeople.personId, people.id))
+        .where(eq(memoryPeople.memoryId, memoryId)),
     );
 
     return {

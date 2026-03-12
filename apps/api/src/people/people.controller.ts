@@ -14,24 +14,24 @@ import {
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { ContactsService } from './contacts.service';
+import { PeopleService } from './people.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
-import { UpdateContactDto } from './dto/update-contact.dto';
-import { SplitContactDto } from './dto/split-contact.dto';
-import { MergeContactDto } from './dto/merge-contact.dto';
-import { SearchContactsDto } from './dto/search-contacts.dto';
+import { UpdatePersonDto } from './dto/update-person.dto';
+import { SplitPersonDto } from './dto/split-person.dto';
+import { MergePersonDto } from './dto/merge-person.dto';
+import { SearchPeopleDto } from './dto/search-people.dto';
 import { DismissSuggestionDto } from './dto/dismiss-suggestion.dto';
 import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 
-@ApiTags('Contacts')
+@ApiTags('People')
 @ApiBearerAuth()
 @Controller('people')
-export class ContactsController {
-  private readonly logger = new Logger(ContactsController.name);
+export class PeopleController {
+  private readonly logger = new Logger(PeopleController.name);
   constructor(
-    private contactsService: ContactsService,
+    private peopleService: PeopleService,
     private accountsService: AccountsService,
   ) {}
 
@@ -42,7 +42,7 @@ export class ContactsController {
     @Query('offset') offset?: string,
     @Query('entityType') entityType?: string,
   ) {
-    return this.contactsService.list({
+    return this.peopleService.list({
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
       entityType,
@@ -52,25 +52,25 @@ export class ContactsController {
 
   @Get('suggestions')
   async getSuggestions(@CurrentUser() user: { id: string }) {
-    return this.contactsService.getSuggestions(user.id);
+    return this.peopleService.getSuggestions(user.id);
   }
 
   @RequiresJwt()
   @Post('auto-merge')
   async autoMerge() {
-    return this.contactsService.autoMerge();
+    return this.peopleService.autoMerge();
   }
 
   @RequiresJwt()
   @Post('reclassify')
   async reclassify() {
-    return this.contactsService.reclassifyEntityTypes();
+    return this.peopleService.reclassifyEntityTypes();
   }
 
   @RequiresJwt()
   @Post('backfill-avatars')
   async backfillAvatars() {
-    return this.contactsService.backfillAvatarData();
+    return this.peopleService.backfillAvatarData();
   }
 
   @Get(':id/avatar')
@@ -80,9 +80,9 @@ export class ContactsController {
     @CurrentUser() _user: { id: string },
     @Res() res: Response,
   ) {
-    let contact: Awaited<ReturnType<typeof this.contactsService.getById>>;
+    let contact: Awaited<ReturnType<typeof this.peopleService.getById>>;
     try {
-      contact = await this.contactsService.getById(id);
+      contact = await this.peopleService.getById(id);
     } catch {
       return res.status(HttpStatus.NOT_FOUND).json({ error: 'contact not found' });
     }
@@ -196,7 +196,7 @@ export class ContactsController {
         const idx = allAvatars.indexOf(avatar);
         if (idx !== -1) {
           allAvatars[idx] = { url: dataUri, source: avatar.source };
-          this.contactsService.updateContact(id, { avatars: allAvatars }).catch(() => {}); // fire-and-forget
+          this.peopleService.updatePerson(id, { avatars: allAvatars }).catch(() => {}); // fire-and-forget
         }
 
         res.setHeader('Content-Type', contentType);
@@ -212,69 +212,69 @@ export class ContactsController {
 
   @Get(':id')
   async getById(@Param('id') id: string) {
-    return this.contactsService.getById(id);
+    return this.peopleService.getById(id);
   }
 
   @Get(':id/memories')
   async getMemories(@CurrentUser() user: { id: string }, @Param('id') id: string) {
-    return this.contactsService.getMemories(id, undefined, user.id);
+    return this.peopleService.getMemories(id, undefined, user.id);
   }
 
   @RequiresJwt()
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateContactDto) {
-    return this.contactsService.updateContact(id, dto);
+  async update(@Param('id') id: string, @Body() dto: UpdatePersonDto) {
+    return this.peopleService.updatePerson(id, dto);
   }
 
   @RequiresJwt()
   @Delete(':id')
   async delete(@Param('id') id: string) {
-    await this.contactsService.deleteContact(id);
+    await this.peopleService.deletePerson(id);
     return { deleted: true };
   }
 
   @RequiresJwt()
   @Delete(':id/identifiers/:identId')
   async removeIdentifier(@Param('id') id: string, @Param('identId') identId: string) {
-    return this.contactsService.removeIdentifier(id, identId);
+    return this.peopleService.removeIdentifier(id, identId);
   }
 
   @RequiresJwt()
   @Post(':id/split')
-  async split(@Param('id') id: string, @Body() dto: SplitContactDto) {
-    return this.contactsService.splitContact(id, dto.identifierIds);
+  async split(@Param('id') id: string, @Body() dto: SplitPersonDto) {
+    return this.peopleService.splitPerson(id, dto.identifierIds);
   }
 
   @ReadOnly()
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
-  async search(@Body() dto: SearchContactsDto) {
-    return this.contactsService.search(dto.query);
+  async search(@Body() dto: SearchPeopleDto) {
+    return this.peopleService.search(dto.query);
   }
 
   @RequiresJwt()
   @Post(':id/merge')
-  async merge(@Param('id') id: string, @Body() dto: MergeContactDto) {
-    return this.contactsService.mergeContacts(id, dto.sourceId);
+  async merge(@Param('id') id: string, @Body() dto: MergePersonDto) {
+    return this.peopleService.mergePeople(id, dto.sourceId);
   }
 
   @RequiresJwt()
   @Post('normalize')
   async normalize() {
-    return this.contactsService.normalizeAll();
+    return this.peopleService.normalizeAll();
   }
 
   @RequiresJwt()
   @Post('suggestions/dismiss')
   async dismissSuggestion(@Body() dto: DismissSuggestionDto) {
-    await this.contactsService.dismissSuggestion(dto.contactId1, dto.contactId2);
+    await this.peopleService.dismissSuggestion(dto.contactId1, dto.contactId2);
     return { dismissed: true };
   }
 
   @RequiresJwt()
   @Post('suggestions/undismiss')
   async undismissSuggestion(@Body() dto: DismissSuggestionDto) {
-    await this.contactsService.undismissSuggestion(dto.contactId1, dto.contactId2);
+    await this.peopleService.undismissSuggestion(dto.contactId1, dto.contactId2);
     return { undismissed: true };
   }
 }

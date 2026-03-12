@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MemoryBanksService } from '../memory-banks.service';
 import type { DbService } from '../../db/db.service';
+import type { CryptoService } from '../../crypto/crypto.service';
 
 describe('MemoryBanksService', () => {
   let service: MemoryBanksService;
   let mockDb: Record<string, ReturnType<typeof vi.fn>>;
+  let cryptoService: Record<string, ReturnType<typeof vi.fn>>;
   let qdrantService: { remove: ReturnType<typeof vi.fn> };
 
   const fakeBank = {
@@ -29,12 +31,19 @@ describe('MemoryBanksService', () => {
       execute: vi.fn().mockResolvedValue({ rows: [] }),
     };
 
+    cryptoService = {
+      encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
+      decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : v)),
+      hmac: vi.fn((v: string) => `hmac:${v}`),
+    };
+
     qdrantService = {
       remove: vi.fn().mockResolvedValue(undefined),
     };
 
     service = new MemoryBanksService(
       { db: mockDb } as unknown as DbService,
+      cryptoService as unknown as CryptoService,
       qdrantService as unknown as import('../../memory/qdrant.service').QdrantService,
     );
   });

@@ -85,7 +85,7 @@ export class OpenRouterService implements OnModuleInit {
     images?: string[],
     retries = 2,
     format?: Record<string, unknown>,
-  ): Promise<string> {
+  ): Promise<{ text: string; inputTokens?: number; outputTokens?: number }> {
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
 
@@ -146,7 +146,12 @@ export class OpenRouterService implements OnModuleInit {
         const data = await res.json();
         const raw = data.choices?.[0]?.message?.content || '';
         // Strip <think>...</think> reasoning tags
-        return raw.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+        const text = raw.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+        return {
+          text,
+          inputTokens: data.usage?.prompt_tokens as number | undefined,
+          outputTokens: data.usage?.completion_tokens as number | undefined,
+        };
       } catch (err) {
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));

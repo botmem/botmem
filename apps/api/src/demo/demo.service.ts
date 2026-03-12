@@ -60,7 +60,7 @@ export class DemoService {
       contactIdMap[i] = fc.id;
 
       await this.db.withUserId(userId, (db) =>
-        db.insert(schema.contacts).values({
+        db.insert(schema.people).values({
           id: fc.id,
           userId,
           displayName: fc.displayName,
@@ -74,9 +74,9 @@ export class DemoService {
 
       for (const ident of fc.identifiers) {
         await this.db.withUserId(userId, (db) =>
-          db.insert(schema.contactIdentifiers).values({
+          db.insert(schema.personIdentifiers).values({
             id: randomUUID(),
-            contactId: fc.id,
+            personId: fc.id,
             identifierType: ident.type,
             identifierValue: ident.value,
             connectorType: ident.connectorType,
@@ -128,7 +128,7 @@ export class DemoService {
             text: encrypted.text,
             eventTime: mem.eventTime,
             ingestTime: now,
-            factuality: mem.factuality,
+            factuality: JSON.stringify(mem.factuality),
             weights: mem.weights,
             entities: encrypted.entities,
             claims: encrypted.claims,
@@ -159,10 +159,10 @@ export class DemoService {
         const contactId = contactIdMap[mem.contactIndices[j]];
         if (contactId) {
           await this.db.withUserId(userId, (db) =>
-            db.insert(schema.memoryContacts).values({
+            db.insert(schema.memoryPeople).values({
               id: randomUUID(),
               memoryId: mem.id,
-              contactId,
+              personId: contactId,
               role: mem.contactRoles[j] || 'mentioned',
             }),
           );
@@ -233,8 +233,8 @@ export class DemoService {
     if (memoryIds.length > 0) {
       // Delete memory contacts
       await this.db.db
-        .delete(schema.memoryContacts)
-        .where(inArray(schema.memoryContacts.memoryId, memoryIds));
+        .delete(schema.memoryPeople)
+        .where(inArray(schema.memoryPeople.memoryId, memoryIds));
 
       // Delete memory links
       await this.db.db
@@ -255,14 +255,14 @@ export class DemoService {
 
     // Find contacts created for this user that have no remaining memory links
     const contactsWithLinks = await this.db.db
-      .select({ contactId: schema.memoryContacts.contactId })
-      .from(schema.memoryContacts);
-    const linkedContactIds = new Set(contactsWithLinks.map((c) => c.contactId));
+      .select({ personId: schema.memoryPeople.personId })
+      .from(schema.memoryPeople);
+    const linkedContactIds = new Set(contactsWithLinks.map((c) => c.personId));
 
     const userContacts = await this.db.db
-      .select({ id: schema.contacts.id })
-      .from(schema.contacts)
-      .where(eq(schema.contacts.userId, userId));
+      .select({ id: schema.people.id })
+      .from(schema.people)
+      .where(eq(schema.people.userId, userId));
 
     const orphanedContactIds = userContacts
       .filter((c) => !linkedContactIds.has(c.id))
@@ -270,11 +270,9 @@ export class DemoService {
 
     if (orphanedContactIds.length > 0) {
       await this.db.db
-        .delete(schema.contactIdentifiers)
-        .where(inArray(schema.contactIdentifiers.contactId, orphanedContactIds));
-      await this.db.db
-        .delete(schema.contacts)
-        .where(inArray(schema.contacts.id, orphanedContactIds));
+        .delete(schema.personIdentifiers)
+        .where(inArray(schema.personIdentifiers.personId, orphanedContactIds));
+      await this.db.db.delete(schema.people).where(inArray(schema.people.id, orphanedContactIds));
     }
 
     // Delete demo accounts

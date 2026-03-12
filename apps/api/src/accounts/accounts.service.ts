@@ -16,9 +16,13 @@ export class AccountsService {
     private connectors: ConnectorsService,
   ) {}
 
-  /** Decrypt authContext on an account row */
-  private decryptAccount<T extends { authContext: string | null }>(row: T): T {
-    return { ...row, authContext: this.crypto.decrypt(row.authContext) };
+  /** Decrypt authContext and identifier on an account row */
+  private decryptAccount<T extends { authContext: string | null; identifier: string }>(row: T): T {
+    return {
+      ...row,
+      authContext: this.crypto.decrypt(row.authContext),
+      identifier: this.crypto.decrypt(row.identifier) ?? row.identifier,
+    };
   }
 
   async create(data: {
@@ -34,7 +38,8 @@ export class AccountsService {
         id,
         userId: data.userId || null,
         connectorType: data.connectorType,
-        identifier: data.identifier,
+        identifier: this.crypto.encrypt(data.identifier)!,
+        identifierHash: this.crypto.hmac(data.identifier),
         status: 'connected',
         schedule: 'manual',
         authContext: this.crypto.encrypt(data.authContext || null),
@@ -87,6 +92,12 @@ export class AccountsService {
     if ('authContext' in toSet && toSet.authContext != null) {
       toSet.authContext = this.crypto.encrypt(toSet.authContext as string)!;
     }
+    // Encrypt identifier if being updated
+    if ('identifier' in toSet && toSet.identifier != null) {
+      const plainIdentifier = toSet.identifier as string;
+      toSet.identifier = this.crypto.encrypt(plainIdentifier)!;
+      toSet.identifierHash = this.crypto.hmac(plainIdentifier);
+    }
     await this.dbService.withCurrentUser((db) =>
       db.update(accounts).set(toSet).where(eq(accounts.id, id)),
     );
@@ -96,7 +107,7 @@ export class AccountsService {
   async findByTypeAndIdentifier(connectorType: string, identifier: string, userId?: string) {
     const conditions = [
       sql`${accounts.connectorType} = ${connectorType}`,
-      sql`${accounts.identifier} = ${identifier}`,
+      sql`${accounts.identifierHash} = ${this.crypto.hmac(identifier)}`,
     ];
     if (userId) conditions.push(sql`${accounts.userId} = ${userId}`);
     const [account] = await this.dbService.withCurrentUser((db) =>

@@ -129,21 +129,6 @@ export class BotmemClient {
     this.token = token;
   }
 
-  async login(
-    email: string,
-    password: string,
-  ): Promise<{ accessToken: string; user: { id: string; email: string; name: string } }> {
-    const result = await this.request<{
-      accessToken: string;
-      user: { id: string; email: string; name: string };
-    }>('/user-auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    this.token = result.accessToken;
-    return result;
-  }
-
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {

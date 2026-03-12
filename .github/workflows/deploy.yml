@@ -17,169 +17,13 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  quality-gate:
-    name: Lint, Test & Coverage
+  version:
+    name: Determine Version
     runs-on: blacksmith-4vcpu-ubuntu-2404
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4.3.0
-        with:
-          version: 9.15.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Run tests with coverage
-        run: pnpm test:coverage
-        env:
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-
-  build-and-push:
-    name: Build & Push to GHCR
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: quality-gate
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
-
-      - name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: useblacksmith/build-push-action@v2
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          build-args: |
-            VITE_AUTH_PROVIDER=firebase
-            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_HOST=https://t.botmem.xyz
-            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
-            VITE_FIREBASE_AUTH_DOMAIN=botmem-app.firebaseapp.com
-            VITE_FIREBASE_PROJECT_ID=botmem-app
-            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
-            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
-          tags: |
-            ghcr.io/botmem/botmem:latest
-            ghcr.io/botmem/botmem:${{ github.sha }}
-          platforms: linux/amd64,linux/arm64
-
-  deploy:
-    name: Deploy to Production
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: build-and-push
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4.3.0
-        with:
-          version: 9.15.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install docs dependencies
-        run: cd docs && pnpm install --frozen-lockfile
-
-      - name: Build docs
-        run: cd docs && pnpm build
-
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-          args: --login-server=${{ secrets.TAILSCALE_LOGIN_SERVER }}
-          hostname: github-ci-${{ github.run_id }}
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Pull & restart api on VPS
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} << 'DEPLOY'
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            cd /opt/botmem
-            docker compose -f docker-compose.prod.yml pull api
-            docker compose -f docker-compose.prod.yml up -d api
-            docker image prune -af
-            docker builder prune -af
-          DEPLOY
-
-      - name: Deploy docs to VPS
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
-
-      - name: Validate deployment
-        run: |
-          for i in $(seq 1 12); do
-            STATUS=$(curl -sf https://botmem.xyz/api/version | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok')" 2>/dev/null || echo "fail")
-            if [ "$STATUS" = "ok" ]; then
-              echo "Deployment validated — API is healthy (attempt $i)"
-              exit 0
-            fi
-            echo "Attempt $i: not ready yet, waiting 5s..."
-            sleep 5
-          done
-          echo "API health check failed after 60s" && exit 1
-
-      - name: Validate docs
-        continue-on-error: true
-        run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://docs.botmem.xyz/)
-          if [ "$STATUS" = "200" ]; then
-            echo "Docs site is live at https://docs.botmem.xyz/"
-          else
-            echo "Warning: docs.botmem.xyz returned HTTP $STATUS"
-          fi
-
-  release:
-    name: Tag & GitHub Release
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: deploy
     outputs:
-      version: ${{ steps.version.outputs.tag }}
-    permissions:
-      contents: write
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prev: ${{ steps.version.outputs.prev }}
 
     steps:
       - name: Checkout with full history
@@ -199,7 +43,6 @@ jobs:
             PREV_REF="$LATEST_TAG"
             IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST_TAG#v}"
 
-            # Check commit messages for version bump signals
             COMMITS=$(git log "$LATEST_TAG"..HEAD --pretty=format:"%s")
             if echo "$COMMITS" | grep -qiE "^(feat|feature)(\(.+\))?!:|BREAKING CHANGE"; then
               MINOR=$((MINOR + 1))
@@ -213,13 +56,256 @@ jobs:
             NEXT="v${MAJOR}.${MINOR}.${PATCH}"
           fi
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT#v}" >> "$GITHUB_OUTPUT"
           echo "prev=$PREV_REF" >> "$GITHUB_OUTPUT"
           echo "Next version: $NEXT (previous: $PREV_REF)"
+
+  quality-gate:
+    name: Lint & Test
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.3.0
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+
+  build-amd64:
+    name: Build & Push (amd64)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, quality-gate]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image (amd64)
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=botmem-app.firebaseapp.com
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+          tags: |
+            ghcr.io/botmem/botmem:latest
+            ghcr.io/botmem/botmem:${{ needs.version.outputs.tag }}
+          platforms: linux/amd64
+
+  build-arm64:
+    name: Build (arm64)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, quality-gate]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image (arm64)
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=botmem-app.firebaseapp.com
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+          tags: |
+            ghcr.io/botmem/botmem:arm64-${{ needs.version.outputs.tag }}
+          platforms: linux/arm64
+
+  deploy:
+    name: Deploy to Production
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, build-amd64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check if docs changed
+        id: docs-check
+        run: |
+          if git diff --name-only ${{ github.event.before }} HEAD | grep -q '^docs/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install pnpm
+        if: steps.docs-check.outputs.changed == 'true'
+        uses: pnpm/action-setup@v4.3.0
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        if: steps.docs-check.outputs.changed == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install docs dependencies
+        if: steps.docs-check.outputs.changed == 'true'
+        run: cd docs && pnpm install --frozen-lockfile
+
+      - name: Build docs
+        if: steps.docs-check.outputs.changed == 'true'
+        run: cd docs && pnpm build
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --login-server=${{ secrets.TAILSCALE_LOGIN_SERVER }}
+          hostname: github-ci-${{ github.run_id }}
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy versioned image to VPS
+        env:
+          IMAGE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} << DEPLOY
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            cd /opt/botmem
+
+            # Update compose to use the versioned image tag
+            sed -i 's|image: ghcr.io/botmem/botmem:.*|image: ghcr.io/botmem/botmem:${IMAGE_TAG}|' docker-compose.prod.yml
+
+            # Remove watchtower if still present
+            if grep -q 'watchtower' docker-compose.prod.yml; then
+              docker compose -f docker-compose.prod.yml stop watchtower 2>/dev/null || true
+              docker rm watchtower 2>/dev/null || true
+            fi
+
+            docker compose -f docker-compose.prod.yml pull api
+            docker compose -f docker-compose.prod.yml up -d api
+            docker image prune -af
+            docker builder prune -af
+            echo "Deployed image: ghcr.io/botmem/botmem:${IMAGE_TAG}"
+          DEPLOY
+
+      - name: Deploy docs to VPS
+        if: steps.docs-check.outputs.changed == 'true'
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
+
+      - name: Validate deployment
+        env:
+          EXPECTED_VERSION: ${{ needs.version.outputs.tag }}
+        run: |
+          for i in $(seq 1 12); do
+            RESPONSE=$(curl -sf https://botmem.xyz/api/version 2>/dev/null || echo "")
+            if [ -n "$RESPONSE" ]; then
+              echo "Deployment validated — API is healthy (attempt $i)"
+              echo "Response: $RESPONSE"
+              exit 0
+            fi
+            echo "Attempt $i: not ready yet, waiting 5s..."
+            sleep 5
+          done
+          echo "API health check failed after 60s" && exit 1
+
+      - name: Validate docs
+        if: steps.docs-check.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://docs.botmem.xyz/)
+          if [ "$STATUS" = "200" ]; then
+            echo "Docs site is live at https://docs.botmem.xyz/"
+          else
+            echo "Warning: docs.botmem.xyz returned HTTP $STATUS"
+          fi
+
+  release:
+    name: Tag & GitHub Release
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, deploy]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Generate changelog
         id: changelog
         run: |
-          PREV="${{ steps.version.outputs.prev }}"
+          PREV="${{ needs.version.outputs.prev }}"
           {
             echo "## What's Changed"
             echo ""
@@ -248,7 +334,7 @@ jobs:
               echo ""
             fi
 
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV}...${{ steps.version.outputs.tag }}"
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV}...${{ needs.version.outputs.tag }}"
           } > /tmp/changelog.md
           cat /tmp/changelog.md
 
@@ -256,7 +342,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${{ needs.version.outputs.tag }}"
           git tag "$TAG" "${{ github.sha }}"
           git push origin "$TAG"
           gh release create "$TAG" \
@@ -267,16 +353,14 @@ jobs:
   publish-npm:
     name: Publish packages to npm
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: build-and-push
+    needs: [version, deploy]
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - name: Checkout with full history
+      - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4.3.0
@@ -293,35 +377,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Determine version
-        id: version
-        run: |
-          git fetch --tags
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          if [ -z "$LATEST_TAG" ]; then
-            VERSION="0.1.0"
-          else
-            IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST_TAG#v}"
-            COMMITS=$(git log "$LATEST_TAG"..HEAD --pretty=format:"%s")
-            if echo "$COMMITS" | grep -qiE "^(feat|feature)(\(.+\))?!:|BREAKING CHANGE"; then
-              MINOR=$((MINOR + 1)); PATCH=0
-            elif echo "$COMMITS" | grep -qiE "^feat(\(.+\))?:"; then
-              MINOR=$((MINOR + 1)); PATCH=0
-            else
-              PATCH=$((PATCH + 1))
-            fi
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Next npm version: $VERSION"
-
       - name: Build and publish @botmem/cli
         working-directory: packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           pnpm build
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.version.outputs.version }}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           if npm view "@botmem/cli@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"
@@ -335,7 +397,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           pnpm build
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.version.outputs.version }}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           if npm view "@botmem/openclaw-plugin@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"

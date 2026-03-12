@@ -1,7 +1,7 @@
 import { IsString, IsNotEmpty } from 'class-validator';
 
-export class MergeContactDto {
+export class SearchPeopleDto {
   @IsString()
   @IsNotEmpty()
-  sourceId!: string;
+  query!: string;
 }

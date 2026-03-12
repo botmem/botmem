@@ -47,12 +47,7 @@ ENV VITE_AUTH_PROVIDER=$VITE_AUTH_PROVIDER \
     VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
 RUN pnpm --filter @botmem/shared run build && \
     pnpm --filter @botmem/connector-sdk run build && \
-    pnpm --filter @botmem/connector-gmail run build && \
-    pnpm --filter @botmem/connector-slack run build && \
-    pnpm --filter @botmem/connector-whatsapp run build && \
-    pnpm --filter @botmem/connector-imessage run build && \
-    pnpm --filter @botmem/connector-photos-immich run build && \
-    pnpm --filter @botmem/connector-locations run build && \
+    pnpm --filter '@botmem/connector-*' run build && \
     pnpm --filter @botmem/web run build && \
     pnpm --filter @botmem/api run build && \
     cp -r apps/api/src/db/migrations apps/api/dist/db/migrations

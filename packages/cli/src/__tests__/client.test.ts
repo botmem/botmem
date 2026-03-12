@@ -118,37 +118,6 @@ describe('BotmemClient', () => {
     });
   });
 
-  describe('login', () => {
-    it('should POST credentials and set token from response', async () => {
-      const loginResult = {
-        accessToken: 'jwt-123',
-        user: { id: 'u1', email: 'test@test.com', name: 'Test' },
-      };
-      mockFetch.mockReturnValue(jsonResponse(loginResult));
-
-      const result = await client.login('test@test.com', 'pass123');
-
-      expect(result.accessToken).toBe('jwt-123');
-      expect(result.user.email).toBe('test@test.com');
-
-      // Token should be set internally
-      mockFetch.mockReturnValue(jsonResponse({ items: [], total: 0 }));
-      await client.listMemories();
-      const callHeaders = mockFetch.mock.calls[1][1].headers;
-      expect(callHeaders['Authorization']).toBe('Bearer jwt-123');
-    });
-
-    it('should send email and password in body', async () => {
-      mockFetch.mockReturnValue(
-        jsonResponse({ accessToken: 'x', user: { id: '1', email: 'a', name: 'b' } }),
-      );
-      await client.login('user@email.com', 'secret');
-
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body).toEqual({ email: 'user@email.com', password: 'secret' });
-    });
-  });
-
   describe('searchMemories', () => {
     it('should POST to /memories/search with query', async () => {
       const response = { items: [], fallback: false };

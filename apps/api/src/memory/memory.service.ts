@@ -11,9 +11,9 @@ import { UserKeyService } from '../crypto/user-key.service';
 import {
   memories,
   memoryLinks,
-  memoryContacts,
-  contacts,
-  contactIdentifiers,
+  memoryPeople,
+  people,
+  personIdentifiers,
   accounts,
   settings,
 } from '../db/schema';
@@ -263,15 +263,19 @@ export class MemoryService {
     if (cached && Date.now() < cached.expires) {
       return cached.data;
     }
-    const data = await this.dbService.withCurrentUser((db) =>
+    const rawData = await this.dbService.withCurrentUser((db) =>
       db
         .select({
-          id: contacts.id,
-          displayName: contacts.displayName,
-          entityType: contacts.entityType,
+          id: people.id,
+          displayName: people.displayName,
+          entityType: people.entityType,
         })
-        .from(contacts),
+        .from(people),
     );
+    const data = rawData.map((c) => ({
+      ...c,
+      displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
+    }));
     this.contactsCache.set(cacheKey, {
       data,
       expires: Date.now() + MemoryService.CONTACTS_CACHE_TTL,
@@ -487,9 +491,9 @@ export class MemoryService {
         (
           await this.dbService.withCurrentUser((db) =>
             db
-              .select({ memoryId: memoryContacts.memoryId })
-              .from(memoryContacts)
-              .where(eq(memoryContacts.contactId, effectiveFilters.contactId!)),
+              .select({ memoryId: memoryPeople.memoryId })
+              .from(memoryPeople)
+              .where(eq(memoryPeople.personId, effectiveFilters.contactId!)),
           )
         ).map((r) => r.memoryId),
       );
@@ -573,15 +577,15 @@ export class MemoryService {
       // Get all memory IDs linked to resolved contacts
       const linked = await this.dbService.withCurrentUser((db) =>
         db
-          .select({ memoryId: memoryContacts.memoryId })
-          .from(memoryContacts)
-          .where(inArray(memoryContacts.contactId, contactIds)),
+          .select({ memoryId: memoryPeople.memoryId })
+          .from(memoryPeople)
+          .where(inArray(memoryPeople.personId, contactIds)),
       );
       const allContactMemoryIds = new Set(linked.map((r) => r.memoryId));
 
       if (hasTopics) {
         // Intersect: contact memories filtered by topic words (+ temporal bounds)
-        const topicConditions: SQLWrapper[] = [inArray(memoryContacts.contactId, contactIds)];
+        const topicConditions: SQLWrapper[] = [inArray(memoryPeople.personId, contactIds)];
         for (const tw of topicWords) {
           topicConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + tw + '%'}`);
         }
@@ -591,9 +595,9 @@ export class MemoryService {
           topicConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}`);
         const filtered = await this.dbService.withCurrentUser((db) =>
           db
-            .select({ memoryId: memoryContacts.memoryId })
-            .from(memoryContacts)
-            .innerJoin(memories, eq(memories.id, memoryContacts.memoryId))
+            .select({ memoryId: memoryPeople.memoryId })
+            .from(memoryPeople)
+            .innerJoin(memories, eq(memories.id, memoryPeople.memoryId))
             .where(and(...topicConditions)!),
         );
         topicMatchCount = filtered.length;
@@ -611,18 +615,16 @@ export class MemoryService {
           if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
         }
         // Add capped recent contact memories for browse feel (respect temporal bounds)
-        const contactBrowseConditions: SQLWrapper[] = [
-          inArray(memoryContacts.contactId, contactIds),
-        ];
+        const contactBrowseConditions: SQLWrapper[] = [inArray(memoryPeople.personId, contactIds)];
         if (effectiveFilters.from)
           contactBrowseConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}`);
         if (effectiveFilters.to)
           contactBrowseConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}`);
         const recentContactMems = await this.dbService.withCurrentUser((db) =>
           db
-            .select({ memoryId: memoryContacts.memoryId })
-            .from(memoryContacts)
-            .innerJoin(memories, eq(memories.id, memoryContacts.memoryId))
+            .select({ memoryId: memoryPeople.memoryId })
+            .from(memoryPeople)
+            .innerJoin(memories, eq(memories.id, memoryPeople.memoryId))
             .where(and(...contactBrowseConditions)!)
             .orderBy(sql`${memories.eventTime} DESC`)
             .limit(effectiveLimit * 3),
@@ -892,6 +894,24 @@ export class MemoryService {
     resolvedKey?: Buffer | null,
   ): SearchResult {
     const mem = this.decryptMemoryAuto(row.memory, userId, resolvedKey);
+    // Decrypt factuality (encrypted JSON string) for output
+    let factuality: unknown = mem.factuality;
+    if (typeof factuality === 'string') {
+      try {
+        const decrypted = this.crypto.decrypt(factuality);
+        factuality = decrypted ? JSON.parse(decrypted) : factuality;
+      } catch {
+        try {
+          factuality = JSON.parse(factuality as string);
+        } catch {
+          /* keep as-is */
+        }
+      }
+    }
+    // Decrypt accountIdentifier
+    const accountIdentifier = row.accountIdentifier
+      ? (this.crypto.decrypt(row.accountIdentifier) ?? row.accountIdentifier)
+      : null;
     return {
       id: mem.id,
       text: mem.text,
@@ -900,10 +920,10 @@ export class MemoryService {
       eventTime: mem.eventTime,
       ingestTime: mem.ingestTime,
       createdAt: mem.createdAt,
-      factuality: mem.factuality,
+      factuality,
       entities: mem.entities,
       metadata: mem.metadata,
-      accountIdentifier: row.accountIdentifier,
+      accountIdentifier,
       pinned: mem.pinned,
       score,
       weights,
@@ -978,7 +998,9 @@ export class MemoryService {
     const listKey = await this.resolveUserKey(params.userId);
     const items = rows.map((r) => ({
       ...this.decryptMemoryAuto(r.memory, params.userId, listKey),
-      accountIdentifier: r.accountIdentifier,
+      accountIdentifier: r.accountIdentifier
+        ? (this.crypto.decrypt(r.accountIdentifier) ?? r.accountIdentifier)
+        : null,
     }));
 
     return { items, total };
@@ -1023,7 +1045,7 @@ export class MemoryService {
   async delete(id: string) {
     await this.dbService.withCurrentUser(async (db) => {
       await db.transaction(async (tx) => {
-        await tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, id));
+        await tx.delete(memoryPeople).where(eq(memoryPeople.memoryId, id));
         await tx
           .delete(memoryLinks)
           .where(or(eq(memoryLinks.srcMemoryId, id), eq(memoryLinks.dstMemoryId, id)));
@@ -1080,16 +1102,16 @@ export class MemoryService {
     const byConnector: Record<string, number> = {};
     for (const r of connectorRows) byConnector[r.key] = Number(r.count) || 0;
 
-    // Factuality is stored as JSON, extract label with json_extract
+    // Use denormalized factuality_label column (plaintext, safe for SQL aggregation)
     const factRows = await this.dbService.withCurrentUser((db) =>
       db
         .select({
-          label: sql<string>`(${memories.factuality}->>'label')::text`,
+          label: sql<string>`${memories.factualityLabel}`,
           count: sql<number>`COUNT(*)`,
         })
         .from(memories)
         .where(doneFilter)
-        .groupBy(sql`(${memories.factuality}->>'label')::text`),
+        .groupBy(memories.factualityLabel),
     );
     const byFactuality: Record<string, number> = {};
     for (const r of factRows) {
@@ -1196,17 +1218,17 @@ export class MemoryService {
 
     // Fetch contacts and identifiers — scope to user's memories only
     const memoryIdArray = [...memoryIds];
-    const allMemoryContacts: Array<typeof memoryContacts.$inferSelect> = [];
+    const allMemoryContacts: Array<typeof memoryPeople.$inferSelect> = [];
     for (let i = 0; i < memoryIdArray.length; i += 500) {
       const batch = memoryIdArray.slice(i, i + 500);
       const rows = await this.dbService.withCurrentUser((db) =>
-        db.select().from(memoryContacts).where(inArray(memoryContacts.memoryId, batch)),
+        db.select().from(memoryPeople).where(inArray(memoryPeople.memoryId, batch)),
       );
       allMemoryContacts.push(...rows);
     }
     const relevantMemoryContacts = allMemoryContacts;
 
-    const relevantContactIdSet = new Set(relevantMemoryContacts.map((mc) => mc.contactId));
+    const relevantContactIdSet = new Set(relevantMemoryContacts.map((mc) => mc.personId));
 
     // Always include self-contact in the graph
     const selfRow = await this.dbService.withCurrentUser((db) =>
@@ -1221,12 +1243,12 @@ export class MemoryService {
       relevantContactIdSet.add(selfContactId);
       // Add all self-contact memory links as edges (even if memory isn't in graph slice)
       const selfLinks = allMemoryContacts.filter(
-        (mc) => mc.contactId === selfContactId && memoryIds.has(mc.memoryId),
+        (mc) => mc.personId === selfContactId && memoryIds.has(mc.memoryId),
       );
       for (const sl of selfLinks) {
         if (
           !relevantMemoryContacts.some(
-            (mc) => mc.memoryId === sl.memoryId && mc.contactId === sl.contactId,
+            (mc) => mc.memoryId === sl.memoryId && mc.personId === sl.personId,
           )
         ) {
           relevantMemoryContacts.push(sl);
@@ -1235,20 +1257,20 @@ export class MemoryService {
     }
 
     const contactIdArray = [...relevantContactIdSet];
-    const relevantContacts: Array<typeof contacts.$inferSelect> = [];
+    const relevantContacts: Array<typeof people.$inferSelect> = [];
     for (let i = 0; i < contactIdArray.length; i += 500) {
       const batch = contactIdArray.slice(i, i + 500);
       const rows = await this.dbService.withCurrentUser((db) =>
-        db.select().from(contacts).where(inArray(contacts.id, batch)),
+        db.select().from(people).where(inArray(people.id, batch)),
       );
       relevantContacts.push(...rows);
     }
 
-    const relevantIdentifiers: Array<typeof contactIdentifiers.$inferSelect> = [];
+    const relevantIdentifiers: Array<typeof personIdentifiers.$inferSelect> = [];
     for (let i = 0; i < contactIdArray.length; i += 500) {
       const batch = contactIdArray.slice(i, i + 500);
       const rows = await this.dbService.withCurrentUser((db) =>
-        db.select().from(contactIdentifiers).where(inArray(contactIdentifiers.contactId, batch)),
+        db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, batch)),
       );
       relevantIdentifiers.push(...rows);
     }
@@ -1267,8 +1289,21 @@ export class MemoryService {
         /* empty */
       }
 
-      const fact = m.factuality as Record<string, unknown> | null;
-      const factLabel = fact?.label || 'UNVERIFIED';
+      let factLabel = 'UNVERIFIED';
+      if (m.factuality) {
+        try {
+          const decrypted = this.crypto.decrypt(m.factuality as string);
+          const parsed = decrypted ? JSON.parse(decrypted) : null;
+          factLabel = parsed?.label || 'UNVERIFIED';
+        } catch {
+          try {
+            const parsed = JSON.parse(m.factuality as string);
+            factLabel = parsed?.label || 'UNVERIFIED';
+          } catch {
+            /* keep default */
+          }
+        }
+      }
 
       const dominantEntity = entities.find(
         (e) => (e.type === 'person' || e.type === 'organization') && e.value,
@@ -1326,14 +1361,14 @@ export class MemoryService {
     // Build contact nodes
     const identifiersByContact = new Map<string, string[]>();
     for (const ident of relevantIdentifiers) {
-      const list = identifiersByContact.get(ident.contactId) || [];
+      const list = identifiersByContact.get(ident.personId) || [];
       list.push(ident.connectorType || 'unknown');
-      identifiersByContact.set(ident.contactId, list);
+      identifiersByContact.set(ident.personId, list);
     }
 
     const contactNodes = relevantContacts.map((c) => {
       const connectors = [...new Set(identifiersByContact.get(c.id) || [])];
-      const displayName = c.displayName || 'Unknown';
+      const displayName = this.crypto.decrypt(c.displayName) ?? c.displayName ?? 'Unknown';
       const nameKey = displayName.toLowerCase();
       let cluster = 0;
       if (entityClusters.has(nameKey)) cluster = entityClusters.get(nameKey)!;
@@ -1382,7 +1417,7 @@ export class MemoryService {
       }));
 
     const contactEdges = relevantMemoryContacts.map((mc) => ({
-      source: `contact-${mc.contactId}`,
+      source: `contact-${mc.personId}`,
       target: mc.memoryId,
       type: mc.role || 'involves',
       strength: mc.role === 'group' ? 0.9 : 0.7,
@@ -1489,8 +1524,16 @@ export class MemoryService {
     } catch {
       /* empty */
     }
-    const fact = mem.factuality as Record<string, unknown> | null;
-    const factLabel = fact?.label || 'UNVERIFIED';
+    let factLabel = 'UNVERIFIED';
+    if (mem.factuality) {
+      try {
+        const parsed =
+          typeof mem.factuality === 'string' ? JSON.parse(mem.factuality) : mem.factuality;
+        factLabel = parsed?.label || 'UNVERIFIED';
+      } catch {
+        /* keep default */
+      }
+    }
     const weights: Record<string, number> = (mem.weights as Record<string, number>) || {};
     let metadata: Record<string, unknown> = {};
     try {
@@ -1556,12 +1599,12 @@ export class MemoryService {
 
     // Contact associations
     const mcRows = await this.dbService.withCurrentUser((db) =>
-      db.select().from(memoryContacts).where(eq(memoryContacts.memoryId, memoryId)),
+      db.select().from(memoryPeople).where(eq(memoryPeople.memoryId, memoryId)),
     );
-    const contactIds = mcRows.map((mc) => mc.contactId);
+    const contactIds = mcRows.map((mc) => mc.personId);
     const contactNodes: Array<Record<string, unknown>> = [];
     const contactEdges = mcRows.map((mc) => ({
-      source: `contact-${mc.contactId}`,
+      source: `contact-${mc.personId}`,
       target: memoryId,
       type: mc.role || 'involves',
       strength: mc.role === 'group' ? 0.9 : 0.7,
@@ -1569,19 +1612,16 @@ export class MemoryService {
 
     if (contactIds.length) {
       const contactRows = await this.dbService.withCurrentUser((db) =>
-        db.select().from(contacts).where(inArray(contacts.id, contactIds)),
+        db.select().from(people).where(inArray(people.id, contactIds)),
       );
       const identRows = await this.dbService.withCurrentUser((db) =>
-        db
-          .select()
-          .from(contactIdentifiers)
-          .where(inArray(contactIdentifiers.contactId, contactIds)),
+        db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, contactIds)),
       );
       const identByContact = new Map<string, string[]>();
       for (const i of identRows) {
-        const list = identByContact.get(i.contactId) || [];
+        const list = identByContact.get(i.personId) || [];
         list.push(i.connectorType || 'unknown');
-        identByContact.set(i.contactId, list);
+        identByContact.set(i.personId, list);
       }
       for (const c of contactRows) {
         const connectors = [...new Set(identByContact.get(c.id) || [])];
@@ -1824,18 +1864,18 @@ export class MemoryService {
     // 3. Same-contact memories (shared participants)
     const contactLinks = await this.dbService.withCurrentUser((db) =>
       db
-        .select({ contactId: memoryContacts.contactId })
-        .from(memoryContacts)
-        .where(eq(memoryContacts.memoryId, memoryId)),
+        .select({ contactId: memoryPeople.personId })
+        .from(memoryPeople)
+        .where(eq(memoryPeople.memoryId, memoryId)),
     );
     const contactIdList = contactLinks.map((c) => c.contactId);
 
     if (contactIdList.length > 0) {
       const coMemories = await this.dbService.withCurrentUser((db) =>
         db
-          .select({ memoryId: memoryContacts.memoryId })
-          .from(memoryContacts)
-          .where(inArray(memoryContacts.contactId, contactIdList))
+          .select({ memoryId: memoryPeople.memoryId })
+          .from(memoryPeople)
+          .where(inArray(memoryPeople.personId, contactIdList))
           .limit(limit * 2),
       );
       for (const cm of coMemories) {
@@ -2035,9 +2075,9 @@ export class MemoryService {
     // Also check contacts matching this entity
     const matchingContacts = await this.dbService.withCurrentUser((db) =>
       db
-        .select({ id: contacts.id, displayName: contacts.displayName })
-        .from(contacts)
-        .where(sql`LOWER(${contacts.displayName}) LIKE ${'%' + queryLower + '%'}`)
+        .select({ id: people.id, displayName: people.displayName })
+        .from(people)
+        .where(sql`LOWER(${people.displayName}) LIKE ${'%' + queryLower + '%'}`)
         .limit(10),
     );
 

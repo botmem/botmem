@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
-import { memories, memoryContacts, contacts } from '../db/schema';
+import { memories, memoryPeople, people } from '../db/schema';
 import { sql, eq, inArray } from 'drizzle-orm';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
@@ -69,20 +69,20 @@ export class AccountsController {
         .groupBy(memories.accountId);
       const memoryCountMap = new Map(memoryCounts.map((c) => [c.accountId, c.count]));
 
-      // Count contacts and groups per account via memoryContacts → memories
+      // Count contacts and groups per account via memoryPeople → memories
       const accountIds = rows.map((r) => r.id);
       const contactCountRows = accountIds.length
         ? await db
             .select({
               accountId: memories.accountId,
-              entityType: contacts.entityType,
-              count: sql<number>`count(distinct ${contacts.id})::int`,
+              entityType: people.entityType,
+              count: sql<number>`count(distinct ${people.id})::int`,
             })
-            .from(memoryContacts)
-            .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
-            .innerJoin(contacts, eq(memoryContacts.contactId, contacts.id))
+            .from(memoryPeople)
+            .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+            .innerJoin(people, eq(memoryPeople.personId, people.id))
             .where(inArray(memories.accountId, accountIds))
-            .groupBy(memories.accountId, contacts.entityType)
+            .groupBy(memories.accountId, people.entityType)
         : [];
 
       const contactsMap = new Map<string, number>();

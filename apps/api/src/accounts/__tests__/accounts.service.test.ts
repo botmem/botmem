@@ -40,6 +40,7 @@ describe('AccountsService', () => {
     crypto = {
       encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
       decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : null)),
+      hmac: vi.fn((v: string) => `hmac:${v}`),
     };
     connectors = {
       get: vi.fn().mockReturnValue({
@@ -91,7 +92,8 @@ describe('AccountsService', () => {
 
       const result = await service.getAll();
       expect(result).toHaveLength(2);
-      expect(crypto.decrypt).toHaveBeenCalledTimes(2);
+      // decryptAccount decrypts both authContext and identifier per row
+      expect(crypto.decrypt).toHaveBeenCalledTimes(4);
     });
 
     it('filters by userId when provided', async () => {

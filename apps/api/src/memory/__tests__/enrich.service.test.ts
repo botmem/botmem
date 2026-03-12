@@ -80,8 +80,15 @@ describe('EnrichService', () => {
       }),
     };
 
+    const cryptoService = {
+      encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
+      decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : v)),
+      hmac: vi.fn((v: string) => `hmac:${v}`),
+    };
+
     service = new EnrichService(
       { db: mockDb } as unknown as DbService,
+      cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
       aiService,
       qdrantService,
       logsService,
@@ -230,9 +237,9 @@ describe('EnrichService', () => {
         [fakeMemory], // 1. get memory
         undefined, // 2. update entities
         undefined, // 3. update factuality
-        [{ claims: '[{"text":"John works at Google"}]', factuality: { label: 'FACT' } }], // 4. src claims
+        [{ claims: '[{"text":"John works at Google"}]', factuality: '{"label":"FACT"}' }], // 4. src claims
         [], // 5. batch existing links (none)
-        [{ id: 'mem-2', factuality: { label: 'FACT' } }], // 6. batch dst factuality
+        [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 6. batch dst factuality
         undefined, // 7. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.95 }]);
@@ -258,9 +265,9 @@ describe('EnrichService', () => {
       whereResults = [
         [fakeMemory], // 1. get memory
         undefined, // 2. update factuality
-        [{ claims: '[{"text":"something"}]', factuality: { label: 'FACT' } }], // 3. src claims
+        [{ claims: '[{"text":"something"}]', factuality: '{"label":"FACT"}' }], // 3. src claims
         [], // 4. batch existing links (none)
-        [{ id: 'mem-2', factuality: { label: 'FICTION' } }], // 5. batch dst factuality
+        [{ id: 'mem-2', factuality: '{"label":"FICTION"}' }], // 5. batch dst factuality
         undefined, // 6. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.9 }]);
@@ -285,9 +292,9 @@ describe('EnrichService', () => {
       whereResults = [
         [fakeMemory], // 1. get memory
         undefined, // 2. update factuality
-        [{ claims: '["claim"]', factuality: { label: 'FICTION' } }], // 3. src claims
+        [{ claims: '["claim"]', factuality: '{"label":"FICTION"}' }], // 3. src claims
         [], // 4. batch existing links
-        [{ id: 'mem-2', factuality: { label: 'FACT' } }], // 5. batch dst factuality
+        [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 5. batch dst factuality
         undefined, // 6. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.88 }]);

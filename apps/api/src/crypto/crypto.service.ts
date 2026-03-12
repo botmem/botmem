@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync } from 'crypto';
 import { ConfigService } from '../config/config.service';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -12,6 +12,7 @@ const DEFAULT_APP_SECRET = 'dev-app-secret-change-in-production';
 export class CryptoService {
   private readonly logger = new Logger(CryptoService.name);
   private key: Buffer;
+  private hmacKey: Buffer;
 
   constructor(private config: ConfigService) {
     if (this.config.appSecret === DEFAULT_APP_SECRET) {
@@ -20,6 +21,15 @@ export class CryptoService {
       );
     }
     this.key = scryptSync(this.config.appSecret, SALT, 32);
+    this.hmacKey = scryptSync(this.config.appSecret, 'botmem-hmac-v1', 32);
+  }
+
+  /**
+   * Compute a deterministic HMAC-SHA256 blind index for a plaintext value.
+   * Used for equality lookups on encrypted columns without exposing the plaintext.
+   */
+  hmac(plaintext: string): string {
+    return createHmac('sha256', this.hmacKey).update(plaintext).digest('hex');
   }
 
   /**

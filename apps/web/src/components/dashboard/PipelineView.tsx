@@ -1,4 +1,5 @@
 import type { QueueStats } from '../../store/jobStore';
+import { AnimatedNumber } from '../ui/AnimatedNumber';
 
 const PIPELINE_STAGES = ['sync', 'clean', 'embed', 'enrich'] as const;
 
@@ -76,12 +77,12 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                             className="size-1.5 rounded-full shrink-0"
                             style={{ backgroundColor: rowColor, opacity: value > 0 ? 1 : 0.2 }}
                           />
-                          <span
+                          <AnimatedNumber
+                            value={value}
+                            duration={400}
                             className="font-mono text-[11px] font-bold"
                             style={{ color: value > 0 ? rowColor : '#444' }}
-                          >
-                            {value.toLocaleString()}
-                          </span>
+                          />
                           <span
                             className="font-mono text-[10px]"
                             style={{ color: value > 0 ? '#9CA3AF' : '#444' }}

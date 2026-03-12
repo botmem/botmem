@@ -1,6 +1,6 @@
 import { IsArray, IsString, ArrayMinSize } from 'class-validator';
 
-export class SplitContactDto {
+export class SplitPersonDto {
   @IsArray()
   @IsString({ each: true })
   @ArrayMinSize(1)

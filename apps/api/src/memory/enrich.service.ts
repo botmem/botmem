@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
@@ -29,6 +30,7 @@ const FACTUALITY_SOURCE_TYPES = new Set(['email', 'document']);
 export class EnrichService {
   constructor(
     private dbService: DbService,
+    private crypto: CryptoService,
     private ai: AiService,
     private qdrant: QdrantService,
     private logsService: LogsService,
@@ -107,7 +109,11 @@ export class EnrichService {
 
       await this.dbService.db
         .update(memories)
-        .set({ weights: JSON.stringify(weights), factuality: defaultFactuality })
+        .set({
+          weights: JSON.stringify(weights),
+          factuality: this.crypto.encrypt(defaultFactuality)!,
+          factualityLabel: 'UNVERIFIED',
+        })
         .where(eq(memories.id, memoryId));
 
       this.addLog(
@@ -184,7 +190,10 @@ export class EnrichService {
     if (factuality) {
       await this.dbService.db
         .update(memories)
-        .set({ factuality: JSON.stringify(factuality) })
+        .set({
+          factuality: this.crypto.encrypt(JSON.stringify(factuality))!,
+          factualityLabel: factuality.label,
+        })
         .where(eq(memories.id, memoryId));
     }
     const factLabel = factuality?.label || 'unclassified';
@@ -320,8 +329,22 @@ export class EnrichService {
       } catch {
         /* empty */
       }
-      const srcFact = srcMem?.factuality as Record<string, unknown> | null;
-      const srcFactLabel = srcFact?.label || 'UNVERIFIED';
+      let srcFactLabel = 'UNVERIFIED';
+      if (srcMem?.factuality) {
+        try {
+          const decrypted = this.crypto.decrypt(srcMem.factuality as string);
+          const parsed = decrypted ? JSON.parse(decrypted) : null;
+          srcFactLabel = parsed?.label || 'UNVERIFIED';
+        } catch {
+          // If it's already a JSON object string (pre-migration), try direct parse
+          try {
+            const parsed = JSON.parse(srcMem.factuality as string);
+            srcFactLabel = parsed?.label || 'UNVERIFIED';
+          } catch {
+            srcFactLabel = 'UNVERIFIED';
+          }
+        }
+      }
 
       // Filter candidates above threshold
       const candidates = results.filter(
@@ -360,10 +383,24 @@ export class EnrichService {
             )})`,
           );
         dstFactMap = new Map(
-          dstRows.map((r) => [
-            r.id,
-            ((r.factuality as Record<string, unknown> | null)?.label as string) || 'UNVERIFIED',
-          ]),
+          dstRows.map((r) => {
+            let label = 'UNVERIFIED';
+            if (r.factuality) {
+              try {
+                const decrypted = this.crypto.decrypt(r.factuality as string);
+                const parsed = decrypted ? JSON.parse(decrypted) : null;
+                label = parsed?.label || 'UNVERIFIED';
+              } catch {
+                try {
+                  const parsed = JSON.parse(r.factuality as string);
+                  label = parsed?.label || 'UNVERIFIED';
+                } catch {
+                  /* keep default */
+                }
+              }
+            }
+            return [r.id, label];
+          }),
         );
       }
 

@@ -3,7 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { DbModule } from '../db/db.module';
 import { ConfigModule } from '../config/config.module';
 import { EventsModule } from '../events/events.module';
-import { ContactsModule } from '../contacts/contacts.module';
+import { PeopleModule } from '../people/people.module';
 import { AccountsModule } from '../accounts/accounts.module';
 import { SettingsModule } from '../settings/settings.module';
 import { CryptoModule } from '../crypto/crypto.module';
@@ -30,7 +30,7 @@ import { MemoryController } from './memory.controller';
     DbModule,
     ConfigModule,
     EventsModule,
-    ContactsModule,
+    PeopleModule,
     AccountsModule,
     SettingsModule,
     CryptoModule,

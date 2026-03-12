@@ -46,6 +46,12 @@ describe('JobsService', () => {
       getRepeatableJobs: vi.fn().mockResolvedValue([]),
     };
 
+    const cryptoService = {
+      encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
+      decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : v)),
+      hmac: vi.fn((v: string) => `hmac:${v}`),
+    };
+
     const traceContext = { current: vi.fn().mockReturnValue(undefined) } as unknown as {
       current: ReturnType<typeof vi.fn>;
     };
@@ -57,6 +63,7 @@ describe('JobsService', () => {
           .fn()
           .mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
       } as unknown as DbService,
+      cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
       syncQueue,
       traceContext,
     );

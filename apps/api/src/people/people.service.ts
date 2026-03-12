@@ -6,9 +6,9 @@ import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { AccountsService } from '../accounts/accounts.service';
 import {
-  contacts,
-  contactIdentifiers,
-  memoryContacts,
+  contacts as people,
+  contactIdentifiers as personIdentifiers,
+  memoryContacts as memoryPeople,
   memories,
   mergeDismissals,
   settings,
@@ -78,7 +78,7 @@ export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | n
   return { ...ident, type, value };
 }
 
-export interface ContactWithIdentifiers {
+export interface PersonWithIdentifiers {
   id: string;
   displayName: string;
   avatars: unknown;
@@ -95,8 +95,8 @@ export interface ContactWithIdentifiers {
 }
 
 @Injectable()
-export class ContactsService {
-  private readonly logger = new Logger(ContactsService.name);
+export class PeopleService {
+  private readonly logger = new Logger(PeopleService.name);
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
@@ -104,11 +104,11 @@ export class ContactsService {
     @Inject(forwardRef(() => AccountsService)) private accountsService: AccountsService,
   ) {}
 
-  async resolveContact(
+  async resolvePerson(
     rawIdentifiers: IdentifierInput[],
     entityType?: 'person' | 'group' | 'organization' | 'device',
     userId?: string,
-  ): Promise<ContactWithIdentifiers> {
+  ): Promise<PersonWithIdentifiers> {
     // Normalize + deduplicate identifiers
     const seen = new Set<string>();
     const identifiers: IdentifierInput[] = [];
@@ -127,47 +127,48 @@ export class ContactsService {
 
     const structuredIdents = identifiers.filter((i) => i.type !== 'name');
     if (structuredIdents.length) {
-      // Build OR conditions for all structured identifiers in one query
+      // Build OR conditions for all structured identifiers using HMAC blind index
       const orConditions = structuredIdents.map(
         (i) =>
-          sql`(${contactIdentifiers.identifierType} = ${i.type} AND ${contactIdentifiers.identifierValue} = ${i.value})`,
+          sql`(${personIdentifiers.identifierType} = ${i.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(i.value)})`,
       );
       const whereClause = userId
-        ? and(or(...orConditions), eq(contacts.userId, userId))
+        ? and(or(...orConditions), eq(people.userId, userId))
         : or(...orConditions);
       const rows = userId
         ? await this.dbService.withCurrentUser((db) =>
             db
-              .select({ contactId: contactIdentifiers.contactId })
-              .from(contactIdentifiers)
-              .innerJoin(contacts, eq(contacts.id, contactIdentifiers.contactId))
+              .select({ personId: personIdentifiers.personId })
+              .from(personIdentifiers)
+              .innerJoin(people, eq(people.id, personIdentifiers.personId))
               .where(whereClause!),
           )
         : await this.dbService.withCurrentUser((db) =>
             db
-              .select({ contactId: contactIdentifiers.contactId })
-              .from(contactIdentifiers)
+              .select({ personId: personIdentifiers.personId })
+              .from(personIdentifiers)
               .where(whereClause!),
           );
       for (const row of rows) {
-        matchedContactIds.add(row.contactId);
+        matchedContactIds.add(row.personId);
       }
     }
 
     const matchedIds = Array.from(matchedContactIds);
-    let contactId: string;
+    let personId: string;
 
     if (matchedIds.length === 0) {
       // Create new contact
-      contactId = randomUUID();
+      personId = randomUUID();
       const now = new Date();
       const nameIdent = identifiers.find((i) => i.type === 'name');
       const displayName = nameIdent?.value || identifiers[0]?.value || 'Unknown';
 
       await this.dbService.withCurrentUser((db) =>
-        db.insert(contacts).values({
-          id: contactId,
-          displayName,
+        db.insert(people).values({
+          id: personId,
+          displayName: this.crypto.encrypt(displayName)!,
+          displayNameHash: this.crypto.hmac(displayName.toLowerCase()),
           entityType: entityType || 'person',
           userId: userId || null,
           createdAt: now,
@@ -181,44 +182,45 @@ export class ContactsService {
           await this.deduplicateByExactName(displayName, userId);
         } catch (err) {
           this.logger.warn(
-            `[resolveContact] deduplicateByExactName failed: ${err instanceof Error ? err.message : String(err)}`,
+            `[resolvePerson] deduplicateByExactName failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
 
         // Our contact may have been merged away — verify it still exists
         const stillExists = await this.dbService.withCurrentUser((db) =>
-          db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, contactId)),
+          db.select({ id: people.id }).from(people).where(eq(people.id, personId)),
         );
         if (!stillExists.length) {
           // Find the winner by display name
           const conditions: (SQLWrapper | undefined)[] = [
-            sql`LOWER(${contacts.displayName}) = LOWER(${displayName})`,
+            sql`${people.displayNameHash} = ${this.crypto.hmac(displayName.toLowerCase())}`,
           ];
-          if (userId) conditions.push(eq(contacts.userId, userId));
+          if (userId) conditions.push(eq(people.userId, userId));
           const winners = await this.dbService.withCurrentUser((db) =>
             db
-              .select({ id: contacts.id })
-              .from(contacts)
+              .select({ id: people.id })
+              .from(people)
               .where(and(...conditions))
               .limit(1),
           );
           if (winners.length) {
-            contactId = winners[0].id;
+            personId = winners[0].id;
           }
         }
       }
     } else if (matchedIds.length === 1) {
-      contactId = matchedIds[0];
+      personId = matchedIds[0];
       // Update display name if we now have a better one (e.g. resolved from raw ID)
       const nameIdent = identifiers.find((i) => i.type === 'name');
       if (nameIdent?.value) {
         const existing = await this.dbService.withCurrentUser((db) =>
           db
-            .select({ displayName: contacts.displayName })
-            .from(contacts)
-            .where(eq(contacts.id, contactId)),
+            .select({ displayName: people.displayName })
+            .from(people)
+            .where(eq(people.id, personId)),
         );
-        const currentName = existing[0]?.displayName || '';
+        const rawName = existing[0]?.displayName || '';
+        const currentName = this.crypto.decrypt(rawName) ?? rawName;
         const hasRawId = /\bU[A-Z0-9]{8,}\b/.test(currentName);
         const newHasRawId = /\bU[A-Z0-9]{8,}\b/.test(nameIdent.value);
         // Upgrade display name from phone/raw-id/unknown to a real name
@@ -226,20 +228,24 @@ export class ContactsService {
         if ((hasRawId && !newHasRawId) || currentName === 'Unknown' || isPhoneNumber) {
           await this.dbService.withCurrentUser((db) =>
             db
-              .update(contacts)
-              .set({ displayName: nameIdent.value, updatedAt: new Date() })
-              .where(eq(contacts.id, contactId)),
+              .update(people)
+              .set({
+                displayName: this.crypto.encrypt(nameIdent.value)!,
+                displayNameHash: this.crypto.hmac(nameIdent.value.toLowerCase()),
+                updatedAt: new Date(),
+              })
+              .where(eq(people.id, personId)),
           );
         }
       }
     } else {
       // Multiple contacts matched — merge them into the first one
-      contactId = matchedIds[0];
+      personId = matchedIds[0];
       const otherIds = matchedIds.slice(1);
 
       for (const otherId of otherIds) {
         try {
-          await this.mergeContacts(contactId, otherId);
+          await this.mergePeople(personId, otherId);
         } catch {
           // Concurrent merge may have already handled this — ignore
         }
@@ -253,24 +259,28 @@ export class ContactsService {
     while (identInsertAttempts < 3) {
       try {
         const existingIdents = await this.dbService.withCurrentUser((db) =>
-          db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, contactId)),
+          db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, personId)),
         );
 
+        // Compare using HMAC hashes so we can check against encrypted stored values
         const existingKeys = new Set(
-          existingIdents.map((e) => `${e.identifierType}::${e.identifierValue}`),
+          existingIdents.map((e) => `${e.identifierType}::${e.identifierValueHash || ''}`),
         );
-        const newIdents = identifiers.filter((i) => !existingKeys.has(`${i.type}::${i.value}`));
+        const newIdents = identifiers.filter(
+          (i) => !existingKeys.has(`${i.type}::${this.crypto.hmac(i.value)}`),
+        );
         if (newIdents.length) {
           const now = new Date();
           await this.dbService.withCurrentUser((db) =>
             db
-              .insert(contactIdentifiers)
+              .insert(personIdentifiers)
               .values(
                 newIdents.map((ident) => ({
                   id: randomUUID(),
-                  contactId,
+                  personId,
                   identifierType: ident.type,
-                  identifierValue: ident.value,
+                  identifierValue: this.crypto.encrypt(ident.value)!,
+                  identifierValueHash: this.crypto.hmac(ident.value),
                   connectorType: ident.connectorType || null,
                   createdAt: now,
                 })),
@@ -287,15 +297,15 @@ export class ContactsService {
           if (probe) {
             const rows = await this.dbService.withCurrentUser((db) =>
               db
-                .select({ contactId: contactIdentifiers.contactId })
-                .from(contactIdentifiers)
+                .select({ personId: personIdentifiers.personId })
+                .from(personIdentifiers)
                 .where(
-                  sql`${contactIdentifiers.identifierType} = ${probe.type} AND ${contactIdentifiers.identifierValue} = ${probe.value}`,
+                  sql`${personIdentifiers.identifierType} = ${probe.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(probe.value)}`,
                 )
                 .limit(1),
             );
             if (rows.length) {
-              contactId = rows[0].contactId;
+              personId = rows[0].personId;
               continue; // Retry with the new contactId
             }
           }
@@ -304,13 +314,15 @@ export class ContactsService {
           if (nameIdent) {
             const byName = await this.dbService.withCurrentUser((db) =>
               db
-                .select({ id: contacts.id })
-                .from(contacts)
-                .where(sql`LOWER(${contacts.displayName}) = LOWER(${nameIdent.value})`)
+                .select({ id: people.id })
+                .from(people)
+                .where(
+                  sql`${people.displayNameHash} = ${this.crypto.hmac(nameIdent.value.toLowerCase())}`,
+                )
                 .limit(1),
             );
             if (byName.length) {
-              contactId = byName[0].id;
+              personId = byName[0].id;
               continue;
             }
           }
@@ -324,26 +336,27 @@ export class ContactsService {
     if (nameIdent) {
       await this.dbService.withCurrentUser((db) =>
         db
-          .update(contacts)
-          .set({ displayName: nameIdent.value, updatedAt: new Date() })
-          .where(eq(contacts.id, contactId)),
+          .update(people)
+          .set({
+            displayName: this.crypto.encrypt(nameIdent.value)!,
+            displayNameHash: this.crypto.hmac(nameIdent.value.toLowerCase()),
+            updatedAt: new Date(),
+          })
+          .where(eq(people.id, personId)),
       );
     }
 
     // Update entityType if caller provides a non-person type and contact is currently person-typed
     if (entityType && entityType !== 'person') {
       const current = await this.dbService.withCurrentUser((db) =>
-        db
-          .select({ entityType: contacts.entityType })
-          .from(contacts)
-          .where(eq(contacts.id, contactId)),
+        db.select({ entityType: people.entityType }).from(people).where(eq(people.id, personId)),
       );
       if (current.length && (!current[0].entityType || current[0].entityType === 'person')) {
         await this.dbService.withCurrentUser((db) =>
           db
-            .update(contacts)
+            .update(people)
             .set({ entityType, updatedAt: new Date() })
-            .where(eq(contacts.id, contactId)),
+            .where(eq(people.id, personId)),
         );
       }
     }
@@ -353,7 +366,7 @@ export class ContactsService {
     // Capped at 5 merges per resolve to prevent infinite loops from circular references.
     try {
       const allIdentsForContact = await this.dbService.withCurrentUser((db) =>
-        db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, contactId)),
+        db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, personId)),
       );
 
       const MAX_MERGES_PER_RESOLVE = 5;
@@ -366,37 +379,37 @@ export class ContactsService {
       if (structuredContactIdents.length) {
         const orConds = structuredContactIdents.map(
           (i) =>
-            sql`(${contactIdentifiers.identifierType} = ${i.identifierType} AND ${contactIdentifiers.identifierValue} = ${i.identifierValue})`,
+            sql`(${personIdentifiers.identifierType} = ${i.identifierType} AND ${personIdentifiers.identifierValueHash} = ${i.identifierValueHash})`,
         );
         const dupeRows = await this.dbService.withCurrentUser((db) =>
           db
-            .select({ contactId: contactIdentifiers.contactId })
-            .from(contactIdentifiers)
-            .where(and(or(...orConds), sql`${contactIdentifiers.contactId} != ${contactId}`)),
+            .select({ personId: personIdentifiers.personId })
+            .from(personIdentifiers)
+            .where(and(or(...orConds), sql`${personIdentifiers.personId} != ${personId}`)),
         );
-        dupeContactIds = [...new Set(dupeRows.map((r) => r.contactId))];
+        dupeContactIds = [...new Set(dupeRows.map((r) => r.personId))];
       }
 
       let mergeCount = 0;
       for (const dupeId of dupeContactIds) {
         if (mergeCount >= MAX_MERGES_PER_RESOLVE) break;
-        await this.mergeContacts(contactId, dupeId);
+        await this.mergePeople(personId, dupeId);
         mergeCount++;
       }
 
       if (mergeCount >= MAX_MERGES_PER_RESOLVE) {
         this.logger.warn(
-          `[resolveContact] hit merge cap (${MAX_MERGES_PER_RESOLVE}) for contact ${contactId} — skipping remaining`,
+          `[resolvePerson] hit merge cap (${MAX_MERGES_PER_RESOLVE}) for contact ${personId} — skipping remaining`,
         );
       }
     } catch (err) {
       // Auto-merge is best-effort — don't fail the resolve
       this.logger.debug(
-        `[resolveContact] auto-merge skipped: ${err instanceof Error ? err.message : String(err)}`,
+        `[resolvePerson] auto-merge skipped: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
-    const result = await this.getById(contactId);
+    const result = await this.getById(personId);
     if (!result) {
       // Contact was deleted by a concurrent merge — it was absorbed into another contact.
       // Find where our identifiers ended up.
@@ -404,38 +417,39 @@ export class ContactsService {
       if (movedIdent) {
         const rows = await this.dbService.withCurrentUser((db) =>
           db
-            .select({ contactId: contactIdentifiers.contactId })
-            .from(contactIdentifiers)
+            .select({ personId: personIdentifiers.personId })
+            .from(personIdentifiers)
             .where(
-              sql`${contactIdentifiers.identifierType} = ${movedIdent.type} AND ${contactIdentifiers.identifierValue} = ${movedIdent.value}`,
+              sql`${personIdentifiers.identifierType} = ${movedIdent.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(movedIdent.value)}`,
             )
             .limit(1),
         );
         if (rows.length) {
-          return this.getById(rows[0].contactId) as Promise<ContactWithIdentifiers>;
+          return this.getById(rows[0].personId) as Promise<PersonWithIdentifiers>;
         }
       }
-      throw new Error(`Contact ${contactId} was deleted during resolution`);
+      throw new Error(`Contact ${personId} was deleted during resolution`);
     }
     return result;
   }
 
-  async getById(id: string): Promise<ContactWithIdentifiers | null> {
+  async getById(id: string): Promise<PersonWithIdentifiers | null> {
     const rows = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contacts).where(eq(contacts.id, id)),
+      db.select().from(people).where(eq(people.id, id)),
     );
     if (!rows.length) return null;
 
     const idents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, id)),
+      db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, id)),
     );
 
     return {
       ...rows[0],
+      displayName: this.crypto.decrypt(rows[0].displayName) ?? rows[0].displayName,
       identifiers: idents.map((i) => ({
         id: i.id,
         identifierType: i.identifierType,
-        identifierValue: i.identifierValue,
+        identifierValue: this.crypto.decrypt(i.identifierValue) ?? i.identifierValue,
         connectorType: i.connectorType,
         confidence: i.confidence,
       })),
@@ -446,8 +460,9 @@ export class ContactsService {
    * Check if an identifier is a device-format identifier (e.g., "amr/iphone" from OwnTracks).
    * Device identifiers should not appear in the people list.
    */
-  private isDeviceIdentifier(ident: typeof contactIdentifiers.$inferSelect): boolean {
-    const { identifierType, identifierValue } = ident;
+  private isDeviceIdentifier(ident: typeof personIdentifiers.$inferSelect): boolean {
+    const { identifierType } = ident;
+    const identifierValue = this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue;
 
     // OwnTracks device format: 'user/device' (e.g., 'amr/iphone')
     if (identifierType === 'device' && identifierValue.includes('/')) return true;
@@ -465,7 +480,7 @@ export class ContactsService {
   /**
    * Check if a contact is device-only (all identifiers are device identifiers).
    */
-  private isDeviceOnlyContact(identifiers: (typeof contactIdentifiers.$inferSelect)[]): boolean {
+  private isDeviceOnlyContact(identifiers: (typeof personIdentifiers.$inferSelect)[]): boolean {
     if (identifiers.length === 0) return false;
     return identifiers.every((i) => this.isDeviceIdentifier(i));
   }
@@ -473,67 +488,67 @@ export class ContactsService {
   async list(
     params: { limit?: number; offset?: number; entityType?: string; userId?: string } = {},
   ): Promise<{
-    items: ContactWithIdentifiers[];
+    items: PersonWithIdentifiers[];
     total: number;
   }> {
     const limit = params.limit || 50;
     const offset = params.offset || 0;
 
     const conditions: (SQLWrapper | undefined)[] = [];
-    if (params.entityType) conditions.push(eq(contacts.entityType, params.entityType));
-    if (params.userId) conditions.push(eq(contacts.userId, params.userId));
+    if (params.entityType) conditions.push(eq(people.entityType, params.entityType));
+    if (params.userId) conditions.push(eq(people.userId, params.userId));
     const where = conditions.length ? and(...conditions) : undefined;
 
     // Get total count without fetching all rows
     const countResult = await this.dbService.withCurrentUser((db) =>
       db
         .select({ count: sql<number>`count(*)` })
-        .from(contacts)
+        .from(people)
         .where(where),
     );
     const total = countResult[0].count;
 
-    // Get selfContactId to pin it first (per-user key, then global fallback)
-    let selfContactId = '';
+    // Get selfPersonId to pin it first (per-user key, then global fallback)
+    let selfPersonId = '';
     if (params.userId) {
       const perUserRow = await this.dbService.withCurrentUser((db) =>
         db
           .select({ value: settings.value })
           .from(settings)
-          .where(eq(settings.key, `selfContactId:${params.userId}`))
+          .where(eq(settings.key, `selfPersonId:${params.userId}`))
           .limit(1),
       );
-      selfContactId = perUserRow[0]?.value || '';
+      selfPersonId = perUserRow[0]?.value || '';
     }
-    if (!selfContactId) {
+    if (!selfPersonId) {
       const globalRow = await this.dbService.withCurrentUser((db) =>
         db
           .select({ value: settings.value })
           .from(settings)
-          .where(eq(settings.key, 'selfContactId'))
+          .where(eq(settings.key, 'selfPersonId'))
           .limit(1),
       );
-      selfContactId = globalRow[0]?.value || '';
+      selfPersonId = globalRow[0]?.value || '';
     }
 
     // Paginate: self-contact first, then by cached memory count desc
     const paged = await this.dbService.withCurrentUser((db) =>
       db
         .select({
-          id: contacts.id,
-          displayName: contacts.displayName,
-          entityType: contacts.entityType,
-          avatars: contacts.avatars,
-          metadata: contacts.metadata,
-          memoryCount: contacts.memoryCount,
-          createdAt: contacts.createdAt,
-          updatedAt: contacts.updatedAt,
+          id: people.id,
+          displayName: people.displayName,
+          entityType: people.entityType,
+          avatars: people.avatars,
+          metadata: people.metadata,
+          memoryCount: people.memoryCount,
+          createdAt: people.createdAt,
+          updatedAt: people.updatedAt,
         })
-        .from(contacts)
+        .from(people)
         .where(where)
         .orderBy(
-          sql`CASE WHEN ${contacts.id} = ${selfContactId} THEN 0 ELSE 1 END`,
-          sql`${contacts.memoryCount} DESC`,
+          sql`CASE WHEN ${people.id} = ${selfPersonId} THEN 0 ELSE 1 END`,
+          sql`${people.memoryCount} DESC`,
         )
         .limit(limit)
         .offset(offset),
@@ -546,15 +561,15 @@ export class ContactsService {
     // Batch-fetch all identifiers for this page in one query
     const pagedIds = paged.map((c) => c.id);
     const allIdents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers).where(inArray(contactIdentifiers.contactId, pagedIds)),
+      db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, pagedIds)),
     );
 
     // Group identifiers by contactId
     const identsByContact = new Map<string, typeof allIdents>();
     for (const ident of allIdents) {
-      const list = identsByContact.get(ident.contactId) || [];
+      const list = identsByContact.get(ident.personId) || [];
       list.push(ident);
-      identsByContact.set(ident.contactId, list);
+      identsByContact.set(ident.personId, list);
     }
 
     // Filter out device-only contacts
@@ -563,14 +578,15 @@ export class ContactsService {
       return !this.isDeviceOnlyContact(idents);
     });
 
-    const items: ContactWithIdentifiers[] = filteredPaged.map((c) => {
+    const items: PersonWithIdentifiers[] = filteredPaged.map((c) => {
       const idents = identsByContact.get(c.id) || [];
       return {
         ...c,
+        displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
         identifiers: idents.map((i) => ({
           id: i.id,
           identifierType: i.identifierType,
-          identifierValue: i.identifierValue,
+          identifierValue: this.crypto.decrypt(i.identifierValue) ?? i.identifierValue,
           connectorType: i.connectorType,
           confidence: i.confidence,
         })),
@@ -580,49 +596,57 @@ export class ContactsService {
     return { items, total };
   }
 
-  async search(query: string): Promise<ContactWithIdentifiers[]> {
-    const pattern = `%${query.toLowerCase()}%`;
+  async search(query: string): Promise<PersonWithIdentifiers[]> {
+    const lowerQuery = query.toLowerCase();
     const normQuery = query
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
 
-    // Search by display name (exact LIKE)
-    const nameMatches = await this.dbService.withCurrentUser((db) =>
-      db
-        .select()
-        .from(contacts)
-        .where(sql`LOWER(${contacts.displayName}) LIKE ${pattern}`),
+    // Since display names and identifier values are encrypted, we can't use SQL LIKE.
+    // Fetch all contacts and filter in-memory after decryption.
+    const allContactRows = await this.dbService.withCurrentUser((db) => db.select().from(people));
+
+    const allIdentRows = await this.dbService.withCurrentUser((db) =>
+      db.select().from(personIdentifiers),
     );
 
-    // Accent-stripped fallback: if query is "amelie", also match "Amélie"
-    if (normQuery !== query.toLowerCase()) {
-      const allContacts = await this.dbService.withCurrentUser((db) => db.select().from(contacts));
-      const existingIds = new Set(nameMatches.map((c) => c.id));
-      for (const c of allContacts) {
-        if (existingIds.has(c.id)) continue;
-        const normName = c.displayName
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase();
-        if (normName.includes(normQuery)) nameMatches.push(c);
+    // Build identifier lookup by contactId
+    const identsByContact = new Map<string, typeof allIdentRows>();
+    for (const ident of allIdentRows) {
+      const list = identsByContact.get(ident.personId) || [];
+      list.push(ident);
+      identsByContact.set(ident.personId, list);
+    }
+
+    const matchedIds = new Set<string>();
+
+    for (const c of allContactRows) {
+      const decryptedName = this.crypto.decrypt(c.displayName) ?? c.displayName;
+      const lowerName = decryptedName.toLowerCase();
+      const normName = decryptedName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+      if (lowerName.includes(lowerQuery) || normName.includes(normQuery)) {
+        matchedIds.add(c.id);
+        continue;
+      }
+
+      // Check identifiers
+      const idents = identsByContact.get(c.id) || [];
+      for (const i of idents) {
+        const decryptedValue = this.crypto.decrypt(i.identifierValue) ?? i.identifierValue;
+        if (decryptedValue.toLowerCase().includes(lowerQuery)) {
+          matchedIds.add(c.id);
+          break;
+        }
       }
     }
 
-    // Search by identifier value
-    const identMatches = await this.dbService.withCurrentUser((db) =>
-      db
-        .select({ contactId: contactIdentifiers.contactId })
-        .from(contactIdentifiers)
-        .where(sql`LOWER(${contactIdentifiers.identifierValue}) LIKE ${pattern}`),
-    );
-
-    const allIds = new Set<string>();
-    for (const c of nameMatches) allIds.add(c.id);
-    for (const i of identMatches) allIds.add(i.contactId);
-
-    const results: ContactWithIdentifiers[] = [];
-    for (const id of allIds) {
+    const results: PersonWithIdentifiers[] = [];
+    for (const id of matchedIds) {
       const c = await this.getById(id);
       if (c) results.push(c);
     }
@@ -635,12 +659,12 @@ export class ContactsService {
    * Falls back to storing the URL if download fails.
    */
   async updateAvatar(
-    contactId: string,
+    personId: string,
     avatar: { url: string; source: string },
     fetchHeaders?: Record<string, string>,
   ): Promise<void> {
     const rows = await this.dbService.withCurrentUser((db) =>
-      db.select({ avatars: contacts.avatars }).from(contacts).where(eq(contacts.id, contactId)),
+      db.select({ avatars: people.avatars }).from(people).where(eq(people.id, personId)),
     );
     if (!rows.length) return;
 
@@ -673,9 +697,9 @@ export class ContactsService {
 
     await this.dbService.withCurrentUser((db) =>
       db
-        .update(contacts)
+        .update(people)
         .set({ avatars: updated, updatedAt: new Date() })
-        .where(eq(contacts.id, contactId)),
+        .where(eq(people.id, personId)),
     );
   }
 
@@ -685,9 +709,9 @@ export class ContactsService {
   async backfillAvatarData(): Promise<{ converted: number; failed: number }> {
     const db = this.dbService.db;
     const allContacts = await db
-      .select({ id: contacts.id, avatars: contacts.avatars })
-      .from(contacts)
-      .where(sql`${contacts.avatars} IS NOT NULL AND ${contacts.avatars}::text != '[]'`);
+      .select({ id: people.id, avatars: people.avatars })
+      .from(people)
+      .where(sql`${people.avatars} IS NOT NULL AND ${people.avatars}::text != '[]'`);
 
     // Build auth headers for Immich
     let immichHeaders: Record<string, string> = {};
@@ -746,31 +770,31 @@ export class ContactsService {
 
       if (changed) {
         await db
-          .update(contacts)
+          .update(people)
           .set({ avatars: updated, updatedAt: new Date() })
-          .where(eq(contacts.id, contact.id));
+          .where(eq(people.id, contact.id));
       }
     }
 
     return { converted, failed };
   }
 
-  async linkMemory(memoryId: string, contactId: string, role: string): Promise<void> {
+  async linkMemory(memoryId: string, personId: string, role: string): Promise<void> {
     try {
       await this.dbService.withCurrentUser((db) =>
-        db.insert(memoryContacts).values({
+        db.insert(memoryPeople).values({
           id: randomUUID(),
           memoryId,
-          contactId,
+          personId,
           role,
         }),
       );
       // Increment cached memory count
       await this.dbService.withCurrentUser((db) =>
         db
-          .update(contacts)
-          .set({ memoryCount: sql`${contacts.memoryCount} + 1` })
-          .where(eq(contacts.id, contactId)),
+          .update(people)
+          .set({ memoryCount: sql`${people.memoryCount} + 1` })
+          .where(eq(people.id, personId)),
       );
     } catch (err: unknown) {
       // Contact may have been merged/deleted concurrently — skip silently
@@ -780,11 +804,11 @@ export class ContactsService {
   }
 
   async getMemories(
-    contactId: string,
+    personId: string,
     limit = 50,
     userId?: string,
   ): Promise<Record<string, unknown>[]> {
-    const conditions = [eq(memoryContacts.contactId, contactId)];
+    const conditions = [eq(memoryPeople.personId, personId)];
     if (userId) {
       // Filter memories to only those belonging to user's accounts
       conditions.push(
@@ -795,8 +819,8 @@ export class ContactsService {
     const mems = await this.dbService.withCurrentUser((db) =>
       db
         .select({ memory: memories })
-        .from(memoryContacts)
-        .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
+        .from(memoryPeople)
+        .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
         .where(and(...conditions))
         .limit(limit),
     );
@@ -832,33 +856,36 @@ export class ContactsService {
     return this.crypto.decryptMemoryFields(mem);
   }
 
-  async updateContact(
+  async updatePerson(
     id: string,
     updates: {
       displayName?: string;
       avatars?: Array<{ url: string; source: string }>;
       metadata?: Record<string, unknown>;
     },
-  ): Promise<ContactWithIdentifiers | null> {
+  ): Promise<PersonWithIdentifiers | null> {
     // Check contact exists
     const existing = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contacts).where(eq(contacts.id, id)),
+      db.select().from(people).where(eq(people.id, id)),
     );
     if (!existing.length) return null;
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
-    if (updates.displayName !== undefined) patch.displayName = updates.displayName;
+    if (updates.displayName !== undefined) {
+      patch.displayName = this.crypto.encrypt(updates.displayName)!;
+      patch.displayNameHash = this.crypto.hmac(updates.displayName.toLowerCase());
+    }
     if (updates.avatars !== undefined) patch.avatars = updates.avatars;
     if (updates.metadata !== undefined) patch.metadata = JSON.stringify(updates.metadata);
 
     await this.dbService.withCurrentUser((db) =>
-      db.update(contacts).set(patch).where(eq(contacts.id, id)),
+      db.update(people).set(patch).where(eq(people.id, id)),
     );
 
     return this.getById(id);
   }
 
-  async mergeContacts(targetId: string, sourceId: string): Promise<ContactWithIdentifiers> {
+  async mergePeople(targetId: string, sourceId: string): Promise<PersonWithIdentifiers> {
     // Retry on deadlock up to 3 times
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -866,8 +893,8 @@ export class ContactsService {
         await this.dbService.withCurrentUser(
           async (db) =>
             await db.transaction(async (tx) => {
-              const targetRows = await tx.select().from(contacts).where(eq(contacts.id, targetId));
-              const sourceRows = await tx.select().from(contacts).where(eq(contacts.id, sourceId));
+              const targetRows = await tx.select().from(people).where(eq(people.id, targetId));
+              const sourceRows = await tx.select().from(people).where(eq(people.id, sourceId));
 
               if (!targetRows.length || !sourceRows.length) return; // Either side already merged/deleted -- nothing to do
 
@@ -888,120 +915,133 @@ export class ContactsService {
               }
 
               // Prefer a real name over phone numbers / raw IDs
+              // Decrypt display names for comparison
+              const decryptedSourceName =
+                this.crypto.decrypt(source.displayName) ?? source.displayName;
+              const decryptedTargetName =
+                this.crypto.decrypt(target.displayName) ?? target.displayName;
               const isPhone = (s: string) => /^\+?\d[\d\s-]{5,}$/.test(s.trim());
               const isRawId = (s: string) => /\bU[A-Z0-9]{8,}\b/.test(s);
               const sourceIsName =
-                !isPhone(source.displayName) &&
-                !isRawId(source.displayName) &&
-                source.displayName !== 'Unknown';
+                !isPhone(decryptedSourceName) &&
+                !isRawId(decryptedSourceName) &&
+                decryptedSourceName !== 'Unknown';
               const targetIsName =
-                !isPhone(target.displayName) &&
-                !isRawId(target.displayName) &&
-                target.displayName !== 'Unknown';
-              let displayName: string;
+                !isPhone(decryptedTargetName) &&
+                !isRawId(decryptedTargetName) &&
+                decryptedTargetName !== 'Unknown';
+              let chosenName: string;
               if (sourceIsName && !targetIsName) {
-                displayName = source.displayName;
+                chosenName = decryptedSourceName;
               } else if (targetIsName && !sourceIsName) {
-                displayName = target.displayName;
+                chosenName = decryptedTargetName;
               } else {
                 // Both are names or both aren't — keep the longer one
-                displayName =
-                  source.displayName.length > target.displayName.length
-                    ? source.displayName
-                    : target.displayName;
+                chosenName =
+                  decryptedSourceName.length > decryptedTargetName.length
+                    ? decryptedSourceName
+                    : decryptedTargetName;
               }
+              // Re-encrypt the chosen name for storage
+              const displayName = this.crypto.encrypt(chosenName)!;
+              const displayNameHash = this.crypto.hmac(chosenName.toLowerCase());
 
               // Move identifiers from source to target, skipping duplicates
               const sourceIds = await tx
                 .select()
-                .from(contactIdentifiers)
-                .where(eq(contactIdentifiers.contactId, sourceId));
+                .from(personIdentifiers)
+                .where(eq(personIdentifiers.personId, sourceId));
               const targetIds = await tx
                 .select()
-                .from(contactIdentifiers)
-                .where(eq(contactIdentifiers.contactId, targetId));
+                .from(personIdentifiers)
+                .where(eq(personIdentifiers.personId, targetId));
               const targetIdKeys = new Set(
-                targetIds.map((i) => `${i.identifierType}::${i.identifierValue}`),
+                targetIds.map((i) => `${i.identifierType}::${i.identifierValueHash || ''}`),
               );
               const dupeIdentIds = sourceIds
-                .filter((i) => targetIdKeys.has(`${i.identifierType}::${i.identifierValue}`))
+                .filter((i) =>
+                  targetIdKeys.has(`${i.identifierType}::${i.identifierValueHash || ''}`),
+                )
                 .map((i) => i.id);
               const moveIdentIds = sourceIds
-                .filter((i) => !targetIdKeys.has(`${i.identifierType}::${i.identifierValue}`))
+                .filter(
+                  (i) => !targetIdKeys.has(`${i.identifierType}::${i.identifierValueHash || ''}`),
+                )
                 .map((i) => i.id);
               if (dupeIdentIds.length) {
                 await tx
-                  .delete(contactIdentifiers)
-                  .where(inArray(contactIdentifiers.id, dupeIdentIds));
+                  .delete(personIdentifiers)
+                  .where(inArray(personIdentifiers.id, dupeIdentIds));
               }
               if (moveIdentIds.length) {
                 await tx
-                  .update(contactIdentifiers)
-                  .set({ contactId: targetId })
-                  .where(inArray(contactIdentifiers.id, moveIdentIds));
+                  .update(personIdentifiers)
+                  .set({ personId: targetId })
+                  .where(inArray(personIdentifiers.id, moveIdentIds));
               }
 
-              // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
+              // Deduplicate memoryPeople: delete source rows where target already has the same memoryId+role
               const sourceMemLinks = await tx
                 .select()
-                .from(memoryContacts)
-                .where(eq(memoryContacts.contactId, sourceId));
+                .from(memoryPeople)
+                .where(eq(memoryPeople.personId, sourceId));
               const targetMemLinks = await tx
                 .select()
-                .from(memoryContacts)
-                .where(eq(memoryContacts.contactId, targetId));
+                .from(memoryPeople)
+                .where(eq(memoryPeople.personId, targetId));
               const targetMemKeys = new Set(targetMemLinks.map((m) => `${m.memoryId}::${m.role}`));
 
               const dupeMemLinkIds = sourceMemLinks
                 .filter((m) => targetMemKeys.has(`${m.memoryId}::${m.role}`))
                 .map((m) => m.id);
               if (dupeMemLinkIds.length) {
-                await tx.delete(memoryContacts).where(inArray(memoryContacts.id, dupeMemLinkIds));
+                await tx.delete(memoryPeople).where(inArray(memoryPeople.id, dupeMemLinkIds));
               }
 
-              // Move remaining source memoryContacts to target
+              // Move remaining source memoryPeople to target
               await tx
-                .update(memoryContacts)
-                .set({ contactId: targetId })
-                .where(eq(memoryContacts.contactId, sourceId));
+                .update(memoryPeople)
+                .set({ personId: targetId })
+                .where(eq(memoryPeople.personId, sourceId));
 
               // Recompute target memory count after link moves
               const [{ count: newMemCount }] = await tx
                 .select({ count: sql<number>`count(*)` })
-                .from(memoryContacts)
-                .where(eq(memoryContacts.contactId, targetId));
+                .from(memoryPeople)
+                .where(eq(memoryPeople.personId, targetId));
 
               // Update target contact
               await tx
-                .update(contacts)
+                .update(people)
                 .set({
                   displayName,
+                  displayNameHash,
                   avatars: targetAvatars,
                   memoryCount: newMemCount,
                   updatedAt: new Date(),
                 })
-                .where(eq(contacts.id, targetId));
+                .where(eq(people.id, targetId));
 
               // Clean up dismissals referencing source
               await tx
                 .delete(mergeDismissals)
                 .where(
                   or(
-                    eq(mergeDismissals.contactId1, sourceId),
-                    eq(mergeDismissals.contactId2, sourceId),
+                    eq(mergeDismissals.personId1, sourceId),
+                    eq(mergeDismissals.personId2, sourceId),
                   )!,
                 );
 
               // Delete any remaining children (race condition: concurrent workers may have added new ones)
-              await tx.delete(contactIdentifiers).where(eq(contactIdentifiers.contactId, sourceId));
-              await tx.delete(memoryContacts).where(eq(memoryContacts.contactId, sourceId));
+              await tx.delete(personIdentifiers).where(eq(personIdentifiers.personId, sourceId));
+              await tx.delete(memoryPeople).where(eq(memoryPeople.personId, sourceId));
 
               // Delete source contact
-              await tx.delete(contacts).where(eq(contacts.id, sourceId));
+              await tx.delete(people).where(eq(people.id, sourceId));
             }),
         );
         // Success — return
-        return this.getById(targetId) as Promise<ContactWithIdentifiers>;
+        return this.getById(targetId) as Promise<PersonWithIdentifiers>;
       } catch (err: unknown) {
         lastError = err;
         // Deadlock (40P01) or FK violation (23503) from concurrent inserts — retry
@@ -1020,30 +1060,32 @@ export class ContactsService {
     throw lastError;
   }
 
-  async deleteContact(id: string): Promise<void> {
+  async deletePerson(id: string): Promise<void> {
     await this.dbService.withCurrentUser(async (db) => {
-      await db.delete(memoryContacts).where(eq(memoryContacts.contactId, id));
-      await db.delete(contactIdentifiers).where(eq(contactIdentifiers.contactId, id));
+      await db.delete(memoryPeople).where(eq(memoryPeople.personId, id));
+      await db.delete(personIdentifiers).where(eq(personIdentifiers.personId, id));
       await db
         .delete(mergeDismissals)
-        .where(or(eq(mergeDismissals.contactId1, id), eq(mergeDismissals.contactId2, id))!);
-      await db.delete(contacts).where(eq(contacts.id, id));
+        .where(or(eq(mergeDismissals.personId1, id), eq(mergeDismissals.personId2, id))!);
+      await db.delete(people).where(eq(people.id, id));
     });
   }
 
   async getSuggestions(userId?: string): Promise<
     Array<{
-      contact1: ContactWithIdentifiers;
-      contact2: ContactWithIdentifiers;
+      contact1: PersonWithIdentifiers;
+      contact2: PersonWithIdentifiers;
       reason: string;
     }>
   > {
-    // Load contacts — filter by userId if provided
-    const allContacts = await this.dbService.withCurrentUser((db) =>
-      userId
-        ? db.select().from(contacts).where(eq(contacts.userId, userId))
-        : db.select().from(contacts),
+    // Load contacts — filter by userId if provided, decrypt display names
+    const rawContacts = await this.dbService.withCurrentUser((db) =>
+      userId ? db.select().from(people).where(eq(people.userId, userId)) : db.select().from(people),
     );
+    const allContacts = rawContacts.map((c) => ({
+      ...c,
+      displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
+    }));
 
     // Scope identifiers, dismissals, and memory links to this user's contacts
     const contactIds = allContacts.map((c) => c.id);
@@ -1052,10 +1094,7 @@ export class ContactsService {
     // Run all 3 queries in parallel
     const [allIdentifiers, allDismissals, allMemoryContacts] = await Promise.all([
       this.dbService.withCurrentUser((db) =>
-        db
-          .select()
-          .from(contactIdentifiers)
-          .where(inArray(contactIdentifiers.contactId, contactIds)),
+        db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, contactIds)),
       ),
       this.dbService.withCurrentUser((db) =>
         db
@@ -1063,13 +1102,13 @@ export class ContactsService {
           .from(mergeDismissals)
           .where(
             or(
-              inArray(mergeDismissals.contactId1, contactIds),
-              inArray(mergeDismissals.contactId2, contactIds),
+              inArray(mergeDismissals.personId1, contactIds),
+              inArray(mergeDismissals.personId2, contactIds),
             )!,
           ),
       ),
       this.dbService.withCurrentUser((db) =>
-        db.select().from(memoryContacts).where(inArray(memoryContacts.contactId, contactIds)),
+        db.select().from(memoryPeople).where(inArray(memoryPeople.personId, contactIds)),
       ),
     ]);
 
@@ -1077,32 +1116,32 @@ export class ContactsService {
     const contactConnectors = new Map<string, Set<string>>();
     for (const ident of allIdentifiers) {
       if (ident.connectorType) {
-        const set = contactConnectors.get(ident.contactId) || new Set();
+        const set = contactConnectors.get(ident.personId) || new Set();
         set.add(ident.connectorType);
-        contactConnectors.set(ident.contactId, set);
+        contactConnectors.set(ident.personId, set);
       }
     }
 
     // Build dismissed pairs set (sorted id pair as key)
     const dismissedPairs = new Set<string>();
     for (const d of allDismissals) {
-      const key = [d.contactId1, d.contactId2].sort().join('::');
+      const key = [d.personId1, d.personId2].sort().join('::');
       dismissedPairs.add(key);
     }
 
     // Build identifiers map for quick lookup
     const contactIdentsMap = new Map<string, typeof allIdentifiers>();
     for (const ident of allIdentifiers) {
-      const list = contactIdentsMap.get(ident.contactId) || [];
+      const list = contactIdentsMap.get(ident.personId) || [];
       list.push(ident);
-      contactIdentsMap.set(ident.contactId, list);
+      contactIdentsMap.set(ident.personId, list);
     }
 
     // Build co-occurrence map: contacts that appear in the same memories
     const memoryToContacts = new Map<string, Set<string>>();
     for (const mc of allMemoryContacts) {
       const set = memoryToContacts.get(mc.memoryId) || new Set();
-      set.add(mc.contactId);
+      set.add(mc.personId);
       memoryToContacts.set(mc.memoryId, set);
     }
     const coOccurrence = new Set<string>();
@@ -1118,8 +1157,8 @@ export class ContactsService {
 
     const suggestedPairs = new Set<string>();
     const suggestions: Array<{
-      contact1: ContactWithIdentifiers;
-      contact2: ContactWithIdentifiers;
+      contact1: PersonWithIdentifiers;
+      contact2: PersonWithIdentifiers;
       reason: string;
     }> = [];
 
@@ -1140,7 +1179,7 @@ export class ContactsService {
           identifiers: idents1.map((id) => ({
             id: id.id,
             identifierType: id.identifierType,
-            identifierValue: id.identifierValue,
+            identifierValue: this.crypto.decrypt(id.identifierValue) ?? id.identifierValue,
             connectorType: id.connectorType,
             confidence: id.confidence,
           })),
@@ -1150,7 +1189,7 @@ export class ContactsService {
           identifiers: idents2.map((id) => ({
             id: id.id,
             identifierType: id.identifierType,
-            identifierValue: id.identifierValue,
+            identifierValue: this.crypto.decrypt(id.identifierValue) ?? id.identifierValue,
             connectorType: id.connectorType,
             confidence: id.confidence,
           })),
@@ -1181,7 +1220,10 @@ export class ContactsService {
         if (i1.identifierType === 'name') continue;
         for (const i2 of idents2) {
           if (i2.identifierType === 'name') continue;
-          if (i1.identifierType === i2.identifierType && i1.identifierValue === i2.identifierValue)
+          if (
+            i1.identifierType === i2.identifierType &&
+            i1.identifierValueHash === i2.identifierValueHash
+          )
             return true;
         }
       }
@@ -1303,7 +1345,7 @@ export class ContactsService {
    */
   async normalizeAll(): Promise<{ normalized: number; deduped: number; merged: number }> {
     const allIdents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers),
+      db.select().from(personIdentifiers),
     );
 
     let normalized = 0;
@@ -1312,60 +1354,66 @@ export class ContactsService {
 
     // Pass 1: Normalize values and reclassify types
     for (const ident of allIdents) {
+      const decryptedValue = this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue;
       const norm = normalizeIdentifier({
         type: ident.identifierType,
-        value: ident.identifierValue,
+        value: decryptedValue,
       });
 
       if (!norm) {
         // Empty after normalization — delete it
         await this.dbService.withCurrentUser((db) =>
-          db.delete(contactIdentifiers).where(eq(contactIdentifiers.id, ident.id)),
+          db.delete(personIdentifiers).where(eq(personIdentifiers.id, ident.id)),
         );
         deduped++;
         continue;
       }
 
-      if (norm.type !== ident.identifierType || norm.value !== ident.identifierValue) {
+      if (norm.type !== ident.identifierType || norm.value !== decryptedValue) {
         await this.dbService.withCurrentUser((db) =>
           db
-            .update(contactIdentifiers)
-            .set({ identifierType: norm.type, identifierValue: norm.value })
-            .where(eq(contactIdentifiers.id, ident.id)),
+            .update(personIdentifiers)
+            .set({
+              identifierType: norm.type,
+              identifierValue: this.crypto.encrypt(norm.value)!,
+              identifierValueHash: this.crypto.hmac(norm.value),
+            })
+            .where(eq(personIdentifiers.id, ident.id)),
         );
         normalized++;
       }
     }
 
-    // Pass 2: Remove duplicate identifiers (same contact, same type+value)
+    // Pass 2: Remove duplicate identifiers (same contact, same type+hash)
     const remaining = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers),
+      db.select().from(personIdentifiers),
     );
     const seenPerContact = new Map<string, Set<string>>();
     for (const ident of remaining) {
-      const contactSeen = seenPerContact.get(ident.contactId) || new Set();
-      if (contactSeen.has(`${ident.identifierType}::${ident.identifierValue}`)) {
+      const contactSeen = seenPerContact.get(ident.personId) || new Set();
+      const dedupKey = `${ident.identifierType}::${ident.identifierValueHash || ''}`;
+      if (contactSeen.has(dedupKey)) {
         await this.dbService.withCurrentUser((db) =>
-          db.delete(contactIdentifiers).where(eq(contactIdentifiers.id, ident.id)),
+          db.delete(personIdentifiers).where(eq(personIdentifiers.id, ident.id)),
         );
         deduped++;
       } else {
-        contactSeen.add(`${ident.identifierType}::${ident.identifierValue}`);
-        seenPerContact.set(ident.contactId, contactSeen);
+        contactSeen.add(dedupKey);
+        seenPerContact.set(ident.personId, contactSeen);
       }
     }
 
     // Pass 3: Merge contacts that now share non-name identifiers
     const afterDedup = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers),
+      db.select().from(personIdentifiers),
     );
-    // Build value → contactIds map (skip name identifiers)
+    // Build value → contactIds map (skip name identifiers) using HMAC hashes
     const valueToContacts = new Map<string, Set<string>>();
     for (const ident of afterDedup) {
       if (ident.identifierType === 'name') continue;
-      const key = `${ident.identifierType}::${ident.identifierValue}`;
+      const key = `${ident.identifierType}::${ident.identifierValueHash || ''}`;
       const set = valueToContacts.get(key) || new Set();
-      set.add(ident.contactId);
+      set.add(ident.personId);
       valueToContacts.set(key, set);
     }
 
@@ -1386,7 +1434,7 @@ export class ContactsService {
 
       const targetId = targets[0];
       for (const sourceId of targets.slice(1)) {
-        await this.mergeContacts(targetId, sourceId);
+        await this.mergePeople(targetId, sourceId);
         mergedInto.set(sourceId, targetId);
         merged++;
       }
@@ -1403,7 +1451,7 @@ export class ContactsService {
    */
   async reclassifyEntityTypes(): Promise<{
     reclassified: number;
-    details: Array<{ contactId: string; displayName: string; oldType: string; newType: string }>;
+    details: Array<{ personId: string; displayName: string; oldType: string; newType: string }>;
   }> {
     const NON_PERSON_TYPES = [
       'organization',
@@ -1420,12 +1468,12 @@ export class ContactsService {
     const personContacts = await this.dbService.withCurrentUser((db) =>
       db
         .select()
-        .from(contacts)
-        .where(sql`COALESCE(${contacts.entityType}, 'person') = 'person'`),
+        .from(people)
+        .where(sql`COALESCE(${people.entityType}, 'person') = 'person'`),
     );
 
     const details: Array<{
-      contactId: string;
+      personId: string;
       displayName: string;
       oldType: string;
       newType: string;
@@ -1442,9 +1490,9 @@ export class ContactsService {
       const linkedMemories = await this.dbService.withCurrentUser((db) =>
         db
           .select({ entities: memories.entities })
-          .from(memoryContacts)
-          .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
-          .where(eq(memoryContacts.contactId, contact.id)),
+          .from(memoryPeople)
+          .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+          .where(eq(memoryPeople.personId, contact.id)),
       );
 
       // Count ALL entity type occurrences matching this contact's name
@@ -1498,13 +1546,13 @@ export class ContactsService {
       // Update the contact
       await this.dbService.withCurrentUser((db) =>
         db
-          .update(contacts)
+          .update(people)
           .set({ entityType: bestType, updatedAt: new Date() })
-          .where(eq(contacts.id, contact.id)),
+          .where(eq(people.id, contact.id)),
       );
 
       details.push({
-        contactId: contact.id,
+        personId: contact.id,
         displayName: contact.displayName,
         oldType: contact.entityType || 'person',
         newType: bestType,
@@ -1514,58 +1562,72 @@ export class ContactsService {
     return { reclassified: details.length, details };
   }
 
-  async removeIdentifier(contactId: string, identifierId: string): Promise<ContactWithIdentifiers> {
+  async removeIdentifier(personId: string, identifierId: string): Promise<PersonWithIdentifiers> {
     // Verify identifier exists and belongs to contact
     const idents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, contactId)),
+      db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, personId)),
     );
 
-    if (!idents.length) throw new Error(`Contact ${contactId} has no identifiers`);
+    if (!idents.length) throw new Error(`Contact ${personId} has no identifiers`);
 
     const target = idents.find((i) => i.id === identifierId);
     if (!target)
-      throw new Error(`Identifier ${identifierId} does not belong to contact ${contactId}`);
+      throw new Error(`Identifier ${identifierId} does not belong to contact ${personId}`);
 
     // Prevent removing last identifier
     if (idents.length <= 1) throw new Error('Cannot remove the last identifier from a contact');
 
     // Delete the identifier
     await this.dbService.withCurrentUser((db) =>
-      db.delete(contactIdentifiers).where(eq(contactIdentifiers.id, identifierId)),
+      db.delete(personIdentifiers).where(eq(personIdentifiers.id, identifierId)),
     );
 
     // If removed identifier was name type matching displayName, update display name
     if (target.identifierType === 'name') {
       const contact = await this.dbService.withCurrentUser((db) =>
-        db.select().from(contacts).where(eq(contacts.id, contactId)),
+        db.select().from(people).where(eq(people.id, personId)),
       );
-      if (contact.length && contact[0].displayName === target.identifierValue) {
+      const decryptedContactName = contact.length
+        ? (this.crypto.decrypt(contact[0].displayName) ?? contact[0].displayName)
+        : '';
+      const decryptedTargetValue =
+        this.crypto.decrypt(target.identifierValue) ?? target.identifierValue;
+      if (contact.length && decryptedContactName === decryptedTargetValue) {
         const remaining = idents.filter((i) => i.id !== identifierId);
         const nextName = remaining.find((i) => i.identifierType === 'name');
-        const newDisplayName =
-          nextName?.identifierValue || remaining[0]?.identifierValue || 'Unknown';
+        const decryptedNextName = nextName
+          ? (this.crypto.decrypt(nextName.identifierValue) ?? nextName.identifierValue)
+          : null;
+        const decryptedRemainingFirst = remaining[0]
+          ? (this.crypto.decrypt(remaining[0].identifierValue) ?? remaining[0].identifierValue)
+          : 'Unknown';
+        const newDisplayName = decryptedNextName || decryptedRemainingFirst;
         await this.dbService.withCurrentUser((db) =>
           db
-            .update(contacts)
-            .set({ displayName: newDisplayName, updatedAt: new Date() })
-            .where(eq(contacts.id, contactId)),
+            .update(people)
+            .set({
+              displayName: this.crypto.encrypt(newDisplayName)!,
+              displayNameHash: this.crypto.hmac(newDisplayName.toLowerCase()),
+              updatedAt: new Date(),
+            })
+            .where(eq(people.id, personId)),
         );
       }
     }
 
-    return this.getById(contactId) as Promise<ContactWithIdentifiers>;
+    return this.getById(personId) as Promise<PersonWithIdentifiers>;
   }
 
-  async splitContact(contactId: string, identifierIds: string[]): Promise<ContactWithIdentifiers> {
+  async splitPerson(personId: string, identifierIds: string[]): Promise<PersonWithIdentifiers> {
     // Validate source contact exists
     const sourceRows = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contacts).where(eq(contacts.id, contactId)),
+      db.select().from(people).where(eq(people.id, personId)),
     );
-    if (!sourceRows.length) throw new Error(`Contact ${contactId} not found`);
+    if (!sourceRows.length) throw new Error(`Contact ${personId} not found`);
 
     // Validate all identifierIds belong to this contact
     const allIdents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, contactId)),
+      db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, personId)),
     );
 
     const toMove = allIdents.filter((i) => identifierIds.includes(i.id));
@@ -1582,12 +1644,17 @@ export class ContactsService {
     const newId = randomUUID();
     const now = new Date();
     const nameIdent = toMove.find((i) => i.identifierType === 'name');
-    const displayName = nameIdent?.identifierValue || toMove[0]?.identifierValue || 'Unknown';
+    const decryptedName = nameIdent
+      ? (this.crypto.decrypt(nameIdent.identifierValue) ?? nameIdent.identifierValue)
+      : toMove[0]
+        ? (this.crypto.decrypt(toMove[0].identifierValue) ?? toMove[0].identifierValue)
+        : 'Unknown';
 
     await this.dbService.withCurrentUser((db) =>
-      db.insert(contacts).values({
+      db.insert(people).values({
         id: newId,
-        displayName,
+        displayName: this.crypto.encrypt(decryptedName)!,
+        displayNameHash: this.crypto.hmac(decryptedName.toLowerCase()),
         entityType: sourceRows[0].entityType || 'person',
         createdAt: now,
         updatedAt: now,
@@ -1597,12 +1664,12 @@ export class ContactsService {
     // Move selected identifiers to new contact
     await this.dbService.withCurrentUser((db) =>
       db
-        .update(contactIdentifiers)
-        .set({ contactId: newId })
-        .where(inArray(contactIdentifiers.id, identifierIds)),
+        .update(personIdentifiers)
+        .set({ personId: newId })
+        .where(inArray(personIdentifiers.id, identifierIds)),
     );
 
-    return this.getById(newId) as Promise<ContactWithIdentifiers>;
+    return this.getById(newId) as Promise<PersonWithIdentifiers>;
   }
 
   /**
@@ -1614,38 +1681,38 @@ export class ContactsService {
     const trimmed = displayName.trim();
     if (!trimmed) return;
 
-    // Find all contacts with this exact display name (case-insensitive), scoped to user
+    // Find all contacts with this exact display name (case-insensitive) via HMAC hash
     const conditions: (SQLWrapper | undefined)[] = [
-      sql`LOWER(${contacts.displayName}) = LOWER(${trimmed})`,
+      sql`${people.displayNameHash} = ${this.crypto.hmac(trimmed.toLowerCase())}`,
     ];
-    if (userId) conditions.push(eq(contacts.userId, userId));
+    if (userId) conditions.push(eq(people.userId, userId));
 
     const matches = await this.dbService.withCurrentUser((db) =>
       db
         .select()
-        .from(contacts)
+        .from(people)
         .where(and(...conditions)),
     );
 
     if (matches.length < 2) return;
 
-    // Pick winner: contact with most memoryContacts rows; break ties by most recent createdAt
+    // Pick winner: contact with most memoryPeople rows; break ties by most recent createdAt
     const memCounts = await this.dbService.withCurrentUser((db) =>
       db
-        .select({ contactId: memoryContacts.contactId, count: sql<number>`COUNT(*)` })
-        .from(memoryContacts)
+        .select({ personId: memoryPeople.personId, count: sql<number>`COUNT(*)` })
+        .from(memoryPeople)
         .where(
           inArray(
-            memoryContacts.contactId,
+            memoryPeople.personId,
             matches.map((c) => c.id),
           ),
         )
-        .groupBy(memoryContacts.contactId),
+        .groupBy(memoryPeople.personId),
     );
 
     const countMap = new Map<string, number>();
     for (const row of memCounts) {
-      countMap.set(row.contactId, Number(row.count));
+      countMap.set(row.personId, Number(row.count));
     }
 
     matches.sort((a, b) => {
@@ -1660,7 +1727,7 @@ export class ContactsService {
 
     for (const loser of losers) {
       try {
-        await this.mergeContacts(winner.id, loser.id);
+        await this.mergePeople(winner.id, loser.id);
         this.logger.log(`[deduplicateByExactName] merged ${loser.id} → ${winner.id}`);
       } catch (err) {
         // Concurrent merge may have already handled this — ignore
@@ -1695,17 +1762,17 @@ export class ContactsService {
     ]);
 
     // Load all contacts and identifiers in bulk
-    const allContacts = await this.dbService.withCurrentUser((db) => db.select().from(contacts));
+    const allContacts = await this.dbService.withCurrentUser((db) => db.select().from(people));
     const allIdentifiers = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers),
+      db.select().from(personIdentifiers),
     );
 
     // Build contactId -> identifiers map
     const identsMap = new Map<string, typeof allIdentifiers>();
     for (const ident of allIdentifiers) {
-      const list = identsMap.get(ident.contactId) || [];
+      const list = identsMap.get(ident.personId) || [];
       list.push(ident);
-      identsMap.set(ident.contactId, list);
+      identsMap.set(ident.personId, list);
     }
 
     // Group contacts by normalized display name
@@ -1756,7 +1823,7 @@ export class ContactsService {
         for (let i = 1; i < nonPersonInGroup.length; i++) {
           const source = nonPersonInGroup[i];
           try {
-            await this.mergeContacts(target.id, source.id);
+            await this.mergePeople(target.id, source.id);
             mergedAway.add(source.id);
             result.merged++;
             result.byRule.nonPerson++;
@@ -1794,7 +1861,7 @@ export class ContactsService {
         const target = richContacts[0];
         for (const sparse of sparseContacts) {
           try {
-            await this.mergeContacts(target.id, sparse.id);
+            await this.mergePeople(target.id, sparse.id);
             mergedAway.add(sparse.id);
             result.merged++;
             result.byRule.sparseToRich++;
@@ -1823,8 +1890,8 @@ export class ContactsService {
       await this.dbService.withCurrentUser((db) =>
         db.insert(mergeDismissals).values({
           id: randomUUID(),
-          contactId1: id1,
-          contactId2: id2,
+          personId1: id1,
+          personId2: id2,
           createdAt: new Date(),
         }),
       );
@@ -1840,7 +1907,7 @@ export class ContactsService {
     await this.dbService.withCurrentUser((db) =>
       db
         .delete(mergeDismissals)
-        .where(and(eq(mergeDismissals.contactId1, id1), eq(mergeDismissals.contactId2, id2))),
+        .where(and(eq(mergeDismissals.personId1, id1), eq(mergeDismissals.personId2, id2))),
     );
   }
 }

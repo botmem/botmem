@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { memoryBanks, memories, memoryContacts, memoryLinks } from '../db/schema';
 import { QdrantService } from '../memory/qdrant.service';
 
@@ -8,18 +9,26 @@ import { QdrantService } from '../memory/qdrant.service';
 export class MemoryBanksService {
   constructor(
     private dbService: DbService,
+    private crypto: CryptoService,
     private qdrant: QdrantService,
   ) {}
+
+  /** Decrypt memory bank name */
+  private decryptBank<T extends { name: string }>(row: T): T {
+    return { ...row, name: this.crypto.decrypt(row.name) ?? row.name };
+  }
 
   private get db() {
     return this.dbService.db;
   }
 
   async create(userId: string, name: string): Promise<typeof memoryBanks.$inferSelect> {
+    // Check uniqueness via HMAC hash
+    const nameHash = this.crypto.hmac(name.toLowerCase());
     const existing = await this.db
       .select()
       .from(memoryBanks)
-      .where(and(eq(memoryBanks.userId, userId), eq(memoryBanks.name, name)));
+      .where(and(eq(memoryBanks.userId, userId), eq(memoryBanks.nameHash, nameHash)));
     if (existing.length) {
       throw new BadRequestException(`Memory bank "${name}" already exists`);
     }
@@ -29,7 +38,8 @@ export class MemoryBanksService {
     await this.db.insert(memoryBanks).values({
       id,
       userId,
-      name,
+      name: this.crypto.encrypt(name)!,
+      nameHash,
       isDefault: false,
       createdAt: now,
       updatedAt: now,
@@ -38,7 +48,8 @@ export class MemoryBanksService {
   }
 
   async list(userId: string) {
-    return this.db.select().from(memoryBanks).where(eq(memoryBanks.userId, userId));
+    const rows = await this.db.select().from(memoryBanks).where(eq(memoryBanks.userId, userId));
+    return rows.map((r) => this.decryptBank(r));
   }
 
   async getById(userId: string, memoryBankId: string) {
@@ -47,24 +58,25 @@ export class MemoryBanksService {
       .from(memoryBanks)
       .where(and(eq(memoryBanks.id, memoryBankId), eq(memoryBanks.userId, userId)));
     if (!bank) throw new NotFoundException(`Memory bank ${memoryBankId} not found`);
-    return bank;
+    return this.decryptBank(bank);
   }
 
   async rename(userId: string, memoryBankId: string, name: string) {
     const bank = await this.getById(userId, memoryBankId);
 
-    // Check name uniqueness
+    // Check name uniqueness via HMAC hash
+    const nameHash = this.crypto.hmac(name.toLowerCase());
     const existing = await this.db
       .select()
       .from(memoryBanks)
-      .where(and(eq(memoryBanks.userId, userId), eq(memoryBanks.name, name)));
+      .where(and(eq(memoryBanks.userId, userId), eq(memoryBanks.nameHash, nameHash)));
     if (existing.length && existing[0].id !== memoryBankId) {
       throw new BadRequestException(`Memory bank "${name}" already exists`);
     }
 
     await this.db
       .update(memoryBanks)
-      .set({ name, updatedAt: new Date() })
+      .set({ name: this.crypto.encrypt(name)!, nameHash, updatedAt: new Date() })
       .where(eq(memoryBanks.id, memoryBankId));
     return { ...bank, name };
   }
@@ -88,7 +100,13 @@ export class MemoryBanksService {
         const batch = memoryIds.slice(i, i + 500);
         await this.db.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
         await this.db.delete(memoryLinks).where(
-          sql`${memoryLinks.srcMemoryId} IN (${sql.join(batch.map(id => sql`${id}`), sql`, `)}) OR ${memoryLinks.dstMemoryId} IN (${sql.join(batch.map(id => sql`${id}`), sql`, `)})`,
+          sql`${memoryLinks.srcMemoryId} IN (${sql.join(
+            batch.map((id) => sql`${id}`),
+            sql`, `,
+          )}) OR ${memoryLinks.dstMemoryId} IN (${sql.join(
+            batch.map((id) => sql`${id}`),
+            sql`, `,
+          )})`,
         );
         await this.db.delete(memories).where(inArray(memories.id, batch));
         // Remove from Qdrant
@@ -113,14 +131,15 @@ export class MemoryBanksService {
       .select()
       .from(memoryBanks)
       .where(and(eq(memoryBanks.userId, userId), eq(memoryBanks.isDefault, true)));
-    if (existing) return existing;
+    if (existing) return this.decryptBank(existing);
 
     const id = crypto.randomUUID();
     const now = new Date();
     await this.db.insert(memoryBanks).values({
       id,
       userId,
-      name: 'Default',
+      name: this.crypto.encrypt('Default')!,
+      nameHash: this.crypto.hmac('default'),
       isDefault: true,
       createdAt: now,
       updatedAt: now,

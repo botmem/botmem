@@ -3,9 +3,10 @@ import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
-import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
+import { PeopleService, IdentifierInput } from '../people/people.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -26,9 +27,10 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(CleanProcessor.name);
   constructor(
     private dbService: DbService,
+    private crypto: CryptoService,
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
-    private contactsService: ContactsService,
+    private contactsService: PeopleService,
     private events: EventsService,
     private logsService: LogsService,
     private jobsService: JobsService,
@@ -111,7 +113,9 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
 
-    const event: ConnectorDataEvent = JSON.parse(rawEvent.payload);
+    const event: ConnectorDataEvent = JSON.parse(
+      this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
+    );
     const connector = this.connectors.get(rawEvent.connectorType);
 
     // Clean
@@ -146,10 +150,13 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
       await this.dbService.db
         .update(rawEvents)
-        .set({ cleanedText: text })
+        .set({ cleanedText: this.crypto.encrypt(text) })
         .where(eq(rawEvents.id, rawEventId));
     } else {
-      text = rawEvent.cleanedText || text;
+      text =
+        (rawEvent.cleanedText
+          ? this.crypto.decrypt(rawEvent.cleanedText) || rawEvent.cleanedText
+          : '') || text;
     }
 
     text = sanitizeText(text);
@@ -195,7 +202,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
           }
         }
         for (const { entityType, identifiers } of buckets) {
-          await this.contactsService.resolveContact(
+          await this.contactsService.resolvePerson(
             identifiers,
             entityType === 'person'
               ? undefined

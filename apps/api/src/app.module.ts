@@ -11,7 +11,7 @@ import { LogsModule } from './logs/logs.module';
 import { EventsModule } from './events/events.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { MemoryModule } from './memory/memory.module';
-import { ContactsModule } from './contacts/contacts.module';
+import { PeopleModule } from './people/people.module';
 import { SettingsModule } from './settings/settings.module';
 import { AgentModule } from './agent/agent.module';
 import { MeModule } from './me/me.module';
@@ -52,7 +52,7 @@ import { TracingModule } from './tracing/tracing.module';
     EventsModule,
     PluginsModule,
     MemoryModule,
-    ContactsModule,
+    PeopleModule,
     SettingsModule,
     AgentModule,
     MeModule,

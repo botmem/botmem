@@ -10,6 +10,7 @@ import { JobsService } from './jobs.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { rawEvents, accounts } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
@@ -29,6 +30,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private logsService: LogsService,
     private events: EventsService,
     private dbService: DbService,
+    private crypto: CryptoService,
     @InjectQueue('clean') private cleanQueue: Queue,
     private settingsService: SettingsService,
     private configService: ConfigService,
@@ -133,7 +135,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
             connectorType,
             sourceId: event.sourceId,
             sourceType: event.sourceType,
-            payload: JSON.stringify(event),
+            payload: this.crypto.encrypt(JSON.stringify(event))!,
             timestamp: new Date(event.timestamp),
             jobId,
             createdAt: now,

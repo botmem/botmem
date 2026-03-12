@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { eq, desc, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { jobs } from '../db/schema';
 import { TraceContext } from '../tracing/trace.context';
 
@@ -10,9 +11,15 @@ import { TraceContext } from '../tracing/trace.context';
 export class JobsService {
   constructor(
     private dbService: DbService,
+    private crypto: CryptoService,
     @InjectQueue('sync') private syncQueue: Queue,
     private traceContext: TraceContext,
   ) {}
+
+  /** Decrypt accountIdentifier on a job row */
+  private decryptJob<T extends { accountIdentifier: string | null }>(row: T): T {
+    return { ...row, accountIdentifier: this.crypto.decrypt(row.accountIdentifier) };
+  }
 
   async triggerSync(
     accountId: string,
@@ -28,7 +35,7 @@ export class JobsService {
         id,
         accountId,
         connectorType,
-        accountIdentifier: accountIdentifier || null,
+        accountIdentifier: accountIdentifier ? this.crypto.encrypt(accountIdentifier) : null,
         memoryBankId: memoryBankId || null,
         status: 'queued',
         priority: 0,
@@ -56,13 +63,15 @@ export class JobsService {
     const [job] = await this.dbService.withCurrentUser((db) =>
       db.select().from(jobs).where(eq(jobs.id, id)),
     );
-    return job;
+    return job ? this.decryptJob(job) : job;
   }
 
   async getAll(filters?: { accountId?: string; connectorType?: string }) {
-    const results = await this.dbService.withCurrentUser((db) =>
-      db.select().from(jobs).orderBy(desc(jobs.createdAt)),
-    );
+    const results = (
+      await this.dbService.withCurrentUser((db) =>
+        db.select().from(jobs).orderBy(desc(jobs.createdAt)),
+      )
+    ).map((j) => this.decryptJob(j));
     if (filters?.accountId) {
       return results.filter((j) => j.accountId === filters.accountId);
     }
@@ -73,9 +82,11 @@ export class JobsService {
   }
 
   async getActive() {
-    const results = await this.dbService.withCurrentUser((db) =>
-      db.select().from(jobs).orderBy(desc(jobs.createdAt)),
-    );
+    const results = (
+      await this.dbService.withCurrentUser((db) =>
+        db.select().from(jobs).orderBy(desc(jobs.createdAt)),
+      )
+    ).map((j) => this.decryptJob(j));
     return results.filter((j) => j.status === 'running' || j.status === 'queued');
   }
 
@@ -83,7 +94,7 @@ export class JobsService {
     const [job] = await this.dbService.withCurrentUser((db) =>
       db.select().from(jobs).where(eq(jobs.id, id)),
     );
-    return job || null;
+    return job ? this.decryptJob(job) : null;
   }
 
   async updateJob(

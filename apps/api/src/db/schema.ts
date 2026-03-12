@@ -25,6 +25,7 @@ export const accounts = pgTable(
     userId: text('user_id'), // nullable for migration -- will be set for all rows
     connectorType: text('connector_type').notNull(),
     identifier: text('identifier').notNull(),
+    identifierHash: text('identifier_hash'), // HMAC blind index for searching encrypted identifiers
     status: text('status').notNull().default('disconnected'),
     schedule: text('schedule').notNull().default('manual'),
     authContext: text('auth_context'), // encrypted JSON -- stays text
@@ -36,7 +37,10 @@ export const accounts = pgTable(
     tunnelMode: boolean('tunnel_mode').notNull().default(true),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
-  (table) => [index('idx_accounts_user_id').on(table.userId)],
+  (table) => [
+    index('idx_accounts_user_id').on(table.userId),
+    index('idx_accounts_identifier_hash').on(table.identifierHash),
+  ],
 );
 
 export const jobs = pgTable('jobs', {
@@ -99,9 +103,10 @@ export const memories = pgTable(
     text: text('text').notNull(), // encrypted ciphertext -- stays text
     eventTime: timestamp('event_time', { withTimezone: true }).notNull(),
     ingestTime: timestamp('ingest_time', { withTimezone: true }).notNull(),
-    factuality: jsonb('factuality')
+    factuality: text('factuality') // encrypted JSON string (was jsonb, migrated to text)
       .notNull()
-      .default({ label: 'UNVERIFIED', confidence: 0.5, rationale: 'Pending evaluation' }),
+      .default('{"label":"UNVERIFIED","confidence":0.5,"rationale":"Pending evaluation"}'),
+    factualityLabel: text('factuality_label'), // plaintext label for SQL aggregation
     weights: jsonb('weights')
       .notNull()
       .default({ semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }),
@@ -123,6 +128,7 @@ export const memories = pgTable(
     index('idx_memories_event_time').on(table.eventTime),
     index('idx_memories_connector_type').on(table.connectorType),
     index('idx_memories_memory_bank_id').on(table.memoryBankId),
+    index('idx_memories_factuality_label').on(table.factualityLabel),
     uniqueIndex('idx_memories_source_dedup').on(table.sourceId, table.connectorType),
   ],
 );
@@ -140,14 +146,15 @@ export const memoryLinks = pgTable('memory_links', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });
 
-// --- Contact tables ---
+// --- People tables (renamed from contacts by migration 0013) ---
 
-export const contacts = pgTable(
-  'contacts',
+export const people = pgTable(
+  'people',
   {
     id: text('id').primaryKey(),
     userId: text('user_id'), // nullable for migration -- will be set for all rows
     displayName: text('display_name').notNull(),
+    displayNameHash: text('display_name_hash'), // HMAC blind index
     entityType: text('entity_type').notNull().default('person'),
     avatars: jsonb('avatars').notNull().default([]),
     preferredAvatarIndex: integer('preferred_avatar_index').default(0),
@@ -157,67 +164,77 @@ export const contacts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
   (table) => [
-    index('idx_contacts_display_name').on(table.displayName),
-    index('idx_contacts_user_id').on(table.userId),
-    index('idx_contacts_memory_count').on(table.memoryCount),
+    index('idx_people_display_name_hash').on(table.displayNameHash),
+    index('idx_people_user_id').on(table.userId),
+    index('idx_people_memory_count').on(table.memoryCount),
   ],
 );
 
-export const contactIdentifiers = pgTable(
-  'contact_identifiers',
+/** @deprecated Use `people` instead */
+export const contacts = people;
+
+export const personIdentifiers = pgTable(
+  'person_identifiers',
   {
     id: text('id').primaryKey(),
-    contactId: text('contact_id')
+    personId: text('person_id')
       .notNull()
-      .references(() => contacts.id),
+      .references(() => people.id),
     identifierType: text('identifier_type').notNull(), // email | phone | slack_id | imessage_handle | name
     identifierValue: text('identifier_value').notNull(),
+    identifierValueHash: text('identifier_value_hash'), // HMAC blind index
     connectorType: text('connector_type'),
     confidence: doublePrecision('confidence').notNull().default(1.0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [
-    index('idx_contact_identifiers_contact_id').on(table.contactId),
-    index('idx_contact_identifiers_value').on(table.identifierType, table.identifierValue),
-    uniqueIndex('idx_contact_identifiers_unique').on(
-      table.contactId,
+    index('idx_person_identifiers_person_id').on(table.personId),
+    index('idx_person_identifiers_value_hash').on(table.identifierType, table.identifierValueHash),
+    uniqueIndex('idx_person_identifiers_unique').on(
+      table.personId,
       table.identifierType,
       table.identifierValue,
     ),
   ],
 );
 
-export const memoryContacts = pgTable(
-  'memory_contacts',
+/** @deprecated Use `personIdentifiers` instead */
+export const contactIdentifiers = personIdentifiers;
+
+export const memoryPeople = pgTable(
+  'memory_people',
   {
     id: text('id').primaryKey(),
     memoryId: text('memory_id')
       .notNull()
       .references(() => memories.id),
-    contactId: text('contact_id')
+    personId: text('person_id')
       .notNull()
-      .references(() => contacts.id),
+      .references(() => people.id),
     role: text('role').notNull(), // sender | recipient | mentioned | participant
   },
   (table) => [
-    index('idx_memory_contacts_contact_id').on(table.contactId),
-    index('idx_memory_contacts_memory_id').on(table.memoryId),
+    index('idx_memory_people_person_id').on(table.personId),
+    index('idx_memory_people_memory_id').on(table.memoryId),
   ],
 );
+
+/** @deprecated Use `memoryPeople` instead */
+export const memoryContacts = memoryPeople;
 
 export const mergeDismissals = pgTable(
   'merge_dismissals',
   {
     id: text('id').primaryKey(),
-    contactId1: text('contact_id_1')
+    personId1: text('person_id_1')
       .notNull()
-      .references(() => contacts.id),
-    contactId2: text('contact_id_2')
+      .references(() => people.id),
+    personId2: text('person_id_2')
       .notNull()
-      .references(() => contacts.id),
+      .references(() => people.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
-  (table) => [index('idx_merge_dismissals_pair').on(table.contactId1, table.contactId2)],
+  (table) => [index('idx_merge_dismissals_pair').on(table.personId1, table.personId2)],
 );
 
 // --- User authentication tables ---
@@ -277,6 +294,7 @@ export const memoryBanks = pgTable(
     id: text('id').primaryKey(),
     userId: text('user_id').notNull(),
     name: text('name').notNull(),
+    nameHash: text('name_hash'), // HMAC blind index
     isDefault: boolean('is_default').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
@@ -313,8 +331,6 @@ export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
 });
-
-// --- LLM Cache table ---
 
 // --- OAuth 2.1 tables ---
 

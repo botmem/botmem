@@ -91,7 +91,7 @@ export class OllamaService implements OnModuleInit {
     images?: string[],
     retries = 2,
     format?: Record<string, unknown>,
-  ): Promise<string> {
+  ): Promise<{ text: string; inputTokens?: number; outputTokens?: number }> {
     // Use VL model for images, text model for text-only; always disable thinking
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
@@ -126,7 +126,12 @@ export class OllamaService implements OnModuleInit {
 
         const data = await res.json();
         // Strip <think>...</think> reasoning tags just in case
-        return (data.message?.content || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+        const text = (data.message?.content || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+        return {
+          text,
+          inputTokens: data.prompt_eval_count as number | undefined,
+          outputTokens: data.eval_count as number | undefined,
+        };
       } catch (err) {
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));

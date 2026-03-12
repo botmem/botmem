@@ -3,18 +3,18 @@ import { eq, and, sql, desc, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
-import { ContactsService } from '../contacts/contacts.service';
+import { PeopleService } from '../people/people.service';
 import {
   accounts,
-  contacts,
-  contactIdentifiers,
+  people,
+  personIdentifiers,
+  memoryPeople,
   memories,
-  memoryContacts,
   mergeDismissals,
   settings,
   users,
 } from '../db/schema';
-import { normalizeEmail, normalizePhone } from '../contacts/contacts.service';
+import { normalizeEmail, normalizePhone } from '../people/people.service';
 
 const SELF_CONTACT_ID_KEY = 'selfContactId';
 
@@ -24,7 +24,7 @@ export class MeService {
     private dbService: DbService,
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
-    private contactsService: ContactsService,
+    private contactsService: PeopleService,
   ) {}
 
   /**
@@ -34,11 +34,11 @@ export class MeService {
     const db = this.dbService.db;
 
     // Verify the contact exists and belongs to user
-    const conditions: SQLWrapper[] = [eq(contacts.id, contactId)];
-    if (userId) conditions.push(eq(contacts.userId, userId));
+    const conditions: SQLWrapper[] = [eq(people.id, contactId)];
+    if (userId) conditions.push(eq(people.userId, userId));
     const existing = await db
-      .select({ id: contacts.id })
-      .from(contacts)
+      .select({ id: people.id })
+      .from(people)
       .where(and(...conditions));
     if (!existing.length) {
       throw new Error(`Contact ${contactId} not found`);
@@ -111,17 +111,18 @@ export class MeService {
 
     if (!lookups.length) return null;
 
-    // Find contacts matching any of these identifiers
+    // Find contacts matching any of these identifiers (use HMAC blind index)
     const contactIdCounts = new Map<string, number>();
     for (const lookup of lookups) {
+      const hash = this.crypto.hmac(lookup.value);
       const rows = await db
-        .select({ contactId: contactIdentifiers.contactId })
-        .from(contactIdentifiers)
+        .select({ personId: personIdentifiers.personId })
+        .from(personIdentifiers)
         .where(
-          sql`${contactIdentifiers.identifierType} = ${lookup.type} AND ${contactIdentifiers.identifierValue} = ${lookup.value}`,
+          sql`${personIdentifiers.identifierType} = ${lookup.type} AND ${personIdentifiers.identifierValueHash} = ${hash}`,
         );
       for (const row of rows) {
-        contactIdCounts.set(row.contactId, (contactIdCounts.get(row.contactId) || 0) + 1);
+        contactIdCounts.set(row.personId, (contactIdCounts.get(row.personId) || 0) + 1);
       }
     }
 
@@ -155,11 +156,11 @@ export class MeService {
 
     if (row?.value) {
       // Verify it still exists (and belongs to user if userId given)
-      const conditions: SQLWrapper[] = [eq(contacts.id, row.value)];
-      if (userId) conditions.push(eq(contacts.userId, userId));
+      const conditions: SQLWrapper[] = [eq(people.id, row.value)];
+      if (userId) conditions.push(eq(people.userId, userId));
       const exists = await db
-        .select({ id: contacts.id })
-        .from(contacts)
+        .select({ id: people.id })
+        .from(people)
         .where(and(...conditions));
       if (exists.length) return row.value;
     }
@@ -177,9 +178,9 @@ export class MeService {
       throw new Error('Self contact not set');
     }
     await this.dbService.db
-      .update(contacts)
+      .update(people)
       .set({ preferredAvatarIndex: avatarIndex, updatedAt: new Date() })
-      .where(eq(contacts.id, selfContactId));
+      .where(eq(people.id, selfContactId));
     return { ok: true };
   }
 
@@ -214,19 +215,22 @@ export class MeService {
     const db = this.dbService.db;
 
     // Load self contact
-    const selfRows = await db.select().from(contacts).where(eq(contacts.id, selfId));
+    const selfRows = await db.select().from(people).where(eq(people.id, selfId));
     if (!selfRows.length) return [];
     const self = selfRows[0];
-    const selfName = self.displayName.toLowerCase().trim();
+    const selfDisplayName = this.crypto.decrypt(self.displayName) ?? self.displayName;
+    const selfName = selfDisplayName.toLowerCase().trim();
     if (selfName.length < 2) return [];
 
     // Load self identifiers (email, phone, etc.)
     const selfIdents = await db
       .select()
-      .from(contactIdentifiers)
-      .where(eq(contactIdentifiers.contactId, selfId));
+      .from(personIdentifiers)
+      .where(eq(personIdentifiers.personId, selfId));
     const selfIdentValues = new Set(
-      selfIdents.map((i) => `${i.identifierType}:${i.identifierValue}`),
+      selfIdents.map(
+        (i) => `${i.identifierType}:${this.crypto.decrypt(i.identifierValue) ?? i.identifierValue}`,
+      ),
     );
 
     // Load dismissed pairs involving self
@@ -234,21 +238,21 @@ export class MeService {
       .select()
       .from(mergeDismissals)
       .where(
-        sql`${mergeDismissals.contactId1} = ${selfId} OR ${mergeDismissals.contactId2} = ${selfId}`,
+        sql`${mergeDismissals.personId1} = ${selfId} OR ${mergeDismissals.personId2} = ${selfId}`,
       );
     const dismissedIds = new Set(
-      dismissedRows.map((d) => (d.contactId1 === selfId ? d.contactId2 : d.contactId1)),
+      dismissedRows.map((d) => (d.personId1 === selfId ? d.personId2 : d.personId1)),
     );
 
     // Find candidates: persons with matching name or shared identifiers (user-scoped)
     const personConditions: SQLWrapper[] = [
-      sql`${contacts.id} != ${selfId}`,
-      sql`COALESCE(${contacts.entityType}, 'person') = 'person'`,
+      sql`${people.id} != ${selfId}`,
+      sql`COALESCE(${people.entityType}, 'person') = 'person'`,
     ];
-    if (userId) personConditions.push(eq(contacts.userId, userId));
+    if (userId) personConditions.push(eq(people.userId, userId));
     const allPersons = await db
       .select()
-      .from(contacts)
+      .from(people)
       .where(and(...personConditions));
 
     const candidates: Array<{
@@ -266,7 +270,8 @@ export class MeService {
     for (const c of allPersons) {
       if (dismissedIds.has(c.id)) continue;
 
-      const cName = c.displayName.toLowerCase().trim();
+      const cDisplayName = this.crypto.decrypt(c.displayName) ?? c.displayName;
+      const cName = cDisplayName.toLowerCase().trim();
       if (cName.length < 2) continue;
 
       let reason = '';
@@ -274,19 +279,20 @@ export class MeService {
       // Check shared identifiers (email/phone) — highest confidence, check first
       const cIdents = await db
         .select()
-        .from(contactIdentifiers)
-        .where(eq(contactIdentifiers.contactId, c.id));
+        .from(personIdentifiers)
+        .where(eq(personIdentifiers.personId, c.id));
       for (const ci of cIdents) {
         if (ci.identifierType === 'name') continue;
-        if (selfIdentValues.has(`${ci.identifierType}:${ci.identifierValue}`)) {
-          reason = `Shares ${ci.identifierType}: ${ci.identifierValue}`;
+        const ciValue = this.crypto.decrypt(ci.identifierValue) ?? ci.identifierValue;
+        if (selfIdentValues.has(`${ci.identifierType}:${ciValue}`)) {
+          reason = `Shares ${ci.identifierType}: ${ciValue}`;
           break;
         }
       }
 
       // Check exact name match
       if (!reason && selfName === cName) {
-        reason = `Exact name match: "${c.displayName}"`;
+        reason = `Exact name match: "${cDisplayName}"`;
       }
 
       // Check name substring match — require shared non-name identifier too
@@ -302,10 +308,12 @@ export class MeService {
           const hasSharedIdent = cIdents.some(
             (ci) =>
               ci.identifierType !== 'name' &&
-              selfIdentValues.has(`${ci.identifierType}:${ci.identifierValue}`),
+              selfIdentValues.has(
+                `${ci.identifierType}:${this.crypto.decrypt(ci.identifierValue) ?? ci.identifierValue}`,
+              ),
           );
           if (hasSharedIdent) {
-            reason = `Name matches: "${self.displayName}" and "${c.displayName}"`;
+            reason = `Name matches: "${selfDisplayName}" and "${cDisplayName}"`;
           }
         }
       }
@@ -315,16 +323,16 @@ export class MeService {
       // Load identifiers for display
       const idents = await db
         .select()
-        .from(contactIdentifiers)
-        .where(eq(contactIdentifiers.contactId, c.id));
+        .from(personIdentifiers)
+        .where(eq(personIdentifiers.personId, c.id));
       candidates.push({
         id: c.id,
-        displayName: c.displayName,
+        displayName: cDisplayName,
         avatars: c.avatars || [],
         reason,
         identifiers: idents.map((i) => ({
           identifierType: i.identifierType,
-          identifierValue: i.identifierValue,
+          identifierValue: this.crypto.decrypt(i.identifierValue) ?? i.identifierValue,
           connectorType: i.connectorType,
         })),
       });
@@ -354,7 +362,7 @@ export class MeService {
           { type: 'email', value: email },
         ];
         if (name) identifiers.push({ type: 'name', value: name });
-        const contact = await this.contactsService.resolveContact(identifiers, 'person', userId);
+        const contact = await this.contactsService.resolvePerson(identifiers, 'person', userId);
         await this.setSelfContact(contact.id, userId);
         selfContactId = contact.id;
       }
@@ -378,11 +386,11 @@ export class MeService {
     };
 
     if (selfContactId) {
-      const contactRows = await db.select().from(contacts).where(eq(contacts.id, selfContactId));
+      const contactRows = await db.select().from(people).where(eq(people.id, selfContactId));
 
       if (contactRows.length) {
         const contact = contactRows[0];
-        identity.name = contact.displayName;
+        identity.name = this.crypto.decrypt(contact.displayName) ?? contact.displayName;
         identity.preferredAvatarIndex = contact.preferredAvatarIndex ?? 0;
         try {
           identity.avatars = (contact.avatars as Array<{ url: string; source: string }>) || [];
@@ -393,15 +401,17 @@ export class MeService {
         // Get identifiers for email/phone
         const idents = await db
           .select()
-          .from(contactIdentifiers)
-          .where(eq(contactIdentifiers.contactId, selfContactId));
+          .from(personIdentifiers)
+          .where(eq(personIdentifiers.personId, selfContactId));
 
         for (const ident of idents) {
+          const decryptedValue =
+            this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue;
           if (ident.identifierType === 'email' && !identity.email) {
-            identity.email = ident.identifierValue;
+            identity.email = decryptedValue;
           }
           if (ident.identifierType === 'phone' && !identity.phone) {
-            identity.phone = ident.identifierValue;
+            identity.phone = decryptedValue;
           }
         }
       }
@@ -419,7 +429,7 @@ export class MeService {
     const accountsList = userAccounts.map((acct) => ({
       id: acct.id,
       connectorType: acct.connectorType,
-      identifier: acct.identifier,
+      identifier: this.crypto.decrypt(acct.identifier) ?? acct.identifier,
       status: acct.status,
       lastSyncAt: acct.lastSyncAt,
       memoriesCount: memCountMap.get(acct.id) ?? 0,
@@ -443,10 +453,10 @@ export class MeService {
       .where(doneFilter);
     const totalMemories = totalMemoriesResult[0].count;
 
-    const contactFilter = userId ? eq(contacts.userId, userId) : undefined;
+    const contactFilter = userId ? eq(people.userId, userId) : undefined;
     const totalContactsResult = await db
       .select({ count: sql<number>`count(*)` })
-      .from(contacts)
+      .from(people)
       .where(contactFilter);
     const totalContacts = totalContactsResult[0].count;
 
@@ -509,9 +519,9 @@ export class MeService {
     const entityDisplayNames = new Map<string, string>();
     for (const row of allEntitiesRows) {
       try {
-        const entities: Array<{ name?: string; type?: string; value?: string }> = JSON.parse(
-          row.entities,
-        );
+        const decryptedEntities = this.crypto.decrypt(row.entities) ?? row.entities;
+        const entities: Array<{ name?: string; type?: string; value?: string }> =
+          JSON.parse(decryptedEntities);
         for (const entity of entities) {
           const raw = entity.name || entity.value || '';
           if (!raw) continue;
@@ -548,9 +558,9 @@ export class MeService {
           eventTime: memories.eventTime,
           keyVersion: memories.keyVersion,
         })
-        .from(memoryContacts)
-        .innerJoin(memories, eq(memoryContacts.memoryId, memories.id))
-        .where(eq(memoryContacts.contactId, selfContactId))
+        .from(memoryPeople)
+        .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+        .where(eq(memoryPeople.personId, selfContactId))
         .orderBy(desc(memories.eventTime))
         .limit(20);
 

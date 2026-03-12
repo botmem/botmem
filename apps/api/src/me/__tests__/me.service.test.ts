@@ -8,9 +8,10 @@ describe('MeService', () => {
   let cryptoService: {
     decrypt: ReturnType<typeof vi.fn>;
     decryptWithKey: ReturnType<typeof vi.fn>;
+    hmac: ReturnType<typeof vi.fn>;
   };
   let userKeyService: { getKey: ReturnType<typeof vi.fn> };
-  let contactsService: { resolveContact: ReturnType<typeof vi.fn> };
+  let contactsService: { resolvePerson: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockDb = {
@@ -31,6 +32,7 @@ describe('MeService', () => {
     cryptoService = {
       decrypt: vi.fn().mockImplementation((v: string) => v),
       decryptWithKey: vi.fn().mockImplementation((v: string) => v),
+      hmac: vi.fn().mockImplementation((v: string) => `hmac_${v}`),
     };
 
     userKeyService = {
@@ -38,7 +40,7 @@ describe('MeService', () => {
     };
 
     contactsService = {
-      resolveContact: vi.fn().mockResolvedValue({ id: 'contact-1' }),
+      resolvePerson: vi.fn().mockResolvedValue({ id: 'contact-1' }),
     };
 
     service = new MeService(

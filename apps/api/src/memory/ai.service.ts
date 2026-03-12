@@ -144,15 +144,22 @@ export class AiService {
     if (cached.hit) return cached.output;
 
     const t0 = Date.now();
-    const result = await this.backend.generate(prompt, images, retries, format);
+    const { text, inputTokens, outputTokens } = await this.backend.generate(
+      prompt,
+      images,
+      retries,
+      format,
+    );
 
     this.cache
-      .set(model, this.config.aiBackend, op, cacheInput, result, {
+      .set(model, this.config.aiBackend, op, cacheInput, text, {
+        inputTokens,
+        outputTokens,
         latencyMs: Date.now() - t0,
       })
       .catch(() => {});
 
-    return result;
+    return text;
   }
 
   async rerank(query: string, documents: string[]): Promise<number[]> {

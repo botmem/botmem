@@ -4,12 +4,13 @@ import { Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { EnrichService } from './enrich.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
-import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
+import { PeopleService, IdentifierInput } from '../people/people.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -88,12 +89,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
   constructor(
     private dbService: DbService,
+    private crypto: CryptoService,
     private ai: AiService,
     private qdrant: QdrantService,
     private enrichService: EnrichService,
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
-    private contactsService: ContactsService,
+    private contactsService: PeopleService,
     private events: EventsService,
     private logsService: LogsService,
     private jobsService: JobsService,
@@ -132,8 +134,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
 
-    // 2. Parse payload
-    const event: ConnectorDataEvent = JSON.parse(rawEvent.payload);
+    // 2. Parse payload (decrypt if encrypted)
+    const event: ConnectorDataEvent = JSON.parse(
+      this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
+    );
     const connector = this.connectors.get(rawEvent.connectorType);
 
     // 3. Clean
@@ -167,13 +171,16 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       const cleanResult = await connector.clean(event, ctx);
       text = cleanResult.text?.trim() || '';
 
-      // Store cleaned text on raw event
+      // Store cleaned text on raw event (encrypted)
       await this.dbService.db
         .update(rawEvents)
-        .set({ cleanedText: text })
+        .set({ cleanedText: this.crypto.encrypt(text) })
         .where(eq(rawEvents.id, rawEventId));
     } else {
-      text = rawEvent.cleanedText || text;
+      text =
+        (rawEvent.cleanedText
+          ? this.crypto.decrypt(rawEvent.cleanedText) || rawEvent.cleanedText
+          : '') || text;
     }
 
     // Strip invisible control characters (e.g. BOM, zero-width spaces in raw SMS)
@@ -221,7 +228,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           }
         }
         for (const { entityType, identifiers } of buckets) {
-          await this.contactsService.resolveContact(
+          await this.contactsService.resolvePerson(
             identifiers,
             entityType === 'person'
               ? undefined
@@ -353,7 +360,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           entityType === 'person'
             ? undefined
             : (entityType as 'person' | 'group' | 'organization' | 'device');
-        const contact = await this.contactsService.resolveContact(identifiers, resolveType);
+        const contact = await this.contactsService.resolvePerson(identifiers, resolveType);
         if (contact) {
           await this.contactsService.linkMemory(memoryId, contact.id, role);
           contactCount++;

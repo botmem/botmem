@@ -4,12 +4,13 @@ import { Job, Queue } from 'bullmq';
 import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { MemoryService } from './memory.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
-import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
+import { PeopleService, IdentifierInput } from '../people/people.service';
 import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -45,12 +46,13 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(EmbedProcessor.name);
   constructor(
     private dbService: DbService,
+    private crypto: CryptoService,
     private ai: AiService,
     private qdrant: QdrantService,
     private memoryService: MemoryService,
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
-    private contactsService: ContactsService,
+    private contactsService: PeopleService,
     private events: EventsService,
     private logsService: LogsService,
     private jobsService: JobsService,
@@ -101,9 +103,16 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
 
-    const event: ConnectorDataEvent = JSON.parse(rawEvent.payload);
+    const event: ConnectorDataEvent = JSON.parse(
+      this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
+    );
     const connector = this.connectors.get(rawEvent.connectorType);
-    const text = rawEvent.cleanedText || event.content?.text || '';
+    const text =
+      (rawEvent.cleanedText
+        ? this.crypto.decrypt(rawEvent.cleanedText) || rawEvent.cleanedText
+        : '') ||
+      event.content?.text ||
+      '';
 
     if (!text) {
       await this.advanceAndComplete(parentJobId);
@@ -249,7 +258,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       for (const { entityType, role, identifiers } of buckets) {
         const resolveType = entityType === 'person' ? undefined : entityType;
         const contact = await Promise.race([
-          this.contactsService.resolveContact(
+          this.contactsService.resolvePerson(
             identifiers,
             resolveType as 'group' | 'organization' | 'device' | undefined,
             ownerUserId || undefined,

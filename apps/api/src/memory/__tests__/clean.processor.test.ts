@@ -28,7 +28,7 @@ import { CleanProcessor } from '../clean.processor';
 import { DbService } from '../../db/db.service';
 import { ConnectorsService } from '../../connectors/connectors.service';
 import { AccountsService } from '../../accounts/accounts.service';
-import { ContactsService } from '../../contacts/contacts.service';
+import { PeopleService } from '../../people/people.service';
 import { EventsService } from '../../events/events.service';
 import { LogsService } from '../../logs/logs.service';
 import { JobsService } from '../../jobs/jobs.service';
@@ -68,8 +68,8 @@ function createMockAccountsService() {
 
 function createMockContactsService() {
   return {
-    resolveContact: vi.fn().mockResolvedValue({ id: 'contact-1' }),
-  } as unknown as ContactsService;
+    resolvePerson: vi.fn().mockResolvedValue({ id: 'contact-1' }),
+  } as unknown as PeopleService;
 }
 
 function createMockEventsService() {
@@ -119,7 +119,7 @@ describe('CleanProcessor', () => {
   let processor: CleanProcessor;
   let dbService: DbService;
   let connectors: ConnectorsService;
-  let contactsService: ContactsService;
+  let contactsService: PeopleService;
   let eventsService: EventsService;
   let logsService: LogsService;
   let jobsService: JobsService;
@@ -139,8 +139,15 @@ describe('CleanProcessor', () => {
     embedQueue = createMockQueue();
     const traceContext = createMockTraceContext();
 
+    const cryptoService = {
+      encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
+      decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : v)),
+      hmac: vi.fn((v: string) => `hmac:${v}`),
+    };
+
     processor = new CleanProcessor(
       dbService,
+      cryptoService as any,
       connectors,
       accountsService,
       contactsService,
@@ -344,7 +351,7 @@ describe('CleanProcessor', () => {
       const job = createJob({ rawEventId: 'raw-1' });
       await processor.process(job as any);
 
-      expect(contactsService.resolveContact).toHaveBeenCalled();
+      expect(contactsService.resolvePerson).toHaveBeenCalled();
       expect(embedQueue.add).not.toHaveBeenCalled();
       expect(jobsService.incrementProgress).toHaveBeenCalledWith('job-1');
     });

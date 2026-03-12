@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DbService } from '../db/db.service';
 import type * as schema from '../db/schema';
-import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
+import { PeopleService, IdentifierInput } from '../people/people.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { EnrichService } from './enrich.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -21,7 +21,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(BackfillProcessor.name);
   constructor(
     private dbService: DbService,
-    private contactsService: ContactsService,
+    private contactsService: PeopleService,
     private accountsService: AccountsService,
     private enrichService: EnrichService,
     private crypto: CryptoService,
@@ -297,7 +297,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     const metadata = event.content?.metadata || {};
     const participants = event.content?.participants || [];
 
-    const linked = await this.resolveContacts(memoryId, mem.connectorType, metadata, participants);
+    const linked = await this.resolvePeople(memoryId, mem.connectorType, metadata, participants);
     return { memoryId, linked };
   }
 
@@ -405,7 +405,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
   // ---- Contact resolution methods (unchanged) ----
 
-  private async resolveContacts(
+  private async resolvePeople(
     memoryId: string,
     connectorType: string,
     metadata: Record<string, unknown>,
@@ -456,7 +456,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         });
       }
       if (identifiers.length) {
-        const contact = await this.contactsService.resolveContact(identifiers);
+        const contact = await this.contactsService.resolvePerson(identifiers);
         await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
         linked++;
       }
@@ -468,7 +468,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
             { type: 'email', value: email, connectorType: 'gmail' },
           ];
           if (name) identifiers.push({ type: 'name', value: name, connectorType: 'gmail' });
-          const contact = await this.contactsService.resolveContact(identifiers);
+          const contact = await this.contactsService.resolvePerson(identifiers);
           await this.contactsService.linkMemory(
             memoryId,
             contact.id,
@@ -486,7 +486,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
     let linked = 0;
     for (const userId of participants) {
       if (!userId) continue;
-      const contact = await this.contactsService.resolveContact([
+      const contact = await this.contactsService.resolvePerson([
         { type: 'slack_id', value: userId, connectorType: 'slack' },
       ]);
       await this.contactsService.linkMemory(memoryId, contact.id, 'sender');
@@ -512,7 +512,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         { type: 'phone', value: phone, connectorType: 'whatsapp' },
       ];
       if (pushName) identifiers.push({ type: 'name', value: pushName, connectorType: 'whatsapp' });
-      const contact = await this.contactsService.resolveContact(identifiers);
+      const contact = await this.contactsService.resolvePerson(identifiers);
       await this.contactsService.linkMemory(memoryId, contact.id, 'sender');
       linked++;
     }
@@ -562,7 +562,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         });
       }
 
-      const contact = await this.contactsService.resolveContact(identifiers);
+      const contact = await this.contactsService.resolvePerson(identifiers);
       await this.contactsService.linkMemory(
         memoryId,
         contact.id,
@@ -589,7 +589,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
         { type: 'name', value: person.name, connectorType: 'photos' },
         { type: 'immich_person_id', value: person.id, connectorType: 'photos' },
       ];
-      const contact = await this.contactsService.resolveContact(identifiers);
+      const contact = await this.contactsService.resolvePerson(identifiers);
       await this.contactsService.linkMemory(memoryId, contact.id, 'participant');
       resolvedNames.add(person.name);
       linked++;
@@ -597,7 +597,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
     for (const name of participants) {
       if (!name || resolvedNames.has(name)) continue;
-      const contact = await this.contactsService.resolveContact([
+      const contact = await this.contactsService.resolvePerson([
         { type: 'name', value: name, connectorType: 'photos' },
       ]);
       await this.contactsService.linkMemory(memoryId, contact.id, 'participant');

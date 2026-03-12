@@ -33,7 +33,7 @@ function mockDbService() {
 
 function createProcessor(overrides: Record<string, unknown> = {}) {
   const dbService = mockDbService();
-  const contactsService = { resolveContact: vi.fn(), linkMemory: vi.fn() };
+  const contactsService = { resolvePerson: vi.fn(), linkMemory: vi.fn() };
   const enrichService = { enrich: vi.fn().mockResolvedValue(undefined) };
   const crypto = {
     isEncrypted: vi.fn().mockReturnValue(false),
@@ -83,7 +83,7 @@ function createProcessor(overrides: Record<string, unknown> = {}) {
 
   const processor = new BackfillProcessor(
     deps.dbService as unknown as import('../../db/db.service').DbService,
-    deps.contactsService as unknown as import('../../contacts/contacts.service').ContactsService,
+    deps.contactsService as unknown as import('../../people/people.service').PeopleService,
     deps.accountsService as unknown as import('../../accounts/accounts.service').AccountsService,
     deps.enrichService as unknown as import('../enrich.service').EnrichService,
     deps.crypto as unknown as import('../../crypto/crypto.service').CryptoService,
@@ -271,7 +271,7 @@ describe('BackfillProcessor', () => {
       return chain as unknown as ReturnType<typeof vi.fn>;
     });
 
-    contactsService.resolveContact.mockResolvedValue({ id: 'contact-1' });
+    contactsService.resolvePerson.mockResolvedValue({ id: 'contact-1' });
     contactsService.linkMemory.mockResolvedValue(undefined);
 
     const job = fakeJob('backfill-contact', { memoryId: 'mem-c' });
@@ -280,6 +280,6 @@ describe('BackfillProcessor', () => {
     // enrichService should NOT be called for contact backfill
     expect(enrichService.enrich).not.toHaveBeenCalled();
     // Contact resolution should have been called
-    expect(contactsService.resolveContact).toHaveBeenCalled();
+    expect(contactsService.resolvePerson).toHaveBeenCalled();
   });
 });

@@ -91,7 +91,6 @@ const HELP = `
     botmem config set-recovery-key <key>  Store recovery key for E2EE
     botmem config show             Show current config
     botmem login                   Log in via browser (OAuth) and store JWT
-    botmem login --password        Log in with email/password (for CI/scripts)
 
   GLOBAL OPTIONS
     --api-key <key>   API key (env: BOTMEM_API_KEY) — preferred for agents
@@ -358,33 +357,8 @@ function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
   return { codeVerifier, codeChallenge };
 }
 
-async function runLogin(client: BotmemClient, args: string[]) {
-  // --password flag forces legacy email/password login (for CI/scripts)
-  const usePassword =
-    args.includes('--password') || process.env['BOTMEM_EMAIL'] || process.env['BOTMEM_PASSWORD'];
-
-  if (usePassword) {
-    const filteredArgs = args.filter((a) => a !== '--password');
-    let email = filteredArgs[0] || process.env['BOTMEM_EMAIL'] || '';
-    let password = filteredArgs[1] || process.env['BOTMEM_PASSWORD'] || '';
-
-    if (!email || !password) {
-      const readline = await import('readline');
-      const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-      const ask = (q: string): Promise<string> => new Promise((r) => rl.question(q, r));
-      if (!email) email = await ask('Email: ');
-      if (!password) password = await ask('Password: ');
-      rl.close();
-    }
-
-    const result = await client.login(email, password);
-    storeToken(result.accessToken);
-    console.log(`Logged in as ${result.user.name} (${result.user.email})`);
-    console.log(`Token stored in ${CONFIG_FILE}`);
-    return;
-  }
-
-  // Browser-based OAuth login (default)
+async function runLogin(client: BotmemClient, _args: string[]) {
+  // Browser-based OAuth login
   const { codeVerifier, codeChallenge } = generatePKCE();
   const state = randomBytes(16).toString('base64url');
 
