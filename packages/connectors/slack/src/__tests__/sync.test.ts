@@ -596,6 +596,104 @@ describe('syncSlack', () => {
     expect(msgEvents.length).toBe(1);
   });
 
+  it('filters integration messages (app_id present)', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [
+        { ts: '1700000000.000', text: 'GitHub notification', user: 'U1', app_id: 'A123' },
+        { ts: '1700000001.000', text: 'Real message', user: 'U1', reply_count: 0 },
+      ],
+    });
+
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
+    expect(msgEvents.length).toBe(1);
+    expect(msgEvents[0].content.text).toContain('Real message');
+  });
+
+  it('paginates through channel list', async () => {
+    mockConversationsList
+      .mockResolvedValueOnce({
+        channels: [],
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        channels: [{ id: 'C1', name: 'general' }],
+        response_metadata: { next_cursor: 'page2' },
+      })
+      .mockResolvedValueOnce({
+        channels: [{ id: 'C2', name: 'random' }],
+        response_metadata: {},
+      });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hi', user: 'U1', reply_count: 0 }],
+    });
+
+    const events: ConnectorDataEvent[] = [];
+    await syncSlack(makeCtx(), (e) => events.push(e));
+    const msgEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
+    );
+    expect(msgEvents.length).toBe(2);
+  });
+
+  it('calls emitProgress callback', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'C1', name: 'general' }],
+      response_metadata: {},
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
+    });
+
+    const events: ConnectorDataEvent[] = [];
+    const progressFn = vi.fn();
+    await syncSlack(makeCtx(), (e) => events.push(e), progressFn);
+    expect(progressFn).toHaveBeenCalled();
+  });
+
+  it('resolves external DM users not in workspace list', async () => {
+    mockConversationsList.mockResolvedValue({
+      channels: [{ id: 'D1', is_im: true, user: 'UEXT1' }],
+      response_metadata: {},
+    });
+
+    mockUsersInfo.mockResolvedValueOnce({
+      user: {
+        id: 'UEXT1',
+        name: 'ext_user',
+        real_name: 'External User',
+        profile: { email: 'ext@other.com', image_72: 'https://img/ext.png' },
+      },
+    });
+
+    mockConversationsHistory.mockResolvedValue({
+      messages: [{ ts: '1700000000.000', text: 'Hi from ext', user: 'UEXT1', reply_count: 0 }],
+    });
+
+    const events: ConnectorDataEvent[] = [];
+    const ctx = makeCtx();
+    await syncSlack(ctx, (e) => events.push(e));
+    // External user should be resolved and a contact event emitted
+    const contactEvents = events.filter(
+      (e: ConnectorDataEvent) => e.content.metadata?.type === 'contact',
+    );
+    const extContact = contactEvents.find(
+      (e: ConnectorDataEvent) => e.content.metadata?.slackId === 'UEXT1',
+    );
+    expect(extContact).toBeDefined();
+    expect(extContact!.content.metadata.name).toBe('External User');
+  });
+
   it('handles files without url_private or mimetype (skipped)', async () => {
     mockConversationsList.mockResolvedValue({
       channels: [{ id: 'C1', name: 'general' }],
