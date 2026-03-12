@@ -26,11 +26,16 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/logo-mark-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/brand/logo-mark-16.png" />
     <link rel="apple-touch-icon" sizes="192x192" href="/brand/logo-mark-192.png" />
+    <!-- Preconnect to Firebase auth (eliminates 300ms+ connection overhead) -->
+    <link rel="preconnect" href="https://botmem-app.firebaseapp.com" />
+    <link rel="preconnect" href="https://apis.google.com" />
     <!-- DNS prefetch for deferred third-party scripts -->
     <link rel="dns-prefetch" href="https://t.botmem.xyz" />
     <!-- Preload critical fonts to eliminate FOIT/FOUT and speed up FCP -->
-    <link rel="preload" href="/fonts/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/space-mono-400.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/space-mono-700.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ibm-plex-mono-700.woff2" as="font" type="font/woff2" crossorigin />
     <!-- Anti-flash: read stored/system theme and apply before React renders -->
     <script>
       (function () {
