@@ -35,3 +35,5 @@ business/
 .playwright-cli/
 scripts/
 .worktrees/
+*.swp
+botmem.xyz-*
