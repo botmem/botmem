@@ -30,6 +30,7 @@ export default defineConfig({
         'src/lib/firebase.ts',
         'src/lib/posthog.ts',
         'src/lib/ws.ts',
+        'src/store/tourStore.ts',
       ],
       thresholds: {
         statements: 75,

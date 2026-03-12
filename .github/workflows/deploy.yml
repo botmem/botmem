@@ -115,10 +115,17 @@ jobs:
       - name: Build docs
         run: cd docs && pnpm build
 
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --login-server=${{ secrets.TAILSCALE_LOGIN_SERVER }}
+          hostname: github-ci-${{ github.run_id }}
+
       - name: Pull & restart api on VPS
         uses: appleboy/ssh-action@v1
         with:
-          host: 65.20.85.57
+          host: ${{ secrets.VPS_TAILSCALE_HOST }}
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: GHCR_TOKEN,GHCR_ACTOR
@@ -136,7 +143,7 @@ jobs:
       - name: Deploy docs to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: 65.20.85.57
+          host: ${{ secrets.VPS_TAILSCALE_HOST }}
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           source: docs/.vitepress/dist/*
