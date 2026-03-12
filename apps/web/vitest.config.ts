@@ -33,6 +33,8 @@ export default defineConfig({
         'src/store/tourStore.ts',
         'src/lib/wa-auth-store.ts',
         'src/lib/wa-tunnel-relay.ts',
+        'src/entry-server.tsx',
+        'src/hooks/usePageMeta.ts',
       ],
       thresholds: {
         statements: 75,
