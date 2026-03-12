@@ -8,11 +8,13 @@ dist
 coverage/
 *.lcov
 
-# Data / databases
+# Data / databases / sessions
 apps/api/data/
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/
+test-tunnel/
+
+# PDFs
+*.pdf
 
 # Build artifacts
 apps/web/vite.config.js
