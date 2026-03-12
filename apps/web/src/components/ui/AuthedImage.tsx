@@ -1,4 +1,4 @@
-import { useCallback, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useAuthStore } from '../../store/authStore';
 
 interface AuthedImageProps {
@@ -9,16 +9,12 @@ interface AuthedImageProps {
   loading?: 'lazy' | 'eager';
   onError?: () => void;
   onLoad?: () => void;
-  fallback?: ReactNode;
+  fallback?: React.ReactNode;
 }
 
 type BlobState = { url: string | null; failed: boolean };
 const EMPTY: BlobState = { url: null, failed: false };
 
-/**
- * Custom store for fetching authenticated images outside of useEffect.
- * Uses useSyncExternalStore to avoid the "fetch in useEffect" anti-pattern.
- */
 function createBlobStore() {
   let state: BlobState = EMPTY;
   let currentSrc = '';
@@ -41,7 +37,6 @@ function createBlobStore() {
     },
     load(src: string, onError?: () => void, onLoad?: () => void) {
       if (src === currentSrc) return;
-      // Cleanup previous
       abortCtrl?.abort();
       if (state.url) URL.revokeObjectURL(state.url);
       currentSrc = src;
@@ -91,13 +86,17 @@ export function AuthedImage({
   if (!storeRef.current) storeRef.current = createBlobStore();
   const store = storeRef.current;
 
-  // Trigger load on src change (called during render, not in useEffect)
-  store.load(src, onError, onLoad);
+  useEffect(() => {
+    store.load(src, onError, onLoad);
+  }, [store, src, onError, onLoad]);
+
+  useEffect(() => {
+    return () => store.cleanup();
+  }, [store]);
 
   const subscribe = useCallback((cb: () => void) => store.subscribe(cb), [store]);
   const { url, failed } = useSyncExternalStore(subscribe, () => store.getSnapshot());
 
-  if (!url) return <>{fallback}</>;
-  if (failed) return <>{fallback}</>;
+  if (!url || failed) return <>{fallback}</>;
   return <img src={url} alt={alt} className={className} style={style} loading={loading} />;
 }
