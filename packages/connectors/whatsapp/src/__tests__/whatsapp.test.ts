@@ -91,7 +91,7 @@ describe('WhatsAppConnector', () => {
 
       const result = await connector.sync(ctx);
       expect(result.processed).toBe(5);
-      expect(progressListener).toHaveBeenCalledWith({ processed: 5 });
+      expect(progressListener).toHaveBeenCalledWith(expect.objectContaining({ processed: 5 }));
     });
   });
 

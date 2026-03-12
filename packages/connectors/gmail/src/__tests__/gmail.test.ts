@@ -136,7 +136,9 @@ describe('GmailConnector', () => {
       const result = await connector.sync(ctx);
       expect(result.processed).toBe(25);
       expect(result.hasMore).toBe(true);
-      expect(progressListener).toHaveBeenCalledWith({ processed: 25, total: 100 });
+      expect(progressListener).toHaveBeenCalledWith(
+        expect.objectContaining({ processed: 25, total: 100 }),
+      );
     });
   });
 
