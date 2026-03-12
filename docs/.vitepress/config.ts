@@ -10,23 +10,12 @@ export default defineConfig({
 
   head: [
     ['meta', { name: 'theme-color', content: '#C4F53A' }],
-    [
-      'link',
-      {
-        rel: 'preconnect',
-        href: 'https://fonts.googleapis.com',
-      },
-    ],
-    [
-      'link',
-      {
-        rel: 'preconnect',
-        href: 'https://fonts.gstatic.com',
-        crossorigin: '',
-      },
-    ],
+    ['link', { rel: 'canonical', href: 'https://docs.botmem.xyz/' }],
+    ['meta', { name: 'robots', content: 'index, follow' }],
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Botmem' }],
+    ['meta', { property: 'og:title', content: 'Botmem Docs' }],
+    ['meta', { property: 'og:url', content: 'https://docs.botmem.xyz/' }],
+    ['meta', { property: 'og:image', content: 'https://botmem.xyz/brand/og-image.png' }],
     [
       'meta',
       {
