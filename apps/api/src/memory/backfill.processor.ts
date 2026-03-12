@@ -2,7 +2,9 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DbService } from '../db/db.service';
+import type * as schema from '../db/schema';
 import { ContactsService, IdentifierInput } from '../contacts/contacts.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { EnrichService } from './enrich.service';
@@ -226,7 +228,7 @@ export class BackfillProcessor extends WorkerHost implements OnModuleInit {
 
         // Write updated metadata back (re-encrypt if needed)
         const metadataStr = JSON.stringify(metadata);
-        const writeUpdate = (db: any) =>
+        const writeUpdate = (db: NodePgDatabase<typeof schema>) =>
           db.update(memories).set({ metadata: metadataStr }).where(eq(memories.id, memoryId));
 
         if (ownerUserId) {
