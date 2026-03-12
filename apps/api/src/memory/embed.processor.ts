@@ -363,6 +363,13 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     // File processing (image → VL model description, document → text extraction, re-embed)
     const hasFile = mergedMetadata.fileUrl || mergedMetadata.fileBase64;
     const fileMime = (mergedMetadata.mimetype as string) || '';
+    const qdrantPayload = {
+      source_type: event.sourceType,
+      connector_type: rawEvent.connectorType,
+      event_time: event.timestamp,
+      account_id: rawEvent.accountId,
+      memory_bank_id: memoryBankId,
+    };
     if (
       hasFile &&
       (fileMime.startsWith('image/') ||
@@ -370,19 +377,66 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         fileMime.includes('document'))
     ) {
       try {
-        const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
-        if (fileContent) {
-          currentText = fileContent + '\n\n' + currentText;
-          const reEmbedText =
-            currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
-          vector = await this.ai.embed(reEmbedText);
-          await this.qdrant.upsert(memoryId, vector, {
-            source_type: event.sourceType,
-            connector_type: rawEvent.connectorType,
-            event_time: event.timestamp,
-            account_id: rawEvent.accountId,
-            memory_bank_id: memoryBankId,
-          });
+        const isGeminiMultimodal = this.config.embedBackend === 'gemini';
+        const canMultimodal =
+          isGeminiMultimodal && (fileMime.startsWith('image/') || fileMime === 'application/pdf');
+
+        if (canMultimodal) {
+          // Gemini multimodal: embed image/PDF directly alongside text — skip VL model
+          const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
+
+          // Store thumbnail for images (reuse existing logic)
+          if (fileMime.startsWith('image/') && fileBuffer.length <= 30_000) {
+            mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
+          }
+
+          // For PDFs, still extract text for display in memories.text
+          if (fileMime === 'application/pdf') {
+            const pdfParseModule = await import('pdf-parse');
+            const pdfParse = pdfParseModule.default || pdfParseModule;
+            const data = await (pdfParse as unknown as (buf: Buffer) => Promise<{ text?: string }>)(
+              fileBuffer,
+            );
+            if (data.text?.trim()) {
+              const fileName = (mergedMetadata.fileName as string) || '';
+              const header = fileName ? `# ${fileName}` : '';
+              let pdfText = header ? `${header}\n\n${data.text.trim()}` : data.text.trim();
+              if (pdfText.length > MAX_CONTENT_LENGTH) {
+                pdfText =
+                  pdfText.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) +
+                  TRUNCATION_SUFFIX;
+              }
+              currentText = pdfText + '\n\n' + currentText;
+            }
+          }
+
+          const parts: import('./gemini-embed.service').EmbedPart[] = [
+            {
+              type: fileMime.startsWith('image/') ? 'image' : 'pdf',
+              base64: fileBuffer.toString('base64'),
+              mimeType: fileMime,
+            },
+            { type: 'text', text: currentText },
+          ];
+          vector = await this.ai.embedMultimodal(parts);
+          await this.qdrant.upsert(memoryId, vector, qdrantPayload);
+
+          this.addLog(
+            rawEvent.connectorType,
+            rawEvent.accountId,
+            'info',
+            `[embed:multimodal] ${mid} ${fileMime} embedded directly via Gemini (${vector.length}d)`,
+          );
+        } else {
+          // Existing path: VL model for images, text extraction for docs, then re-embed
+          const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
+          if (fileContent) {
+            currentText = fileContent + '\n\n' + currentText;
+            const reEmbedText =
+              currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+            vector = await this.ai.embed(reEmbedText);
+            await this.qdrant.upsert(memoryId, vector, qdrantPayload);
+          }
         }
       } catch (err: unknown) {
         this.addLog(
@@ -554,12 +608,34 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
+  private async getFileBuffer(
+    metadata: Record<string, unknown>,
+    rawEvent: { accountId: string; connectorType: string },
+  ): Promise<Buffer> {
+    const fileBase64 = (metadata.fileBase64 as string) || '';
+    if (fileBase64) return Buffer.from(fileBase64, 'base64');
+
+    const fileUrl = (metadata.fileUrl as string) || '';
+    const mimetype = (metadata.mimetype as string) || '';
+    const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
+    const fetchUrl = mimetype.startsWith('image/')
+      ? fileUrl.replace('size=preview', 'size=thumbnail').replace('size=original', 'size=thumbnail')
+      : fileUrl;
+    const res = await fetch(fetchUrl, {
+      headers,
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok) {
+      throw new Error(`File download failed: ${res.status} ${res.statusText}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  }
+
   private async processFile(
     memoryId: string,
     metadata: Record<string, unknown>,
     rawEvent: { accountId: string; connectorType: string },
   ): Promise<string | null> {
-    const fileUrl: string = (metadata.fileUrl as string) || '';
     const fileBase64: string = (metadata.fileBase64 as string) || '';
     const mimetype: string = (metadata.mimetype as string) || '';
     const fileName: string = (metadata.fileName as string) || '';
@@ -572,26 +648,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'}) ${fileBase64 ? 'inline' : 'url'}`,
     );
 
-    // Get file buffer — either from inline base64 or by fetching URL
-    let fileBuffer: Buffer;
-    if (fileBase64) {
-      fileBuffer = Buffer.from(fileBase64, 'base64');
-    } else {
-      const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
-      const fetchUrl = mimetype.startsWith('image/')
-        ? fileUrl
-            .replace('size=preview', 'size=thumbnail')
-            .replace('size=original', 'size=thumbnail')
-        : fileUrl;
-      const res = await fetch(fetchUrl, {
-        headers,
-        signal: AbortSignal.timeout(120_000),
-      });
-      if (!res.ok) {
-        throw new Error(`File download failed: ${res.status} ${res.statusText}`);
-      }
-      fileBuffer = Buffer.from(await res.arrayBuffer());
-    }
+    const fileBuffer = await this.getFileBuffer(metadata, rawEvent);
 
     const mime = mimetype.toLowerCase();
     const ext = fileName.toLowerCase().split('.').pop() || '';

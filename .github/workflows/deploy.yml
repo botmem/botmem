@@ -142,6 +142,8 @@ jobs:
           source: docs/.vitepress/dist/*
           target: /opt/botmem/docs-site
           strip_components: 3
+          overwrite: true
+          rm: true
 
       - name: Validate deployment
         run: |

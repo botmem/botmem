@@ -41,27 +41,31 @@ packages/
 
 ## Environment Variables
 
-| Variable                 | Default                               | Purpose                                             |
-| ------------------------ | ------------------------------------- | --------------------------------------------------- |
-| `PORT`                   | `12412`                               | API server port                                     |
-| `DATABASE_URL`           | _(required)_                          | PostgreSQL connection string                        |
-| `REDIS_URL`              | `redis://localhost:6379`              | BullMQ queue backend                                |
-| `QDRANT_URL`             | `http://localhost:6333`               | Vector DB                                           |
-| `OLLAMA_BASE_URL`        | `http://localhost:11434`              | Ollama inference endpoint                           |
-| `OLLAMA_USERNAME`        | _(empty)_                             | Basic auth username (optional)                      |
-| `OLLAMA_PASSWORD`        | _(empty)_                             | Basic auth password (optional)                      |
-| `OLLAMA_EMBED_MODEL`     | `mxbai-embed-large`                   | Embedding model (1024d)                             |
-| `OLLAMA_TEXT_MODEL`      | `qwen3:8b`                            | Text enrichment model (uses /no_think)              |
-| `OLLAMA_VL_MODEL`        | `qwen3-vl:4b`                         | Vision-language model (photo enrichment)            |
-| `AI_BACKEND`             | `ollama`                              | AI backend: `ollama` or `openrouter`                |
-| `OPENROUTER_API_KEY`     | _(empty)_                             | OpenRouter API key (required if backend=openrouter) |
-| `OPENROUTER_EMBED_MODEL` | `google/gemini-embedding-001`         | OpenRouter embedding model (3072d)                  |
-| `OPENROUTER_TEXT_MODEL`  | `mistralai/mistral-nemo`              | OpenRouter text enrichment model                    |
-| `OPENROUTER_VL_MODEL`    | `google/gemma-3-4b-it`                | OpenRouter vision-language model                    |
-| `EMBED_DIMENSION`        | _(auto-detected from model)_          | Override if model is not in known list              |
-| `FRONTEND_URL`           | `http://localhost:12412`              | CORS / OAuth redirect origin                        |
-| `APP_SECRET`             | `dev-app-secret-change-in-production` | AES-256-GCM key for encrypting credentials at rest  |
-| `PLUGINS_DIR`            | `./plugins`                           | External plugin directory                           |
+| Variable                  | Default                               | Purpose                                             |
+| ------------------------- | ------------------------------------- | --------------------------------------------------- |
+| `PORT`                    | `12412`                               | API server port                                     |
+| `DATABASE_URL`            | _(required)_                          | PostgreSQL connection string                        |
+| `REDIS_URL`               | `redis://localhost:6379`              | BullMQ queue backend                                |
+| `QDRANT_URL`              | `http://localhost:6333`               | Vector DB                                           |
+| `OLLAMA_BASE_URL`         | `http://localhost:11434`              | Ollama inference endpoint                           |
+| `OLLAMA_USERNAME`         | _(empty)_                             | Basic auth username (optional)                      |
+| `OLLAMA_PASSWORD`         | _(empty)_                             | Basic auth password (optional)                      |
+| `OLLAMA_EMBED_MODEL`      | `mxbai-embed-large`                   | Embedding model (1024d)                             |
+| `OLLAMA_TEXT_MODEL`       | `qwen3:8b`                            | Text enrichment model (uses /no_think)              |
+| `OLLAMA_VL_MODEL`         | `qwen3-vl:4b`                         | Vision-language model (photo enrichment)            |
+| `AI_BACKEND`              | `ollama`                              | AI backend: `ollama` or `openrouter`                |
+| `OPENROUTER_API_KEY`      | _(empty)_                             | OpenRouter API key (required if backend=openrouter) |
+| `OPENROUTER_EMBED_MODEL`  | `google/gemini-embedding-001`         | OpenRouter embedding model (3072d)                  |
+| `OPENROUTER_TEXT_MODEL`   | `mistralai/mistral-nemo`              | OpenRouter text enrichment model                    |
+| `OPENROUTER_VL_MODEL`     | `google/gemma-3-4b-it`                | OpenRouter vision-language model                    |
+| `EMBED_DIMENSION`         | _(auto-detected from model)_          | Override if model is not in known list              |
+| `EMBED_BACKEND`           | _(follows AI_BACKEND)_                | Embedding backend: `ollama`, `openrouter`, `gemini` |
+| `GEMINI_API_KEY`          | _(empty)_                             | Google API key (required if EMBED_BACKEND=gemini)   |
+| `GEMINI_EMBED_MODEL`      | `gemini-embedding-2-preview`          | Gemini embedding model (multimodal)                 |
+| `GEMINI_EMBED_DIMENSIONS` | `3072`                                | Gemini output vector dimensions                     |
+| `FRONTEND_URL`            | `http://localhost:12412`              | CORS / OAuth redirect origin                        |
+| `APP_SECRET`              | `dev-app-secret-change-in-production` | AES-256-GCM key for encrypting credentials at rest  |
+| `PLUGINS_DIR`             | `./plugins`                           | External plugin directory                           |
 
 Config lives in `apps/api/src/config/config.service.ts`.
 
