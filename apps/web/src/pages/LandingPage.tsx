@@ -542,42 +542,15 @@ const HOW_IT_WORKS_TABS = [
     audience: 'For Agent Platforms',
     titleBar: 'openclaw.config.json',
     lines: [
-      {
-        type: 'result' as const,
-        text: '{',
-      },
-      {
-        type: 'result' as const,
-        text: '  "plugins": [{',
-      },
-      {
-        type: 'result' as const,
-        text: '    "package": "@botmem/openclaw-plugin",',
-      },
-      {
-        type: 'result' as const,
-        text: '    "config": {',
-      },
-      {
-        type: 'result' as const,
-        text: '      "apiUrl": "https://botmem.xyz",',
-      },
-      {
-        type: 'result' as const,
-        text: '      "apiKey": "bm_sk_..."',
-      },
-      {
-        type: 'result' as const,
-        text: '    }',
-      },
-      {
-        type: 'result' as const,
-        text: '  }]',
-      },
-      {
-        type: 'result' as const,
-        text: '}',
-      },
+      { type: 'json' as const, text: '{' },
+      { type: 'json' as const, text: '  "plugins": [{' },
+      { type: 'json' as const, text: '    "package": "@botmem/openclaw-plugin",' },
+      { type: 'json' as const, text: '    "config": {' },
+      { type: 'json' as const, text: '      "apiUrl": "https://botmem.xyz",' },
+      { type: 'json' as const, text: '      "apiKey": "bm_sk_..."' },
+      { type: 'json' as const, text: '    }' },
+      { type: 'json' as const, text: '  }]' },
+      { type: 'json' as const, text: '}' },
       {
         type: 'comment' as const,
         text: '# 7 tools: search, ask, remember, forget, timeline, people',
@@ -642,23 +615,52 @@ const HOW_IT_WORKS_TABS = [
         text: '  -d \'{"query": "dinner with sarah", "limit": 5}\'',
       },
       { type: 'divider' as const, text: '' },
-      { type: 'result' as const, text: '{' },
-      { type: 'result' as const, text: '  "results": [' },
-      {
-        type: 'result' as const,
-        text: '    { "score": 0.94, "source": "gmail",',
-      },
-      {
-        type: 'result' as const,
-        text: '      "text": "Dinner reservation at Nobu..." },',
-      },
-      { type: 'result' as const, text: '    ...' },
-      { type: 'result' as const, text: '  ],' },
-      { type: 'result' as const, text: '  "count": 3, "took_ms": 48' },
-      { type: 'result' as const, text: '}' },
+      { type: 'json' as const, text: '{' },
+      { type: 'json' as const, text: '  "results": [' },
+      { type: 'json' as const, text: '    { "score": 0.94, "source": "gmail",' },
+      { type: 'json' as const, text: '      "text": "Dinner reservation at Nobu..." },' },
+      { type: 'json' as const, text: '    ...' },
+      { type: 'json' as const, text: '  ],' },
+      { type: 'json' as const, text: '  "count": 3, "took_ms": 48' },
+      { type: 'json' as const, text: '}' },
     ],
   },
 ];
+
+function JsonLine({ text }: { text: string }) {
+  // Simple JSON syntax highlighting: keys in blue, strings in lime, numbers in orange, braces/brackets muted
+  const parts: Array<{ text: string; cls: string }> = [];
+  // eslint-disable-next-line no-useless-escape
+  const re =
+    /("[\w$.]+")\s*:|("(?:[^"\\]|\\.)*")|(\b\d+(?:\.\d+)?\b)|([\[\]{}:,])|(\.\.\.)|([\s\S]+?)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m[1]) {
+      // key (with colon)
+      parts.push({ text: m[1], cls: 'text-nb-blue' });
+      parts.push({ text: ': ', cls: 'text-nb-muted' });
+    } else if (m[2]) {
+      parts.push({ text: m[2], cls: 'text-nb-lime' });
+    } else if (m[3]) {
+      parts.push({ text: m[3], cls: 'text-nb-orange' });
+    } else if (m[4]) {
+      parts.push({ text: m[4], cls: 'text-nb-muted' });
+    } else if (m[5]) {
+      parts.push({ text: m[5], cls: 'text-nb-muted' });
+    } else if (m[6]) {
+      parts.push({ text: m[6], cls: 'text-nb-text' });
+    }
+  }
+  return (
+    <div className="whitespace-pre">
+      {parts.map((p, i) => (
+        <span key={i} className={p.cls}>
+          {p.text}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function HowItWorks() {
   const [activeTab, setActiveTab] = useState(0);
@@ -799,6 +801,7 @@ function HowItWorks() {
                     <span className="text-nb-muted shrink-0">{line.time}</span>
                   </div>
                 );
+              if (line.type === 'json') return <JsonLine key={lineKey} text={line.text} />;
               // result
               return (
                 <div key={lineKey} className="text-nb-muted whitespace-pre">
