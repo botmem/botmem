@@ -55,7 +55,7 @@ export function PublicFooter() {
           </Link>
         </div>
         <div className="border-t border-nb-border/30 pt-4 flex justify-center">
-          <p className="font-mono text-xs text-nb-muted/60">
+          <p className="font-mono text-xs text-nb-muted">
             &copy; {new Date().getFullYear()} Botmem. All rights reserved.
           </p>
         </div>

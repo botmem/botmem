@@ -88,7 +88,7 @@ Reranking improves search result quality by re-scoring initial vector matches. O
 | `APP_SECRET` | `dev-app-secret-change-in-production` | AES-256-GCM key for encrypting credentials at rest |
 
 ::: danger Production secrets
-In production (`NODE_ENV=production`), the server will **refuse to start** if `APP_SECRET`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, or `OAUTH_JWT_SECRET` are still set to their default values.
+In production (`NODE_ENV=production`), the server will log a warning if `APP_SECRET`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, or `OAUTH_JWT_SECRET` are still set to their default values. Generate secure secrets with: `openssl rand -base64 48`
 :::
 
 ### Billing (Managed tier only)

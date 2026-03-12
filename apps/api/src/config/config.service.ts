@@ -17,8 +17,6 @@ export class ConfigService implements OnModuleInit {
   }
 
   validateProductionSecrets(): void {
-    if (process.env.NODE_ENV !== 'production') return;
-
     const defaults = [
       { name: 'APP_SECRET', value: this.appSecret, default: 'dev-app-secret-change-in-production' },
       {
@@ -39,14 +37,18 @@ export class ConfigService implements OnModuleInit {
     ];
 
     const insecure = defaults.filter(({ value, default: def }) => value === def);
-    if (insecure.length > 0) {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (insecure.length > 0 && isProduction) {
       const names = insecure.map((d) => d.name).join(', ');
       this.logger.warn(
-        `⚠ INSECURE: ${names} using default values. ` +
+        `⚠ INSECURE: ${names} using default values in production! ` +
           `Generate secure secrets with: openssl rand -base64 48`,
       );
+    } else if (insecure.length > 0) {
+      this.logger.log('Using default dev secrets (OK for local/self-hosted dev)');
     } else {
-      this.logger.log('Production secret validation passed');
+      this.logger.log('All secrets are custom-configured');
     }
   }
 

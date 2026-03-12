@@ -667,7 +667,7 @@ function HowItWorks() {
                 );
               if (line.type === 'comment')
                 return (
-                  <div key={lineKey} className="text-nb-muted/60">
+                  <div key={lineKey} className="text-nb-muted">
                     {line.text}
                   </div>
                 );

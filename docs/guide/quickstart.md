@@ -13,14 +13,22 @@ Get Botmem running locally in under five minutes.
 git clone https://github.com/botmem/botmem.git
 cd botmem
 cp .env.example .env    # Edit as needed (see step 3 below)
-docker compose up -d    # First run builds the image locally (~3-5 min)
+docker compose pull     # Ensure you have the latest image
+docker compose up -d    # Starts all services
 ```
 
-This builds and starts everything: Botmem, PostgreSQL, Redis, and Qdrant. The API and web UI are at `http://localhost:12412`.
+This pulls and starts everything: Botmem, PostgreSQL, Redis, and Qdrant. The API and web UI are at `http://localhost:12412`.
+
+::: warning Clean start
+If you've previously built a local image (`docker compose build`), Docker may use the cached local image instead of the published one. Always run `docker compose pull` first to get the latest release.
+:::
 
 ::: tip Ollama connectivity
-If Ollama runs on your host machine (not in Docker), the default `OLLAMA_BASE_URL` uses `host.docker.internal` which works on macOS and Windows. On Linux, add `--add-host=host.docker.internal:host-gateway` to the botmem service or set `OLLAMA_BASE_URL` to your machine's LAN IP.
-:::
+The `.env.example` sets `OLLAMA_BASE_URL=http://localhost:11434` — this is the host-side value. Inside Docker, the compose file overrides this to `http://host.docker.internal:11434` so the container can reach Ollama on your host machine.
+
+- **macOS / Windows**: Works out of the box.
+- **Linux**: The compose file includes `extra_hosts: host.docker.internal:host-gateway` which handles this automatically. If you still have issues, set `OLLAMA_BASE_URL` to your machine's LAN IP in `.env`.
+  :::
 
 Skip to [Step 3: Configure AI Backend](#_3-configure-ai-backend).
 
@@ -176,14 +184,19 @@ curl -X POST http://localhost:12412/api/memories/search \
 
 ## Troubleshooting
 
-### "Email already registered" error
+### "Email already registered" or stale data after upgrade
 
-If you've run Botmem before, the PostgreSQL volume still has your old data. Either use a different email or reset the database:
+If you've run Botmem before, the PostgreSQL volume still has your old data. This can also cause issues when switching between image versions. For a truly clean start:
 
 ```bash
 docker compose down -v   # Removes all volumes (PostgreSQL, Redis, Qdrant data)
+docker compose pull      # Ensure latest image
 docker compose up -d     # Fresh start
 ```
+
+::: tip Recommended when upgrading
+Always run `docker compose down -v && docker compose pull && docker compose up -d` when upgrading to a new version, especially if you encounter 404 errors or auth issues.
+:::
 
 ### API curl examples with special characters
 
@@ -196,9 +209,17 @@ curl -X POST http://localhost:12412/api/user-auth/register \
   -d '{"email":"you@example.com","password":"MyPassword123"}'
 ```
 
-### APP_SECRET warning in dev mode
+::: warning Bash/Zsh escaping
+In bash and zsh, `!` inside double quotes triggers history expansion. Always use **single quotes** around your `-d` JSON body, or escape with `\!`.
+:::
 
-You'll see `APP_SECRET is using default value` in the API logs during local development. This is expected — the defaults are fine for dev. In production (`NODE_ENV=production`), the server will refuse to start with default secrets.
+### "Failed to pre-warm embedding model" warning
+
+On startup you may see this warning in the API logs. This is normal — it means the API started before Ollama finished loading the model. The model will be loaded automatically on first use (first search or sync). No action needed.
+
+### "Using default dev secrets" log message
+
+You'll see `Using default dev secrets (OK for local/self-hosted dev)` in the API logs when running with the default `.env.example` values. This is expected for local development. In production (`NODE_ENV=production`), you must set custom secrets — see [Configuration](/guide/configuration).
 
 ## What Next?
 
