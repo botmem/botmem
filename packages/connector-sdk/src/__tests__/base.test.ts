@@ -153,7 +153,7 @@ describe('emitProgress', () => {
 
     const event: ProgressEvent = { processed: 10, total: 100 };
     connector.emitProgress(event);
-    expect(listener).toHaveBeenCalledWith(event);
+    expect(listener).toHaveBeenCalledWith({ ...event, filteredCount: 0 });
   });
 });
 
