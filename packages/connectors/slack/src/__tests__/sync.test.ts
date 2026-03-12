@@ -558,7 +558,7 @@ describe('syncSlack', () => {
     expect(msgEvents[0].content.text).not.toContain('--- thread replies ---');
   });
 
-  it('handles bot messages (no user, has bot_id)', async () => {
+  it('filters bot messages (bot_id present)', async () => {
     mockConversationsList.mockResolvedValue({
       channels: [{ id: 'C1', name: 'general' }],
       response_metadata: {},
@@ -573,7 +573,8 @@ describe('syncSlack', () => {
     const msgEvents = events.filter(
       (e: ConnectorDataEvent) => e.content.metadata?.type !== 'contact',
     );
-    expect(msgEvents.length).toBe(1);
+    // Bot messages are now filtered by noise filtering
+    expect(msgEvents.length).toBe(0);
   });
 
   it('skips channels with no id', async () => {
