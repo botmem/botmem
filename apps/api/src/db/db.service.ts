@@ -102,27 +102,29 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
     'created_at',
   ],
   memory_links: ['id', 'src_memory_id', 'dst_memory_id', 'link_type', 'strength', 'created_at'],
-  contacts: [
+  people: [
     'id',
     'user_id',
     'display_name',
+    'display_name_hash',
     'entity_type',
     'avatars',
     'metadata',
     'created_at',
     'updated_at',
   ],
-  contact_identifiers: [
+  person_identifiers: [
     'id',
-    'contact_id',
+    'person_id',
     'identifier_type',
     'identifier_value',
+    'identifier_value_hash',
     'connector_type',
     'confidence',
     'created_at',
   ],
-  memory_contacts: ['id', 'memory_id', 'contact_id', 'role'],
-  merge_dismissals: ['id', 'contact_id_1', 'contact_id_2', 'created_at'],
+  memory_people: ['id', 'memory_id', 'person_id', 'role'],
+  merge_dismissals: ['id', 'person_id_1', 'person_id_2', 'created_at'],
   memory_banks: ['id', 'user_id', 'name', 'is_default', 'created_at', 'updated_at'],
   api_keys: [
     'id',
@@ -316,7 +318,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       await client.query(`
         -- =====================================================================
         -- TABLES WITH DIRECT user_id COLUMN
-        -- accounts, contacts, memory_banks, api_keys, refresh_tokens, password_resets
+        -- accounts, people, memory_banks, api_keys, refresh_tokens, password_resets
         -- =====================================================================
 
         ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
@@ -330,16 +332,16 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         CREATE POLICY rls_accounts_update ON accounts FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
         CREATE POLICY rls_accounts_delete ON accounts FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
 
-        ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE contacts FORCE ROW LEVEL SECURITY;
-        DROP POLICY IF EXISTS rls_contacts_select ON contacts;
-        DROP POLICY IF EXISTS rls_contacts_insert ON contacts;
-        DROP POLICY IF EXISTS rls_contacts_update ON contacts;
-        DROP POLICY IF EXISTS rls_contacts_delete ON contacts;
-        CREATE POLICY rls_contacts_select ON contacts FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
-        CREATE POLICY rls_contacts_insert ON contacts FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
-        CREATE POLICY rls_contacts_update ON contacts FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
-        CREATE POLICY rls_contacts_delete ON contacts FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+        ALTER TABLE people ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE people FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_people_select ON people;
+        DROP POLICY IF EXISTS rls_people_insert ON people;
+        DROP POLICY IF EXISTS rls_people_update ON people;
+        DROP POLICY IF EXISTS rls_people_delete ON people;
+        CREATE POLICY rls_people_select ON people FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_people_insert ON people FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_people_update ON people FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_people_delete ON people FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
 
         ALTER TABLE memory_banks ENABLE ROW LEVEL SECURITY;
         ALTER TABLE memory_banks FORCE ROW LEVEL SECURITY;
@@ -425,7 +427,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
 
         -- =====================================================================
         -- TABLES VIA memories (two-hop via accounts)
-        -- memory_links, memory_contacts
+        -- memory_links, memory_people
         -- =====================================================================
 
         ALTER TABLE memory_links ENABLE ROW LEVEL SECURITY;
@@ -439,32 +441,32 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         CREATE POLICY rls_memory_links_update ON memory_links FOR UPDATE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_links.src_memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
         CREATE POLICY rls_memory_links_delete ON memory_links FOR DELETE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_links.src_memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
 
-        ALTER TABLE memory_contacts ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE memory_contacts FORCE ROW LEVEL SECURITY;
-        DROP POLICY IF EXISTS rls_memory_contacts_select ON memory_contacts;
-        DROP POLICY IF EXISTS rls_memory_contacts_insert ON memory_contacts;
-        DROP POLICY IF EXISTS rls_memory_contacts_update ON memory_contacts;
-        DROP POLICY IF EXISTS rls_memory_contacts_delete ON memory_contacts;
-        CREATE POLICY rls_memory_contacts_select ON memory_contacts FOR SELECT USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
-        CREATE POLICY rls_memory_contacts_insert ON memory_contacts FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
-        CREATE POLICY rls_memory_contacts_update ON memory_contacts FOR UPDATE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
-        CREATE POLICY rls_memory_contacts_delete ON memory_contacts FOR DELETE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_contacts.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        ALTER TABLE memory_people ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE memory_people FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_memory_people_select ON memory_people;
+        DROP POLICY IF EXISTS rls_memory_people_insert ON memory_people;
+        DROP POLICY IF EXISTS rls_memory_people_update ON memory_people;
+        DROP POLICY IF EXISTS rls_memory_people_delete ON memory_people;
+        CREATE POLICY rls_memory_people_select ON memory_people FOR SELECT USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_people.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_people_insert ON memory_people FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_people.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_people_update ON memory_people FOR UPDATE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_people.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
+        CREATE POLICY rls_memory_people_delete ON memory_people FOR DELETE USING (EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_people.memory_id AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.user_id = current_setting('app.current_user_id', true))));
 
         -- =====================================================================
-        -- TABLES VIA contacts
-        -- contact_identifiers, merge_dismissals
+        -- TABLES VIA people
+        -- person_identifiers, merge_dismissals
         -- =====================================================================
 
-        ALTER TABLE contact_identifiers ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE contact_identifiers FORCE ROW LEVEL SECURITY;
-        DROP POLICY IF EXISTS rls_contact_identifiers_select ON contact_identifiers;
-        DROP POLICY IF EXISTS rls_contact_identifiers_insert ON contact_identifiers;
-        DROP POLICY IF EXISTS rls_contact_identifiers_update ON contact_identifiers;
-        DROP POLICY IF EXISTS rls_contact_identifiers_delete ON contact_identifiers;
-        CREATE POLICY rls_contact_identifiers_select ON contact_identifiers FOR SELECT USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
-        CREATE POLICY rls_contact_identifiers_insert ON contact_identifiers FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
-        CREATE POLICY rls_contact_identifiers_update ON contact_identifiers FOR UPDATE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
-        CREATE POLICY rls_contact_identifiers_delete ON contact_identifiers FOR DELETE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = contact_identifiers.contact_id AND c.user_id = current_setting('app.current_user_id', true)));
+        ALTER TABLE person_identifiers ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE person_identifiers FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_person_identifiers_select ON person_identifiers;
+        DROP POLICY IF EXISTS rls_person_identifiers_insert ON person_identifiers;
+        DROP POLICY IF EXISTS rls_person_identifiers_update ON person_identifiers;
+        DROP POLICY IF EXISTS rls_person_identifiers_delete ON person_identifiers;
+        CREATE POLICY rls_person_identifiers_select ON person_identifiers FOR SELECT USING (EXISTS (SELECT 1 FROM people p WHERE p.id = person_identifiers.person_id AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_person_identifiers_insert ON person_identifiers FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM people p WHERE p.id = person_identifiers.person_id AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_person_identifiers_update ON person_identifiers FOR UPDATE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = person_identifiers.person_id AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_person_identifiers_delete ON person_identifiers FOR DELETE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = person_identifiers.person_id AND p.user_id = current_setting('app.current_user_id', true)));
 
         ALTER TABLE merge_dismissals ENABLE ROW LEVEL SECURITY;
         ALTER TABLE merge_dismissals FORCE ROW LEVEL SECURITY;
@@ -472,10 +474,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         DROP POLICY IF EXISTS rls_merge_dismissals_insert ON merge_dismissals;
         DROP POLICY IF EXISTS rls_merge_dismissals_update ON merge_dismissals;
         DROP POLICY IF EXISTS rls_merge_dismissals_delete ON merge_dismissals;
-        CREATE POLICY rls_merge_dismissals_select ON merge_dismissals FOR SELECT USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
-        CREATE POLICY rls_merge_dismissals_insert ON merge_dismissals FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
-        CREATE POLICY rls_merge_dismissals_update ON merge_dismissals FOR UPDATE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
-        CREATE POLICY rls_merge_dismissals_delete ON merge_dismissals FOR DELETE USING (EXISTS (SELECT 1 FROM contacts c WHERE c.id = merge_dismissals.contact_id_1 AND c.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_select ON merge_dismissals FOR SELECT USING (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_insert ON merge_dismissals FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_update ON merge_dismissals FOR UPDATE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_merge_dismissals_delete ON merge_dismissals FOR DELETE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
       `);
       this.logger.log('RLS policies applied on all user-owned tables');
     } finally {
