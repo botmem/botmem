@@ -1,20 +1,46 @@
-import posthog from 'posthog-js';
+/**
+ * Lightweight PostHog proxy — does NOT import posthog-js at module level.
+ * All calls are queued and flushed once the real SDK loads via initPostHog().
+ * This keeps the 180KB analytics-vendor chunk off the critical path.
+ */
+
+type QueuedCall = { method: 'capture' | 'identify' | 'reset'; args: unknown[] };
 
 const apiKey = import.meta.env.VITE_POSTHOG_API_KEY as string | undefined;
 const apiHost = (import.meta.env.VITE_POSTHOG_HOST as string) || 'https://t.botmem.xyz';
 
-export function initPostHog() {
+let _posthog: typeof import('posthog-js').default | null = null;
+const _queue: QueuedCall[] = [];
+
+function enqueue(method: QueuedCall['method'], ...args: unknown[]) {
+  if (_posthog) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (_posthog as any)[method](...args);
+  } else {
+    _queue.push({ method, args });
+  }
+}
+
+function flush() {
+  if (!_posthog) return;
+  while (_queue.length) {
+    const { method, args } = _queue.shift()!;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (_posthog as any)[method](...args);
+  }
+}
+
+export async function initPostHog() {
   if (!apiKey) return;
+  const { default: posthog } = await import('posthog-js');
   posthog.init(apiKey, {
     api_host: apiHost,
-    capture_pageview: false, // we track manually on route change
+    capture_pageview: false,
 
-    // Session replay (REPLAY-01, REPLAY-03)
     session_recording: {
       maskAllInputs: true,
       maskTextSelector: '[data-ph-mask]',
       recordCrossOriginIframes: false,
-      // Mask auth headers and response bodies in network recording (REPLAY-03)
       maskCapturedNetworkRequestFn: (request) => {
         if (request.requestHeaders) {
           const masked = { ...request.requestHeaders };
@@ -26,7 +52,6 @@ export function initPostHog() {
           }
           request.requestHeaders = masked;
         }
-        // Redact response bodies from API calls that may contain personal data
         if (request.responseBody) {
           const url = request.name || '';
           if (
@@ -37,7 +62,6 @@ export function initPostHog() {
             request.responseBody = '***REDACTED***';
           }
         }
-        // Redact request bodies that may contain passwords or keys
         if (request.requestBody) {
           const body = typeof request.requestBody === 'string' ? request.requestBody : '';
           if (
@@ -52,17 +76,28 @@ export function initPostHog() {
       },
     },
 
-    // Autocapture + heatmaps (HEAT-01, HEAT-03)
     autocapture: true,
     enable_heatmaps: true,
-
-    // Error tracking (ERR-01)
     capture_exceptions: true,
-
-    // Web analytics (WEB-03)
     capture_pageleave: true,
   });
+
+  _posthog = posthog;
+  flush();
 }
+
+/** Proxy object — safe to use before posthog loads. Calls are queued. */
+export const posthog = {
+  capture(event: string, properties?: Record<string, unknown>) {
+    enqueue('capture', event, properties);
+  },
+  identify(userId: string, properties?: Record<string, unknown>) {
+    enqueue('identify', userId, properties);
+  },
+  reset() {
+    enqueue('reset');
+  },
+};
 
 export function identifyUser(userId: string, properties?: Record<string, unknown>): void {
   if (!apiKey) return;
@@ -77,5 +112,3 @@ export function resetUser(): void {
   if (!apiKey) return;
   posthog.reset();
 }
-
-export { posthog };

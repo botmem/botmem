@@ -78,8 +78,6 @@ function PostHogIdentifier() {
     api
       .getMe<PostHogMeData>()
       .then((data) => {
-        // Prefer user.email from the users table (accurate) over contact-derived identity.email
-        // (which can be wrong, e.g. notifications@github.com from GitHub OAuth)
         const email = user.email || data.identity?.email;
         const userId = user.id || email || data.identity?.contactId || 'botmem-user';
         identifyUser(userId, {
