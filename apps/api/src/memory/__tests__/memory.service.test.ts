@@ -13,6 +13,7 @@ describe('MemoryService', () => {
   let service: MemoryService;
   let aiService: {
     embed: ReturnType<typeof vi.fn>;
+    embedQuery: ReturnType<typeof vi.fn>;
     rerank: ReturnType<typeof vi.fn>;
     generate: ReturnType<typeof vi.fn>;
   };
@@ -58,6 +59,7 @@ describe('MemoryService', () => {
   beforeEach(() => {
     aiService = {
       embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      embedQuery: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
       rerank: vi.fn().mockResolvedValue([0.8, 0.6]),
       generate: vi.fn().mockResolvedValue('generated text'),
     };
