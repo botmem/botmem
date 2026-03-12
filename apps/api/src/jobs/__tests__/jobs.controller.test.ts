@@ -4,6 +4,7 @@ import { JobsService } from '../jobs.service';
 import { AccountsService } from '../../accounts/accounts.service';
 import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 import type { DbService } from '../../db/db.service';
+import type { EventsService } from '../../events/events.service';
 import type { Queue } from 'bullmq';
 
 function createMocks() {
@@ -31,6 +32,11 @@ function createMocks() {
       }),
     },
   } as unknown as DbService;
+
+  const events = {
+    emitToChannel: vi.fn(),
+  } as unknown as EventsService;
+
   const syncQueue = {} as unknown as Queue;
   const cleanQueue = {} as unknown as Queue;
   const embedQueue = {} as unknown as Queue;
@@ -42,6 +48,7 @@ function createMocks() {
     accountsService,
     memoryBanksService,
     dbService,
+    events,
     syncQueue,
     cleanQueue,
     embedQueue,
@@ -70,6 +77,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -83,6 +91,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -102,6 +111,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -115,6 +125,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -132,6 +143,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -145,6 +157,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -162,6 +175,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -175,6 +189,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -191,6 +206,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -209,6 +225,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -233,6 +250,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
@@ -246,6 +264,7 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
+      events,
       syncQueue,
       cleanQueue,
       embedQueue,
