@@ -1261,9 +1261,15 @@ export class ContactsService {
       }
 
       // Strategy 3: Shared first name + co-occurrence or shared identifier
+      // Skip when both have multi-word names with different last names — they're different people
       const firstA = wordsA[0];
       const firstB = wordsB[0];
       if (firstA.length >= 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
+        if (wordsA.length > 1 && wordsB.length > 1) {
+          const lastA = wordsA[wordsA.length - 1];
+          const lastB = wordsB[wordsB.length - 1];
+          if (lastA !== lastB) return;
+        }
         if (shareNonNameIdentifier(c1.id, c2.id)) {
           addSuggestion(c1, c2, `Share first name "${firstA}" and a common identifier`);
           return;
