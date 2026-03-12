@@ -31,6 +31,8 @@ export default defineConfig({
         'src/lib/posthog.ts',
         'src/lib/ws.ts',
         'src/store/tourStore.ts',
+        'src/lib/wa-auth-store.ts',
+        'src/lib/wa-tunnel-relay.ts',
       ],
       thresholds: {
         statements: 75,
