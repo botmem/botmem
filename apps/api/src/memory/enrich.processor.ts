@@ -136,16 +136,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     // The tsvector is non-sensitive (stemmed word positions, no raw text) and stored unencrypted.
     if (mem?.text) {
       try {
-        const updateTokens = (db: typeof this.dbService.db) =>
-          db
-            .update(memories)
-            .set({ searchTokens: sql`to_tsvector('english', ${mem.text})` })
-            .where(eq(memories.id, memoryId));
-        if (ownerUserId) {
-          await this.dbService.withUserId(ownerUserId, updateTokens);
-        } else {
-          await updateTokens(this.dbService.db);
-        }
+        await this.updateSearchTokens(memoryId, mem.text, ownerUserId);
       } catch (err) {
         this.logger.warn(
           `[enrich] search_tokens update failed for ${memoryId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -158,16 +149,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     await this.encryptMemoryAtRest(memoryId, ownerUserId ?? undefined);
 
     // Mark memory as done + pipeline complete — use withUserId scope if available
-    const updateDone = (db: typeof this.dbService.db) =>
-      db
-        .update(memories)
-        .set({ embeddingStatus: 'done', pipelineComplete: true, enrichedAt: new Date() })
-        .where(eq(memories.id, memoryId));
-    if (ownerUserId) {
-      await this.dbService.withUserId(ownerUserId, updateDone);
-    } else {
-      await updateDone(this.dbService.db);
-    }
+    await this.markPipelineComplete(memoryId, ownerUserId);
 
     this.events.emitToChannel('memories', 'memory:updated', {
       memoryId,
@@ -268,6 +250,36 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
         })
         .where(eq(memories.id, memoryId)),
     );
+  }
+
+  private async markPipelineComplete(memoryId: string, ownerUserId: string | null) {
+    const doUpdate = (db: typeof this.dbService.db) =>
+      db
+        .update(memories)
+        .set({ embeddingStatus: 'done', pipelineComplete: true, enrichedAt: new Date() })
+        .where(eq(memories.id, memoryId));
+    if (ownerUserId) {
+      await this.dbService.withUserId(ownerUserId, doUpdate);
+    } else {
+      await doUpdate(this.dbService.db);
+    }
+  }
+
+  private async updateSearchTokens(
+    memoryId: string,
+    plaintext: string,
+    ownerUserId: string | null,
+  ) {
+    const doUpdate = (db: typeof this.dbService.db) =>
+      db
+        .update(memories)
+        .set({ searchTokens: sql`to_tsvector('english', ${plaintext})` })
+        .where(eq(memories.id, memoryId));
+    if (ownerUserId) {
+      await this.dbService.withUserId(ownerUserId, doUpdate);
+    } else {
+      await doUpdate(this.dbService.db);
+    }
   }
 
   private emitGraphDelta(memoryId: string) {
