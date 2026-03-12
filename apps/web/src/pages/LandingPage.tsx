@@ -749,7 +749,7 @@ function HowItWorks() {
                 );
               if (line.type === 'continued')
                 return (
-                  <div key={lineKey} className="text-nb-text">
+                  <div key={lineKey} className="text-nb-text whitespace-pre">
                     {line.text}
                   </div>
                 );
@@ -801,7 +801,7 @@ function HowItWorks() {
                 );
               // result
               return (
-                <div key={lineKey} className="text-nb-muted">
+                <div key={lineKey} className="text-nb-muted whitespace-pre">
                   {line.text}
                 </div>
               );
