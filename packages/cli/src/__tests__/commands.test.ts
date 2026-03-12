@@ -72,9 +72,17 @@ function createMockClient(): BotmemClient {
   } as unknown as BotmemClient;
 }
 
-let logSpy: ReturnType<typeof vi.spyOn>;
-let errorSpy: ReturnType<typeof vi.spyOn>;
-let exitSpy: ReturnType<typeof vi.spyOn>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let logSpy: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let errorSpy: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let exitSpy: any;
+
+/** Helper to extract a logged string from spy calls (avoids `unknown` type errors). */
+function logged(spy: ReturnType<typeof vi.spyOn>, call = 0, arg = 0): string {
+  return spy.mock.calls[call][arg] as string;
+}
 
 beforeEach(() => {
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -136,7 +144,7 @@ describe('runSearch', () => {
   it('should output JSON when json=true', async () => {
     const client = createMockClient();
     await runSearch(client, ['test'], true);
-    const output = logSpy.mock.calls[0][0];
+    const output = logged(logSpy, 0, 0);
     expect(() => JSON.parse(output)).not.toThrow();
   });
 
@@ -285,7 +293,7 @@ describe('runMemories', () => {
   it('should output JSON when json=true', async () => {
     const client = createMockClient();
     await runMemories(client, [], true);
-    const output = logSpy.mock.calls[0][0];
+    const output = logged(logSpy, 0, 0);
     expect(() => JSON.parse(output)).not.toThrow();
   });
 
@@ -306,7 +314,7 @@ describe('runMemories', () => {
     it('should output JSON for delete', async () => {
       const client = createMockClient();
       await runMemory(client, ['m1', 'delete'], true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
 
     it('should error when no ID provided', async () => {
@@ -327,7 +335,7 @@ describe('runMemories', () => {
     it('should output JSON', async () => {
       const client = createMockClient();
       await runStats(client, true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
   });
 });
@@ -356,7 +364,7 @@ describe('runContacts', () => {
   it('should output JSON for list', async () => {
     const client = createMockClient();
     await runContacts(client, [], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should error on empty search query', async () => {
@@ -388,13 +396,13 @@ describe('runContacts', () => {
     it('should output JSON for contact', async () => {
       const client = createMockClient();
       await runContact(client, ['c1'], true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
 
     it('should output JSON for contact memories', async () => {
       const client = createMockClient();
       await runContact(client, ['c1', 'memories'], true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
   });
 });
@@ -447,7 +455,7 @@ describe('runAsk', () => {
   it('should output JSON', async () => {
     const client = createMockClient();
     await runAsk(client, ['test'], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should error when no query', async () => {
@@ -467,7 +475,7 @@ describe('runAsk', () => {
     it('should output JSON', async () => {
       const client = createMockClient();
       await runContext(client, ['c1'], true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
 
     it('should error when no contact ID', async () => {
@@ -505,7 +513,7 @@ describe('runJobs', () => {
   it('should output JSON', async () => {
     const client = createMockClient();
     await runJobs(client, [], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   describe('runSync', () => {
@@ -526,7 +534,7 @@ describe('runJobs', () => {
     it('should output JSON', async () => {
       const client = createMockClient();
       await runSync(client, ['acc-1'], true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
   });
 
@@ -543,7 +551,7 @@ describe('runJobs', () => {
     it('should output JSON', async () => {
       const client = createMockClient();
       await runRetry(client, true);
-      const output = JSON.parse(logSpy.mock.calls[0][0]);
+      const output = JSON.parse(logged(logSpy, 0, 0));
       expect(output.jobs.retried).toBe(2);
       expect(output.memories.enqueued).toBe(3);
     });
@@ -559,7 +567,7 @@ describe('runJobs', () => {
     it('should output JSON', async () => {
       const client = createMockClient();
       await runAccounts(client, true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
   });
 });
@@ -605,7 +613,7 @@ describe('runTimeline', () => {
   it('should output JSON', async () => {
     const client = createMockClient();
     await runTimeline(client, [], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should show "no memories" message when empty', async () => {
@@ -673,7 +681,7 @@ describe('runEntities', () => {
   it('should output JSON for search', async () => {
     const client = createMockClient();
     await runEntities(client, ['search', 'test'], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should error when search has no query', async () => {
@@ -707,7 +715,7 @@ describe('runEntities', () => {
   it('should output JSON for graph', async () => {
     const client = createMockClient();
     await runEntities(client, ['graph', 'Google'], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should error on unknown subcommand', async () => {
@@ -741,7 +749,7 @@ describe('runEntities', () => {
     it('should output JSON', async () => {
       const client = createMockClient();
       await runRelated(client, ['m1'], true);
-      expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+      expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
 
     it('should error when no memory ID', async () => {
@@ -795,25 +803,25 @@ describe('runMemoryBanks', () => {
   it('should output JSON for list', async () => {
     const client = createMockClient();
     await runMemoryBanks(client, [], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should output JSON for create', async () => {
     const client = createMockClient();
     await runMemoryBanks(client, ['create', 'Work'], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should output JSON for rename', async () => {
     const client = createMockClient();
     await runMemoryBanks(client, ['rename', 'b1', 'New'], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should output JSON for delete', async () => {
     const client = createMockClient();
     await runMemoryBanks(client, ['delete', 'b1'], true);
-    expect(() => JSON.parse(logSpy.mock.calls[0][0])).not.toThrow();
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 
   it('should error when create has no name', async () => {
@@ -917,7 +925,7 @@ describe('runVersion', () => {
   it('should output JSON', async () => {
     const client = createMockClient();
     await runVersion(client, true);
-    const output = JSON.parse(logSpy.mock.calls[0][0]);
+    const output = JSON.parse(logged(logSpy, 0, 0));
     expect(output.buildTime).toBe('2025-01-01');
     expect(output.gitHash).toBe('abc');
     expect(output.uptime).toBe(3600);
