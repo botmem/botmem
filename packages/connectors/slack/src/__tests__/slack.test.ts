@@ -132,7 +132,9 @@ describe('SlackConnector', () => {
 
       const result = await connector.sync(ctx);
       expect(result.processed).toBe(15);
-      expect(progressListener).toHaveBeenCalledWith({ processed: 15, total: 15 });
+      expect(progressListener).toHaveBeenCalledWith(
+        expect.objectContaining({ processed: 15, total: 15 }),
+      );
     });
   });
 

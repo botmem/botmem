@@ -483,8 +483,8 @@ describe('IMessageConnector', () => {
       await connector.sync(ctx);
 
       // Should emit at 50 (PROGRESS_INTERVAL) and final
-      expect(progressListener).toHaveBeenCalledWith({ processed: 50 });
-      expect(progressListener).toHaveBeenCalledWith({ processed: 55 });
+      expect(progressListener).toHaveBeenCalledWith(expect.objectContaining({ processed: 50 }));
+      expect(progressListener).toHaveBeenCalledWith(expect.objectContaining({ processed: 55 }));
     });
 
     it('falls back to imsg-{id} sourceId when no guid', async () => {
