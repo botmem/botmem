@@ -18,12 +18,15 @@ interface ConnectorState {
   removeAccount: (id: string) => Promise<void>;
   updateSchedule: (id: string, schedule: SyncSchedule) => Promise<void>;
   syncNow: (id: string, memoryBankId?: string) => Promise<void>;
+  syncAll: (memoryBankId?: string) => Promise<void>;
+  syncingAll: boolean;
 }
 
 export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   accounts: [],
   manifests: [],
   loading: false,
+  syncingAll: false,
 
   fetchManifests: async () => {
     set({ loading: true });
@@ -110,5 +113,25 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
         ),
       }));
     }
+  },
+
+  syncAll: async (memoryBankId?) => {
+    const syncable = _get().accounts.filter(
+      (a) => a.status === 'connected' || a.status === 'error' || a.status === 'disconnected',
+    );
+    if (syncable.length === 0) return;
+
+    trackEvent('sync_all_triggered', { account_count: syncable.length });
+    set({ syncingAll: true });
+    set((state) => ({
+      accounts: state.accounts.map((a) =>
+        syncable.some((s) => s.id === a.id) ? { ...a, status: 'syncing' as const } : a,
+      ),
+    }));
+
+    await Promise.allSettled(
+      syncable.map((a) => api.triggerSync(a.id, memoryBankId).catch(() => {})),
+    );
+    set({ syncingAll: false });
   },
 }));

@@ -55,8 +55,16 @@ function ConnectorStatusDot({ type }: { type: string }) {
 }
 
 export function ConnectorsPage() {
-  const { accounts, manifests, addAccount, removeAccount, syncNow, fetchAccounts } =
-    useConnectors();
+  const {
+    accounts,
+    manifests,
+    addAccount,
+    removeAccount,
+    syncNow,
+    syncAll,
+    syncingAll,
+    fetchAccounts,
+  } = useConnectors();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Handle OAuth callback redirect
@@ -109,9 +117,19 @@ export function ConnectorsPage() {
 
   return (
     <PageContainer>
-      <h2 className="font-display text-3xl font-bold uppercase text-nb-text mb-6">
-        All Connectors
-      </h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-display text-3xl font-bold uppercase text-nb-text">All Connectors</h2>
+        {accounts.length > 0 && (
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={syncingAll || accounts.every((a) => a.status === 'syncing')}
+            onClick={() => syncAll()}
+          >
+            {syncingAll ? 'SYNCING...' : 'SYNC ALL'}
+          </Button>
+        )}
+      </div>
 
       <div className="flex flex-col gap-3" data-tour="connectors-grid">
         {displayConfigs.map((cfg) => {
