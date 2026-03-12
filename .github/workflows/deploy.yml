@@ -122,35 +122,28 @@ jobs:
           args: --login-server=${{ secrets.TAILSCALE_LOGIN_SERVER }}
           hostname: github-ci-${{ github.run_id }}
 
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
       - name: Pull & restart api on VPS
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_TAILSCALE_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_ACTOR
-          script: |
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} << 'DEPLOY'
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd /opt/botmem
             docker compose -f docker-compose.prod.yml pull api
             docker compose -f docker-compose.prod.yml up -d api
             docker image prune -af
             docker builder prune -af
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_ACTOR: ${{ github.actor }}
+          DEPLOY
 
       - name: Deploy docs to VPS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_TAILSCALE_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: docs/.vitepress/dist/*
-          target: /opt/botmem/docs-site
-          strip_components: 3
-          overwrite: true
-          rm: true
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
 
       - name: Validate deployment
         run: |
