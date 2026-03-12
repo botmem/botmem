@@ -7,7 +7,7 @@ type SettingChangeListener = (key: string, value: string) => void;
 const DEFAULTS: Record<string, string> = {
   sync_concurrency: '8',
   embed_concurrency: '64',
-  enrich_concurrency: '64',
+  enrich_concurrency: '1000',
   clean_concurrency: '64',
   file_concurrency: '8',
   sync_debug_limit: '0',

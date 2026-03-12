@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 function formatCompact(n: number): string {
-  if (n < 100_000) return n.toLocaleString();
-  if (n < 1_000_000) return (n / 1_000).toFixed(n % 1_000 < 100 ? 0 : 1) + 'k';
-  if (n < 1_000_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 < 100_000 ? 0 : 1) + 'M';
+  if (n < 10_000) return n.toLocaleString();
+  if (n < 1_000_000) return (n / 1_000).toFixed(n < 100_000 ? 1 : 0) + 'k';
+  if (n < 1_000_000_000) return (n / 1_000_000).toFixed(n < 100_000_000 ? 1 : 0) + 'M';
   return (n / 1_000_000_000).toFixed(1) + 'B';
 }
 

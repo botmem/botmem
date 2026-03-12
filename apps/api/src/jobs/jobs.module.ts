@@ -22,7 +22,7 @@ import { SettingsModule } from '../settings/settings.module';
         defaultJobOptions: {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: { count: 100_000 },
+          removeOnComplete: { count: 1_000_000 },
           removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
         },
       }),
