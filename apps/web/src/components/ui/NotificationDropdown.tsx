@@ -123,7 +123,12 @@ export function NotificationDropdown({
               visible.map((n) => (
                 <div
                   key={n.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => !n.read && onMarkRead(n.id)}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && !n.read) onMarkRead(n.id);
+                  }}
                   className={cn(
                     'flex items-start gap-2 px-3 py-2 border-b border-nb-border/30 cursor-pointer',
                     'hover:bg-nb-surface-muted transition-colors',

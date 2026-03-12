@@ -79,7 +79,7 @@ jobs:
           tags: |
             ghcr.io/botmem/botmem:latest
             ghcr.io/botmem/botmem:${{ github.sha }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
 
   deploy:
     name: Deploy to Production
