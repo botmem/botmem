@@ -365,6 +365,20 @@ export class AuthService {
     return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
   }
 
+  /** Create an account from tunnel-mode QR auth (auth context already resolved). */
+  async completeTunnelAuth(
+    connectorType: string,
+    authContext: Record<string, unknown>,
+    userId: string,
+  ) {
+    const identifier = String(
+      authContext.identifier ||
+        (authContext.raw as Record<string, unknown> | undefined)?.jid ||
+        connectorType,
+    );
+    return this.createAndSync(connectorType, identifier, authContext, userId);
+  }
+
   /** Re-run initiateAuth for an existing account — validates the new config then updates the account. */
   async reauth(connectorType: string, accountId: string, config: Record<string, unknown>) {
     const connector = this.connectors.get(connectorType);
