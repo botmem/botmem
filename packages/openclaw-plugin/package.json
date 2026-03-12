@@ -1,0 +1,44 @@
+{
+  "name": "@botmem/openclaw-plugin",
+  "version": "0.0.0",
+  "description": "OpenClaw plugin for Botmem — personal memory search across emails, messages, photos, and more",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/botmem/botmem.git",
+    "directory": "packages/openclaw-plugin"
+  },
+  "homepage": "https://github.com/botmem/botmem/tree/main/packages/openclaw-plugin",
+  "keywords": [
+    "botmem",
+    "openclaw",
+    "memory",
+    "rag",
+    "plugin",
+    "agent"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.1.0"
+  }
+}
