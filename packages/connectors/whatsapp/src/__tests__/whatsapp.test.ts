@@ -13,7 +13,6 @@ vi.mock('../qr-auth.js', () => ({
 vi.mock('../sync.js', () => ({
   syncWhatsApp: vi.fn().mockResolvedValue({ cursor: null, hasMore: false, processed: 5 }),
   setDecryptFailureCallback: vi.fn(),
-  setDecryptFailureCallback: vi.fn(),
 }));
 
 describe('WhatsAppConnector', () => {
