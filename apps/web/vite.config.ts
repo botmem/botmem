@@ -12,7 +12,7 @@ export default defineConfig({
     conditions: ['source'],
   },
   build: {
-    target: 'es2020',
+    target: 'esnext',
     cssMinify: 'lightningcss',
     rollupOptions: {
       output: {

@@ -31,5 +31,7 @@ export function Logo({ variant = 'full', className, height }: LogoProps) {
   const h = height ?? 36;
   const w = Math.round(h * (210 / 52));
 
-  return <img src={src} alt="Botmem" height={h} width={w} className={className} />;
+  return (
+    <img src={src} alt="Botmem" height={h} width={w} fetchPriority="high" className={className} />
+  );
 }

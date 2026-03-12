@@ -29,6 +29,9 @@
     <!-- Preconnect to Firebase auth (eliminates 300ms+ connection overhead) -->
     <link rel="preconnect" href="https://botmem-app.firebaseapp.com" />
     <link rel="preconnect" href="https://apis.google.com" />
+    <!-- Preload LCP image so it's discoverable from initial HTML -->
+    <link rel="preload" href="/logo-light.svg" as="image" type="image/svg+xml" fetchpriority="high" />
+    <link rel="preload" href="/logo.svg" as="image" type="image/svg+xml" />
     <!-- DNS prefetch for deferred third-party scripts -->
     <link rel="dns-prefetch" href="https://t.botmem.xyz" />
     <!-- Preload critical fonts to eliminate FOIT/FOUT and speed up FCP -->
