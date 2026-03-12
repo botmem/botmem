@@ -26,12 +26,12 @@ export function PublicFooter() {
             >
               Docs
             </a>
-            <Link
-              to="/pricing"
+            <a
+              href="/#pricing"
               className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
             >
               Pricing
-            </Link>
+            </a>
           </div>
         </div>
         <div className="flex flex-wrap justify-center sm:justify-end gap-6 font-mono text-xs text-nb-muted">

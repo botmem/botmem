@@ -26,9 +26,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/logo-mark-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/brand/logo-mark-16.png" />
     <link rel="apple-touch-icon" sizes="192x192" href="/brand/logo-mark-192.png" />
-    <!-- Preconnect to Firebase auth (eliminates 300ms+ connection overhead) -->
-    <link rel="preconnect" href="https://botmem-app.firebaseapp.com" />
-    <link rel="preconnect" href="https://apis.google.com" />
+    <!-- Preconnect to Firebase auth — dns-prefetch as fallback for non-landing pages -->
+    <link rel="dns-prefetch" href="https://botmem-app.firebaseapp.com" />
+    <link rel="dns-prefetch" href="https://apis.google.com" />
     <!-- Preload LCP image so it's discoverable from initial HTML -->
     <link rel="preload" href="/logo-light.svg" as="image" type="image/svg+xml" fetchpriority="high" />
     <link rel="preload" href="/logo.svg" as="image" type="image/svg+xml" />
