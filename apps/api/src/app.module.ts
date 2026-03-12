@@ -3,6 +3,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { RlsInterceptor } from './db/rls.interceptor';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import type { Response } from 'express';
 import { existsSync } from 'fs';
 import { ConfigModule } from './config/config.module';
 import { DbModule } from './db/db.module';
@@ -54,7 +55,7 @@ const serveStatic = !isDev && existsSync(webDistPath);
             serveStaticOptions: {
               maxAge: '1y',
               immutable: true,
-              setHeaders: (res: any, path: string) => {
+              setHeaders: (res: Response, path: string) => {
                 // Hashed assets get immutable cache; HTML gets no-cache for SPA routing
                 if (path.endsWith('.html')) {
                   res.setHeader('Cache-Control', 'no-cache');
