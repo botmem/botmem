@@ -22,6 +22,13 @@ async function prerender() {
   }
 
   const template = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
+
+  // Save a clean copy for the SPA catch-all (no prerendered content).
+  // This prevents hydration mismatches when non-prerendered routes (login, dashboard, etc.)
+  // are served with the prerendered landing page HTML inside #root.
+  fs.writeFileSync(path.join(distPath, '_spa.html'), template);
+  console.log('  _spa.html → clean SPA fallback saved');
+
   const { render } = await import(ssrPath);
 
   for (const route of ROUTES) {

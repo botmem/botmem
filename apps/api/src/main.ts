@@ -172,8 +172,10 @@ async function bootstrap() {
           },
         }),
       );
-      // SPA catch-all: non-API GET requests fall through to index.html
-      const indexPath = join(webDistPath, 'index.html');
+      // SPA catch-all: non-API GET requests fall through to a clean index.html
+      // (without prerendered landing page content that causes React hydration errors)
+      const spaPath = join(webDistPath, '_spa.html');
+      const indexPath = existsSync(spaPath) ? spaPath : join(webDistPath, 'index.html');
       server.get('{*path}', (req: Request, res: Response, next: NextFunction) => {
         if (
           req.originalUrl.startsWith('/api') ||
