@@ -20,6 +20,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { OAuthService } from './oauth.service';
 import { UsersService } from '../user-auth/users.service';
+import { FirebaseAuthService } from '../user-auth/firebase-auth.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { ConfigService } from '../config/config.service';
 
@@ -32,6 +33,7 @@ export class OAuthController {
   constructor(
     private oauthService: OAuthService,
     private usersService: UsersService,
+    private firebaseAuthService: FirebaseAuthService,
     private userKeyService: UserKeyService,
     private jwtService: JwtService,
     private config: ConfigService,
@@ -147,13 +149,26 @@ export class OAuthController {
     let user: Awaited<ReturnType<typeof this.usersService.findById>> | null = null;
     const bearerMatch = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
     if (bearerMatch) {
+      const token = bearerMatch[1];
+      // Try native JWT first
       try {
-        const payload = this.jwtService.verify(bearerMatch[1], {
+        const payload = this.jwtService.verify(token, {
           secret: this.config.jwtAccessSecret,
         });
         user = await this.usersService.findById(payload.sub);
       } catch {
-        throw new UnauthorizedException('Invalid session token');
+        // If native JWT fails and Firebase is enabled, try Firebase ID token
+        if (this.config.authProvider === 'firebase') {
+          try {
+            const decoded = await this.firebaseAuthService.verifyIdToken(token);
+            const result = await this.firebaseAuthService.findOrCreateUser(decoded);
+            user = result.user;
+          } catch {
+            throw new UnauthorizedException('Invalid session token');
+          }
+        } else {
+          throw new UnauthorizedException('Invalid session token');
+        }
       }
     } else if (email && password) {
       user = await this.usersService.findByEmail(email);
