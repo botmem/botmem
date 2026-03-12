@@ -67,20 +67,19 @@ export function MergeTinder({
       } else {
         onMerge(current.contact2.id, current.contact1.id);
       }
-      setSwipeDir(null);
-      // Merges are not undoable — don't push to stack
-    }, 100);
+      // Don't reset swipeDir here — let the suggestion removal trigger re-render with new card
+      requestAnimationFrame(() => setSwipeDir(null));
+    }, 200);
   }, [current, onMerge]);
 
   const doSkip = useCallback(() => {
     if (!current) return;
     setSwipeDir('left');
     setTimeout(() => {
-      // Push to undo stack before dismissing
       setUndoStack((prev) => [...prev, { type: 'skip', suggestion: current }]);
       onDismiss(current.contact1.id, current.contact2.id);
-      setSwipeDir(null);
-    }, 100);
+      requestAnimationFrame(() => setSwipeDir(null));
+    }, 200);
   }, [current, onDismiss]);
 
   const doUndo = useCallback(() => {
