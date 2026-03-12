@@ -279,6 +279,59 @@ export class MemoryService {
     return data;
   }
 
+  /** Build a human-friendly label for photo/file memories from metadata instead of text. */
+  private buildMediaLabel(
+    sourceType: string,
+    metadata: Record<string, unknown>,
+    entityNames: string[],
+    eventTime: string | null,
+    text: string,
+  ): string {
+    if (sourceType !== 'photo' && sourceType !== 'file') {
+      return text.slice(0, 60);
+    }
+
+    const parts: string[] = [];
+
+    // People detected
+    const people = metadata.people as Array<{ name?: string } | string> | undefined;
+    if (people?.length) {
+      const names = people.map((p) => (typeof p === 'string' ? p : p.name || '')).filter(Boolean);
+      if (names.length) parts.push(names.slice(0, 3).join(', '));
+    }
+
+    // Location
+    const locParts = [metadata.city, metadata.state, metadata.country].filter(Boolean) as string[];
+    if (locParts.length) parts.push(locParts.join(', '));
+
+    // File name as fallback context
+    if (!parts.length && metadata.fileName) {
+      parts.push(String(metadata.fileName));
+    }
+
+    // Entity names as fallback
+    if (!parts.length && entityNames.length) {
+      parts.push(entityNames.slice(0, 3).join(', '));
+    }
+
+    // Date
+    if (eventTime) {
+      const d = new Date(eventTime);
+      if (!isNaN(d.getTime())) {
+        parts.push(
+          d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        );
+      }
+    }
+
+    if (!parts.length) {
+      return sourceType === 'photo' ? 'Photo' : 'File';
+    }
+
+    const label = parts.join(' \u2022 ');
+    return label.length > 80 ? label.slice(0, 77) + '...' : label;
+  }
+
   private getTrustScore(connectorType: string): number {
     try {
       return this.connectors.get(connectorType).manifest.trustScore;
@@ -1249,10 +1302,13 @@ export class MemoryService {
           ? `data:image/jpeg;base64,${metadata.thumbnailBase64}`
           : undefined;
 
+      const evtStr = m.eventTime instanceof Date ? m.eventTime.toISOString() : m.eventTime;
+      const label = this.buildMediaLabel(m.sourceType, metadata, entityNames, evtStr, m.text);
+
       return {
         id: m.id,
-        label: m.text.slice(0, 60),
-        text: m.text,
+        label,
+        text: m.sourceType === 'photo' ? '' : m.text,
         type: m.sourceType,
         connectorType: m.connectorType,
         factuality: factLabel,
@@ -1455,10 +1511,20 @@ export class MemoryService {
         ? `data:image/jpeg;base64,${metadata.thumbnailBase64}`
         : undefined;
 
+    const eventTimeStr =
+      mem.eventTime instanceof Date ? mem.eventTime.toISOString() : mem.eventTime;
+    const label = this.buildMediaLabel(
+      mem.sourceType,
+      metadata,
+      entityNames,
+      eventTimeStr,
+      mem.text,
+    );
+
     const node = {
       id: mem.id,
-      label: mem.text.slice(0, 60),
-      text: mem.text,
+      label,
+      text: mem.sourceType === 'photo' ? '' : mem.text,
       type: mem.sourceType,
       connectorType: mem.connectorType,
       factuality: factLabel,
