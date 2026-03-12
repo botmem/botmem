@@ -16,7 +16,9 @@ function getSystemTheme(): ResolvedTheme {
 }
 
 function applyTheme(resolved: ResolvedTheme) {
-  document.documentElement.setAttribute('data-theme', resolved);
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', resolved);
+  }
 }
 
 export const useThemeStore = create<ThemeStore>()(
@@ -36,6 +38,7 @@ export const useThemeStore = create<ThemeStore>()(
 
 // Initialize on load — apply stored or system theme immediately
 (function initTheme() {
+  if (typeof document === 'undefined') return;
   const store = useThemeStore.getState();
   const resolved = store.theme === 'system' ? getSystemTheme() : store.theme;
   applyTheme(resolved);

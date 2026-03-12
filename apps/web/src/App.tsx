@@ -108,7 +108,7 @@ function ScrollToTop() {
   return null;
 }
 
-function LoadingScreen() {
+export function LoadingScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-nb-bg">
       <div className="text-center">
@@ -133,9 +133,10 @@ function LandingOrApp() {
   );
 }
 
-export function App() {
+/** Shared route tree — used by both client (BrowserRouter) and SSR (StaticRouter) */
+export function AppRoutes() {
   return (
-    <BrowserRouter>
+    <>
       <AuthInitializer />
       <ScrollToTop />
       <PostHogPageviewTracker />
@@ -182,6 +183,14 @@ export function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+    </>
+  );
+}
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
     </BrowserRouter>
   );
 }

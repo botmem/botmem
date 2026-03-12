@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
+import { hydrateRoot, createRoot } from 'react-dom/client';
 import { App } from './App';
 import { initPostHog } from './lib/posthog';
 import './index.css';
@@ -11,8 +11,16 @@ if (typeof requestIdleCallback === 'function') {
   setTimeout(() => initPostHog(), 1);
 }
 
-createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root')!;
+const app = (
   <StrictMode>
     <App />
-  </StrictMode>,
+  </StrictMode>
 );
+
+// If the root has prerendered content, hydrate instead of full render
+if (rootEl.childNodes.length > 0) {
+  hydrateRoot(rootEl, app);
+} else {
+  createRoot(rootEl).render(app);
+}
