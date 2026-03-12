@@ -1,0 +1,31 @@
+{
+  "id": "botmem",
+  "name": "Botmem Memory",
+  "description": "Personal memory backed by Botmem — semantic search across emails, messages, photos, and more.",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiUrl": {
+        "type": "string",
+        "description": "Botmem API URL",
+        "default": "http://localhost:12412"
+      },
+      "apiKey": { "type": "string", "description": "Botmem API key (bm_sk_...)" },
+      "defaultLimit": { "type": "number", "description": "Default max results", "default": 10 },
+      "memoryBankId": {
+        "type": "string",
+        "description": "Scope to a specific memory bank (optional)"
+      },
+      "autoContext": {
+        "type": "boolean",
+        "description": "Inject memory stats into system prompt",
+        "default": true
+      }
+    },
+    "required": ["apiUrl", "apiKey"]
+  },
+  "uiHints": {
+    "apiKey": { "label": "API Key", "sensitive": true },
+    "apiUrl": { "label": "API URL", "placeholder": "http://localhost:12412" }
+  }
+}
