@@ -24,7 +24,9 @@ describe('OpenRouterService', () => {
 
   describe('onModuleInit', () => {
     it('logs warning when API key is not set', async () => {
-      const svc = new OpenRouterService(createMockConfig({ openrouterApiKey: '' } as Partial<ConfigService>));
+      const svc = new OpenRouterService(
+        createMockConfig({ openrouterApiKey: '' } as Partial<ConfigService>),
+      );
       // Should not throw
       await svc.onModuleInit();
     });
@@ -138,7 +140,7 @@ describe('OpenRouterService', () => {
       const callBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(callBody.model).toBe('mistralai/mistral-nemo');
       expect(callBody.messages).toEqual([{ role: 'user', content: 'hello' }]);
-      expect(result).toBe('generated text');
+      expect(result).toEqual(expect.objectContaining({ text: 'generated text' }));
     });
 
     it('uses VL model and image_url format when images provided', async () => {
@@ -197,7 +199,7 @@ describe('OpenRouterService', () => {
 
       const result = await service.generate('prompt');
 
-      expect(result).toBe('actual response');
+      expect(result).toEqual(expect.objectContaining({ text: 'actual response' }));
     });
 
     it('returns empty string when no content in response', async () => {
@@ -207,7 +209,7 @@ describe('OpenRouterService', () => {
       });
 
       const result = await service.generate('prompt');
-      expect(result).toBe('');
+      expect(result).toEqual(expect.objectContaining({ text: '' }));
     });
 
     it('throws on HTTP error after retries exhausted', async () => {
@@ -223,18 +225,16 @@ describe('OpenRouterService', () => {
     });
 
     it('retries on failure before exhaustion', async () => {
-      fetchSpy
-        .mockRejectedValueOnce(new Error('timeout'))
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              choices: [{ message: { content: 'success' } }],
-            }),
-        });
+      fetchSpy.mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            choices: [{ message: { content: 'success' } }],
+          }),
+      });
 
       const result = await service.generate('test', undefined, 1);
-      expect(result).toBe('success');
+      expect(result).toEqual(expect.objectContaining({ text: 'success' }));
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
   });

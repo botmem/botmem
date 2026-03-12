@@ -82,7 +82,7 @@ describe('OllamaService', () => {
       // Text-only prompts use the text model
       const callBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(callBody.model).toBe('qwen3:0.6b');
-      expect(result).toBe('{"entities": []}');
+      expect(result).toEqual(expect.objectContaining({ text: '{"entities": []}' }));
     });
 
     it('passes images when provided and uses VL model', async () => {

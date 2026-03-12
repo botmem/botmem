@@ -25,14 +25,18 @@ function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService
 function createMockOllama(): OllamaService {
   return {
     embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
-    generate: vi.fn().mockResolvedValue('ollama-result'),
+    generate: vi
+      .fn()
+      .mockResolvedValue({ text: 'ollama-result', inputTokens: 10, outputTokens: 5 }),
   } as unknown as OllamaService;
 }
 
 function createMockOpenRouter(): OpenRouterService {
   return {
     embed: vi.fn().mockResolvedValue([0.4, 0.5, 0.6]),
-    generate: vi.fn().mockResolvedValue('openrouter-result'),
+    generate: vi
+      .fn()
+      .mockResolvedValue({ text: 'openrouter-result', inputTokens: 10, outputTokens: 5 }),
   } as unknown as OpenRouterService;
 }
 
@@ -245,7 +249,11 @@ describe('AiService', () => {
         'generate',
         'prompt',
         'ollama-result',
-        expect.objectContaining({ latencyMs: expect.any(Number) }),
+        expect.objectContaining({
+          latencyMs: expect.any(Number),
+          inputTokens: 10,
+          outputTokens: 5,
+        }),
       );
     });
 
