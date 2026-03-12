@@ -51,7 +51,12 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
     >
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
-          <Avatar contactId={contact.id} fallbackInitials={initials} isSelf={isSelf} size="sm" />
+          <Avatar
+            contactId={contact.avatars.length > 0 ? contact.id : undefined}
+            fallbackInitials={initials}
+            isSelf={isSelf}
+            size="sm"
+          />
           {/* Connector source badges */}
           {contact.connectorSources.length > 0 && (
             <div className="absolute -bottom-1 -right-1 flex gap-0.5">

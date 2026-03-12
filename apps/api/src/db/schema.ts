@@ -25,6 +25,7 @@ export const accounts = pgTable(
     itemsSynced: integer('items_synced').notNull().default(0),
     lastError: text('last_error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    tunnelMode: boolean('tunnel_mode').notNull().default(true),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
   (table) => [index('idx_accounts_user_id').on(table.userId)],
@@ -142,12 +143,14 @@ export const contacts = pgTable(
     avatars: jsonb('avatars').notNull().default([]),
     preferredAvatarIndex: integer('preferred_avatar_index').default(0),
     metadata: jsonb('metadata').notNull().default({}),
+    memoryCount: integer('memory_count').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
   (table) => [
     index('idx_contacts_display_name').on(table.displayName),
     index('idx_contacts_user_id').on(table.userId),
+    index('idx_contacts_memory_count').on(table.memoryCount),
   ],
 );
 
@@ -225,7 +228,9 @@ export const users = pgTable(
     stripeCustomerId: text('stripe_customer_id').unique(),
     subscriptionStatus: text('subscription_status').notNull().default('free'),
     subscriptionId: text('subscription_id'),
-    subscriptionCurrentPeriodEnd: timestamp('subscription_current_period_end', { withTimezone: true }),
+    subscriptionCurrentPeriodEnd: timestamp('subscription_current_period_end', {
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
@@ -317,7 +322,9 @@ export const oauthClients = pgTable('oauth_clients', {
 
 export const oauthCodes = pgTable('oauth_codes', {
   code: text('code').primaryKey(),
-  userId: text('user_id').notNull().references(() => users.id),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id),
   clientId: text('client_id').notNull(),
   redirectUri: text('redirect_uri').notNull(),
   scope: text('scope').notNull(),
@@ -330,7 +337,9 @@ export const oauthCodes = pgTable('oauth_codes', {
 export const oauthRefreshTokens = pgTable('oauth_refresh_tokens', {
   id: text('id').primaryKey(),
   tokenHash: text('token_hash').notNull().unique(),
-  userId: text('user_id').notNull().references(() => users.id),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id),
   clientId: text('client_id').notNull(),
   scope: text('scope').notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),

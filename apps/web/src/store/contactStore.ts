@@ -191,14 +191,26 @@ export const useContactStore = create<ContactState>((set, get) => ({
   },
 
   mergeContacts: async (targetId, sourceId) => {
+    // Optimistic update: remove source from contacts list and suggestion from suggestions
+    set((state) => ({
+      contacts: state.contacts.filter((c) => c.id !== sourceId),
+      total: Math.max(0, state.total - 1),
+      suggestions: state.suggestions.filter(
+        (s) =>
+          !(
+            (s.contact1.id === sourceId || s.contact2.id === sourceId) &&
+            (s.contact1.id === targetId || s.contact2.id === targetId)
+          ),
+      ),
+      selectedId: state.selectedId === sourceId ? targetId : state.selectedId,
+    }));
     try {
       await api.mergeContacts(targetId, sourceId);
-      await get().loadContacts();
-      await get().loadSuggestions();
-      const { selectedId } = get();
-      if (selectedId === sourceId) set({ selectedId: targetId });
     } catch (err) {
       console.error('Failed to merge contacts:', err);
+      // Reload on failure to restore correct state
+      get().loadContacts();
+      get().loadSuggestions();
     }
   },
 

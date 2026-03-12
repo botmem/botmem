@@ -25,11 +25,19 @@ export class SchedulerService implements OnModuleInit {
   }
 
   private async scheduleDecay() {
-    await this.maintenanceQueue.upsertJobScheduler(
-      'nightly-decay',
-      { pattern: this.config.decayCron },
-      { name: 'decay', data: {}, opts: { attempts: 2, backoff: { type: 'fixed', delay: 60000 } } },
-    );
+    try {
+      await this.maintenanceQueue.upsertJobScheduler(
+        'nightly-decay',
+        { pattern: this.config.decayCron },
+        {
+          name: 'decay',
+          data: {},
+          opts: { attempts: 2, backoff: { type: 'fixed', delay: 60000 } },
+        },
+      );
+    } catch {
+      // Scheduler already exists from a previous process — safe to ignore
+    }
   }
 
   async syncAllSchedules() {

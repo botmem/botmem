@@ -125,33 +125,30 @@ export class ContactsService {
     // Names are too ambiguous for matching — only use email, phone, slack_id, etc.
     const matchedContactIds = new Set<string>();
 
-    for (const ident of identifiers) {
-      if (ident.type === 'name') continue; // Skip name-based matching
-      // Scope to same-user contacts to prevent cross-user merging
-      let rows;
-      if (userId) {
-        rows = await this.dbService.withCurrentUser((db) =>
-          db
-            .select({ contactId: contactIdentifiers.contactId })
-            .from(contactIdentifiers)
-            .innerJoin(contacts, eq(contacts.id, contactIdentifiers.contactId))
-            .where(
-              and(
-                sql`${contactIdentifiers.identifierType} = ${ident.type} AND ${contactIdentifiers.identifierValue} = ${ident.value}`,
-                eq(contacts.userId, userId),
-              ),
-            ),
-        );
-      } else {
-        rows = await this.dbService.withCurrentUser((db) =>
-          db
-            .select({ contactId: contactIdentifiers.contactId })
-            .from(contactIdentifiers)
-            .where(
-              sql`${contactIdentifiers.identifierType} = ${ident.type} AND ${contactIdentifiers.identifierValue} = ${ident.value}`,
-            ),
-        );
-      }
+    const structuredIdents = identifiers.filter((i) => i.type !== 'name');
+    if (structuredIdents.length) {
+      // Build OR conditions for all structured identifiers in one query
+      const orConditions = structuredIdents.map(
+        (i) =>
+          sql`(${contactIdentifiers.identifierType} = ${i.type} AND ${contactIdentifiers.identifierValue} = ${i.value})`,
+      );
+      const whereClause = userId
+        ? and(or(...orConditions), eq(contacts.userId, userId))
+        : or(...orConditions);
+      const rows = userId
+        ? await this.dbService.withCurrentUser((db) =>
+            db
+              .select({ contactId: contactIdentifiers.contactId })
+              .from(contactIdentifiers)
+              .innerJoin(contacts, eq(contacts.id, contactIdentifiers.contactId))
+              .where(whereClause!),
+          )
+        : await this.dbService.withCurrentUser((db) =>
+            db
+              .select({ contactId: contactIdentifiers.contactId })
+              .from(contactIdentifiers)
+              .where(whereClause!),
+          );
       for (const row of rows) {
         matchedContactIds.add(row.contactId);
       }
@@ -259,25 +256,27 @@ export class ContactsService {
           db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, contactId)),
         );
 
-        for (const ident of identifiers) {
-          const exists = existingIdents.some(
-            (e) => e.identifierType === ident.type && e.identifierValue === ident.value,
-          );
-          if (!exists) {
-            await this.dbService.withCurrentUser((db) =>
-              db
-                .insert(contactIdentifiers)
-                .values({
+        const existingKeys = new Set(
+          existingIdents.map((e) => `${e.identifierType}::${e.identifierValue}`),
+        );
+        const newIdents = identifiers.filter((i) => !existingKeys.has(`${i.type}::${i.value}`));
+        if (newIdents.length) {
+          const now = new Date();
+          await this.dbService.withCurrentUser((db) =>
+            db
+              .insert(contactIdentifiers)
+              .values(
+                newIdents.map((ident) => ({
                   id: randomUUID(),
                   contactId,
                   identifierType: ident.type,
                   identifierValue: ident.value,
                   connectorType: ident.connectorType || null,
-                  createdAt: new Date(),
-                })
-                .onConflictDoNothing(),
-            );
-          }
+                  createdAt: now,
+                })),
+              )
+              .onConflictDoNothing(),
+          );
         }
         break; // Success
       } catch (err: unknown) {
@@ -357,29 +356,32 @@ export class ContactsService {
         db.select().from(contactIdentifiers).where(eq(contactIdentifiers.contactId, contactId)),
       );
 
-      let mergeCount = 0;
       const MAX_MERGES_PER_RESOLVE = 5;
-      const mergedIds = new Set<string>();
 
-      for (const ident of allIdentsForContact) {
-        if (mergeCount >= MAX_MERGES_PER_RESOLVE) break;
-        if (ident.identifierType === 'name') continue;
-        const dupes = await this.dbService.withCurrentUser((db) =>
+      // Find all duplicate contacts in a single query
+      const structuredContactIdents = allIdentsForContact.filter(
+        (i) => i.identifierType !== 'name',
+      );
+      let dupeContactIds: string[] = [];
+      if (structuredContactIdents.length) {
+        const orConds = structuredContactIdents.map(
+          (i) =>
+            sql`(${contactIdentifiers.identifierType} = ${i.identifierType} AND ${contactIdentifiers.identifierValue} = ${i.identifierValue})`,
+        );
+        const dupeRows = await this.dbService.withCurrentUser((db) =>
           db
             .select({ contactId: contactIdentifiers.contactId })
             .from(contactIdentifiers)
-            .where(
-              sql`${contactIdentifiers.identifierType} = ${ident.identifierType} AND ${contactIdentifiers.identifierValue} = ${ident.identifierValue} AND ${contactIdentifiers.contactId} != ${contactId}`,
-            ),
+            .where(and(or(...orConds), sql`${contactIdentifiers.contactId} != ${contactId}`)),
         );
+        dupeContactIds = [...new Set(dupeRows.map((r) => r.contactId))];
+      }
 
-        for (const dupe of dupes) {
-          if (mergeCount >= MAX_MERGES_PER_RESOLVE) break;
-          if (mergedIds.has(dupe.contactId)) continue;
-          mergedIds.add(dupe.contactId);
-          await this.mergeContacts(contactId, dupe.contactId);
-          mergeCount++;
-        }
+      let mergeCount = 0;
+      for (const dupeId of dupeContactIds) {
+        if (mergeCount >= MAX_MERGES_PER_RESOLVE) break;
+        await this.mergeContacts(contactId, dupeId);
+        mergeCount++;
       }
 
       if (mergeCount >= MAX_MERGES_PER_RESOLVE) {
@@ -514,7 +516,7 @@ export class ContactsService {
       selfContactId = globalRow[0]?.value || '';
     }
 
-    // Paginate: self-contact first, then by linked memory count desc
+    // Paginate: self-contact first, then by cached memory count desc
     const paged = await this.dbService.withCurrentUser((db) =>
       db
         .select({
@@ -523,16 +525,15 @@ export class ContactsService {
           entityType: contacts.entityType,
           avatars: contacts.avatars,
           metadata: contacts.metadata,
+          memoryCount: contacts.memoryCount,
           createdAt: contacts.createdAt,
           updatedAt: contacts.updatedAt,
         })
         .from(contacts)
-        .leftJoin(memoryContacts, eq(contacts.id, memoryContacts.contactId))
         .where(where)
-        .groupBy(contacts.id)
         .orderBy(
           sql`CASE WHEN ${contacts.id} = ${selfContactId} THEN 0 ELSE 1 END`,
-          sql`COUNT(${memoryContacts.memoryId}) DESC`,
+          sql`${contacts.memoryCount} DESC`,
         )
         .limit(limit)
         .offset(offset),
@@ -764,6 +765,13 @@ export class ContactsService {
           role,
         }),
       );
+      // Increment cached memory count
+      await this.dbService.withCurrentUser((db) =>
+        db
+          .update(contacts)
+          .set({ memoryCount: sql`${contacts.memoryCount} + 1` })
+          .where(eq(contacts.id, contactId)),
+      );
     } catch (err: unknown) {
       // Contact may have been merged/deleted concurrently — skip silently
       if ((err as { code?: string }).code === '23503') return;
@@ -915,15 +923,22 @@ export class ContactsService {
               const targetIdKeys = new Set(
                 targetIds.map((i) => `${i.identifierType}::${i.identifierValue}`),
               );
-              for (const ident of sourceIds) {
-                if (targetIdKeys.has(`${ident.identifierType}::${ident.identifierValue}`)) {
-                  await tx.delete(contactIdentifiers).where(eq(contactIdentifiers.id, ident.id));
-                } else {
-                  await tx
-                    .update(contactIdentifiers)
-                    .set({ contactId: targetId })
-                    .where(eq(contactIdentifiers.id, ident.id));
-                }
+              const dupeIdentIds = sourceIds
+                .filter((i) => targetIdKeys.has(`${i.identifierType}::${i.identifierValue}`))
+                .map((i) => i.id);
+              const moveIdentIds = sourceIds
+                .filter((i) => !targetIdKeys.has(`${i.identifierType}::${i.identifierValue}`))
+                .map((i) => i.id);
+              if (dupeIdentIds.length) {
+                await tx
+                  .delete(contactIdentifiers)
+                  .where(inArray(contactIdentifiers.id, dupeIdentIds));
+              }
+              if (moveIdentIds.length) {
+                await tx
+                  .update(contactIdentifiers)
+                  .set({ contactId: targetId })
+                  .where(inArray(contactIdentifiers.id, moveIdentIds));
               }
 
               // Deduplicate memoryContacts: delete source rows where target already has the same memoryId+role
@@ -937,10 +952,11 @@ export class ContactsService {
                 .where(eq(memoryContacts.contactId, targetId));
               const targetMemKeys = new Set(targetMemLinks.map((m) => `${m.memoryId}::${m.role}`));
 
-              for (const link of sourceMemLinks) {
-                if (targetMemKeys.has(`${link.memoryId}::${link.role}`)) {
-                  await tx.delete(memoryContacts).where(eq(memoryContacts.id, link.id));
-                }
+              const dupeMemLinkIds = sourceMemLinks
+                .filter((m) => targetMemKeys.has(`${m.memoryId}::${m.role}`))
+                .map((m) => m.id);
+              if (dupeMemLinkIds.length) {
+                await tx.delete(memoryContacts).where(inArray(memoryContacts.id, dupeMemLinkIds));
               }
 
               // Move remaining source memoryContacts to target
@@ -949,12 +965,19 @@ export class ContactsService {
                 .set({ contactId: targetId })
                 .where(eq(memoryContacts.contactId, sourceId));
 
+              // Recompute target memory count after link moves
+              const [{ count: newMemCount }] = await tx
+                .select({ count: sql<number>`count(*)` })
+                .from(memoryContacts)
+                .where(eq(memoryContacts.contactId, targetId));
+
               // Update target contact
               await tx
                 .update(contacts)
                 .set({
                   displayName,
                   avatars: targetAvatars,
+                  memoryCount: newMemCount,
                   updatedAt: new Date(),
                 })
                 .where(eq(contacts.id, targetId));
@@ -1015,24 +1038,40 @@ export class ContactsService {
       reason: string;
     }>
   > {
-    // Run auto-merge first to clean up obvious duplicates
-    await this.autoMerge();
-
     // Load contacts — filter by userId if provided
     const allContacts = await this.dbService.withCurrentUser((db) =>
       userId
         ? db.select().from(contacts).where(eq(contacts.userId, userId))
         : db.select().from(contacts),
     );
-    const allIdentifiers = await this.dbService.withCurrentUser((db) =>
-      db.select().from(contactIdentifiers),
-    );
-    const allDismissals = await this.dbService.withCurrentUser((db) =>
-      db.select().from(mergeDismissals),
-    );
-    const allMemoryContacts = await this.dbService.withCurrentUser((db) =>
-      db.select().from(memoryContacts),
-    );
+
+    // Scope identifiers, dismissals, and memory links to this user's contacts
+    const contactIds = allContacts.map((c) => c.id);
+    if (contactIds.length === 0) return [];
+
+    // Run all 3 queries in parallel
+    const [allIdentifiers, allDismissals, allMemoryContacts] = await Promise.all([
+      this.dbService.withCurrentUser((db) =>
+        db
+          .select()
+          .from(contactIdentifiers)
+          .where(inArray(contactIdentifiers.contactId, contactIds)),
+      ),
+      this.dbService.withCurrentUser((db) =>
+        db
+          .select()
+          .from(mergeDismissals)
+          .where(
+            or(
+              inArray(mergeDismissals.contactId1, contactIds),
+              inArray(mergeDismissals.contactId2, contactIds),
+            )!,
+          ),
+      ),
+      this.dbService.withCurrentUser((db) =>
+        db.select().from(memoryContacts).where(inArray(memoryContacts.contactId, contactIds)),
+      ),
+    ]);
 
     // Build contact -> connector types map
     const contactConnectors = new Map<string, Set<string>>();
@@ -1149,94 +1188,102 @@ export class ContactsService {
       return false;
     };
 
-    for (let i = 0; i < allContacts.length; i++) {
-      for (let j = i + 1; j < allContacts.length; j++) {
-        const c1 = allContacts[i];
-        const c2 = allContacts[j];
+    // Index contacts by first word and full name to avoid O(n²)
+    const byExactName = new Map<string, typeof allContacts>();
+    const byFirstWord = new Map<string, typeof allContacts>();
+    for (const c of allContacts) {
+      const name = c.displayName.toLowerCase().trim();
+      if (name.length < 3 || GENERIC_NAMES.has(name)) continue;
+      const list = byExactName.get(name) || [];
+      list.push(c);
+      byExactName.set(name, list);
 
-        const pairKey = [c1.id, c2.id].sort().join('::');
-        if (dismissedPairs.has(pairKey)) continue;
+      const first = name.split(/\s+/)[0];
+      if (first.length >= 3 && !GENERIC_NAMES.has(first)) {
+        const fList = byFirstWord.get(first) || [];
+        fList.push(c);
+        byFirstWord.set(first, fList);
+      }
+    }
 
-        const nameA = c1.displayName.toLowerCase().trim();
-        const nameB = c2.displayName.toLowerCase().trim();
-        if (nameA.length < 3 || nameB.length < 3) continue;
-        if (GENERIC_NAMES.has(nameA) || GENERIC_NAMES.has(nameB)) continue;
+    const comparePair = (c1: (typeof allContacts)[0], c2: (typeof allContacts)[0]) => {
+      const pairKey = [c1.id, c2.id].sort().join('::');
+      if (dismissedPairs.has(pairKey) || suggestedPairs.has(pairKey)) return;
 
-        const connectors1 = contactConnectors.get(c1.id) || new Set();
-        const connectors2 = contactConnectors.get(c2.id) || new Set();
-        const sameConnector =
-          connectors1.size === 1 &&
-          connectors2.size === 1 &&
-          [...connectors1][0] === [...connectors2][0];
-        const isVisionConnector = sameConnector && [...connectors1][0] === 'photos';
+      const nameA = c1.displayName.toLowerCase().trim();
+      const nameB = c2.displayName.toLowerCase().trim();
 
-        // Strategy 1: Exact name match — always suggest (even same connector)
-        if (nameA === nameB) {
-          addSuggestion(c1, c2, `Exact name match: "${c1.displayName}"`);
-          continue;
-        }
+      const connectors1 = contactConnectors.get(c1.id) || new Set();
+      const connectors2 = contactConnectors.get(c2.id) || new Set();
+      const sameConnector =
+        connectors1.size === 1 &&
+        connectors2.size === 1 &&
+        [...connectors1][0] === [...connectors2][0];
+      const isVisionConnector = sameConnector && [...connectors1][0] === 'photos';
 
-        // Strategy 2: Substring matching - improved to catch word-level matches
-        // Allow "amr" (3 chars) to match "amr essam" because "amr" is a complete word
-        const wordsA = nameA.split(/\s+/);
-        const wordsB = nameB.split(/\s+/);
-        const shorter = Math.min(nameA.length, nameB.length);
-        const longer = Math.max(nameA.length, nameB.length);
+      // Strategy 1: Exact name match
+      if (nameA === nameB) {
+        addSuggestion(c1, c2, `Exact name match: "${c1.displayName}"`);
+        return;
+      }
 
-        // Check if shorter name is a complete word of the longer name
-        let wordMatch = false;
-        if (wordsA.length === 1 && wordsB.length > 1) {
-          // nameA is single word, nameB is multiple words — check if nameA is first/last word of nameB
-          wordMatch = wordsB[0] === nameA || wordsB[wordsB.length - 1] === nameA;
-        } else if (wordsB.length === 1 && wordsA.length > 1) {
-          // nameB is single word, nameA is multiple words
-          wordMatch = wordsA[0] === nameB || wordsA[wordsA.length - 1] === nameB;
-        }
+      // Strategy 2: Substring / word matching
+      const wordsA = nameA.split(/\s+/);
+      const wordsB = nameB.split(/\s+/);
+      const shorter = Math.min(nameA.length, nameB.length);
+      const longer = Math.max(nameA.length, nameB.length);
 
-        if (
-          wordMatch ||
-          (shorter >= 4 &&
-            shorter / longer >= 0.4 &&
-            (nameA.includes(nameB) || nameB.includes(nameA)))
-        ) {
-          // Same-connector pairs: only suggest if they share a non-name identifier or co-occur
-          if (sameConnector && !isVisionConnector) {
-            if (shareNonNameIdentifier(c1.id, c2.id) || coOccurrence.has(pairKey)) {
-              addSuggestion(
-                c1,
-                c2,
-                `Display names match: "${c1.displayName}" and "${c2.displayName}"`,
-              );
-            }
-            continue;
-          }
-          addSuggestion(c1, c2, `Display names match: "${c1.displayName}" and "${c2.displayName}"`);
-          continue;
-        }
+      let wordMatch = false;
+      if (wordsA.length === 1 && wordsB.length > 1) {
+        wordMatch = wordsB[0] === nameA || wordsB[wordsB.length - 1] === nameA;
+      } else if (wordsB.length === 1 && wordsA.length > 1) {
+        wordMatch = wordsA[0] === nameB || wordsA[wordsA.length - 1] === nameB;
+      }
 
-        // Strategy 3: Shared first name + co-occurrence or shared identifier
-        const firstA = nameA.split(/\s+/)[0];
-        const firstB = nameB.split(/\s+/)[0];
-        if (firstA.length >= 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
-          if (shareNonNameIdentifier(c1.id, c2.id)) {
-            addSuggestion(c1, c2, `Share first name "${firstA}" and a common identifier`);
-            continue;
-          }
-          if (coOccurrence.has(pairKey)) {
-            addSuggestion(c1, c2, `Share first name "${firstA}" and appear in the same memories`);
-            continue;
-          }
-          if (connectors1.has('photos') && connectors2.has('photos')) {
-            addSuggestion(c1, c2, `Share first name "${firstA}" and both appear in photos`);
-          }
-        }
-
-        // Strategy 3.5: 3-char first name with co-occurrence or shared identifier
-        // Catch cases like "AMR" + "AMR ESSAM" that co-occur or share identifiers
-        if (firstA.length === 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
+      if (
+        wordMatch ||
+        (shorter >= 4 &&
+          shorter / longer >= 0.4 &&
+          (nameA.includes(nameB) || nameB.includes(nameA)))
+      ) {
+        if (sameConnector && !isVisionConnector) {
           if (shareNonNameIdentifier(c1.id, c2.id) || coOccurrence.has(pairKey)) {
-            addSuggestion(c1, c2, `Share first name "${firstA}" and have additional connection`);
+            addSuggestion(
+              c1,
+              c2,
+              `Display names match: "${c1.displayName}" and "${c2.displayName}"`,
+            );
           }
+          return;
+        }
+        addSuggestion(c1, c2, `Display names match: "${c1.displayName}" and "${c2.displayName}"`);
+        return;
+      }
+
+      // Strategy 3: Shared first name + co-occurrence or shared identifier
+      const firstA = wordsA[0];
+      const firstB = wordsB[0];
+      if (firstA.length >= 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
+        if (shareNonNameIdentifier(c1.id, c2.id)) {
+          addSuggestion(c1, c2, `Share first name "${firstA}" and a common identifier`);
+          return;
+        }
+        if (coOccurrence.has(pairKey)) {
+          addSuggestion(c1, c2, `Share first name "${firstA}" and appear in the same memories`);
+          return;
+        }
+        if (connectors1.has('photos') && connectors2.has('photos')) {
+          addSuggestion(c1, c2, `Share first name "${firstA}" and both appear in photos`);
+        }
+      }
+    };
+
+    // Compare only contacts sharing a first word (not all pairs)
+    for (const [, group] of byFirstWord) {
+      if (group.length < 2 || group.length > 100) continue; // skip huge groups
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          comparePair(group[i], group[j]);
         }
       }
     }
@@ -1766,14 +1813,20 @@ export class ContactsService {
 
   async dismissSuggestion(contactId1: string, contactId2: string): Promise<void> {
     const [id1, id2] = [contactId1, contactId2].sort();
-    await this.dbService.withCurrentUser((db) =>
-      db.insert(mergeDismissals).values({
-        id: randomUUID(),
-        contactId1: id1,
-        contactId2: id2,
-        createdAt: new Date(),
-      }),
-    );
+    try {
+      await this.dbService.withCurrentUser((db) =>
+        db.insert(mergeDismissals).values({
+          id: randomUUID(),
+          contactId1: id1,
+          contactId2: id2,
+          createdAt: new Date(),
+        }),
+      );
+    } catch (err: unknown) {
+      // Contact was already merged/deleted — dismissal is moot
+      if ((err as { code?: string }).code === '23503') return;
+      throw err;
+    }
   }
 
   async undismissSuggestion(contactId1: string, contactId2: string): Promise<void> {
