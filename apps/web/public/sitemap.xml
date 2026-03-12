@@ -26,6 +26,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://docs.botmem.xyz</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://botmem.xyz/privacy</loc>
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>

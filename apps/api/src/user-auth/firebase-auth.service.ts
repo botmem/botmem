@@ -56,6 +56,11 @@ export class FirebaseAuthService implements OnModuleInit {
       // Existing user — try 2-tier DEK lookup
       const dek = await this.userKeyService.getDek(user.id);
       const needsRecoveryKey = !dek && !!user.recoveryKeyHash;
+      // Auto-onboard returning users so they skip the setup wizard
+      if (!user.onboarded) {
+        await this.usersService.setOnboarded(user.id);
+        user.onboarded = true;
+      }
       this.analytics.capture(
         'user_logged_in',
         {

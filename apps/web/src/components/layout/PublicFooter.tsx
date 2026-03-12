@@ -19,7 +19,7 @@ export function PublicFooter() {
               GitHub
             </a>
             <a
-              href={`${GITHUB_URL}#readme`}
+              href="https://docs.botmem.xyz"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
@@ -32,6 +32,12 @@ export function PublicFooter() {
             >
               Pricing
             </a>
+            <Link
+              to="/login"
+              className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
+            >
+              Login
+            </Link>
           </div>
         </div>
         <div className="flex flex-wrap justify-center sm:justify-end gap-6 font-mono text-xs text-nb-muted">

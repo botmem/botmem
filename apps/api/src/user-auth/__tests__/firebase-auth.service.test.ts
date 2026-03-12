@@ -42,6 +42,7 @@ function makeUsersService() {
     setFirebaseUid: vi.fn(),
     updateRecoveryKeyHash: vi.fn(),
     incrementKeyVersion: vi.fn(),
+    setOnboarded: vi.fn(),
   } as any;
 }
 
@@ -148,9 +149,7 @@ describe('FirebaseAuthService', () => {
       service.onModuleInit();
 
       await expect(service.verifyIdToken('bad-token')).rejects.toThrow(UnauthorizedException);
-      await expect(service.verifyIdToken('bad-token')).rejects.toThrow(
-        'Invalid Firebase ID token',
-      );
+      await expect(service.verifyIdToken('bad-token')).rejects.toThrow('Invalid Firebase ID token');
     });
   });
 
@@ -171,7 +170,12 @@ describe('FirebaseAuthService', () => {
     } as any;
 
     it('should return existing user with DEK available', async () => {
-      const existingUser = { id: 'user-1', email: 'test@example.com', recoveryKeyHash: 'hash' };
+      const existingUser = {
+        id: 'user-1',
+        email: 'test@example.com',
+        recoveryKeyHash: 'hash',
+        onboarded: true,
+      };
       usersService.findByFirebaseUid.mockResolvedValue(existingUser);
       userKeyService.getDek.mockResolvedValue(Buffer.from('dek'));
 
@@ -180,6 +184,7 @@ describe('FirebaseAuthService', () => {
       expect(result.user).toEqual(existingUser);
       expect(result.recoveryKey).toBeUndefined();
       expect(result.needsRecoveryKey).toBe(false);
+      expect(usersService.setOnboarded).not.toHaveBeenCalled();
       expect(analytics.capture).toHaveBeenCalledWith(
         'user_logged_in',
         { auth_method: 'firebase', firebase_provider: 'google.com' },
@@ -187,8 +192,30 @@ describe('FirebaseAuthService', () => {
       );
     });
 
+    it('should auto-onboard returning user who is not yet onboarded', async () => {
+      const existingUser = {
+        id: 'user-1',
+        email: 'test@example.com',
+        recoveryKeyHash: 'hash',
+        onboarded: false,
+      };
+      usersService.findByFirebaseUid.mockResolvedValue(existingUser);
+      userKeyService.getDek.mockResolvedValue(Buffer.from('dek'));
+
+      const result = await service.findOrCreateUser(decodedToken);
+
+      expect(usersService.setOnboarded).toHaveBeenCalledWith('user-1');
+      expect(result.user.onboarded).toBe(true);
+      expect(result.needsRecoveryKey).toBe(false);
+    });
+
     it('should return existing user with needsRecoveryKey when DEK cache is cold', async () => {
-      const existingUser = { id: 'user-1', email: 'test@example.com', recoveryKeyHash: 'hash' };
+      const existingUser = {
+        id: 'user-1',
+        email: 'test@example.com',
+        recoveryKeyHash: 'hash',
+        onboarded: true,
+      };
       usersService.findByFirebaseUid.mockResolvedValue(existingUser);
       userKeyService.getDek.mockResolvedValue(null);
 
@@ -200,7 +227,12 @@ describe('FirebaseAuthService', () => {
     });
 
     it('should not set needsRecoveryKey when no recoveryKeyHash exists', async () => {
-      const existingUser = { id: 'user-1', email: 'test@example.com', recoveryKeyHash: null };
+      const existingUser = {
+        id: 'user-1',
+        email: 'test@example.com',
+        recoveryKeyHash: null,
+        onboarded: true,
+      };
       usersService.findByFirebaseUid.mockResolvedValue(existingUser);
       userKeyService.getDek.mockResolvedValue(null);
 
