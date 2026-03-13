@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "description": "OpenClaw plugin for Botmem — personal memory search across emails, messages, photos, and more",
   "license": "MIT",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/botmem/botmem.git",
@@ -36,9 +37,14 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.15",
-    "typescript": "catalog:"
+    "typescript": "^5.7.0"
   },
   "dependencies": {
     "@toon-format/toon": "^2.1.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   }
 }
