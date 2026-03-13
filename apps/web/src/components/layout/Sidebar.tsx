@@ -303,7 +303,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             <button
               onClick={onClose}
               aria-label="Close sidebar"
-              className="md:hidden size-8 flex items-center justify-center text-nb-muted hover:text-nb-text transition-colors cursor-pointer shrink-0 mr-2"
+              className="md:hidden size-11 flex items-center justify-center text-nb-muted hover:text-nb-text transition-colors cursor-pointer shrink-0 mr-2"
             >
               <svg
                 width="14"

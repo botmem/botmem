@@ -145,7 +145,7 @@ export function DashboardPage() {
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
 
       {hasDemoData && !demoBannerDismissed && (
-        <div className="mt-4 border-3 border-nb-border bg-amber-100 dark:bg-yellow-950/40 px-4 py-3 flex items-center justify-between gap-4">
+        <div className="mt-4 border-3 border-nb-border bg-amber-100 dark:bg-yellow-950/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <p className="font-mono text-sm text-amber-900 dark:text-yellow-200">
             You're viewing demo data. Delete it when you're ready to connect your real accounts.
           </p>

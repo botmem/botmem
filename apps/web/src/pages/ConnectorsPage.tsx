@@ -124,8 +124,10 @@ export function ConnectorsPage() {
 
   return (
     <PageContainer>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="font-display text-3xl font-bold uppercase text-nb-text">All Connectors</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <h2 className="font-display text-2xl sm:text-3xl font-bold uppercase text-nb-text">
+          All Connectors
+        </h2>
         {accounts.length > 0 && (
           <Button
             variant="primary"

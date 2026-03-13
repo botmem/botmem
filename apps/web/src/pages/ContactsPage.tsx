@@ -62,7 +62,7 @@ export function ContactsPage() {
 
   return (
     <PageContainer>
-      <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text mb-4">
+      <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-nb-text mb-4">
         CONTACTS
       </h1>
 
@@ -170,7 +170,7 @@ export function ContactsPage() {
           <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
             <button
               onClick={() => selectContact(null)}
-              className="border-2 border-nb-border size-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+              className="border-2 border-nb-border size-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
             >
               <svg
                 width="16"

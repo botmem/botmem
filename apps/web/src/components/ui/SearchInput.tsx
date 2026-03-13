@@ -28,8 +28,10 @@ export function SearchInput({
         placeholder={placeholder}
         className="w-full border-3 px-3 py-1.5 pr-24 font-mono text-xs bg-nb-surface text-nb-text focus:outline-none focus:border-nb-lime placeholder:text-nb-muted placeholder:uppercase transition-all duration-300"
         style={{
-          borderColor: pending ? '#C4F53A' : undefined,
-          boxShadow: pending ? '0 0 8px #C4F53A40' : undefined,
+          borderColor: pending ? 'var(--color-nb-lime)' : undefined,
+          boxShadow: pending
+            ? '0 0 8px color-mix(in srgb, var(--color-nb-lime) 25%, transparent)'
+            : undefined,
         }}
       />
       {pending && (

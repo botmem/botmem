@@ -167,7 +167,7 @@ export function MemoryExplorerPage() {
                 <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
                   <button
                     onClick={() => setSelectedMemory(null)}
-                    className="border-2 border-nb-border size-9 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+                    className="border-2 border-nb-border size-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
                   >
                     <svg
                       width="16"

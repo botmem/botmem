@@ -95,15 +95,15 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
                 onClick={() => toggleConnector(conn)}
                 className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
                 style={{
-                  borderColor: CONNECTOR_COLORS[conn] || '#666',
+                  borderColor: CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)',
                   backgroundColor:
                     connectorFilter.size === 0 || connectorFilter.has(conn)
-                      ? CONNECTOR_COLORS[conn] || '#666'
+                      ? CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)'
                       : 'transparent',
                   color:
                     connectorFilter.size === 0 || connectorFilter.has(conn)
                       ? 'var(--color-nb-black)'
-                      : CONNECTOR_COLORS[conn] || '#666',
+                      : CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)',
                   opacity: connectorFilter.size === 0 || connectorFilter.has(conn) ? 1 : 0.5,
                 }}
               >
@@ -114,7 +114,7 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
         )}
       </div>
 
-      <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 20rem)' }}>
+      <div className="overflow-y-auto max-h-[calc(100dvh-16rem)] sm:max-h-[calc(100dvh-20rem)]">
         {filtered.map((job, idx) => (
           <JobRow key={`${job.id}-${idx}`} job={job} onCancel={onCancel} onMove={onMove} />
         ))}
