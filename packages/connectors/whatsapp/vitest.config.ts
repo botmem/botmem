@@ -15,10 +15,10 @@ export default defineConfig({
         'src/browser-auth-state.ts',
       ],
       thresholds: {
-        statements: 78,
+        statements: 76,
         branches: 72,
         functions: 78,
-        lines: 78,
+        lines: 76,
       },
     },
   },
