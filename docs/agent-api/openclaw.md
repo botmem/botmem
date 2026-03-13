@@ -4,11 +4,17 @@ The `@botmem/openclaw-plugin` lets any [OpenClaw](https://openclaw.dev) agent us
 
 ## Install
 
+Install via the OpenClaw CLI (inside the gateway container if running Docker):
+
 ```bash
-npm install @botmem/openclaw-plugin
+openclaw plugins install @botmem/openclaw-plugin
 ```
 
-### Botmem CLI Skill
+Then restart the gateway to load the plugin.
+
+> **Note:** The npm package requires `"openclaw": { "extensions": ["./dist/index.js"] }` in `package.json` and uses ESM (`"type": "module"`). If installing from a local tarball (`npm pack`), ensure `devDependencies` don't use pnpm-only protocols like `catalog:` — npm inside the container can't resolve them.
+
+### Botmem CLI Skill (optional)
 
 Also install the Botmem CLI and its OpenClaw skill so your agent can use `botmem` commands directly from the terminal:
 
@@ -56,21 +62,24 @@ Then ask your agent to "refresh skills" or restart the OpenClaw gateway. This gi
 
 ## Configure
 
-Add the plugin to your OpenClaw agent config:
+Enable the plugin in `~/.openclaw/openclaw.json` under `plugins.entries`:
 
 ```json
 {
-  "plugins": [
-    {
-      "package": "@botmem/openclaw-plugin",
-      "config": {
-        "apiUrl": "https://botmem.xyz",
-        "apiKey": "YOUR_BOTMEM_API_KEY",
-        "defaultLimit": 10,
-        "autoContext": true
+  "plugins": {
+    "allow": ["botmem"],
+    "entries": {
+      "botmem": {
+        "enabled": true,
+        "config": {
+          "apiUrl": "https://botmem.xyz/api",
+          "apiKey": "bm_sk_...",
+          "defaultLimit": 10,
+          "autoContext": true
+        }
       }
     }
-  ]
+  }
 }
 ```
 
@@ -78,15 +87,31 @@ Add the plugin to your OpenClaw agent config:
 
 | Option         | Type      | Default                  | Description                                 |
 | -------------- | --------- | ------------------------ | ------------------------------------------- |
-| `apiUrl`       | `string`  | `http://localhost:12412` | Botmem API URL                              |
-| `apiKey`       | `string`  | _(required)_             | API key or JWT token                        |
+| `apiUrl`       | `string`  | `http://localhost:12412` | Botmem API URL (include `/api` suffix)      |
+| `apiKey`       | `string`  | _(required)_             | API key (`bm_sk_...`) or Firebase JWT token |
 | `defaultLimit` | `number`  | `10`                     | Default max results per tool call           |
 | `memoryBankId` | `string`  | —                        | Scope all queries to a specific memory bank |
 | `autoContext`  | `boolean` | `true`                   | Inject memory stats into the system prompt  |
 
-::: tip API Key
-Use a JWT token from `POST /api/user-auth/login` or the CLI's `botmem login`. A dedicated API key system (`bm_sk_...`) is coming soon.
-:::
+### Getting an API Key
+
+Create a long-lived API key via the botmem API:
+
+```bash
+# 1. Get a Firebase token
+TOKEN=$(curl -s -X POST "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=YOUR_FIREBASE_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"...","returnSecureToken":true}' | jq -r '.idToken')
+
+# 2. Create an API key
+curl -s -X POST https://botmem.xyz/api/api-keys \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"openclaw"}' | jq '.key'
+# Returns: "bm_sk_..."
+```
+
+Or use the CLI: `botmem login` then `botmem api-key create openclaw`.
 
 ## What Your Agent Gets
 
@@ -179,25 +204,26 @@ Find contacts by name, email, or phone number. Returns matching contacts with th
 
 The plugin does **not** force a `kind: "memory"` declaration — you decide in your OpenClaw config whether Botmem is primary or secondary memory. The plugin simply registers agent tools that the agent can call as needed.
 
-## Example: Full Agent Config
+## Example: Full OpenClaw Config
+
+In `~/.openclaw/openclaw.json`:
 
 ```json
 {
-  "agent": {
-    "name": "my-assistant",
-    "model": "claude-sonnet-4-5-20250514"
-  },
-  "plugins": [
-    {
-      "package": "@botmem/openclaw-plugin",
-      "config": {
-        "apiUrl": "https://botmem.xyz",
-        "apiKey": "eyJhbGci...",
-        "defaultLimit": 10,
-        "autoContext": true
+  "plugins": {
+    "allow": ["botmem"],
+    "entries": {
+      "botmem": {
+        "enabled": true,
+        "config": {
+          "apiUrl": "https://botmem.xyz/api",
+          "apiKey": "bm_sk_...",
+          "defaultLimit": 10,
+          "autoContext": true
+        }
       }
     }
-  ]
+  }
 }
 ```
 
