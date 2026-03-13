@@ -94,6 +94,38 @@ export interface PersonWithIdentifiers {
   }>;
 }
 
+/** Generic short names that should never trigger merge suggestions */
+export const GENERIC_NAMES = new Set([
+  'me',
+  'bot',
+  'app',
+  'admin',
+  'user',
+  'unknown',
+  'test',
+  'info',
+  'no reply',
+  'noreply',
+]);
+
+/** Determine if a name looks like a structured identifier (phone, email, etc.) */
+export function looksLikeIdentifier(name: string): boolean {
+  const trimmed = name.trim();
+  // Phone number: starts with + or digits, mostly digits
+  if (/^\+?\d[\d\s\-()]{4,}$/.test(trimmed)) return true;
+  // Email address
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return true;
+  // Slack/WhatsApp ID patterns (e.g. U0XXXXXXX, @lid)
+  if (/^[A-Z]\d{6,}$/.test(trimmed)) return true;
+  return false;
+}
+
+/** Determine if name is a multi-word real name (first + last) */
+export function isMultiWordName(name: string): boolean {
+  const words = name.trim().split(/\s+/);
+  return words.length >= 2 && words.every((w) => w.length >= 2);
+}
+
 @Injectable()
 export class PeopleService {
   private readonly logger = new Logger(PeopleService.name);
@@ -103,6 +135,36 @@ export class PeopleService {
     private userKeyService: UserKeyService,
     @Inject(forwardRef(() => AccountsService)) private accountsService: AccountsService,
   ) {}
+
+  /** Encrypt a JSONB value (avatars or metadata) with APP_SECRET for at-rest protection. */
+  private encryptJsonb(value: unknown): string {
+    const json = typeof value === 'string' ? value : JSON.stringify(value);
+    return this.crypto.encrypt(json)!;
+  }
+
+  /** Decrypt a JSONB value. Handles plaintext passthrough (pre-encryption data). */
+  private decryptJsonb(value: unknown): unknown {
+    if (value == null) return value;
+    // If it's a string that looks encrypted (iv:data:tag), decrypt it
+    if (typeof value === 'string') {
+      const decrypted = this.crypto.decrypt(value);
+      if (decrypted && decrypted !== value) {
+        try {
+          return JSON.parse(decrypted);
+        } catch {
+          return decrypted;
+        }
+      }
+      // Not encrypted — try parsing as JSON
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    // Already a parsed object (pre-encryption JSONB) — return as-is
+    return value;
+  }
 
   async resolvePerson(
     rawIdentifiers: IdentifierInput[],
@@ -446,6 +508,8 @@ export class PeopleService {
     return {
       ...rows[0],
       displayName: this.crypto.decrypt(rows[0].displayName) ?? rows[0].displayName,
+      avatars: this.decryptJsonb(rows[0].avatars),
+      metadata: this.decryptJsonb(rows[0].metadata),
       identifiers: idents.map((i) => ({
         id: i.id,
         identifierType: i.identifierType,
@@ -583,6 +647,8 @@ export class PeopleService {
       return {
         ...c,
         displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
+        avatars: this.decryptJsonb(c.avatars),
+        metadata: this.decryptJsonb(c.metadata),
         identifiers: idents.map((i) => ({
           id: i.id,
           identifierType: i.identifierType,
@@ -669,7 +735,7 @@ export class PeopleService {
     if (!rows.length) return;
 
     const existing: Array<{ url: string; source: string }> =
-      (rows[0].avatars as Array<{ url: string; source: string }>) || [];
+      (this.decryptJsonb(rows[0].avatars) as Array<{ url: string; source: string }>) || [];
 
     // Skip if we already have an avatar from this source
     if (existing.some((a) => a.source === avatar.source)) return;
@@ -698,7 +764,7 @@ export class PeopleService {
     await this.dbService.withCurrentUser((db) =>
       db
         .update(people)
-        .set({ avatars: updated, updatedAt: new Date() })
+        .set({ avatars: this.encryptJsonb(updated), updatedAt: new Date() })
         .where(eq(people.id, personId)),
     );
   }
@@ -711,7 +777,9 @@ export class PeopleService {
     const allContacts = await db
       .select({ id: people.id, avatars: people.avatars })
       .from(people)
-      .where(sql`${people.avatars} IS NOT NULL AND ${people.avatars}::text != '[]'`);
+      .where(
+        sql`${people.avatars} IS NOT NULL AND ${people.avatars}::text != '[]' AND ${people.avatars}::text != '""'`,
+      );
 
     // Build auth headers for Immich
     let immichHeaders: Record<string, string> = {};
@@ -733,7 +801,8 @@ export class PeopleService {
     let failed = 0;
 
     for (const contact of allContacts) {
-      const avatars = (contact.avatars as Array<{ url: string; source: string }>) || [];
+      const avatars =
+        (this.decryptJsonb(contact.avatars) as Array<{ url: string; source: string }>) || [];
       if (!avatars.length) continue;
 
       let changed = false;
@@ -771,7 +840,7 @@ export class PeopleService {
       if (changed) {
         await db
           .update(people)
-          .set({ avatars: updated, updatedAt: new Date() })
+          .set({ avatars: this.encryptJsonb(updated), updatedAt: new Date() })
           .where(eq(people.id, contact.id));
       }
     }
@@ -875,8 +944,8 @@ export class PeopleService {
       patch.displayName = this.crypto.encrypt(updates.displayName)!;
       patch.displayNameHash = this.crypto.hmac(updates.displayName.toLowerCase());
     }
-    if (updates.avatars !== undefined) patch.avatars = updates.avatars;
-    if (updates.metadata !== undefined) patch.metadata = JSON.stringify(updates.metadata);
+    if (updates.avatars !== undefined) patch.avatars = this.encryptJsonb(updates.avatars);
+    if (updates.metadata !== undefined) patch.metadata = this.encryptJsonb(updates.metadata);
 
     await this.dbService.withCurrentUser((db) =>
       db.update(people).set(patch).where(eq(people.id, id)),
@@ -903,9 +972,9 @@ export class PeopleService {
 
               // Merge avatars (target first, then source, dedup by url)
               const targetAvatars: Array<{ url: string; source: string }> =
-                (target.avatars as Array<{ url: string; source: string }>) || [];
+                (this.decryptJsonb(target.avatars) as Array<{ url: string; source: string }>) || [];
               const sourceAvatars: Array<{ url: string; source: string }> =
-                (source.avatars as Array<{ url: string; source: string }>) || [];
+                (this.decryptJsonb(source.avatars) as Array<{ url: string; source: string }>) || [];
               const seenUrls = new Set(targetAvatars.map((a) => a.url));
               for (const avatar of sourceAvatars) {
                 if (!seenUrls.has(avatar.url)) {
@@ -1016,7 +1085,7 @@ export class PeopleService {
                 .set({
                   displayName,
                   displayNameHash,
-                  avatars: targetAvatars,
+                  avatars: this.encryptJsonb(targetAvatars),
                   memoryCount: newMemCount,
                   updatedAt: new Date(),
                 })
@@ -1162,6 +1231,9 @@ export class PeopleService {
       reason: string;
     }> = [];
 
+    // Track contacts that were auto-merged (absorbed into another)
+    const mergedAway = new Set<string>();
+
     const addSuggestion = (
       c1: (typeof allContacts)[0],
       c2: (typeof allContacts)[0],
@@ -1198,19 +1270,7 @@ export class PeopleService {
       });
     };
 
-    // Generic short names that should never trigger merge suggestions
-    const GENERIC_NAMES = new Set([
-      'me',
-      'bot',
-      'app',
-      'admin',
-      'user',
-      'unknown',
-      'test',
-      'info',
-      'no reply',
-      'noreply',
-    ]);
+    // GENERIC_NAMES is exported at module level
 
     // Helper: check if two contacts share a non-name identifier
     const shareNonNameIdentifier = (id1: string, id2: string): boolean => {
@@ -1230,6 +1290,28 @@ export class PeopleService {
       return false;
     };
 
+    // Helper: auto-merge c2 (source) into c1 (target)
+    const tryAutoMerge = async (
+      target: (typeof allContacts)[0],
+      source: (typeof allContacts)[0],
+      reason: string,
+    ): Promise<boolean> => {
+      if (mergedAway.has(target.id) || mergedAway.has(source.id)) return true;
+      try {
+        await this.mergePeople(target.id, source.id);
+        mergedAway.add(source.id);
+        this.logger.log(`[getSuggestions] auto-merged ${source.id} → ${target.id}: ${reason}`);
+        return true;
+      } catch (err) {
+        this.logger.warn(
+          `[getSuggestions] auto-merge failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return false;
+      }
+    };
+
+    // looksLikeIdentifier and isMultiWordName are exported module-level functions
+
     // Index contacts by first word and full name to avoid O(n²)
     const byExactName = new Map<string, typeof allContacts>();
     const byFirstWord = new Map<string, typeof allContacts>();
@@ -1248,12 +1330,65 @@ export class PeopleService {
       }
     }
 
+    // --- Phase 1: Auto-merge obvious exact-name groups before generating suggestions ---
+    // For each group of contacts with the exact same display name, auto-merge when:
+    //   - Name looks like an identifier (phone/email) → always merge all into one
+    //   - Name is a multi-word name (first+last) → merge all into one
+    //   - All members share a non-name identifier → merge all into one
+    for (const [name, group] of byExactName) {
+      if (group.length < 2) continue;
+
+      // Check if any pair in the group was user-dismissed — if so, skip auto-merge for the group
+      let anyDismissed = false;
+      for (let i = 0; i < group.length && !anyDismissed; i++) {
+        for (let j = i + 1; j < group.length && !anyDismissed; j++) {
+          const pk = [group[i].id, group[j].id].sort().join('::');
+          if (dismissedPairs.has(pk)) anyDismissed = true;
+        }
+      }
+      if (anyDismissed) continue;
+
+      // Check if all members share at least one non-name identifier with the first member
+      const allShareIdentifier =
+        group.length <= 10 &&
+        group.slice(1).every((c) => shareNonNameIdentifier(group[0].id, c.id));
+
+      const shouldAutoMerge =
+        looksLikeIdentifier(name) || // phone number, email, etc.
+        isMultiWordName(name) || // "John Smith" — unambiguous full name
+        allShareIdentifier; // all share a phone/email/handle
+
+      if (shouldAutoMerge) {
+        // Pick the one with the most identifiers as the merge target
+        const sorted = [...group].sort((a, b) => {
+          const aCount = (contactIdentsMap.get(a.id) || []).length;
+          const bCount = (contactIdentsMap.get(b.id) || []).length;
+          return bCount - aCount;
+        });
+        const target = sorted[0];
+        for (let i = 1; i < sorted.length; i++) {
+          await tryAutoMerge(target, sorted[i], `Exact name match (auto): "${name}"`);
+        }
+      }
+    }
+
+    // --- Phase 2: Generate suggestions for remaining (ambiguous) pairs ---
     const comparePair = (c1: (typeof allContacts)[0], c2: (typeof allContacts)[0]) => {
+      if (mergedAway.has(c1.id) || mergedAway.has(c2.id)) return;
       const pairKey = [c1.id, c2.id].sort().join('::');
       if (dismissedPairs.has(pairKey) || suggestedPairs.has(pairKey)) return;
 
       const nameA = c1.displayName.toLowerCase().trim();
       const nameB = c2.displayName.toLowerCase().trim();
+      const wordsA = nameA.split(/\s+/);
+      const wordsB = nameB.split(/\s+/);
+
+      // Never suggest merges based purely on single-word names (too ambiguous)
+      // unless they share a non-name identifier (phone/email/handle)
+      const bothSingleWord = wordsA.length === 1 && wordsB.length === 1;
+      if (bothSingleWord && !looksLikeIdentifier(nameA) && !shareNonNameIdentifier(c1.id, c2.id)) {
+        return;
+      }
 
       const connectors1 = contactConnectors.get(c1.id) || new Set();
       const connectors2 = contactConnectors.get(c2.id) || new Set();
@@ -1263,15 +1398,13 @@ export class PeopleService {
         [...connectors1][0] === [...connectors2][0];
       const isVisionConnector = sameConnector && [...connectors1][0] === 'photos';
 
-      // Strategy 1: Exact name match
+      // Strategy 1: Exact name match (not auto-merged — e.g. 3+ way conflict)
       if (nameA === nameB) {
         addSuggestion(c1, c2, `Exact name match: "${c1.displayName}"`);
         return;
       }
 
       // Strategy 2: Substring / word matching
-      const wordsA = nameA.split(/\s+/);
-      const wordsB = nameB.split(/\s+/);
       const shorter = Math.min(nameA.length, nameB.length);
       const longer = Math.max(nameA.length, nameB.length);
 
@@ -1328,10 +1461,11 @@ export class PeopleService {
 
     // Compare only contacts sharing a first word (not all pairs)
     for (const [, group] of byFirstWord) {
-      if (group.length < 2 || group.length > 100) continue; // skip huge groups
-      for (let i = 0; i < group.length; i++) {
-        for (let j = i + 1; j < group.length; j++) {
-          comparePair(group[i], group[j]);
+      const active = group.filter((c) => !mergedAway.has(c.id));
+      if (active.length < 2 || active.length > 100) continue;
+      for (let i = 0; i < active.length; i++) {
+        for (let j = i + 1; j < active.length; j++) {
+          comparePair(active[i], active[j]);
         }
       }
     }

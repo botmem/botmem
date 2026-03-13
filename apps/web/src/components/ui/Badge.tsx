@@ -12,9 +12,9 @@ export function Badge({ children, color, className }: BadgeProps) {
       className={cn(
         'inline-block border-2 border-nb-border px-2.5 py-0.5 font-mono text-xs font-bold uppercase',
         !color && 'bg-nb-surface-muted',
-        className
+        className,
       )}
-      style={color ? { backgroundColor: color, color: '#000' } : undefined}
+      style={color ? { backgroundColor: color, color: 'var(--color-nb-black)' } : undefined}
     >
       {children}
     </span>

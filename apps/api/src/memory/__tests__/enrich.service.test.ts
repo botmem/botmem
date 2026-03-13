@@ -84,11 +84,17 @@ describe('EnrichService', () => {
       encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),
       decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : v)),
       hmac: vi.fn((v: string) => `hmac:${v}`),
+      decryptMemoryFieldsWithKey: vi.fn(<T extends Record<string, unknown>>(mem: T) => mem),
+    };
+
+    const userKeyService = {
+      getDek: vi.fn().mockResolvedValue(Buffer.alloc(32)),
     };
 
     service = new EnrichService(
       { db: mockDb } as unknown as DbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
+      userKeyService as unknown as import('../../crypto/user-key.service').UserKeyService,
       aiService,
       qdrantService,
       logsService,

@@ -15,12 +15,17 @@ import { sharedWs } from '../lib/ws';
 import { useAuthStore } from '../store/authStore';
 import { EmptyState } from '../components/ui/EmptyState';
 
+const MAX_STATUS_POLLS = 60; // 5 minutes at 5s intervals
+
 function ConnectorStatusDot({ type }: { type: string }) {
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    let polls = 0;
     const poll = () => {
+      if (polls >= MAX_STATUS_POLLS) return;
+      polls++;
       api
         .getConnectorStatus(type)
         .then((s) => {
@@ -64,6 +69,8 @@ export function ConnectorsPage() {
     syncAll,
     syncingAll,
     fetchAccounts,
+    error,
+    clearError,
   } = useConnectors();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -130,6 +137,18 @@ export function ConnectorsPage() {
           </Button>
         )}
       </div>
+
+      {error && (
+        <div className="border-3 border-nb-red bg-nb-red/10 p-3 mb-4 flex items-center justify-between">
+          <span className="font-mono text-xs text-nb-text">{error}</span>
+          <button
+            onClick={clearError}
+            className="font-mono text-xs text-nb-muted hover:text-nb-text cursor-pointer uppercase"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3" data-tour="connectors-grid">
         {displayConfigs.map((cfg) => {

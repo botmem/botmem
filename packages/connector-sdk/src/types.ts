@@ -1,4 +1,4 @@
-export type AuthType = 'oauth2' | 'qr-code' | 'api-key' | 'local-tool';
+export type AuthType = 'oauth2' | 'qr-code' | 'phone-code' | 'api-key' | 'local-tool';
 
 export interface ConnectorManifest {
   id: string;
@@ -42,6 +42,7 @@ export interface AuthContext {
 export type AuthInitResult =
   | { type: 'redirect'; url: string }
   | { type: 'qr-code'; qrData: string; wsChannel: string }
+  | { type: 'phone-code'; phoneCodeHash: string; wsChannel: string }
   | { type: 'complete'; auth: AuthContext };
 
 export interface ConnectorLogger {

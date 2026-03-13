@@ -217,3 +217,37 @@ pnpm test         # Run Vitest across all workspaces
 - Shared types live in `@botmem/shared` — import from there, not from api internals
 - Tests go in `__tests__/` directories adjacent to source, using Vitest
 - SQLite runs in WAL mode for concurrent read performance
+
+## Design Context
+
+### Users
+
+Power users who want full ownership of their personal data — engineers, privacy-conscious professionals, AI-agent builders. They use Botmem to unify fragmented digital history (emails, messages, photos, locations) into a single queryable memory layer. Context: focused, task-driven sessions where speed and clarity matter.
+
+### Brand Personality
+
+**Bold, Personal, Punk.** Unapologetic, tech-forward, your-data-your-rules energy. The interface should feel like a tool that respects the user — no hand-holding, no corporate polish, no fluff.
+
+### Emotional Goals
+
+- **Empowering & confident** — user feels in control, like having a superpower over their own data
+- **Calm & trustworthy** — quiet confidence that data is safe, organized, and private
+- **Futuristic & edgy** — cutting-edge hacker aesthetic, raw and real
+
+### Aesthetic Direction
+
+- **Neobrutalist** — hard borders (zero border-radius), offset box shadows, bold geometry
+- **Monospace everything** — Space Mono (display), IBM Plex Mono (body/UI)
+- **Dark-first** with full light mode support (warm off-white, not clinical white)
+- **High contrast** — bright lime (#C4F53A) primary accent against dark (#0D0D0D) backgrounds
+- **Functional color coding** — each connector, status, and data type gets a dedicated color
+- **References**: Terminal/CLI aesthetic, Linear, Raycast — minimal, fast, keyboard-first
+- **Anti-references**: Rounded, bubbly SaaS dashboards; corporate enterprise UI; Material Design defaults
+
+### Design Principles
+
+1. **Clarity over decoration** — every pixel serves a purpose. No ornamental elements, no gratuitous animation. Information density is a feature.
+2. **Raw honesty** — show real data, real states, real numbers. No skeleton loaders that lie about content. Errors are stated plainly, not hidden behind friendly illustrations.
+3. **Respect the user** — assume competence. Keyboard-first interactions, no confirmation dialogs for reversible actions, no tooltips explaining obvious things.
+4. **Consistent visual language** — borders, shadows, typography, and color follow the neobrutalist system uniformly. No mixing rounded and sharp corners. No one-off styling.
+5. **Accessible by default** — WCAG AAA compliance. Enhanced contrast ratios, reduced motion support, full keyboard navigation, meaningful alt text, no color-only indicators.

@@ -49,8 +49,7 @@ RUN pnpm --filter @botmem/shared run build && \
     pnpm --filter @botmem/connector-sdk run build && \
     pnpm --filter '@botmem/connector-*' run build && \
     pnpm --filter @botmem/web run build && \
-    pnpm --filter @botmem/api run build && \
-    cp -r apps/api/src/db/migrations apps/api/dist/db/migrations
+    pnpm --filter @botmem/api run build
 
 FROM base AS runtime
 WORKDIR /app/apps/api
@@ -59,4 +58,4 @@ RUN mkdir -p /data
 EXPOSE 12412
 ENV NODE_ENV=production
 ENV PORT=12412
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-c", "cd /app/apps/api && npx drizzle-kit push --force && node dist/main.js"]

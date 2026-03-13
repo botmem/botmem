@@ -41,8 +41,6 @@ function createMocks() {
   const cleanQueue = {} as unknown as Queue;
   const embedQueue = {} as unknown as Queue;
   const enrichQueue = {} as unknown as Queue;
-  const backfillQueue = {} as unknown as Queue;
-
   return {
     jobsService,
     accountsService,
@@ -53,7 +51,6 @@ function createMocks() {
     cleanQueue,
     embedQueue,
     enrichQueue,
-    backfillQueue,
   };
 }
 
@@ -82,7 +79,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     } = createMocks();
     vi.mocked(jobsService.getAll).mockResolvedValue([fakeJobRow]);
 
@@ -96,7 +92,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     );
     const result = await controller.list({ id: 'u1' });
 
@@ -116,7 +111,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     } = createMocks();
     vi.mocked(jobsService.getAll).mockResolvedValue([]);
 
@@ -130,7 +124,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     );
     await controller.list({ id: 'u1' }, 'a1');
 
@@ -148,7 +141,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     } = createMocks();
     vi.mocked(jobsService.getById).mockResolvedValue(fakeJobRow);
 
@@ -162,7 +154,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     );
     const result = await controller.get('j1');
 
@@ -180,7 +171,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     } = createMocks();
     vi.mocked(jobsService.getById).mockResolvedValue(null);
 
@@ -194,7 +184,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     );
     const result = await controller.get('nonexistent');
     expect(result).toEqual({ error: 'not found' });
@@ -211,7 +200,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     } = createMocks();
     vi.mocked(accountsService.getById).mockResolvedValue({
       id: 'a1',
@@ -230,7 +218,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     );
     const result = await controller.triggerSync({ id: 'u1' }, 'a1');
 
@@ -255,7 +242,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     } = createMocks();
     vi.mocked(jobsService.cancel).mockResolvedValue(undefined);
 
@@ -269,7 +255,6 @@ describe('JobsController', () => {
       cleanQueue,
       embedQueue,
       enrichQueue,
-      backfillQueue,
     );
     const result = await controller.cancel('j1');
 

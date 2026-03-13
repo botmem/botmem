@@ -37,6 +37,15 @@ export function truncate(str: string, len: number): string {
   return str.length <= len ? str : str.slice(0, len) + '...';
 }
 
+/** Centralized status → theme color map. Use for inline styles with var(). */
+export const STATUS_COLORS: Record<string, string> = {
+  running: 'var(--color-nb-green)',
+  queued: 'var(--color-nb-yellow)',
+  done: 'var(--color-nb-blue)',
+  failed: 'var(--color-nb-red)',
+  cancelled: 'var(--color-nb-gray)',
+};
+
 export const CONNECTOR_COLORS: Record<string, string> = {
   gmail: '#FF6B9D',
   whatsapp: '#22C55E',

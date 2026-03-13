@@ -5,6 +5,7 @@ import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { MemoryService } from './memory.service';
@@ -26,6 +27,7 @@ import {
   accounts,
   memoryBanks,
   jobs,
+  users,
 } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import { normalizeEntities } from './entity-normalizer';
@@ -47,6 +49,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
+    private userKeyService: UserKeyService,
     private ai: AiService,
     private qdrant: QdrantService,
     private memoryService: MemoryService,
@@ -391,12 +394,38 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           isGeminiMultimodal && (fileMime.startsWith('image/') || fileMime === 'application/pdf');
 
         if (canMultimodal) {
-          // Gemini multimodal: embed image/PDF directly alongside text — skip VL model
+          // Gemini multimodal: embed image/PDF directly alongside text
           const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
 
-          // Store thumbnail for images (reuse existing logic)
+          // Store thumbnail for images
           if (fileMime.startsWith('image/') && fileBuffer.length <= 30_000) {
             mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
+          }
+
+          // For images, still generate a VL text description for display in memories.text
+          if (fileMime.startsWith('image/')) {
+            try {
+              const people = (mergedMetadata.people as Array<{ name?: string }>) || [];
+              const peopleNames = people.map((p) => p.name).filter(Boolean);
+              let promptContext = currentText;
+              if (peopleNames.length > 0) {
+                promptContext = `People in this photo: ${peopleNames.join(', ')}. ${promptContext}`;
+              }
+              const base64 = fileBuffer.toString('base64');
+              const description = await this.ai.generate(photoDescriptionPrompt(promptContext), [
+                base64,
+              ]);
+              if (description.trim()) {
+                currentText = description.trim() + '\n\n' + currentText;
+              }
+            } catch (vlErr: unknown) {
+              this.addLog(
+                rawEvent.connectorType,
+                rawEvent.accountId,
+                'warn',
+                `[embed:vl] ${mid} VL description failed: ${vlErr instanceof Error ? vlErr.message : String(vlErr)}`,
+              );
+            }
           }
 
           // For PDFs, still extract text for display in memories.text
@@ -457,10 +486,35 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       }
     }
 
-    // --- All external work succeeded — insert plaintext; enrich processor encrypts at end of pipeline ---
+    // --- All external work succeeded — encrypt and insert ---
     // Strip null bytes that PostgreSQL rejects in text columns
     currentText = stripNullBytes(currentText);
     const metadataStr = stripNullBytes(JSON.stringify(mergedMetadata));
+
+    // Encrypt memory fields with user's DEK before inserting into DB.
+    // If DEK unavailable, throw to trigger BullMQ retry (user must submit recovery key).
+    let insertText = currentText;
+    let insertMetadata = metadataStr;
+    let keyVersion: number | undefined;
+
+    if (ownerUserId) {
+      const userKey = await this.userKeyService.getDek(ownerUserId);
+      if (!userKey) {
+        throw new Error('User key not available. Submit recovery key to unlock encryption.');
+      }
+      const [user] = await this.dbService.db
+        .select({ keyVersion: users.keyVersion })
+        .from(users)
+        .where(eq(users.id, ownerUserId));
+      keyVersion = user?.keyVersion ?? 1;
+
+      const enc = this.crypto.encryptMemoryFieldsWithKey(
+        { text: currentText, entities: '', claims: '', metadata: metadataStr },
+        userKey,
+      );
+      insertText = enc.text;
+      insertMetadata = enc.metadata;
+    }
 
     t0 = Date.now();
     if (ownerUserId) {
@@ -475,14 +529,22 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             connectorType: rawEvent.connectorType,
             sourceType: event.sourceType,
             sourceId: event.sourceId,
-            text: currentText,
+            text: insertText,
             eventTime: new Date(event.timestamp),
             ingestTime: now,
-            metadata: metadataStr,
+            metadata: insertMetadata,
             embeddingStatus: 'pending',
+            keyVersion,
             createdAt: now,
           })
           .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] }),
+      );
+      // Compute search_tokens from plaintext BEFORE encryption so FTS works
+      await this.dbService.withUserId(ownerUserId, (db) =>
+        db
+          .update(memories)
+          .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
+          .where(eq(memories.id, memoryId)),
       );
     } else {
       // No ownerUserId — unscoped insert (orphaned account, should rarely happen)
@@ -495,14 +557,18 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           connectorType: rawEvent.connectorType,
           sourceType: event.sourceType,
           sourceId: event.sourceId,
-          text: currentText,
+          text: insertText,
           eventTime: new Date(event.timestamp),
           ingestTime: now,
-          metadata: metadataStr,
+          metadata: insertMetadata,
           embeddingStatus: 'pending',
           createdAt: now,
         })
         .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] });
+      await this.dbService.db
+        .update(memories)
+        .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
+        .where(eq(memories.id, memoryId));
     }
     const dbInsertMs = Date.now() - t0;
 
@@ -598,7 +664,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
       );
     } else {
-      // Mark memory done in RLS scope (or unscoped if no owner)
+      // Data already encrypted at insert — mark memory done directly.
       const updateDone = (db: typeof this.dbService.db) =>
         db
           .update(memories)

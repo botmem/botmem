@@ -15,22 +15,20 @@ import {
 import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { randomUUID } from 'crypto';
 import { MemoryService } from './memory.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { EventsService } from '../events/events.service';
-import { accounts, memories, memoryContacts, rawEvents, jobs } from '../db/schema';
-import { eq, and, sql, isNull } from 'drizzle-orm';
+import { memories, memoryContacts, rawEvents } from '../db/schema';
+import { eq, sql } from 'drizzle-orm';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
-import { BackfillEnrichDto } from './dto/backfill-enrich.dto';
 
 @ApiTags('Memories')
 @ApiBearerAuth()
@@ -44,7 +42,6 @@ export class MemoryController {
     private ai: AiService,
     private qdrant: QdrantService,
     private events: EventsService,
-    @InjectQueue('backfill') private backfillQueue: Queue,
     @InjectQueue('clean') private cleanQueue: Queue,
     @InjectQueue('embed') private embedQueue: Queue,
     @InjectQueue('enrich') private enrichQueue: Queue,
@@ -63,7 +60,6 @@ export class MemoryController {
       clean: this.cleanQueue,
       embed: this.embedQueue,
       enrich: this.enrichQueue,
-      backfill: this.backfillQueue,
     };
     const status: Record<string, unknown> = {};
     for (const [name, queue] of Object.entries(queues)) {
@@ -179,225 +175,6 @@ export class MemoryController {
       }
 
       return { enqueued, errors, total: failed.length };
-    });
-  }
-
-  @RequiresJwt()
-  @Post('backfill-contacts')
-  async backfillContacts() {
-    return this.dbService.withCurrentUser(async (db) => {
-      // Get memory IDs that don't yet have contact links, in batches
-      const unlinked = await db
-        .select({ id: memories.id })
-        .from(memories)
-        .where(
-          sql`${memories.id} NOT IN (SELECT DISTINCT ${memoryContacts.memoryId} FROM ${memoryContacts})`,
-        );
-
-      // Enqueue each as an individual job
-      let enqueued = 0;
-      for (const { id } of unlinked) {
-        await this.backfillQueue.add(
-          'backfill-contact',
-          { memoryId: id },
-          { attempts: 2, backoff: { type: 'exponential', delay: 500 } },
-        );
-        enqueued++;
-      }
-
-      return { enqueued, total: unlinked.length };
-    });
-  }
-
-  @RequiresJwt()
-  @Post('backfill-enrich')
-  async backfillEnrich(@CurrentUser() user: { id: string }, @Body() dto: BackfillEnrichDto) {
-    return this.dbService.withCurrentUser(async (db) => {
-      // Build WHERE conditions: embeddingStatus=done AND enrichedAt IS NULL
-      const conditions = [eq(memories.embeddingStatus, 'done'), isNull(memories.enrichedAt)];
-      if (dto.connectorType) {
-        conditions.push(eq(memories.connectorType, dto.connectorType));
-      }
-
-      const targets = await db
-        .select({ id: memories.id })
-        .from(memories)
-        .where(and(...conditions));
-
-      if (targets.length === 0) {
-        return { jobId: null, enqueued: 0, total: 0, message: 'No memories need re-enrichment' };
-      }
-
-      // Get user's first account for jobs FK
-      const userAccounts = await db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(eq(accounts.userId, user.id))
-        .limit(1);
-
-      if (!userAccounts.length) {
-        return { error: 'No account found -- sync a connector first' };
-      }
-
-      const now = new Date();
-      const jobId = randomUUID();
-
-      // Create tracked job row
-      await db.insert(jobs).values({
-        id: jobId,
-        accountId: userAccounts[0].id,
-        connectorType: dto.connectorType || 'backfill',
-        status: 'running',
-        progress: 0,
-        total: targets.length,
-        startedAt: now,
-        createdAt: now,
-      });
-
-      // Enqueue individual BullMQ jobs
-      for (const t of targets) {
-        await this.backfillQueue.add(
-          'backfill-enrich',
-          { memoryId: t.id, jobId },
-          {
-            jobId: t.id,
-            attempts: 2,
-            backoff: { type: 'exponential', delay: 1000 },
-          },
-        );
-      }
-
-      // Emit initial progress
-      this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
-        jobId,
-        processed: 0,
-        total: targets.length,
-      });
-
-      return { jobId, enqueued: targets.length, total: targets.length };
-    });
-  }
-
-  @RequiresJwt()
-  @Post('backfill-thumbnails')
-  async backfillThumbnails(@CurrentUser() user: { id: string }) {
-    return this.dbService.withCurrentUser(async (db) => {
-      // Find photo memories without thumbnailBase64 in metadata
-      const photoMemories = await db
-        .select({ id: memories.id })
-        .from(memories)
-        .where(
-          and(
-            eq(memories.sourceType, 'photo'),
-            eq(memories.pipelineComplete, true),
-            sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'thumbnailBase64') IS NULL AND (metadata::jsonb->>'fileUrl') IS NOT NULL`,
-          ),
-        );
-
-      if (!photoMemories.length) {
-        return { jobId: null, enqueued: 0, message: 'All photos already have thumbnails' };
-      }
-
-      const userAccounts = await db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(eq(accounts.userId, user.id))
-        .limit(1);
-
-      if (!userAccounts.length) {
-        return { error: 'No account found -- sync a connector first' };
-      }
-
-      const now = new Date();
-      const jobId = randomUUID();
-
-      await db.insert(jobs).values({
-        id: jobId,
-        accountId: userAccounts[0].id,
-        connectorType: 'backfill',
-        status: 'running',
-        progress: 0,
-        total: photoMemories.length,
-        startedAt: now,
-        createdAt: now,
-      });
-
-      for (const m of photoMemories) {
-        await this.backfillQueue.add(
-          'backfill-thumbnails',
-          { memoryId: m.id, jobId },
-          { attempts: 2, backoff: { type: 'exponential', delay: 1000 } },
-        );
-      }
-
-      this.events.emitToChannel(`job:${jobId}`, 'job:progress', {
-        jobId,
-        processed: 0,
-        total: photoMemories.length,
-      });
-
-      return { jobId, enqueued: photoMemories.length, total: photoMemories.length };
-    });
-  }
-
-  @RequiresJwt()
-  @Post('backfill-embeddings')
-  async backfillEmbeddings(@Query('limit') limitParam?: string) {
-    return this.dbService.withCurrentUser(async (db) => {
-      const batchLimit = limitParam ? Math.min(parseInt(limitParam, 10) || 500, 5000) : 500;
-
-      // Find memories marked done in Postgres that might be missing from Qdrant
-      const doneMemories = await db
-        .select({
-          id: memories.id,
-          text: memories.text,
-          sourceType: memories.sourceType,
-          connectorType: memories.connectorType,
-          eventTime: memories.eventTime,
-          accountId: memories.accountId,
-          memoryBankId: memories.memoryBankId,
-        })
-        .from(memories)
-        .where(eq(memories.embeddingStatus, 'done'))
-        .limit(batchLimit);
-
-      // Check which are missing from Qdrant by scrolling through points
-      const qdrantInfo = await this.qdrant.getCollectionInfo();
-      let reembedded = 0;
-      let skipped = 0;
-      const errors: string[] = [];
-
-      for (const mem of doneMemories) {
-        try {
-          const exists = await this.qdrant.pointExists(mem.id);
-          if (exists) {
-            skipped++;
-            continue;
-          }
-
-          const maxChars = 6000;
-          const text = mem.text.length > maxChars ? mem.text.slice(0, maxChars) : mem.text;
-          const vector = await this.ai.embed(text);
-          await this.qdrant.upsert(mem.id, vector, {
-            source_type: mem.sourceType,
-            connector_type: mem.connectorType,
-            event_time: mem.eventTime,
-            account_id: mem.accountId,
-            memory_bank_id: (mem as unknown as { memoryBankId?: string }).memoryBankId || null,
-          });
-          reembedded++;
-        } catch (err: unknown) {
-          errors.push(`${mem.id.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-
-      return {
-        checked: doneMemories.length,
-        reembedded,
-        skipped,
-        errors: errors.slice(0, 10),
-        qdrant: qdrantInfo,
-      };
     });
   }
 
@@ -549,7 +326,7 @@ export class MemoryController {
   ) {
     if (await this.memoryService.needsRecoveryKey(user.id))
       return { results: [], needsRecoveryKey: true };
-    return this.memoryService.search(
+    const result = await this.memoryService.search(
       dto.query,
       dto.filters,
       dto.limit,
@@ -558,6 +335,16 @@ export class MemoryController {
       dto.memoryBankId,
       user.memoryBankIds,
     );
+    // Enrich search results with linked people
+    if (result.items.length) {
+      const peopleMap = await this.memoryService.getPeopleForMemories(
+        result.items.map((i) => i.id),
+      );
+      for (const item of result.items) {
+        item.people = peopleMap.get(item.id) || [];
+      }
+    }
+    return result;
   }
 
   @RequiresJwt()

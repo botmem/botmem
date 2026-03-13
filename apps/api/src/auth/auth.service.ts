@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
@@ -14,7 +14,7 @@ import { OAuthStateService } from './oauth-state.service';
 import { connectorCredentials } from '../db/schema';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
@@ -29,6 +29,20 @@ export class AuthService {
     private demoService: DemoService,
     private oauthState: OAuthStateService,
   ) {}
+
+  onModuleInit() {
+    // Listen for phone-code auth events forwarded from EventsGateway
+    this.events.on('phone-auth:code', (data: { wsChannel: string; code: string }) => {
+      this.completePhoneAuth(data.wsChannel, { code: data.code }).catch((err) => {
+        this.logger.error(`Phone auth code error: ${err.message}`);
+      });
+    });
+    this.events.on('phone-auth:2fa', (data: { wsChannel: string; password: string }) => {
+      this.completePhoneAuth(data.wsChannel, { password: data.password }).catch((err) => {
+        this.logger.error(`Phone auth 2FA error: ${err.message}`);
+      });
+    });
+  }
 
   async getSavedCredentials(connectorType: string): Promise<Record<string, unknown> | null> {
     try {
@@ -161,6 +175,17 @@ export class AuthService {
       }
     }
 
+    // In Firebase mode, inject server-side Telegram API creds
+    if (this.config.authProvider === 'firebase' && connectorType === 'telegram') {
+      if (this.config.telegramApiId) {
+        mergedConfig = {
+          ...mergedConfig,
+          apiId: this.config.telegramApiId,
+          apiHash: this.config.telegramApiHash,
+        };
+      }
+    }
+
     let result;
     try {
       result = await connector.initiateAuth(mergedConfig);
@@ -197,6 +222,17 @@ export class AuthService {
       };
     }
 
+    if (result.type === 'phone-code') {
+      // Phone-code auth: store pending userId for when code is verified via WS
+      this.pendingPhoneAuths.set(result.wsChannel, { connectorType, userId });
+
+      return {
+        type: 'phone-code' as const,
+        phoneCodeHash: result.phoneCodeHash,
+        wsChannel: result.wsChannel,
+      };
+    }
+
     const stateToken = randomUUID();
     await this.oauthState.savePendingConfig(stateToken, {
       config: mergedConfig,
@@ -209,6 +245,63 @@ export class AuthService {
     // Append state token to the OAuth redirect URL
     const separator = result.url.includes('?') ? '&' : '?';
     return { type: 'redirect' as const, url: `${result.url}${separator}state=${stateToken}` };
+  }
+
+  private pendingPhoneAuths = new Map<string, { connectorType: string; userId?: string }>();
+
+  /**
+   * Complete phone-code auth: verify code or 2FA password, then create account + sync.
+   * Called from the EventsGateway when the frontend sends auth:code or auth:2fa via WS.
+   */
+  async completePhoneAuth(
+    wsChannel: string,
+    params: { code?: string; password?: string },
+  ): Promise<void> {
+    const pending = this.pendingPhoneAuths.get(wsChannel);
+    if (!pending) {
+      this.events.emitToChannel(wsChannel, 'auth:error', { error: 'No pending auth session' });
+      return;
+    }
+
+    const connector = this.connectors.get(pending.connectorType);
+
+    try {
+      const auth = await connector.completeAuth({ wsChannel, ...params });
+      const identifier = String(
+        auth.identifier || auth.raw?.phone || auth.raw?.username || pending.connectorType,
+      );
+
+      this.pendingPhoneAuths.delete(wsChannel);
+
+      this.events.emitToChannel(wsChannel, 'auth:status', {
+        status: 'connecting',
+        step: `Authenticated as ${identifier}, setting up...`,
+      });
+
+      const account = await this.createAndSync(
+        pending.connectorType,
+        identifier,
+        auth as Record<string, unknown>,
+        pending.userId,
+      );
+
+      this.events.emitToChannel(wsChannel, 'auth:status', {
+        status: 'success',
+        step: 'Connected! Starting sync...',
+        accountId: account.id,
+        identifier,
+      });
+    } catch (err: unknown) {
+      const errObj = err as { need2fa?: boolean; errorMessage?: string; message?: string };
+      if (errObj.need2fa) {
+        // Signal frontend to show 2FA input
+        this.events.emitToChannel(wsChannel, 'auth:need_2fa', {});
+        return;
+      }
+
+      const message = errObj.message || 'Authentication failed';
+      this.events.emitToChannel(wsChannel, 'auth:error', { error: message });
+    }
   }
 
   private activeQrListeners = new Map<string, boolean>();

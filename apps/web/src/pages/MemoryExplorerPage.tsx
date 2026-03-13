@@ -25,12 +25,14 @@ export function MemoryExplorerPage() {
     loadingMore,
     hasMore,
     loadMoreMemories,
+    loadMemories,
     searchFallback,
     searchPending,
     resolvedEntities,
     parsed,
     memoryStats,
     totalMemories,
+    error,
   } = useMemories();
   const needsRecoveryKey = !!memoryStats?.needsRecoveryKey;
   const availableSources = useMemo(() => {
@@ -80,7 +82,7 @@ export function MemoryExplorerPage() {
         </div>
       )}
       {!needsRecoveryKey && (
-        <div className="mt-4 flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
+        <div className="mt-4 flex flex-col h-[calc(100dvh-9rem)] sm:h-[calc(100dvh-10rem)]">
           <div className="flex flex-col min-h-0 h-full">
             <div className="flex items-center gap-3" data-tour="memory-search">
               <div className="flex-1">
@@ -128,11 +130,20 @@ export function MemoryExplorerPage() {
                 }
                 loadingSkeleton={<Skeleton variant="card" count={3} />}
                 emptyState={
-                  <EmptyState
-                    icon="0"
-                    title="No Memories Found"
-                    subtitle="Try adjusting your filters"
-                  />
+                  error ? (
+                    <EmptyState
+                      icon="!"
+                      title="Failed to Load"
+                      subtitle={error}
+                      action={{ label: 'Retry', onClick: loadMemories }}
+                    />
+                  ) : (
+                    <EmptyState
+                      icon="0"
+                      title="No Memories Found"
+                      subtitle="Try adjusting your filters"
+                    />
+                  )
                 }
               />
 

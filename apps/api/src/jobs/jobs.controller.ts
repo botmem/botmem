@@ -66,7 +66,6 @@ export class JobsController {
     @InjectQueue('clean') private cleanQueue: Queue,
     @InjectQueue('embed') private embedQueue: Queue,
     @InjectQueue('enrich') private enrichQueue: Queue,
-    @InjectQueue('backfill') private backfillQueue: Queue,
   ) {}
 
   @Get()
@@ -94,15 +93,14 @@ export class JobsController {
       ]);
       return { waiting, active, completed, failed, delayed };
     };
-    const [sync, clean, embed, enrich, backfill] = await Promise.all([
+    const [sync, clean, embed, enrich] = await Promise.all([
       getStats(this.syncQueue),
       getStats(this.cleanQueue),
       getStats(this.embedQueue),
       getStats(this.enrichQueue),
-      getStats(this.backfillQueue),
     ]);
 
-    return { sync, clean, embed, enrich, backfill };
+    return { sync, clean, embed, enrich };
   }
 
   @Get(':id')

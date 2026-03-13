@@ -3,11 +3,12 @@ import { randomUUID } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
 import { QdrantService } from './qdrant.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
-import { memories, memoryLinks } from '../db/schema';
+import { memories, memoryLinks, accounts } from '../db/schema';
 import {
   entityExtractionPrompt,
   enrichmentPrompt,
@@ -31,6 +32,7 @@ export class EnrichService {
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
+    private userKeyService: UserKeyService,
     private ai: AiService,
     private qdrant: QdrantService,
     private logsService: LogsService,
@@ -90,9 +92,26 @@ export class EnrichService {
     const rows = await this.dbService.db.select().from(memories).where(eq(memories.id, memoryId));
 
     if (!rows.length) return;
-    const memory = rows[0];
+    const rawMemory = rows[0];
     const mid = memoryId.slice(0, 8);
     const pipelineStart = Date.now();
+
+    // Decrypt memory fields — they are encrypted at embed time with user's DEK
+    let memory = rawMemory;
+    const kv = rawMemory.keyVersion ?? 0;
+    if (kv >= 1 && rawMemory.accountId) {
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, rawMemory.accountId));
+      if (acct?.userId) {
+        const userKey = await this.userKeyService.getDek(acct.userId);
+        if (!userKey) {
+          throw new Error('User key not available. Submit recovery key to unlock encryption.');
+        }
+        memory = this.crypto.decryptMemoryFieldsWithKey(rawMemory, userKey);
+      }
+    }
 
     // Skip enrichment for trivial messages (short, no URLs, no attachments)
     if (this.isTrivialMessage(memory.text, memory.metadata)) {

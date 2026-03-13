@@ -27,10 +27,10 @@ function relativeTime(iso: string): string {
 }
 
 const levelColors: Record<Notification['level'], string> = {
-  info: '#4ECDC4',
-  warn: '#FFE66D',
-  error: '#EF4444',
-  success: '#C4F53A',
+  info: 'var(--color-nb-blue)',
+  warn: 'var(--color-nb-yellow)',
+  error: 'var(--color-nb-red)',
+  success: 'var(--color-nb-lime)',
 };
 
 export function NotificationDropdown({
