@@ -8,7 +8,7 @@ import { api } from '../../lib/api';
 import { IDENTIFIER_COLORS } from './constants';
 import { useContactStore } from '../../store/contactStore';
 
-const SELF_COLOR = '#C4F53A';
+const SELF_COLOR = 'var(--color-nb-lime)';
 
 interface ContactDetailPanelProps {
   contact: {

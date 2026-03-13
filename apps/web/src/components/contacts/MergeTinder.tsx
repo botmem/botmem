@@ -237,13 +237,18 @@ export function MergeTinder({
             opacity: swipeDir ? 0.5 : 1,
           }}
         >
-          {/* The two contacts side by side */}
-          <div className="flex items-stretch gap-3">
+          {/* The two contacts side by side (stacked on mobile) */}
+          <div className="flex flex-col sm:flex-row items-stretch gap-3">
             <div className="flex-1">
               <ContactCard contact={current.contact1} compact />
             </div>
-            <div className="flex items-center shrink-0">
-              <span className="font-display text-lg font-bold text-nb-muted">{'\u2194'}</span>
+            <div className="flex items-center justify-center shrink-0">
+              <span className="font-display text-lg font-bold text-nb-muted hidden sm:block">
+                {'\u2194'}
+              </span>
+              <span className="font-display text-lg font-bold text-nb-muted sm:hidden">
+                {'\u2195'}
+              </span>
             </div>
             <div className="flex-1">
               <ContactCard contact={current.contact2} compact />
@@ -281,7 +286,7 @@ export function MergeTinder({
       )}
 
       {/* Action bar */}
-      <div className="border-t-2 border-nb-border px-4 py-3 flex items-center justify-between bg-nb-surface">
+      <div className="border-t-2 border-nb-border px-3 sm:px-4 py-3 flex items-center justify-between gap-2 bg-nb-surface">
         {/* Skip button */}
         <button
           onClick={doSkip}

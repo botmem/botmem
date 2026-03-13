@@ -113,7 +113,7 @@ export function SettingsPage() {
 
   return (
     <PageContainer>
-      <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text mb-6">
+      <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-nb-text mb-6">
         SETTINGS
       </h1>
 

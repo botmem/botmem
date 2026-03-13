@@ -25,7 +25,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
 
   return (
     <header className="border-b-4 border-nb-border bg-nb-surface">
-      <div className="flex items-center justify-between px-6 py-3">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3">
         <div className="flex items-center">
           <button
             className="md:hidden border-2 border-nb-border size-11 flex items-center justify-center mr-3 hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
@@ -46,7 +46,9 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
               <line x1="2" y1="14" x2="16" y2="14" />
             </svg>
           </button>
-          <h2 className="font-display text-2xl font-bold tracking-wider text-nb-text">{title}</h2>
+          <h2 className="font-display text-lg sm:text-2xl font-bold tracking-wider text-nb-text">
+            {title}
+          </h2>
         </div>
         <div className="flex items-center gap-3">
           {user && (

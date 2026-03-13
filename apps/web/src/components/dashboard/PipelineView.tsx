@@ -39,7 +39,7 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
           const hasFailed = stats.failed > 0;
 
           return (
-            <div key={stage} className="flex items-center flex-1 min-w-[80px]">
+            <div key={stage} className="flex items-center flex-1 min-w-[68px] sm:min-w-[80px]">
               <div className="flex-1 min-w-0 overflow-hidden">
                 <div
                   className="border-2 p-1.5 md:p-3 relative transition-colors"

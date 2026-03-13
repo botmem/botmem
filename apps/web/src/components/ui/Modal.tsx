@@ -32,7 +32,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         aria-label="Close dialog"
         tabIndex={-1}
       />
-      <div className="relative border-4 border-nb-border bg-nb-surface shadow-nb-lg p-6 w-full max-w-lg mx-4 animate-[slideUp_150ms_ease-out]">
+      <div className="relative border-4 border-nb-border bg-nb-surface shadow-nb-lg p-4 sm:p-6 w-full max-w-lg mx-2 sm:mx-4 animate-[slideUp_150ms_ease-out]">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display text-xl font-bold uppercase text-nb-text">{title}</h2>
           <button

@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { AuthedImage } from './AuthedImage';
 
-const SELF_COLOR = '#C4F53A';
+const SELF_COLOR = 'var(--color-nb-lime)';
 
 const SIZE_MAP = {
   xs: 'size-6',
