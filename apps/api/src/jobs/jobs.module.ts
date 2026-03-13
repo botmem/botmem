@@ -32,7 +32,6 @@ import { SettingsModule } from '../settings/settings.module';
     BullModule.registerQueue({ name: 'clean' }),
     BullModule.registerQueue({ name: 'embed' }),
     BullModule.registerQueue({ name: 'enrich' }),
-    BullModule.registerQueue({ name: 'backfill' }),
     BullModule.registerQueue({ name: 'maintenance' }),
     AccountsModule,
     forwardRef(() => AuthModule),

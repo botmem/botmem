@@ -14,10 +14,10 @@ const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
 ];
 
 const statusColors: Record<string, string> = {
-  connected: '#22C55E',
-  syncing: '#4ECDC4',
-  error: '#EF4444',
-  disconnected: '#F97316',
+  connected: 'var(--color-nb-green)',
+  syncing: 'var(--color-nb-blue)',
+  error: 'var(--color-nb-red)',
+  disconnected: 'var(--color-nb-orange)',
 };
 
 interface ConnectorAccountRowProps {

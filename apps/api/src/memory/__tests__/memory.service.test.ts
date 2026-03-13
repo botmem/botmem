@@ -102,35 +102,33 @@ describe('MemoryService', () => {
       getDek: vi.fn().mockResolvedValue(null),
     };
 
-    mockDb = {
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      orderBy: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      offset: vi.fn().mockReturnThis(),
-      leftJoin: vi.fn().mockReturnThis(),
-      innerJoin: vi.fn().mockReturnThis(),
-      groupBy: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      values: vi.fn().mockResolvedValue(undefined),
-      update: vi.fn().mockReturnThis(),
-      set: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      execute: vi.fn().mockResolvedValue({ rows: [] }),
-      transaction: vi
-        .fn()
-        .mockImplementation(
-          async (fn: (tx: Record<string, ReturnType<typeof vi.fn>>) => unknown) => {
-            const tx = {
-              delete: vi.fn().mockReturnThis(),
-              where: vi.fn().mockResolvedValue(undefined),
-            };
-            return fn(tx);
-          },
-        ),
-      then: vi.fn().mockImplementation((fn: (...args: unknown[]) => unknown) => fn([])),
-    } as Record<string, ReturnType<typeof vi.fn>>;
+    mockDb = {} as Record<string, ReturnType<typeof vi.fn>>;
+    const self = () => mockDb;
+    mockDb.select = vi.fn(self);
+    mockDb.from = vi.fn(self);
+    mockDb.where = vi.fn(self);
+    mockDb.orderBy = vi.fn(self);
+    mockDb.limit = vi.fn(self);
+    mockDb.offset = vi.fn(self);
+    mockDb.leftJoin = vi.fn(self);
+    mockDb.innerJoin = vi.fn(self);
+    mockDb.groupBy = vi.fn(self);
+    mockDb.insert = vi.fn(self);
+    mockDb.values = vi.fn().mockResolvedValue(undefined);
+    mockDb.update = vi.fn(self);
+    mockDb.set = vi.fn(self);
+    mockDb.delete = vi.fn(self);
+    mockDb.execute = vi.fn().mockResolvedValue({ rows: [] });
+    mockDb.transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: Record<string, ReturnType<typeof vi.fn>>) => unknown) => {
+        const tx = {
+          delete: vi.fn().mockReturnThis(),
+          where: vi.fn().mockResolvedValue(undefined),
+        };
+        return fn(tx);
+      });
+    mockDb.then = vi.fn().mockImplementation((fn: (...args: unknown[]) => unknown) => fn([]));
 
     service = new MemoryService(
       makeDbService(mockDb),
@@ -195,12 +193,17 @@ describe('MemoryService', () => {
       expect(result).toBeNull();
     });
 
-    it('returns decrypted memory', async () => {
-      mockDb.where.mockResolvedValueOnce([fakeMemoryRow]);
+    it('returns decrypted memory with people', async () => {
+      mockDb.where.mockResolvedValueOnce([fakeMemoryRow]); // memory row
+      mockDb.where.mockResolvedValueOnce([
+        { memoryId: 'mem-1', role: 'sender', personId: 'p-1', displayName: 'John' },
+      ]); // people
       const result = await service.getById('mem-1');
       expect(result).not.toBeNull();
       expect(result!.id).toBe('mem-1');
       expect(result!.text).toBe('Meeting with John about project');
+      expect(result!.people).toHaveLength(1);
+      expect(result!.people[0].displayName).toBe('John');
     });
 
     it('decrypts with user key for keyVersion >= 1', async () => {
@@ -224,12 +227,24 @@ describe('MemoryService', () => {
   });
 
   describe('list', () => {
-    it('returns items and total count', async () => {
-      // getUserAccountIds
-      mockDb.where.mockResolvedValueOnce([{ id: 'acc-1' }]);
-      // total count
-      mockDb.where.mockResolvedValueOnce([{ count: 1 }]);
-      // rows
+    it('returns items with people and total count', async () => {
+      // The mock chain calls where() multiple times:
+      // 1. getUserAccountIds (terminal)
+      // 2. total count (terminal)
+      // 3. rows query (chains to orderBy→limit→offset)
+      // 4. getPeopleForMemories (terminal)
+      // Use a call counter to return appropriate values
+      let whereCall = 0;
+      mockDb.where.mockImplementation(() => {
+        whereCall++;
+        if (whereCall === 1) return Promise.resolve([{ id: 'acc-1' }]);
+        if (whereCall === 2) return Promise.resolve([{ count: 1 }]);
+        if (whereCall === 4)
+          return Promise.resolve([
+            { memoryId: 'mem-1', role: 'sender', personId: 'p-1', displayName: 'Alice' },
+          ]);
+        return mockDb; // call 3: chain continues
+      });
       mockDb.offset.mockResolvedValueOnce([
         { memory: fakeMemoryRow, accountIdentifier: 'test@gmail.com' },
       ]);
@@ -237,6 +252,8 @@ describe('MemoryService', () => {
       const result = await service.list({ userId: 'user-1' });
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
+      expect(result.items[0].people).toHaveLength(1);
+      expect(result.items[0].people[0].displayName).toBe('Alice');
     });
 
     it('returns empty when user has no accounts', async () => {
@@ -345,6 +362,39 @@ describe('MemoryService', () => {
       mockDb.where.mockResolvedValueOnce([]);
       const result = await service.getUserAccountIds('user-1');
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('getPeopleForMemories', () => {
+    it('returns empty map for empty input', async () => {
+      const result = await service.getPeopleForMemories([]);
+      expect(result.size).toBe(0);
+    });
+
+    it('returns people grouped by memory ID', async () => {
+      mockDb.where.mockResolvedValueOnce([
+        { memoryId: 'mem-1', role: 'sender', personId: 'p-1', displayName: 'Alice' },
+        { memoryId: 'mem-1', role: 'recipient', personId: 'p-2', displayName: 'Bob' },
+        { memoryId: 'mem-2', role: 'sender', personId: 'p-1', displayName: 'Alice' },
+      ]);
+
+      const result = await service.getPeopleForMemories(['mem-1', 'mem-2']);
+      expect(result.get('mem-1')).toHaveLength(2);
+      expect(result.get('mem-2')).toHaveLength(1);
+      expect(result.get('mem-1')![0].displayName).toBe('Alice');
+      expect(result.get('mem-1')![1].displayName).toBe('Bob');
+    });
+
+    it('decrypts display names', async () => {
+      cryptoService.decrypt.mockImplementation((v: string) =>
+        v === 'encrypted-name' ? 'Decrypted Name' : v,
+      );
+      mockDb.where.mockResolvedValueOnce([
+        { memoryId: 'mem-1', role: 'sender', personId: 'p-1', displayName: 'encrypted-name' },
+      ]);
+
+      const result = await service.getPeopleForMemories(['mem-1']);
+      expect(result.get('mem-1')![0].displayName).toBe('Decrypted Name');
     });
   });
 

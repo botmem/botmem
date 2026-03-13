@@ -9,7 +9,7 @@ import { MemoryDetailCore } from './MemoryDetailCore';
 import { IDENTIFIER_COLORS } from '../contacts/constants';
 import type { ApiContact, ApiContactMemory } from '../../lib/api';
 
-const SELF_COLOR = '#C4F53A';
+const SELF_COLOR = 'var(--color-nb-lime)';
 
 interface NodeDetailPanelProps {
   selectedNode: GraphNode;
@@ -87,7 +87,10 @@ export function NodeDetailPanel({
                   <span
                     key={c}
                     className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase"
-                    style={{ backgroundColor: CONNECTOR_COLORS[c] || '#999', color: '#000' }}
+                    style={{
+                      backgroundColor: CONNECTOR_COLORS[c] || 'var(--color-nb-gray)',
+                      color: 'var(--color-nb-black)',
+                    }}
                   >
                     {c}
                   </span>

@@ -23,7 +23,7 @@
     "lint-staged": "^16.3.3",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.8.1",
-    "turbo": "^2.8.15",
+    "turbo": "^2.8.16",
     "typescript": "catalog:",
     "typescript-eslint": "^8.57.0",
     "vitest": "catalog:"
@@ -40,5 +40,6 @@
   "packageManager": "pnpm@9.15.0",
   "dependencies": {
     "dotenv": "^17.3.1"
-  }
+  },
+  "pnpm": {}
 }

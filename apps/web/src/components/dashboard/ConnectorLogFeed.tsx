@@ -6,18 +6,18 @@ import { Card } from '../ui/Card';
 
 const LEVELS = ['info', 'warn', 'error', 'debug'] as const;
 const LEVEL_COLORS: Record<string, string> = {
-  info: '#4ECDC4',
-  warn: '#FFE66D',
-  error: '#EF4444',
-  debug: '#9CA3AF',
+  info: 'var(--color-nb-blue)',
+  warn: 'var(--color-nb-yellow)',
+  error: 'var(--color-nb-red)',
+  debug: 'var(--color-nb-gray)',
 };
 
 const STAGES: PipelineStage[] = ['sync', 'embed', 'enrich', 'backfill'];
 const STAGE_COLORS: Record<string, string> = {
-  sync: '#4ECDC4',
-  embed: '#C4F53A',
-  enrich: '#A78BFA',
-  backfill: '#F59E0B',
+  sync: 'var(--color-nb-blue)',
+  embed: 'var(--color-nb-lime)',
+  enrich: 'var(--color-nb-purple)',
+  backfill: 'var(--color-nb-orange)',
 };
 const STAGE_ICONS: Record<string, string> = {
   sync: '\u2193',
@@ -34,7 +34,13 @@ interface ConnectorLogFeedProps {
   onLoadMore?: () => void;
 }
 
-export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMore }: ConnectorLogFeedProps) {
+export function ConnectorLogFeed({
+  logs,
+  onClear,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+}: ConnectorLogFeedProps) {
   const [levelFilter, setLevelFilter] = useState<Set<string>>(new Set(LEVELS));
   const [connectorFilter, setConnectorFilter] = useState<Set<string>>(new Set());
   const [stageFilter, setStageFilter] = useState<Set<string>>(new Set([...STAGES, '__none__']));
@@ -109,13 +115,17 @@ export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMo
       <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase flex items-center justify-between">
         <span>LIVE LOG FEED</span>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-xs text-nb-muted">{filtered.length}/{logs.length}</span>
+          <span className="font-mono text-xs text-nb-muted">
+            {filtered.length}/{logs.length}
+          </span>
           <button
             onClick={() => setAutoScroll(!autoScroll)}
             className="font-mono text-[10px] px-1.5 py-0.5 border border-nb-border/50 cursor-pointer transition-colors"
             style={{
-              backgroundColor: autoScroll ? '#4ECDC420' : 'transparent',
-              color: autoScroll ? '#4ECDC4' : '#666',
+              backgroundColor: autoScroll
+                ? 'color-mix(in srgb, var(--color-nb-blue) 12%, transparent)'
+                : 'transparent',
+              color: autoScroll ? 'var(--color-nb-blue)' : 'var(--color-nb-muted)',
             }}
           >
             AUTO
@@ -142,13 +152,15 @@ export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMo
             style={{
               borderColor: STAGE_COLORS[stage],
               backgroundColor: stageFilter.has(stage) ? STAGE_COLORS[stage] : 'transparent',
-              color: stageFilter.has(stage) ? '#000' : STAGE_COLORS[stage],
+              color: stageFilter.has(stage) ? 'var(--color-nb-black)' : STAGE_COLORS[stage],
               opacity: stageFilter.has(stage) ? 1 : 0.5,
             }}
           >
             <span>{STAGE_ICONS[stage]}</span>
             {stage}
-            {stageCounts[stage] ? <span className="ml-0.5 opacity-70">({stageCounts[stage]})</span> : null}
+            {stageCounts[stage] ? (
+              <span className="ml-0.5 opacity-70">({stageCounts[stage]})</span>
+            ) : null}
           </button>
         ))}
 
@@ -164,7 +176,7 @@ export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMo
             style={{
               borderColor: LEVEL_COLORS[level],
               backgroundColor: levelFilter.has(level) ? LEVEL_COLORS[level] : 'transparent',
-              color: levelFilter.has(level) ? '#000' : LEVEL_COLORS[level],
+              color: levelFilter.has(level) ? 'var(--color-nb-black)' : LEVEL_COLORS[level],
               opacity: levelFilter.has(level) ? 1 : 0.5,
             }}
           >
@@ -173,9 +185,7 @@ export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMo
         ))}
 
         {/* Separator */}
-        {connectors.length > 0 && (
-          <div className="w-px h-4 bg-nb-border mx-1" />
-        )}
+        {connectors.length > 0 && <div className="w-px h-4 bg-nb-border mx-1" />}
 
         {/* Connector toggles */}
         {connectors.map((conn) => (
@@ -184,11 +194,15 @@ export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMo
             onClick={() => toggleConnector(conn)}
             className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
             style={{
-              borderColor: CONNECTOR_COLORS[conn] || '#666',
-              backgroundColor: connectorFilter.size === 0 || connectorFilter.has(conn)
-                ? (CONNECTOR_COLORS[conn] || '#666')
-                : 'transparent',
-              color: connectorFilter.size === 0 || connectorFilter.has(conn) ? '#000' : (CONNECTOR_COLORS[conn] || '#666'),
+              borderColor: CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)',
+              backgroundColor:
+                connectorFilter.size === 0 || connectorFilter.has(conn)
+                  ? CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)'
+                  : 'transparent',
+              color:
+                connectorFilter.size === 0 || connectorFilter.has(conn)
+                  ? 'var(--color-nb-black)'
+                  : CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)',
               opacity: connectorFilter.size === 0 || connectorFilter.has(conn) ? 1 : 0.5,
             }}
           >
@@ -215,7 +229,12 @@ export function ConnectorLogFeed({ logs, onClear, hasMore, loadingMore, onLoadMo
             const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
             setAutoScroll(scrollTop < 10);
             // Load more when scrolled near bottom
-            if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !loadingMore && onLoadMore) {
+            if (
+              scrollHeight - scrollTop - clientHeight < 200 &&
+              hasMore &&
+              !loadingMore &&
+              onLoadMore
+            ) {
               onLoadMore();
             }
           }

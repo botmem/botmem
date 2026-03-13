@@ -17,6 +17,7 @@ import type { PluginRegistry } from '../../plugins/plugin-registry';
 import type { AnalyticsService } from '../../analytics/analytics.service';
 import type { ConfigService } from '../../config/config.service';
 import type { CryptoService } from '../../crypto/crypto.service';
+import type { UserKeyService } from '../../crypto/user-key.service';
 import type { TraceContext } from '../../tracing/trace.context';
 import type { Queue } from 'bullmq';
 
@@ -107,7 +108,16 @@ function createMockCrypto() {
   return {
     // decrypt returns null to signal "not encrypted", so processor uses raw payload
     decrypt: vi.fn().mockReturnValue(null),
+    encryptMemoryFieldsWithKey: vi
+      .fn()
+      .mockImplementation((fields: Record<string, string>) => fields),
   } as unknown as CryptoService;
+}
+
+function createMockUserKeyService() {
+  return {
+    getDek: vi.fn().mockResolvedValue(Buffer.alloc(32)),
+  } as unknown as UserKeyService;
 }
 
 function createMockTraceContext() {
@@ -168,8 +178,10 @@ function createChainableDbMock(rawEventPayload: string) {
       // 3rd select: accounts lookup for userId → returns account with userId
       // 4th select: memoryBanks default bank → empty
       // 5th select: settings selfContactId → empty
+      // 6th select: users.keyVersion lookup → returns keyVersion 1
       if (selectCallCount === 1) return buildChain([rawEvent]);
       if (selectCallCount === 3) return buildChain([{ userId: 'user-1' }]);
+      if (selectCallCount === 6) return buildChain([{ keyVersion: 1 }]);
       return buildChain([]);
     }),
     insert: vi.fn().mockImplementation(() => {
@@ -240,6 +252,7 @@ function createProcessor(
   const processor = new EmbedProcessor(
     dbService,
     createMockCrypto(),
+    createMockUserKeyService(),
     createMockAi(),
     createMockQdrant(),
     {

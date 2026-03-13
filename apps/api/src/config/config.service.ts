@@ -230,6 +230,16 @@ export class ConfigService implements OnModuleInit {
     return process.env.GMAIL_CLIENT_SECRET || '';
   }
 
+  // --- Telegram API (server-side creds for Firebase mode) ---
+
+  get telegramApiId(): string {
+    return process.env.TELEGRAM_API_ID || '';
+  }
+
+  get telegramApiHash(): string {
+    return process.env.TELEGRAM_API_HASH || '';
+  }
+
   // --- AI Backend ---
 
   get aiBackend(): 'ollama' | 'openrouter' {
@@ -345,15 +355,15 @@ export class ConfigService implements OnModuleInit {
   }
 
   /** Sensible concurrency defaults based on AI backend (local GPU vs cloud API) */
-  get aiConcurrency(): { embed: number; enrich: number; memory: number; backfill: number } {
+  get aiConcurrency(): { embed: number; enrich: number; memory: number } {
     // Embed concurrency follows embedBackend (cloud APIs can handle high concurrency)
     const embedConcurrency =
       this.embedBackend === 'gemini' || this.embedBackend === 'openrouter' ? 64 : 8;
 
     if (this.aiBackend === 'openrouter') {
-      return { embed: embedConcurrency, enrich: 1000, memory: 1000, backfill: 256 };
+      return { embed: embedConcurrency, enrich: 1000, memory: 1000 };
     }
     // Ollama: conservative — single GPU, one inference at a time is fastest
-    return { embed: embedConcurrency, enrich: 8, memory: 16, backfill: 2 };
+    return { embed: embedConcurrency, enrich: 8, memory: 16 };
   }
 }

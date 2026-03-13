@@ -1,17 +1,10 @@
 import { useState, useMemo } from 'react';
 import type { Job, JobStatus } from '@botmem/shared';
-import { CONNECTOR_COLORS } from '@botmem/shared';
+import { CONNECTOR_COLORS, STATUS_COLORS } from '@botmem/shared';
 import { JobRow } from './JobRow';
 import { Card } from '../ui/Card';
 
 const STATUSES: JobStatus[] = ['running', 'queued', 'done', 'failed', 'cancelled'];
-const STATUS_COLORS: Record<string, string> = {
-  running: '#C4F53A',
-  queued: '#FFE66D',
-  done: '#4ECDC4',
-  failed: '#EF4444',
-  cancelled: '#9CA3AF',
-};
 
 interface JobTableProps {
   jobs: Job[];
@@ -83,7 +76,7 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
               style={{
                 borderColor: STATUS_COLORS[status],
                 backgroundColor: statusFilter.has(status) ? STATUS_COLORS[status] : 'transparent',
-                color: statusFilter.has(status) ? '#000' : STATUS_COLORS[status],
+                color: statusFilter.has(status) ? 'var(--color-nb-black)' : STATUS_COLORS[status],
                 opacity: statusFilter.has(status) ? 1 : 0.5,
               }}
             >
@@ -103,10 +96,14 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
                 className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
                 style={{
                   borderColor: CONNECTOR_COLORS[conn] || '#666',
-                  backgroundColor: connectorFilter.size === 0 || connectorFilter.has(conn)
-                    ? (CONNECTOR_COLORS[conn] || '#666')
-                    : 'transparent',
-                  color: connectorFilter.size === 0 || connectorFilter.has(conn) ? '#000' : (CONNECTOR_COLORS[conn] || '#666'),
+                  backgroundColor:
+                    connectorFilter.size === 0 || connectorFilter.has(conn)
+                      ? CONNECTOR_COLORS[conn] || '#666'
+                      : 'transparent',
+                  color:
+                    connectorFilter.size === 0 || connectorFilter.has(conn)
+                      ? 'var(--color-nb-black)'
+                      : CONNECTOR_COLORS[conn] || '#666',
                   opacity: connectorFilter.size === 0 || connectorFilter.has(conn) ? 1 : 0.5,
                 }}
               >
