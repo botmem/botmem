@@ -4,18 +4,18 @@ import { AnimatedNumber } from '../ui/AnimatedNumber';
 const PIPELINE_STAGES = ['sync', 'clean', 'embed', 'enrich'] as const;
 
 const STAGE_META: Record<string, { color: string; icon: string; label: string }> = {
-  sync: { color: '#4ECDC4', icon: '\u2193', label: 'SYNC' },
-  clean: { color: '#FFE66D', icon: '\u2727', label: 'CLEAN' },
-  embed: { color: '#C4F53A', icon: '\u25C8', label: 'EMBED' },
-  enrich: { color: '#A78BFA', icon: '\u2726', label: 'ENRICH' },
+  sync: { color: 'var(--color-nb-blue)', icon: '\u2193', label: 'SYNC' },
+  clean: { color: 'var(--color-nb-yellow)', icon: '\u2727', label: 'CLEAN' },
+  embed: { color: 'var(--color-nb-lime)', icon: '\u25C8', label: 'EMBED' },
+  enrich: { color: 'var(--color-nb-purple)', icon: '\u2726', label: 'ENRICH' },
 };
 
 const ROW_DEFS = [
   { key: 'active' as const, label: 'active', color: null },
-  { key: 'waiting' as const, label: 'waiting', color: '#FFE66D' },
-  { key: 'delayed' as const, label: 'delayed', color: '#9CA3AF' },
-  { key: 'failed' as const, label: 'failed', color: '#EF4444' },
-  { key: 'completed' as const, label: 'done', color: '#6B7280' },
+  { key: 'waiting' as const, label: 'waiting', color: 'var(--color-nb-yellow)' },
+  { key: 'delayed' as const, label: 'delayed', color: 'var(--color-nb-gray)' },
+  { key: 'failed' as const, label: 'failed', color: 'var(--color-nb-red)' },
+  { key: 'completed' as const, label: 'done', color: 'var(--color-nb-gray)' },
 ];
 
 interface PipelineViewProps {
@@ -44,7 +44,11 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                 <div
                   className="border-2 p-1.5 md:p-3 relative transition-colors"
                   style={{
-                    borderColor: isActive ? meta.color : hasFailed ? '#EF4444' : '#3a3a3a',
+                    borderColor: isActive
+                      ? meta.color
+                      : hasFailed
+                        ? 'var(--color-nb-red)'
+                        : 'var(--color-nb-surface-muted)',
                     backgroundColor: isActive ? meta.color + '10' : 'transparent',
                   }}
                 >
@@ -61,7 +65,7 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                     </span>
                     <span
                       className="font-display text-[10px] md:text-xs font-bold uppercase tracking-wider"
-                      style={{ color: isActive ? meta.color : '#888' }}
+                      style={{ color: isActive ? meta.color : 'var(--color-nb-muted)' }}
                     >
                       {meta.label}
                     </span>
@@ -81,11 +85,18 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                             value={value}
                             duration={400}
                             className="font-mono text-[11px] font-bold"
-                            style={{ color: value > 0 ? rowColor : '#444' }}
+                            style={{
+                              color: value > 0 ? rowColor : 'var(--color-nb-surface-muted)',
+                            }}
                           />
                           <span
                             className="font-mono text-[10px]"
-                            style={{ color: value > 0 ? '#9CA3AF' : '#444' }}
+                            style={{
+                              color:
+                                value > 0
+                                  ? 'var(--color-nb-muted)'
+                                  : 'var(--color-nb-surface-muted)',
+                            }}
                           >
                             {row.label}
                           </span>

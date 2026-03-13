@@ -107,13 +107,27 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           sourceType: memories.sourceType,
           entities: memories.entities,
           factuality: memories.factuality,
+          keyVersion: memories.keyVersion,
         })
         .from(memories)
         .where(eq(memories.id, memoryId));
 
-    const [mem] = ownerUserId
+    const [rawMem] = ownerUserId
       ? await this.dbService.withUserId(ownerUserId, readMemory)
       : await readMemory(this.dbService.db);
+
+    // Decrypt text for hooks and search token computation
+    let mem = rawMem;
+    if (rawMem && (rawMem.keyVersion ?? 0) >= 1 && ownerUserId) {
+      const userKey = await this.userKeyService.getDek(ownerUserId);
+      if (userKey) {
+        mem = {
+          ...rawMem,
+          text: this.crypto.decryptWithKey(rawMem.text, userKey) ?? rawMem.text,
+          entities: this.crypto.decryptWithKey(rawMem.entities, userKey) ?? rawMem.entities,
+        };
+      }
+    }
 
     // Fire afterEnrich hook (fire-and-forget)
     this.pluginRegistry
@@ -191,6 +205,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           claims: memories.claims,
           metadata: memories.metadata,
           accountId: memories.accountId,
+          keyVersion: memories.keyVersion,
         })
         .from(memories)
         .where(eq(memories.id, memoryId));
@@ -234,10 +249,19 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       .where(eq(users.id, ownerUserId));
     const keyVersion = user?.keyVersion ?? 1;
 
-    const enc = this.crypto.encryptMemoryFieldsWithKey(
-      { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
-      userKey,
-    );
+    // Decrypt fields that may already be encrypted from embed time (text, metadata)
+    // before re-encrypting all fields together. Entities and claims are written plaintext
+    // by the enrich service, so they won't be encrypted yet.
+    const kv = mem.keyVersion ?? 0;
+    const plainFields =
+      kv >= 1
+        ? this.crypto.decryptMemoryFieldsWithKey(
+            { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
+            userKey,
+          )
+        : { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata };
+
+    const enc = this.crypto.encryptMemoryFieldsWithKey(plainFields, userKey);
     await this.dbService.withUserId(ownerUserId, (db) =>
       db
         .update(memories)

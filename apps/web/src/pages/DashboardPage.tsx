@@ -96,10 +96,12 @@ export function DashboardPage() {
 
   // Load graph once when stats become available (initial mount)
   const initialGraphLoaded = useRef(false);
-  if (memoryStats != null && !initialGraphLoaded.current) {
-    initialGraphLoaded.current = true;
-    loadGraph();
-  }
+  useEffect(() => {
+    if (memoryStats != null && !initialGraphLoaded.current) {
+      initialGraphLoaded.current = true;
+      loadGraph();
+    }
+  }, [memoryStats, loadGraph]);
 
   // Reload graph when the user switches memory banks (event-driven via Zustand subscribe)
   useEffect(() => {
@@ -162,7 +164,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="mt-4" style={{ minHeight: '35rem' }}>
+      <div className="mt-4 min-h-[20rem] sm:min-h-[35rem]">
         {activeTab === 'overview' && (
           <>
             {/* Graph FIRST */}

@@ -3,7 +3,7 @@ import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { IDENTIFIER_COLORS } from './constants';
 
-const SELF_COLOR = '#C4F53A';
+const SELF_COLOR = 'var(--color-nb-lime)';
 
 interface ContactCardProps {
   contact: {
@@ -64,10 +64,10 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
                 <div
                   key={src}
                   className="size-4 border border-nb-border flex items-center justify-center"
-                  style={{ backgroundColor: CONNECTOR_COLORS[src] || '#999' }}
+                  style={{ backgroundColor: CONNECTOR_COLORS[src] || 'var(--color-nb-gray)' }}
                   title={src}
                 >
-                  <span className="text-[8px] font-bold text-black">{src[0].toUpperCase()}</span>
+                  <span className="text-[8px] font-bold text-nb-black">{src[0].toUpperCase()}</span>
                 </div>
               ))}
             </div>

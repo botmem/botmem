@@ -31,7 +31,9 @@ interface MemoryCardProps {
 }
 
 export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardProps) {
-  const { pinMemory, unpinMemory, recordRecall } = useMemoryStore();
+  const pinMemory = useMemoryStore((s) => s.pinMemory);
+  const unpinMemory = useMemoryStore((s) => s.unpinMemory);
+  const recordRecall = useMemoryStore((s) => s.recordRecall);
 
   const handlePinClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -106,15 +108,27 @@ export function MemoryCard({ memory, onClick, selected, topResult }: MemoryCardP
 
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs text-nb-muted">{formatRelative(memory.time)}</span>
-        <div className="flex items-center gap-1">
-          <span className="font-mono text-xs text-nb-muted uppercase">IMP:</span>
-          <div className="w-16 h-2.5 border-2 border-nb-border bg-nb-surface-muted">
-            <div
-              className="h-full bg-nb-purple"
-              style={{ width: `${memory.weights.importance * 100}%` }}
-            />
+        {memory.weights.final ? (
+          <div className="flex items-center gap-1">
+            <span className="font-mono text-xs uppercase text-nb-lime">FINAL:</span>
+            <div className="w-16 h-2.5 border-2 border-nb-border bg-nb-surface-muted">
+              <div
+                className="h-full bg-nb-lime"
+                style={{ width: `${memory.weights.final * 100}%` }}
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span className="font-mono text-xs text-nb-muted uppercase">IMP:</span>
+            <div className="w-16 h-2.5 border-2 border-nb-border bg-nb-surface-muted">
+              <div
+                className="h-full bg-nb-purple"
+                style={{ width: `${memory.weights.importance * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   );

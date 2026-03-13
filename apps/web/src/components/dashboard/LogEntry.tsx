@@ -3,10 +3,10 @@ import { formatTime, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 
 const levelColors: Record<string, string> = {
-  info: '#4ECDC4',
-  warn: '#FFE66D',
-  error: '#EF4444',
-  debug: '#9CA3AF',
+  info: 'var(--color-nb-blue)',
+  warn: 'var(--color-nb-yellow)',
+  error: 'var(--color-nb-red)',
+  debug: 'var(--color-nb-gray)',
 };
 
 export function LogEntryRow({ entry }: { entry: LogEntryType }) {

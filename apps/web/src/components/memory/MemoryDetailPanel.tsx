@@ -66,6 +66,7 @@ export function MemoryDetailPanel({ memory, onClose }: MemoryDetailPanelProps) {
         entities={memory.entities}
         claims={memory.claims}
         metadata={memory.metadata}
+        people={memory.people}
         showTimestamps
         showClaims
         onThumbnailClick={setLightboxSrc}

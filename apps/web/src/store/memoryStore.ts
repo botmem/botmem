@@ -48,6 +48,7 @@ interface MemoryState {
   resolvedEntities: ResolvedEntities | null;
   parsed: ParsedQuery | null;
   memoryStats: ApiMemoryStats | null;
+  error: string | null;
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   getFiltered: () => Memory[];
@@ -72,6 +73,15 @@ interface MemoryState {
   reset: () => void;
 }
 
+function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string') return (value as T) || fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 function apiMemoryToShared(raw: ApiMemoryItem): Memory {
   return {
     id: raw.id,
@@ -81,25 +91,24 @@ function apiMemoryToShared(raw: ApiMemoryItem): Memory {
     text: raw.text || '',
     time: raw.eventTime || raw.createdAt || '',
     ingestTime: raw.ingestTime || raw.createdAt || '',
-    factuality:
-      typeof raw.factuality === 'string'
-        ? JSON.parse(raw.factuality)
-        : raw.factuality || { label: 'UNVERIFIED', confidence: 0.5, rationale: '' },
-    weights:
-      typeof raw.weights === 'string'
-        ? JSON.parse(raw.weights)
-        : raw.weights || {
-            semantic: 0,
-            rerank: 0,
-            recency: 0,
-            importance: 0.5,
-            trust: 0.5,
-            final: raw.score || 0,
-          },
-    entities: typeof raw.entities === 'string' ? JSON.parse(raw.entities) : raw.entities || [],
-    claims: typeof raw.claims === 'string' ? JSON.parse(raw.claims) : raw.claims || [],
-    metadata: typeof raw.metadata === 'string' ? JSON.parse(raw.metadata) : raw.metadata || {},
+    factuality: safeJsonParse(raw.factuality, {
+      label: 'UNVERIFIED' as const,
+      confidence: 0.5,
+      rationale: '',
+    }),
+    weights: safeJsonParse(raw.weights, {
+      semantic: 0,
+      rerank: 0,
+      recency: 0,
+      importance: 0.5,
+      trust: 0.5,
+      final: raw.score || 0,
+    }),
+    entities: safeJsonParse(raw.entities, []),
+    claims: safeJsonParse(raw.claims, []),
+    metadata: safeJsonParse(raw.metadata, {}),
     pinned: raw.pinned === 1 || raw.pinned === true,
+    people: raw.people || [],
   };
 }
 
@@ -162,6 +171,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   resolvedEntities: null,
   parsed: null,
   memoryStats: null,
+  error: null,
 
   setQuery: (query) => {
     set({ query });
@@ -203,7 +213,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   loadMemories: async () => {
-    set({ loading: true });
+    set({ loading: true, error: null });
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
       const sourceType = get().filters.source || undefined;
@@ -225,7 +235,17 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       });
     } catch (err) {
       console.error('Failed to load memories:', err);
-      set({ loading: false, searchFallback: false, resolvedEntities: null, parsed: null });
+      const message = err instanceof Error ? err.message : 'Failed to load memories';
+      set({
+        memories: [],
+        loading: false,
+        hasMore: false,
+        totalMemories: 0,
+        searchFallback: false,
+        resolvedEntities: null,
+        parsed: null,
+        error: message,
+      });
     }
   },
 
@@ -257,7 +277,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   searchMemories: async (query: string) => {
-    set({ loading: true, searchFallback: false, resolvedEntities: null, parsed: null });
+    set({
+      loading: true,
+      error: null,
+      searchFallback: false,
+      resolvedEntities: null,
+      parsed: null,
+    });
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
       const result = await api.searchMemories(query, undefined, undefined, bankId || undefined);
@@ -276,7 +302,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       });
     } catch (err) {
       console.error('Failed to search memories:', err);
-      set({ loading: false });
+      const message = err instanceof Error ? err.message : 'Search failed';
+      set({ loading: false, error: message });
     }
   },
 
@@ -615,6 +642,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       resolvedEntities: null,
       parsed: null,
       memoryStats: null,
+      error: null,
     });
   },
 }));

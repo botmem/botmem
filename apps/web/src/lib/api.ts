@@ -59,6 +59,7 @@ export interface ApiMemoryItem {
   metadata?: string | Record<string, unknown>;
   pinned?: boolean | number;
   score?: number;
+  people?: Array<{ role: string; personId: string; displayName: string }>;
   [key: string]: unknown;
 }
 
@@ -151,6 +152,8 @@ export interface ApiMemoryStats {
 
 // --- Request helper ---
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const state = useAuthStore.getState();
   const headers: Record<string, string> = {
@@ -162,11 +165,32 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${state.accessToken}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  // Merge caller's signal if provided
+  if (options?.signal) {
+    options.signal.addEventListener('abort', () => controller.abort());
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Request timeout: ${path} did not respond within ${REQUEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (res.status === 401) {
     // refreshSession() has a built-in mutex — safe to call from multiple places
@@ -557,12 +581,17 @@ export function createWsConnection(): WebSocket {
  * Wait for auth confirmation before subscribing.
  * Resolves when the server responds with `{ event: 'auth', data: { ok: true } }`.
  */
-export function waitForAuth(ws: WebSocket): Promise<void> {
+export function waitForAuth(ws: WebSocket, timeoutMs = 10_000): Promise<void> {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeEventListener('message', handler);
+      reject(new Error('WebSocket auth timed out'));
+    }, timeoutMs);
     const handler = (ev: MessageEvent) => {
       try {
         const msg = JSON.parse(ev.data);
         if (msg.event === 'auth') {
+          clearTimeout(timer);
           ws.removeEventListener('message', handler);
           if (msg.data?.ok) {
             resolve();

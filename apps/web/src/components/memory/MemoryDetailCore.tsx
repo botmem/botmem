@@ -47,20 +47,34 @@ function ContextRow({
   bold?: boolean;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <span className="text-nb-muted uppercase">{label}: </span>
-      <span className={cn('text-nb-text', isBold && 'font-bold')}>{value}</span>
+      <span className={cn('text-nb-text break-all', isBold && 'font-bold')}>{value}</span>
     </div>
   );
 }
 
-function MemoryContext({ metadata }: { metadata: MemoryMetadata }) {
+function MemoryContext({
+  metadata,
+  people,
+}: {
+  metadata: MemoryMetadata;
+  people?: MemoryPerson[];
+}) {
   const rows: { label: string; value: string; bold?: boolean }[] = [];
 
+  // Resolve names from linked people when metadata is missing them
+  const senderPerson = people?.find((p) => p.role === 'sender');
+  const recipientPerson =
+    people?.find((p) => p.role === 'recipient') ||
+    people?.find((p) => p.role === 'participant' && p.personId !== senderPerson?.personId);
+  const resolvedSenderName = metadata.senderName || senderPerson?.displayName || '';
+  const resolvedRecipientName = metadata.chatName || recipientPerson?.displayName || '';
+
   // WhatsApp / message sender + recipient
-  if (metadata.senderName || metadata.senderPhone) {
-    const name = metadata.senderName || metadata.senderPhone;
-    const suffix = metadata.senderName && metadata.senderPhone ? ` (${metadata.senderPhone})` : '';
+  if (resolvedSenderName || metadata.senderPhone) {
+    const name = resolvedSenderName || metadata.senderPhone;
+    const suffix = resolvedSenderName && metadata.senderPhone ? ` (${metadata.senderPhone})` : '';
     const you = metadata.fromMe === true ? ' (you)' : '';
     rows.push({ label: 'From', value: `${name}${suffix}${you}`, bold: true });
 
@@ -69,9 +83,9 @@ function MemoryContext({ metadata }: { metadata: MemoryMetadata }) {
       const chatPhone = metadata.chatId.replace(/@.*$/, '');
       if (metadata.fromMe) {
         // Sent by you → recipient is the chat contact
-        const recipientName = metadata.chatName || chatPhone;
+        const recipientName = resolvedRecipientName || chatPhone;
         const recipientSuffix =
-          metadata.chatName && chatPhone !== metadata.chatName ? ` (${chatPhone})` : '';
+          resolvedRecipientName && chatPhone !== resolvedRecipientName ? ` (${chatPhone})` : '';
         rows.push({ label: 'To', value: `${recipientName}${recipientSuffix}` });
       } else {
         // Received → you are the recipient
@@ -137,6 +151,12 @@ function MemoryContext({ metadata }: { metadata: MemoryMetadata }) {
   );
 }
 
+interface MemoryPerson {
+  role: string;
+  personId: string;
+  displayName: string;
+}
+
 interface MemoryDetailCoreProps {
   id: string;
   source: string;
@@ -148,6 +168,7 @@ interface MemoryDetailCoreProps {
   entities?: Array<{ type: string; value: string }> | string[];
   claims?: Array<{ id: string; type: string; text: string }>;
   metadata?: MemoryMetadata;
+  people?: MemoryPerson[];
   importance?: number;
   connectionCount?: number;
   compact?: boolean;
@@ -167,6 +188,7 @@ export function MemoryDetailCore({
   entities,
   claims,
   metadata,
+  people,
   importance,
   connectionCount,
   compact,
@@ -176,7 +198,10 @@ export function MemoryDetailCore({
 }: MemoryDetailCoreProps) {
   const filteredWeights = weights
     ? Object.entries(weights).filter(
-        ([key, val]) => !(key === 'semantic' && val === 0) && !(key === 'rerank' && val === 0),
+        ([key, val]) =>
+          !(key === 'semantic' && val === 0) &&
+          !(key === 'rerank' && val === 0) &&
+          !(key === 'final' && val === 0),
       )
     : [];
 
@@ -190,8 +215,8 @@ export function MemoryDetailCore({
         <span
           className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase"
           style={{
-            backgroundColor: CONNECTOR_COLORS[sourceConnector || source] || '#999',
-            color: '#000',
+            backgroundColor: CONNECTOR_COLORS[sourceConnector || source] || 'var(--color-nb-gray)',
+            color: 'var(--color-nb-black)',
           }}
         >
           {sourceConnector || source}
@@ -204,7 +229,7 @@ export function MemoryDetailCore({
       </div>
 
       {/* Context metadata */}
-      {metadata && <MemoryContext metadata={metadata} />}
+      {metadata && <MemoryContext metadata={metadata} people={people} />}
 
       {/* Thumbnail */}
       {hasThumbnail(source, metadata) && (
@@ -321,7 +346,8 @@ export function MemoryDetailCore({
                     className="h-full transition-all"
                     style={{
                       width: `${(typeof val === 'number' ? val : 0) * 100}%`,
-                      backgroundColor: key === 'final' ? '#C4F53A' : '#A855F7',
+                      backgroundColor:
+                        key === 'final' ? 'var(--color-nb-lime)' : 'var(--color-nb-purple)',
                     }}
                   />
                 </div>
@@ -353,7 +379,7 @@ export function MemoryDetailCore({
                 );
               }
               return (
-                <Badge key={`${e.type}:${e.value}`} color="#4ECDC4">
+                <Badge key={`${e.type}:${e.value}`} color="var(--color-nb-blue)">
                   {e.type}: {e.value}
                 </Badge>
               );

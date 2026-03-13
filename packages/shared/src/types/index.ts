@@ -1,13 +1,14 @@
 export type BuiltinConnectorType =
   | 'gmail'
   | 'whatsapp'
+  | 'telegram'
   | 'slack'
   | 'imessage'
   | 'photos'
   | 'locations';
 export type ConnectorType = BuiltinConnectorType | (string & {});
 
-export type AuthType = 'oauth2' | 'qr-code' | 'api-key' | 'local-tool';
+export type AuthType = 'oauth2' | 'qr-code' | 'phone-code' | 'api-key' | 'local-tool';
 
 export type SyncSchedule = 'hourly' | 'every-6h' | 'daily' | 'manual';
 
@@ -112,6 +113,7 @@ export interface Memory {
   claims: Array<{ id: string; text: string; type: string }>;
   metadata: Record<string, unknown>;
   pinned?: boolean;
+  people?: Array<{ role: string; personId: string; displayName: string }>;
 }
 
 export interface GraphNode {

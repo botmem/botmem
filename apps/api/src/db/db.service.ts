@@ -1,8 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Optional } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { resolve } from 'path';
 import { ConfigService } from '../config/config.service';
 import * as schema from './schema';
 import { RlsContext } from './rls.context';
@@ -190,9 +188,6 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.db = drizzle(this.pool, { schema });
-
-    await migrate(this.db, { migrationsFolder: resolve(__dirname, 'migrations') });
-    this.logger.log('Migrations applied');
 
     await this.validateSchema();
     await this.createRlsPolicies();

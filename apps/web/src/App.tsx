@@ -38,7 +38,9 @@ const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
 const MePage = lazy(() => import('./pages/MePage').then((m) => ({ default: m.MePage })));
-import { LandingPage } from './pages/LandingPage';
+const LandingPage = lazy(() =>
+  import('./pages/LandingPage').then((m) => ({ default: m.LandingPage })),
+);
 const PricingPage = lazy(() =>
   import('./pages/PricingPage').then((m) => ({ default: m.PricingPage })),
 );

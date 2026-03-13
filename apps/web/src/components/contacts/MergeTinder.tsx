@@ -150,7 +150,7 @@ export function MergeTinder({
         onClick={() => setIsOpen(true)}
         className="w-full mb-4 border-3 border-nb-border bg-nb-surface shadow-nb px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-nb-lime transition-colors"
       >
-        <Badge color="#FFE66D" className="text-sm px-2 py-0.5">
+        <Badge color="var(--color-nb-yellow)" className="text-sm px-2 py-0.5">
           {suggestions.length}
         </Badge>
         <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
@@ -185,7 +185,7 @@ export function MergeTinder({
       <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span>Merge Review</span>
-          <Badge color="#FFE66D" className="text-[10px] py-0">
+          <Badge color="var(--color-nb-yellow)" className="text-[10px] py-0">
             {suggestions.length}
           </Badge>
         </div>
@@ -217,10 +217,7 @@ export function MergeTinder({
           className="absolute inset-y-0 right-0 w-16 flex items-center justify-center pointer-events-none transition-opacity duration-100"
           style={{ opacity: swipeDir === 'right' ? 1 : 0 }}
         >
-          <div
-            className="border-2 border-nb-lime rounded-full size-12 flex items-center justify-center"
-            style={{ backgroundColor: 'rgba(196, 245, 58, 0.2)' }}
-          >
+          <div className="border-2 border-nb-lime rounded-full size-12 flex items-center justify-center bg-nb-lime/20">
             <span className="font-display text-lg font-bold text-nb-lime">{'\u2713'}</span>
           </div>
         </div>

@@ -136,6 +136,18 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     state.channels.delete(data.channel);
   }
 
+  @SubscribeMessage('auth:code')
+  handlePhoneCode(_client: WebSocket, data: { wsChannel: string; code: string }) {
+    if (!data?.wsChannel || !data?.code) return;
+    this.events.emit('phone-auth:code', { wsChannel: data.wsChannel, code: data.code });
+  }
+
+  @SubscribeMessage('auth:2fa')
+  handle2fa(_client: WebSocket, data: { wsChannel: string; password: string }) {
+    if (!data?.wsChannel || !data?.password) return;
+    this.events.emit('phone-auth:2fa', { wsChannel: data.wsChannel, password: data.password });
+  }
+
   /**
    * Verify the user owns the resource referenced by the channel name.
    * Channel patterns:

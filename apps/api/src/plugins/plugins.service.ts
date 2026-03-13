@@ -31,6 +31,7 @@ export class PluginsService {
     await this.loadBuiltin('@botmem/connector-gmail');
     await this.loadBuiltin('@botmem/connector-slack');
     await this.loadBuiltin('@botmem/connector-whatsapp');
+    await this.loadBuiltin('@botmem/connector-telegram');
     await this.loadBuiltin('@botmem/connector-imessage');
     await this.loadBuiltin('@botmem/connector-locations');
 

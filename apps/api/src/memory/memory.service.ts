@@ -114,6 +114,7 @@ export interface SearchResult {
     trust: number;
     final: number;
   };
+  people?: { role: string; personId: string; displayName: string }[];
 }
 
 export interface ResolvedEntities {
@@ -231,6 +232,37 @@ export class MemoryService {
   /** @deprecated Use needsRecoveryKey instead */
   async needsRelogin(userId?: string): Promise<boolean> {
     return this.needsRecoveryKey(userId);
+  }
+
+  /**
+   * Fetch linked people for a batch of memory IDs.
+   * Returns a map: memoryId → [{ role, personId, displayName }]
+   */
+  async getPeopleForMemories(
+    memoryIds: string[],
+  ): Promise<Map<string, { role: string; personId: string; displayName: string }[]>> {
+    if (!memoryIds.length) return new Map();
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({
+          memoryId: memoryPeople.memoryId,
+          role: memoryPeople.role,
+          personId: memoryPeople.personId,
+          displayName: people.displayName,
+        })
+        .from(memoryPeople)
+        .innerJoin(people, eq(memoryPeople.personId, people.id))
+        .where(inArray(memoryPeople.memoryId, memoryIds)),
+    );
+    const map = new Map<string, { role: string; personId: string; displayName: string }[]>();
+    for (const r of rows) {
+      const decrypted = this.crypto.decrypt(r.displayName) ?? r.displayName;
+      const entry = { role: r.role, personId: r.personId, displayName: decrypted };
+      const existing = map.get(r.memoryId);
+      if (existing) existing.push(entry);
+      else map.set(r.memoryId, [entry]);
+    }
+    return map;
   }
 
   /** Invalidate contacts cache (call after contact writes) */
@@ -936,7 +968,9 @@ export class MemoryService {
     );
     if (!rows.length) return null;
     const resolvedKey = await this.resolveUserKey(userId);
-    return this.decryptMemoryAuto(rows[0], userId, resolvedKey);
+    const mem = this.decryptMemoryAuto(rows[0], userId, resolvedKey);
+    const peopleMap = await this.getPeopleForMemories([id]);
+    return { ...mem, people: peopleMap.get(id) || [] };
   }
 
   async list(
@@ -996,11 +1030,14 @@ export class MemoryService {
         .offset(offset),
     );
     const listKey = await this.resolveUserKey(params.userId);
+    const memoryIds = rows.map((r) => r.memory.id);
+    const peopleMap = await this.getPeopleForMemories(memoryIds);
     const items = rows.map((r) => ({
       ...this.decryptMemoryAuto(r.memory, params.userId, listKey),
       accountIdentifier: r.accountIdentifier
         ? (this.crypto.decrypt(r.accountIdentifier) ?? r.accountIdentifier)
         : null,
+      people: peopleMap.get(r.memory.id) || [],
     }));
 
     return { items, total };

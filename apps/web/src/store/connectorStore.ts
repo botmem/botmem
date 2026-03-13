@@ -12,6 +12,7 @@ interface ConnectorState {
   accounts: ConnectorAccount[];
   manifests: ConnectorManifest[];
   loading: boolean;
+  error: string | null;
   fetchManifests: () => Promise<void>;
   fetchAccounts: () => Promise<void>;
   addAccount: (type: ConnectorType, identifier: string) => Promise<void>;
@@ -20,13 +21,16 @@ interface ConnectorState {
   syncNow: (id: string, memoryBankId?: string) => Promise<void>;
   syncAll: (memoryBankId?: string) => Promise<void>;
   syncingAll: boolean;
+  clearError: () => void;
 }
 
 export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   accounts: [],
   manifests: [],
   loading: false,
+  error: null,
   syncingAll: false,
+  clearError: () => set({ error: null }),
 
   fetchManifests: async () => {
     set({ loading: true });
@@ -102,12 +106,15 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
     const account = _get().accounts.find((a) => a.id === id);
     trackEvent('sync_triggered', { connector_type: account?.type });
     set((state) => ({
+      error: null,
       accounts: state.accounts.map((a) => (a.id === id ? { ...a, status: 'syncing' as const } : a)),
     }));
     try {
       await api.triggerSync(id, memoryBankId);
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sync failed';
       set((state) => ({
+        error: `Sync failed for ${account?.identifier || id}: ${message}`,
         accounts: state.accounts.map((a) =>
           a.id === id ? { ...a, status: 'connected' as const } : a,
         ),
