@@ -2,9 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PipelineContext } from '@botmem/connector-sdk';
 import { WhatsAppConnector } from '../index.js';
 import type { QrAuthCallbacks } from '../qr-auth.js';
+import { startQrAuth } from '../qr-auth.js';
+
+// Store reference so tests can invoke callbacks manually
+let capturedCallbacks: QrAuthCallbacks | null = null;
 
 vi.mock('../qr-auth.js', () => ({
   startQrAuth: vi.fn((_dir: string, callbacks: QrAuthCallbacks) => {
+    capturedCallbacks = callbacks;
     callbacks.onQrCode('data:image/png;base64,qrcode');
     return Promise.resolve();
   }),
@@ -283,6 +288,165 @@ describe('WhatsAppConnector', () => {
   describe('revokeAuth (no session)', () => {
     it('returns early when no sessionDir', async () => {
       await expect(connector.revokeAuth({})).resolves.toBeUndefined();
+    });
+  });
+
+  describe('completeAuth path traversal', () => {
+    it('throws on session dir outside data directory', async () => {
+      await expect(connector.completeAuth({ sessionDir: '/etc/passwd', jid: 'x' })).rejects.toThrow(
+        'Invalid session directory',
+      );
+    });
+
+    it('accepts completeAuth with no sessionDir', async () => {
+      const auth = await connector.completeAuth({ jid: 'x' });
+      expect(auth.raw?.sessionDir).toBeUndefined();
+    });
+  });
+
+  describe('revokeAuth path traversal', () => {
+    it('throws on session dir outside data directory', async () => {
+      await expect(connector.revokeAuth({ raw: { sessionDir: '/tmp/evil' } })).rejects.toThrow(
+        'Invalid session directory',
+      );
+    });
+  });
+
+  describe('initiateTunnelAuth', () => {
+    it('calls startQrAuth with relay URL and forwards callbacks', async () => {
+      const onQrCode = vi.fn();
+      const onConnected = vi.fn();
+      const onError = vi.fn();
+
+      await connector.initiateTunnelAuth('wss://relay.example.com', null, {
+        onQrCode,
+        onConnected,
+        onError,
+      });
+
+      expect(startQrAuth).toHaveBeenCalledWith(
+        expect.stringContaining('wa-tunnel-'),
+        expect.any(Object),
+        { waWebSocketUrl: 'wss://relay.example.com' },
+      );
+      // onQrCode is forwarded directly
+      expect(onQrCode).toHaveBeenCalledWith('data:image/png;base64,qrcode');
+    });
+  });
+
+  describe('onConnected callback', () => {
+    it('emits connected event and stores auth socket', async () => {
+      const connectedListener = vi.fn();
+      connector.on('connected', connectedListener);
+
+      // Trigger onConnected from the captured callbacks
+      if (capturedCallbacks) {
+        const fakeSock = { ev: { buffer: vi.fn() }, ws: { close: vi.fn() } };
+        capturedCallbacks.onConnected({ raw: { jid: 'test@s.whatsapp.net' } }, fakeSock as any);
+
+        expect(connectedListener).toHaveBeenCalledWith(
+          expect.objectContaining({
+            auth: expect.objectContaining({ raw: { jid: 'test@s.whatsapp.net' } }),
+          }),
+        );
+      }
+    });
+  });
+
+  describe('onError callback', () => {
+    it('sets error status and retries warming', async () => {
+      vi.useFakeTimers();
+
+      // Trigger onError from the captured callbacks
+      if (capturedCallbacks) {
+        capturedCallbacks.onError(new Error('Connection lost'));
+      }
+
+      const status = connector.getStatus();
+      expect(status.status).toBe('error');
+      expect(status.message).toBe('Connection lost');
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('embed edge cases', () => {
+    it('uses groupJid from metadata when no chatId', () => {
+      const event = {
+        sourceType: 'message' as const,
+        sourceId: 'wa1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Hi',
+          participants: [],
+          metadata: { isGroup: true, groupJid: '999@g.us', name: 'Work' },
+        },
+      };
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
+      const group = result.entities.find((e) => e.type === 'group');
+      expect(group).toBeDefined();
+      expect(group!.id).toContain('whatsapp_group_jid:999');
+      expect(group!.id).toContain('name:Work');
+    });
+
+    it('skips sender name "Me" (capitalized)', () => {
+      const event = {
+        sourceType: 'message' as const,
+        sourceId: 'wa1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Hi',
+          participants: [],
+          metadata: { senderPhone: '555', senderName: 'Me' },
+        },
+      };
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
+      expect(result.entities[0].id).toBe('phone:555');
+    });
+
+    it('handles missing content gracefully', () => {
+      const event = {
+        sourceType: 'message' as const,
+        sourceId: 'wa1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: undefined as any,
+      };
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
+      expect(result.entities).toEqual([]);
+    });
+
+    it('skips mentions with no phone', () => {
+      const event = {
+        sourceType: 'message' as const,
+        sourceId: 'wa1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Hi',
+          participants: [],
+          metadata: { mentions: [{ phone: '', name: 'Nobody' }] },
+        },
+      };
+      const result = connector.embed(event, 'Hi', {} as unknown as PipelineContext);
+      expect(result.entities.filter((e) => e.role === 'mentioned')).toHaveLength(0);
+    });
+
+    it('handles shared contact with no name', () => {
+      const event = {
+        sourceType: 'message' as const,
+        sourceId: 'wa1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Card',
+          participants: [],
+          metadata: { sharedContacts: [{ name: '', phones: ['111'] }] },
+        },
+      };
+      const result = connector.embed(event, 'Card', {} as unknown as PipelineContext);
+      expect(result.entities).toContainEqual({
+        type: 'person',
+        id: 'phone:111',
+        role: 'mentioned',
+      });
     });
   });
 });
