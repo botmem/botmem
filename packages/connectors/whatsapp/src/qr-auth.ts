@@ -1,19 +1,23 @@
 import {
   makeWASocket,
-  useMultiFileAuthState,
   makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  type proto,
+  proto,
 } from '@whiskeysockets/baileys';
-import type { BaileysEventMap } from '@whiskeysockets/baileys';
+
 import type { Boom } from '@hapi/boom';
 import * as QRCode from 'qrcode';
 import pino from 'pino';
 import { mkdirSync } from 'fs';
+import { promisify } from 'util';
+import { inflate } from 'zlib';
 import type { AuthContext } from '@botmem/connector-sdk';
+import { useAtomicMultiFileAuthState } from './atomic-auth-state.js';
 
-const logger = pino({ level: 'warn' }) as pino.Logger;
+const inflatePromise = promisify(inflate);
+
+const logger = pino({ level: 'silent' }) as pino.Logger;
 
 /** Message store for decrypt retry — shared with sync.ts via module scope */
 const authMessageStore = new Map<string, proto.IMessage>();
@@ -55,6 +59,46 @@ function makeCacheStore(): {
       store.clear();
     },
   };
+}
+
+/**
+ * Process INITIAL_BOOTSTRAP inline payload that Baileys can't handle.
+ * WhatsApp sends history data inline (no download URL), but Baileys only
+ * knows how to download from URLs → fails silently → 0 messages.
+ * We intercept via shouldSyncHistoryMessage and emit the data ourselves.
+ */
+async function processInlineHistoryPayload(
+  notification: proto.Message.IHistorySyncNotification,
+  ev: ReturnType<typeof makeWASocket>['ev'],
+) {
+  if (!notification.initialHistBootstrapInlinePayload?.length) return;
+  try {
+    let buffer = Buffer.from(notification.initialHistBootstrapInlinePayload);
+    buffer = await inflatePromise(buffer);
+    const syncData = proto.HistorySync.decode(buffer);
+
+    const messages: proto.IWebMessageInfo[] = [];
+    const contacts: Array<{ id: string; name?: string; lid?: string }> = [];
+    const chats: Array<{ id: string; name?: string | null }> = [];
+
+    for (const chat of syncData.conversations || []) {
+      contacts.push({ id: chat.id!, name: chat.name || undefined, lid: chat.lidJid || undefined });
+      for (const item of chat.messages || []) {
+        if (item.message) messages.push(item.message as proto.IWebMessageInfo);
+      }
+      chats.push({ id: chat.id, name: chat.name });
+    }
+
+    ev.emit('messaging-history.set', {
+      chats,
+      contacts,
+      messages,
+      syncType: syncData.syncType,
+      progress: syncData.progress,
+    });
+  } catch (err) {
+    console.error('[WhatsApp] Failed to process inline history payload:', err);
+  }
 }
 
 let cachedVersion: { version: [number, number, number]; fetchedAt: number } | null = null;
@@ -111,12 +155,17 @@ export async function startQrAuth(
   let retries = 0;
   let qrShown = false;
   let connected = false;
+  // Stability timer: after connection opens, wait before declaring success.
+  // If a 515 restart arrives first, cancel the timer and let the reconnect happen.
+  // Only fire onConnected with the socket that survives the stability window.
+  let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
+  const STABILITY_MS = 3000;
 
   const attempt = async () => {
     if (connected) return;
 
     mkdirSync(sessionDir, { recursive: true });
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { state, saveCreds } = await useAtomicMultiFileAuthState(sessionDir);
     const version = await getWhatsAppVersion();
 
     const socketConfig: Parameters<typeof makeWASocket>[0] = {
@@ -136,7 +185,20 @@ export async function startQrAuth(
     if (opts.waWebSocketUrl) {
       (socketConfig as Record<string, unknown>).waWebSocketUrl = opts.waWebSocketUrl;
     }
+    // Will be set after sock is created (needs sock.ev reference)
+    let sockRef: ReturnType<typeof makeWASocket> | null = null;
+    let inlineProcessed = false;
+    (socketConfig as Record<string, unknown>).shouldSyncHistoryMessage = (
+      msg: proto.Message.IHistorySyncNotification,
+    ) => {
+      if (!inlineProcessed && msg.initialHistBootstrapInlinePayload?.length && sockRef) {
+        inlineProcessed = true;
+        processInlineHistoryPayload(msg, sockRef.ev);
+      }
+      return true;
+    };
     const sock = makeWASocket(socketConfig);
+    sockRef = sock;
 
     if (sock.ws && typeof sock.ws.on === 'function') {
       sock.ws.on('error', (err: Error) => {
@@ -146,15 +208,21 @@ export async function startQrAuth(
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Store incoming messages for decrypt retry
-    sock.ev.on('messaging-history.set', (data: BaileysEventMap['messaging-history.set']) => {
-      for (const msg of data.messages || []) {
-        storeAuthMessage(msg.key, msg.message);
+    // Use sock.ev.process() for history-related handlers — Baileys buffers events
+    // during history sync and flushes them as a consolidated map. Individual .on()
+    // listeners may miss buffered history payloads.
+    sock.ev.process(async (events) => {
+      if (events['messaging-history.set']) {
+        const data = events['messaging-history.set'];
+        for (const msg of data.messages || []) {
+          storeAuthMessage(msg.key, msg.message);
+        }
       }
-    });
-    sock.ev.on('messages.upsert', (upsert: BaileysEventMap['messages.upsert']) => {
-      for (const msg of upsert.messages || []) {
-        storeAuthMessage(msg.key, msg.message);
+      if (events['messages.upsert']) {
+        const upsert = events['messages.upsert'];
+        for (const msg of upsert.messages || []) {
+          storeAuthMessage(msg.key, msg.message);
+        }
       }
     });
 
@@ -168,12 +236,28 @@ export async function startQrAuth(
       }
 
       if (connection === 'open' && !connected) {
-        connected = true;
-        // Pass the socket to the caller so it can capture history sync events
-        callbacks.onConnected({ raw: { sessionDir, jid: sock.user?.id } }, sock);
+        // Don't fire onConnected yet — wait for the socket to survive the
+        // stability window. A 515 restart typically arrives within 1-2s of
+        // the first connection:open after QR scan, killing this socket.
+        // If 515 arrives, we cancel this timer and let the reconnect create
+        // a new (stable) socket that actually receives history.
+        if (stabilityTimer) clearTimeout(stabilityTimer);
+        stabilityTimer = setTimeout(() => {
+          if (connected) return;
+          connected = true;
+          stabilityTimer = null;
+          sock.ev.buffer();
+          callbacks.onConnected({ raw: { sessionDir, jid: sock.user?.id } }, sock);
+        }, STABILITY_MS);
       }
 
       if (connection === 'close') {
+        // Cancel pending stability timer — this socket is dying
+        if (stabilityTimer) {
+          clearTimeout(stabilityTimer);
+          stabilityTimer = null;
+        }
+
         if (connected) return;
 
         const disconnectError = lastDisconnect?.error as Boom | Error | undefined;

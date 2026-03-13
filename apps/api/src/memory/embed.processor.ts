@@ -600,7 +600,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     } else {
       // Mark memory done in RLS scope (or unscoped if no owner)
       const updateDone = (db: typeof this.dbService.db) =>
-        db.update(memories).set({ embeddingStatus: 'done' }).where(eq(memories.id, memoryId));
+        db
+          .update(memories)
+          .set({ embeddingStatus: 'done', pipelineComplete: true })
+          .where(eq(memories.id, memoryId));
       if (ownerUserId) {
         await this.dbService.withUserId(ownerUserId, updateDone);
       } else {

@@ -1,28 +1,25 @@
 import {
   makeWASocket,
-  useMultiFileAuthState,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
   downloadContentFromMessage,
   DisconnectReason,
-  type proto,
+  proto,
   type WAMessage,
   type WAMessageKey,
 } from '@whiskeysockets/baileys';
-import type {
-  BaileysEventMap,
-  Contact as BaileysContact,
-  GroupMetadata,
-  MediaType,
-} from '@whiskeysockets/baileys';
+import type { GroupMetadata, MediaType } from '@whiskeysockets/baileys';
 import type { Boom } from '@hapi/boom';
 import type { Transform } from 'stream';
 import pino from 'pino';
 import type { LogFn } from 'pino';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { promisify } from 'util';
+import { inflate } from 'zlib';
 import { join } from 'path';
 import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
 import { isNoise } from '@botmem/connector-sdk';
+import { useAtomicMultiFileAuthState, flushPendingWrites } from './atomic-auth-state.js';
 
 /**
  * Simple in-memory message store for Baileys getMessage callback.
@@ -358,9 +355,51 @@ const ON_DEMAND_WAIT_MS = 3000; // wait for messages to arrive after fetch
 
 type WaSock = ReturnType<typeof makeWASocket>;
 
+const inflatePromise = promisify(inflate);
+
+/**
+ * Process INITIAL_BOOTSTRAP inline payload that Baileys can't handle.
+ * WhatsApp sends history data inline (no download URL), but Baileys only
+ * knows how to download from URLs → fails silently → 0 messages.
+ * We intercept via shouldSyncHistoryMessage and emit the data ourselves.
+ */
+async function processInlineHistoryPayload(
+  notification: proto.Message.IHistorySyncNotification,
+  ev: WaSock['ev'],
+) {
+  if (!notification.initialHistBootstrapInlinePayload?.length) return;
+  try {
+    let buffer = Buffer.from(notification.initialHistBootstrapInlinePayload);
+    buffer = await inflatePromise(buffer);
+    const syncData = proto.HistorySync.decode(buffer);
+
+    const messages: proto.IWebMessageInfo[] = [];
+    const contacts: Array<{ id: string; name?: string; lid?: string }> = [];
+    const chats: Array<{ id: string; name?: string | null }> = [];
+
+    for (const chat of syncData.conversations || []) {
+      contacts.push({ id: chat.id!, name: chat.name || undefined, lid: chat.lidJid || undefined });
+      for (const item of chat.messages || []) {
+        if (item.message) messages.push(item.message as proto.IWebMessageInfo);
+      }
+      chats.push({ id: chat.id, name: chat.name });
+    }
+
+    ev.emit('messaging-history.set', {
+      chats,
+      contacts,
+      messages,
+      syncType: syncData.syncType,
+      progress: syncData.progress,
+    });
+  } catch (err) {
+    console.error('[WhatsApp] Failed to process inline history payload:', err);
+  }
+}
+
 async function createSyncSocket(sessionDir: string): Promise<WaSock> {
   mkdirSync(sessionDir, { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+  const { state, saveCreds } = await useAtomicMultiFileAuthState(sessionDir);
 
   // Clear processedHistoryMessages so WhatsApp re-delivers history on reconnect
   if (state.creds.processedHistoryMessages?.length) {
@@ -368,6 +407,16 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
   }
 
   const version = await getWhatsAppVersion();
+
+  let sockRef: WaSock | null = null;
+  let inlineProcessed = false;
+
+  // Only request full history on first pairing.
+  // On reconnections with existing creds, syncFullHistory: true causes a 20s
+  // AwaitingInitialSync timeout that leads to 408 disconnects.
+  // Note: Baileys v6 doesn't reliably set creds.registered — check for me.id instead.
+  const isFirstPairing = !state.creds.me?.id;
+
   const sock = makeWASocket({
     auth: {
       creds: state.creds,
@@ -377,11 +426,19 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
     browser: ['Mac OS', 'Chrome', '10.15.7'],
     printQRInTerminal: false,
     logger,
-    syncFullHistory: true,
+    syncFullHistory: isFirstPairing,
     markOnlineOnConnect: false,
     getMessage,
     msgRetryCounterCache: makeCacheStore(),
-  });
+    shouldSyncHistoryMessage: (msg: proto.Message.IHistorySyncNotification) => {
+      if (!inlineProcessed && msg.initialHistBootstrapInlinePayload?.length && sockRef) {
+        inlineProcessed = true;
+        processInlineHistoryPayload(msg, sockRef.ev);
+      }
+      return true;
+    },
+  } as Parameters<typeof makeWASocket>[0]);
+  sockRef = sock;
 
   if (sock.ws && typeof sock.ws.on === 'function') {
     sock.ws.on('error', () => {});
@@ -512,68 +569,78 @@ export async function syncWhatsApp(
   // Track history message count (no longer buffered — emitted immediately)
   let historyMsgCount = 0;
 
-  // Listen for LID → phone mappings
-  sock.ev.on('chats.phoneNumberShare', (data: BaileysEventMap['chats.phoneNumberShare']) => {
-    if (data.lid && data.jid) {
-      lidToPhone.set(phoneFromJid(data.lid), phoneFromJid(data.jid));
+  // Use sock.ev.process() for identity/contact/group events — Baileys buffers events
+  // during history sync and flushes them as a consolidated map. Individual .on()
+  // listeners may miss buffered payloads.
+  sock.ev.process(async (events) => {
+    // LID → phone mappings
+    if (events['chats.phoneNumberShare']) {
+      const data = events['chats.phoneNumberShare'];
+      if (data.lid && data.jid) {
+        lidToPhone.set(phoneFromJid(data.lid), phoneFromJid(data.jid));
+      }
     }
-  });
 
-  // Listen for contacts.upsert — Baileys delivers contact info here
-  sock.ev.on('contacts.upsert', (contacts: BaileysContact[]) => {
-    for (const c of contacts) {
-      const id = c.id || '';
-      const lid = c.lid || '';
-      const name = c.notify || c.name || c.verifiedName || '';
+    // contacts.upsert — Baileys delivers contact info here
+    if (events['contacts.upsert']) {
+      const contacts = events['contacts.upsert'];
+      for (const c of contacts) {
+        const id = c.id || '';
+        const lid = c.lid || '';
+        const name = c.notify || c.name || c.verifiedName || '';
 
-      if (!isLid(id)) {
-        const phone = phoneFromJid(id);
-        if (phone && name) phoneToName.set(phone, name);
-        if (phone && lid) {
-          lidToPhone.set(phoneFromJid(lid), phone);
-          if (name) lidToName.set(phoneFromJid(lid), name);
-        }
-      } else {
-        const lidNum = phoneFromJid(id);
-        if (name) lidToName.set(lidNum, name);
-        if (lid && !isLid(lid)) {
-          const phone = phoneFromJid(lid);
-          if (phone) {
-            lidToPhone.set(lidNum, phone);
-            if (name) phoneToName.set(phone, name);
+        if (!isLid(id)) {
+          const phone = phoneFromJid(id);
+          if (phone && name) phoneToName.set(phone, name);
+          if (phone && lid) {
+            lidToPhone.set(phoneFromJid(lid), phone);
+            if (name) lidToName.set(phoneFromJid(lid), name);
+          }
+        } else {
+          const lidNum = phoneFromJid(id);
+          if (name) lidToName.set(lidNum, name);
+          if (lid && !isLid(lid)) {
+            const phone = phoneFromJid(lid);
+            if (phone) {
+              lidToPhone.set(lidNum, phone);
+              if (name) phoneToName.set(phone, name);
+            }
           }
         }
       }
     }
-  });
 
-  // Listen for contacts.update — carries push name changes
-  sock.ev.on('contacts.update', (updates: Partial<BaileysContact>[]) => {
-    for (const u of updates) {
-      const id = u.id || '';
-      const name = u.notify || u.name || u.verifiedName || '';
-      if (!name) continue;
+    // contacts.update — carries push name changes
+    if (events['contacts.update']) {
+      const updates = events['contacts.update'];
+      for (const u of updates) {
+        const id = u.id || '';
+        const name = u.notify || u.name || u.verifiedName || '';
+        if (!name) continue;
 
-      if (!isLid(id)) {
-        const phone = phoneFromJid(id);
-        if (phone) phoneToName.set(phone, name);
-      } else {
-        lidToName.set(phoneFromJid(id), name);
+        if (!isLid(id)) {
+          const phone = phoneFromJid(id);
+          if (phone) phoneToName.set(phone, name);
+        } else {
+          lidToName.set(phoneFromJid(id), name);
+        }
       }
     }
-  });
 
-  // Listen for group participant updates
-  sock.ev.on('group-participants.update', (data: BaileysEventMap['group-participants.update']) => {
-    const groupJid = data.id;
-    if (!groupJid) return;
-    if (!groupParticipants.has(groupJid)) {
-      groupParticipants.set(groupJid, new Set());
-    }
-    const members = groupParticipants.get(groupJid)!;
-    for (const p of data.participants || []) {
-      if (data.action === 'remove') members.delete(p);
-      else members.add(p);
+    // Group participant updates
+    if (events['group-participants.update']) {
+      const data = events['group-participants.update'];
+      const groupJid = data.id;
+      if (groupJid) {
+        if (!groupParticipants.has(groupJid)) {
+          groupParticipants.set(groupJid, new Set());
+        }
+        const members = groupParticipants.get(groupJid)!;
+        for (const p of data.participants || []) {
+          if (data.action === 'remove') members.delete(p);
+          else members.add(p);
+        }
+      }
     }
   });
 
@@ -582,8 +649,12 @@ export async function syncWhatsApp(
 
   let filteredCount = 0;
 
+  let skippedNullMsg = 0;
   const processMessage = async (msg: WAMessage, source: string, skipMedia = false) => {
-    if (!msg.message) return;
+    if (!msg.message) {
+      skippedNullMsg++;
+      return;
+    }
 
     const m = msg.message;
     const msgType = detectMessageType(msg);
@@ -869,7 +940,8 @@ export async function syncWhatsApp(
     }
     ctx.signal.addEventListener('abort', finish, { once: true });
 
-    // Detect mid-sync disconnection (e.g. user logged out from phone, session conflict)
+    // Detect mid-sync disconnection — keep as .on() since it must fire immediately
+    // regardless of event buffering (disconnect is time-critical)
     sock.ev.on('connection.update', (update) => {
       if (update.connection === 'close') {
         const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
@@ -900,94 +972,114 @@ export async function syncWhatsApp(
       }
     });
 
-    // History sync — buffer messages, index contacts immediately
-    sock.ev.on('messaging-history.set', (data: BaileysEventMap['messaging-history.set']) => {
-      historyBatches++;
-      const messages = data.messages || [];
-      const chats = data.chats || [];
-      const contacts = data.contacts || [];
-      const progress = data.progress ?? null;
+    // Use sock.ev.process() for history and message handlers — Baileys buffers events
+    // during history sync and flushes them as a consolidated map. Individual .on()
+    // listeners may miss buffered history payloads.
+    sock.ev.process(async (events) => {
+      // History sync — index contacts, process messages immediately
+      if (events['messaging-history.set']) {
+        const data = events['messaging-history.set'];
+        historyBatches++;
+        const messages = data.messages || [];
+        const chats = data.chats || [];
+        const contacts = data.contacts || [];
+        const progress = data.progress ?? null;
 
-      // Index contacts: build LID→phone and phone→name mappings
-      for (const contact of contacts) {
-        const contactId = contact.id || '';
-        const contactLid = contact.lid || '';
-        const name = contact.notify || contact.name || contact.verifiedName || '';
+        // Index contacts: build LID→phone and phone→name mappings
+        for (const contact of contacts) {
+          const contactId = contact.id || '';
+          const contactLid = contact.lid || '';
+          const name = contact.notify || contact.name || contact.verifiedName || '';
 
-        if (!isLid(contactId)) {
-          const phone = phoneFromJid(contactId);
-          if (phone && name) phoneToName.set(phone, name);
-          if (phone && contactLid) {
-            lidToPhone.set(phoneFromJid(contactLid), phone);
-            if (name) lidToName.set(phoneFromJid(contactLid), name);
-          }
-        } else {
-          const lidNum = phoneFromJid(contactId);
-          if (name) lidToName.set(lidNum, name);
-          if (contactLid && !isLid(contactLid)) {
-            const phone = phoneFromJid(contactLid);
-            if (phone) {
-              lidToPhone.set(lidNum, phone);
-              if (name) phoneToName.set(phone, name);
+          if (!isLid(contactId)) {
+            const phone = phoneFromJid(contactId);
+            if (phone && name) phoneToName.set(phone, name);
+            if (phone && contactLid) {
+              lidToPhone.set(phoneFromJid(contactLid), phone);
+              if (name) lidToName.set(phoneFromJid(contactLid), name);
+            }
+          } else {
+            const lidNum = phoneFromJid(contactId);
+            if (name) lidToName.set(lidNum, name);
+            if (contactLid && !isLid(contactLid)) {
+              const phone = phoneFromJid(contactLid);
+              if (phone) {
+                lidToPhone.set(lidNum, phone);
+                if (name) phoneToName.set(phone, name);
+              }
             }
           }
         }
-      }
 
-      // Index chat names
-      for (const chat of chats) {
-        if (chat.id && chat.name) {
-          chatNames.set(chat.id, chat.name);
-        }
-      }
-
-      ctx.logger.info(
-        `History batch #${historyBatches}: ${messages.length} msgs, ${chats.length} chats, ${contacts.length} contacts (progress: ${progress})`,
-      );
-      ctx.logger.info(
-        `Identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name, ${chatNames.size} chats`,
-      );
-
-      // Process history messages immediately — emit as they arrive
-      for (const msg of messages) {
-        storeMessage(msg.key, msg.message);
-
-        const msgTs = Number(msg.messageTimestamp || 0);
-        const chatJid = msg.key?.remoteJid || '';
-        if (chatJid && msgTs > 0) {
-          const existing = chatOldest.get(chatJid);
-          if (!existing || msgTs < existing.ts) {
-            chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
+        // Index chat names
+        for (const chat of chats) {
+          if (chat.id && chat.name) {
+            chatNames.set(chat.id, chat.name);
           }
         }
-        historyMsgCount++;
-        processMessage(msg, 'history');
-      }
 
-      resetIdle();
-    });
-
-    // Real-time + offline messages — process immediately (identity maps are warm)
-    sock.ev.on('messages.upsert', (upsert: BaileysEventMap['messages.upsert']) => {
-      const msgs = upsert.messages || [];
-      const type = upsert.type === 'notify' ? 'realtime' : 'append';
-      ctx.logger.info(`messages.upsert: ${msgs.length} msgs, type=${upsert.type}`);
-      for (const msg of msgs) {
-        // Store message for decrypt retry callback
-        storeMessage(msg.key, msg.message);
-
-        // Track per-chat oldest for on-demand fetching
-        const msgTs = Number(msg.messageTimestamp || 0);
-        const chatJid = msg.key?.remoteJid || '';
-        if (chatJid && msgTs > 0) {
-          const existing = chatOldest.get(chatJid);
-          if (!existing || msgTs < existing.ts) {
-            chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
-          }
+        // Diagnostic: count messages with null .message (protocol-level decrypt failure)
+        let nullMsgCount = 0;
+        for (const msg of messages) {
+          if (!msg.message) nullMsgCount++;
         }
-        processMessage(msg, type);
+
+        ctx.logger.info(
+          `History batch #${historyBatches}: ${messages.length} msgs (${nullMsgCount} null/undecrypted), ${chats.length} chats, ${contacts.length} contacts (progress: ${progress})`,
+        );
+        ctx.logger.info(
+          `Identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name, ${chatNames.size} chats`,
+        );
+
+        // Process history messages immediately — emit as they arrive
+        const beforeProcessed = processed;
+        for (const msg of messages) {
+          storeMessage(msg.key, msg.message);
+
+          const msgTs = Number(msg.messageTimestamp || 0);
+          const chatJid = msg.key?.remoteJid || '';
+          if (chatJid && msgTs > 0) {
+            const existing = chatOldest.get(chatJid);
+            if (!existing || msgTs < existing.ts) {
+              chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
+            }
+          }
+          historyMsgCount++;
+          processMessage(msg, 'history');
+        }
+        const emittedThisBatch = processed - beforeProcessed;
+        if (messages.length > 0) {
+          ctx.logger.info(
+            `History batch #${historyBatches} result: ${emittedThisBatch} emitted, ${messages.length - nullMsgCount - emittedThisBatch} filtered, ${nullMsgCount} undecrypted`,
+          );
+        }
+
+        resetIdle();
       }
-      resetIdle();
+
+      // Real-time + offline messages — process immediately (identity maps are warm)
+      if (events['messages.upsert']) {
+        const upsert = events['messages.upsert'];
+        const msgs = upsert.messages || [];
+        const type = upsert.type === 'notify' ? 'realtime' : 'append';
+        ctx.logger.info(`messages.upsert: ${msgs.length} msgs, type=${upsert.type}`);
+        for (const msg of msgs) {
+          // Store message for decrypt retry callback
+          storeMessage(msg.key, msg.message);
+
+          // Track per-chat oldest for on-demand fetching
+          const msgTs = Number(msg.messageTimestamp || 0);
+          const chatJid = msg.key?.remoteJid || '';
+          if (chatJid && msgTs > 0) {
+            const existing = chatOldest.get(chatJid);
+            if (!existing || msgTs < existing.ts) {
+              chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
+            }
+          }
+          processMessage(msg, type);
+        }
+        resetIdle();
+      }
     });
 
     resetIdle();
@@ -1008,21 +1100,26 @@ export async function syncWhatsApp(
 
   // --- Phase 2: On-demand per-chat history fetching ---
   // After passive history stops, iterate through chats and request older messages.
-  if (
-    !ctx.signal.aborted &&
-    chatOldest.size > 0 &&
-    typeof sock.fetchMessageHistory === 'function'
-  ) {
+  // Also include chats discovered from bootstrap/groups that have no seed messages yet.
+  const allKnownChats = new Set([...chatOldest.keys(), ...chatNames.keys()]);
+  const hasChatsToFetch = allKnownChats.size > 0;
+
+  if (!ctx.signal.aborted && hasChatsToFetch && typeof sock.fetchMessageHistory === 'function') {
     const elapsedMs = Date.now() - syncStartTime;
     const remainingMs = MAX_SYNC_MS - elapsedMs;
 
-    // Skip broadcast/newsletter chats, sort by fewest messages first (likely incomplete)
-    const chatsToFetch = [...chatOldest.entries()]
-      .filter(([jid]) => !jid.endsWith('@broadcast') && !jid.endsWith('@newsletter'))
-      .sort(); // deterministic order
+    // Build fetch list: chats with seed messages + chats from bootstrap without seeds
+    const chatsToFetch: Array<[string, { key: WAMessageKey; ts: number } | null]> = [];
+    for (const jid of allKnownChats) {
+      if (jid.endsWith('@broadcast') || jid.endsWith('@newsletter')) continue;
+      const oldest = chatOldest.get(jid) || null;
+      chatsToFetch.push([jid, oldest]);
+    }
+    // Sort: seeded chats first, then unseeded
+    chatsToFetch.sort((a, b) => (a[1] ? 0 : 1) - (b[1] ? 0 : 1));
 
     ctx.logger.info(
-      `On-demand fetching: ${chatsToFetch.length} chats with known oldest messages (${remainingMs / 1000}s budget)`,
+      `On-demand fetching: ${chatsToFetch.length} chats (${chatOldest.size} seeded, ${chatsToFetch.length - chatOldest.size} from bootstrap) (${remainingMs / 1000}s budget)`,
     );
 
     let totalOnDemandMsgs = 0;
@@ -1038,8 +1135,10 @@ export async function syncWhatsApp(
       // Jitter between chats to avoid rate limiting
       if (chatsChecked > 0) await jitter(300, 1500);
 
-      let currentKey = oldest.key;
-      let currentTs = oldest.ts;
+      // Use seed message key if available, else fresh key for bootstrap-only chats
+      let currentKey: WAMessageKey =
+        oldest?.key || ({ remoteJid: chatJid, fromMe: false, id: '' } as WAMessageKey);
+      let currentTs = oldest?.ts || 0;
 
       for (let round = 0; round < ON_DEMAND_ROUNDS_PER_CHAT; round++) {
         // Jitter between fetches to mimic natural scrolling
@@ -1152,6 +1251,9 @@ export async function syncWhatsApp(
     groupParticipants,
   );
 
+  // Flush any pending atomic auth state writes before closing the socket
+  await flushPendingWrites();
+
   try {
     sock.ws?.close();
   } catch {
@@ -1159,7 +1261,7 @@ export async function syncWhatsApp(
   }
 
   ctx.logger.info(
-    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${filteredCount} noise filtered, ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
+    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${skippedNullMsg} undecrypted, ${filteredCount} noise filtered, ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
   );
   return { cursor: null, hasMore: false, processed };
 }

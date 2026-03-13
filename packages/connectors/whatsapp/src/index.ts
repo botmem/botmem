@@ -116,10 +116,7 @@ export class WhatsAppConnector extends BaseConnector {
         const { wsChannel: ch, sessionDir: sd } = this.warm;
         this.warm = null;
 
-        // Buffer events so history isn't lost before sync attaches handlers.
-        // creds.update is NOT bufferable (Baileys fires it immediately), so this is safe.
-        console.debug(`[WhatsApp] Buffering events on auth socket for sessionDir=${sd}`);
-        sock.ev.buffer();
+        // buffer() already called in qr-auth.ts right at connection open — no need to re-buffer.
         this.authSockets.set(sd, sock);
         // Auto-cleanup after 10 minutes if sync never picks it up
         setTimeout(() => {
