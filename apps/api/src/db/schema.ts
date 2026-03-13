@@ -330,7 +330,6 @@ export const apiKeys = pgTable(
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
-  _drizzlePushTest: text('_drizzle_push_test'), // TEMPORARY: remove after confirming drizzle-kit push works in CI
 });
 
 // --- OAuth 2.1 tables ---
