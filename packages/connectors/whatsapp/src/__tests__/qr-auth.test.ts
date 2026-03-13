@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock dependencies before importing
 const mockSaveCreds = vi.fn().mockResolvedValue(undefined);
 const mockMakeWASocket = vi.fn();
-const mockUseMultiFileAuthState = vi.fn().mockResolvedValue({
+const mockUseAtomicMultiFileAuthState = vi.fn().mockResolvedValue({
   state: {
     creds: {},
     keys: {},
@@ -17,7 +17,6 @@ const mockToDataURL = vi.fn().mockResolvedValue('data:image/png;base64,mockqr');
 
 vi.mock('@whiskeysockets/baileys', () => ({
   makeWASocket: mockMakeWASocket,
-  useMultiFileAuthState: mockUseMultiFileAuthState,
   makeCacheableSignalKeyStore: mockMakeCacheableSignalKeyStore,
   fetchLatestBaileysVersion: mockFetchLatestBaileysVersion,
   DisconnectReason: {
@@ -29,6 +28,15 @@ vi.mock('@whiskeysockets/baileys', () => ({
     connectionReplaced: 440,
     timedOut: 408,
   },
+  proto: {
+    HistorySync: { decode: vi.fn() },
+    Message: { IHistorySyncNotification: {} },
+  },
+}));
+
+vi.mock('../atomic-auth-state.js', () => ({
+  useAtomicMultiFileAuthState: (...args: any[]) => mockUseAtomicMultiFileAuthState(...args),
+  flushPendingWrites: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('qrcode', () => ({
@@ -52,9 +60,11 @@ vi.mock('fs', () => ({
 
 describe('qr-auth', () => {
   let eventHandlers: Map<string, Function[]>;
+  let processCallback: ((events: Record<string, any>) => Promise<void>) | null;
 
   function createMockSocket() {
     eventHandlers = new Map();
+    processCallback = null;
     const mockWs = {
       on: vi.fn(),
       close: vi.fn(),
@@ -70,6 +80,10 @@ describe('qr-auth', () => {
         off: vi.fn(),
         buffer: vi.fn(),
         flush: vi.fn(),
+        emit: vi.fn(),
+        process: vi.fn((callback: (events: Record<string, any>) => Promise<void>) => {
+          processCallback = callback;
+        }),
       },
     };
     mockMakeWASocket.mockReturnValue(sock);
@@ -106,7 +120,7 @@ describe('qr-auth', () => {
     expect(callbacks.onQrCode).toHaveBeenCalledWith('data:image/png;base64,mockqr');
   });
 
-  it('calls onConnected when connection opens', async () => {
+  it('calls onConnected when connection opens (after stability timer)', async () => {
     const sock = createMockSocket();
     const callbacks = {
       onQrCode: vi.fn(),
@@ -122,6 +136,12 @@ describe('qr-auth', () => {
     for (const h of connHandler) {
       await h({ connection: 'open' });
     }
+
+    // Not called immediately — stability timer (3s)
+    expect(callbacks.onConnected).not.toHaveBeenCalled();
+
+    // Advance past stability window
+    await vi.advanceTimersByTimeAsync(3500);
 
     expect(callbacks.onConnected).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -278,12 +298,15 @@ describe('qr-auth', () => {
     for (const h of connHandler) {
       await h({ connection: 'open' });
     }
+    // Advance past stability window
+    await vi.advanceTimersByTimeAsync(3500);
     expect(callbacks.onConnected).toHaveBeenCalledTimes(1);
 
     // Duplicate open
     for (const h of connHandler) {
       await h({ connection: 'open' });
     }
+    await vi.advanceTimersByTimeAsync(3500);
     expect(callbacks.onConnected).toHaveBeenCalledTimes(1);
 
     // QR after connected should be ignored
@@ -309,6 +332,8 @@ describe('qr-auth', () => {
     for (const h of connHandler) {
       await h({ connection: 'open' });
     }
+    // Advance past stability window
+    await vi.advanceTimersByTimeAsync(3500);
 
     // Close after connected — should be ignored
     for (const h of connHandler) {
@@ -320,7 +345,7 @@ describe('qr-auth', () => {
     expect(callbacks.onError).not.toHaveBeenCalled();
   });
 
-  it('stores messages from messaging-history.set and messages.upsert', async () => {
+  it('stores messages via ev.process callback for messaging-history.set and messages.upsert', async () => {
     createMockSocket();
     const callbacks = {
       onQrCode: vi.fn(),
@@ -331,35 +356,32 @@ describe('qr-auth', () => {
     const { startQrAuth } = await import('../qr-auth.js');
     await startQrAuth('/tmp/test-session-store', callbacks);
 
-    // Trigger messaging-history.set
-    const historyHandler = eventHandlers.get('messaging-history.set')!;
-    if (historyHandler) {
-      for (const h of historyHandler) {
-        h({
-          messages: [
-            {
-              key: { id: 'msg1', remoteJid: '5551234@s.whatsapp.net' },
-              message: { conversation: 'Hello' },
-            },
-          ],
-        });
-      }
-    }
+    // ev.process should have been called
+    expect(processCallback).not.toBeNull();
 
-    // Trigger messages.upsert
-    const upsertHandler = eventHandlers.get('messages.upsert')!;
-    if (upsertHandler) {
-      for (const h of upsertHandler) {
-        h({
-          messages: [
-            {
-              key: { id: 'msg2', remoteJid: '5551234@s.whatsapp.net' },
-              message: { conversation: 'World' },
-            },
-          ],
-        });
-      }
-    }
+    // Trigger messaging-history.set via process callback
+    await processCallback!({
+      'messaging-history.set': {
+        messages: [
+          {
+            key: { id: 'msg1', remoteJid: '5551234@s.whatsapp.net' },
+            message: { conversation: 'Hello' },
+          },
+        ],
+      },
+    });
+
+    // Trigger messages.upsert via process callback
+    await processCallback!({
+      'messages.upsert': {
+        messages: [
+          {
+            key: { id: 'msg2', remoteJid: '5551234@s.whatsapp.net' },
+            message: { conversation: 'World' },
+          },
+        ],
+      },
+    });
 
     // No direct assertion on store, but confirms no crash
   });
@@ -471,7 +493,7 @@ describe('qr-auth', () => {
     expect(cache.get('b')).toBeUndefined();
   });
 
-  it('stores and retrieves messages via messaging-history.set handler', async () => {
+  it('stores and retrieves messages via ev.process and getMessage', async () => {
     createMockSocket();
     const callbacks = {
       onQrCode: vi.fn(),
@@ -482,32 +504,30 @@ describe('qr-auth', () => {
     const { startQrAuth } = await import('../qr-auth.js');
     await startQrAuth('/tmp/test-session-msgstore', callbacks);
 
-    // Store messages via history handler
-    const historyHandler = eventHandlers.get('messaging-history.set')!;
-    expect(historyHandler).toBeDefined();
-    for (const h of historyHandler) {
-      h({
+    // Store messages via process callback (history)
+    expect(processCallback).not.toBeNull();
+    await processCallback!({
+      'messaging-history.set': {
         messages: [
           {
             key: { id: 'stored-msg-1', remoteJid: '5551234@s.whatsapp.net' },
             message: { conversation: 'Stored message' },
           },
         ],
-      });
-    }
+      },
+    });
 
     // Store via messages.upsert
-    const upsertHandler = eventHandlers.get('messages.upsert')!;
-    for (const h of upsertHandler) {
-      h({
+    await processCallback!({
+      'messages.upsert': {
         messages: [
           {
             key: { id: 'stored-msg-2', remoteJid: '5551234@s.whatsapp.net' },
             message: { conversation: 'Upserted message' },
           },
         ],
-      });
-    }
+      },
+    });
 
     // Now retrieve via getMessage
     const socketOptions = mockMakeWASocket.mock.calls[mockMakeWASocket.mock.calls.length - 1][0];
@@ -572,5 +592,64 @@ describe('qr-auth', () => {
         message: expect.stringContaining('authentication failed'),
       }),
     );
+  });
+
+  it('passes shouldSyncHistoryMessage to socket config', async () => {
+    createMockSocket();
+    const callbacks = {
+      onQrCode: vi.fn(),
+      onConnected: vi.fn(),
+      onError: vi.fn(),
+    };
+
+    const { startQrAuth } = await import('../qr-auth.js');
+    await startQrAuth('/tmp/test-session-shm', callbacks);
+
+    const socketOptions = mockMakeWASocket.mock.calls[mockMakeWASocket.mock.calls.length - 1][0];
+    expect(socketOptions.shouldSyncHistoryMessage).toBeDefined();
+    expect(typeof socketOptions.shouldSyncHistoryMessage).toBe('function');
+
+    // Should return true (always sync)
+    const result = socketOptions.shouldSyncHistoryMessage({});
+    expect(result).toBe(true);
+  });
+
+  it('passes syncFullHistory: true to socket config', async () => {
+    createMockSocket();
+    const callbacks = {
+      onQrCode: vi.fn(),
+      onConnected: vi.fn(),
+      onError: vi.fn(),
+    };
+
+    const { startQrAuth } = await import('../qr-auth.js');
+    await startQrAuth('/tmp/test-session-sfh', callbacks);
+
+    const socketOptions = mockMakeWASocket.mock.calls[mockMakeWASocket.mock.calls.length - 1][0];
+    expect(socketOptions.syncFullHistory).toBe(true);
+  });
+
+  it('uses ev.process instead of individual .on for history events', async () => {
+    const sock = createMockSocket();
+    const callbacks = {
+      onQrCode: vi.fn(),
+      onConnected: vi.fn(),
+      onError: vi.fn(),
+    };
+
+    const { startQrAuth } = await import('../qr-auth.js');
+    await startQrAuth('/tmp/test-session-evprocess', callbacks);
+
+    // ev.process should have been called for history handlers
+    expect(sock.ev.process).toHaveBeenCalledWith(expect.any(Function));
+
+    // messaging-history.set and messages.upsert should NOT be registered via .on
+    const onCalls = sock.ev.on.mock.calls.map((c: any[]) => c[0]);
+    expect(onCalls).not.toContain('messaging-history.set');
+    expect(onCalls).not.toContain('messages.upsert');
+
+    // creds.update and connection.update should still use .on
+    expect(onCalls).toContain('creds.update');
+    expect(onCalls).toContain('connection.update');
   });
 });
