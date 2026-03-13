@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock all Baileys imports before importing sync module
 vi.mock('@whiskeysockets/baileys', () => ({
   makeWASocket: vi.fn(),
-  useMultiFileAuthState: vi.fn(),
   makeCacheableSignalKeyStore: vi.fn(),
   fetchLatestBaileysVersion: vi.fn().mockResolvedValue({ version: [2, 3000, 1] }),
   downloadContentFromMessage: vi.fn(),
@@ -17,6 +16,19 @@ vi.mock('@whiskeysockets/baileys', () => ({
     connectionReplaced: 440,
     timedOut: 408,
   },
+  proto: {
+    HistorySync: { decode: vi.fn() },
+    Message: { IHistorySyncNotification: {} },
+  },
+}));
+
+const mockFlushPendingWrites = vi.fn().mockResolvedValue(undefined);
+vi.mock('../atomic-auth-state.js', () => ({
+  useAtomicMultiFileAuthState: vi.fn().mockResolvedValue({
+    state: { creds: { me: { id: '1234567890@s.whatsapp.net' } }, keys: {} },
+    saveCreds: vi.fn().mockResolvedValue(undefined),
+  }),
+  flushPendingWrites: (...args: any[]) => mockFlushPendingWrites(...args),
 }));
 
 vi.mock('pino', () => ({
@@ -42,6 +54,70 @@ vi.mock('fs', () => ({
 // We need to test the exported functions + internal helpers.
 // Since many helpers are not exported, we test them via syncWhatsApp behavior
 // and also test setDecryptFailureCallback directly.
+
+/**
+ * Helper to create a mock socket with ev.process support.
+ * The sync module registers messaging-history.set and messages.upsert handlers
+ * via sock.ev.process() (not .on()), so flush must invoke the process callback.
+ *
+ * @param flushSideEffect - optional function to define what happens on flush.
+ *   It receives { eventHandlers, processCallbacks } so it can trigger both
+ *   .on() handlers and .process() callbacks.
+ */
+function createMockSock(
+  flushSideEffect?: (ctx: {
+    eventHandlers: Map<string, Function[]>;
+    processCallbacks: Array<(events: Record<string, any>) => Promise<void>>;
+  }) => void,
+  extras?: Record<string, any>,
+) {
+  const eventHandlers = new Map<string, Function[]>();
+  const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
+
+  const sock = {
+    user: { id: '1234567890@s.whatsapp.net' },
+    ws: { close: vi.fn() },
+    ev: {
+      on: vi.fn((event: string, handler: Function) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, []);
+        eventHandlers.get(event)!.push(handler);
+      }),
+      off: vi.fn(),
+      buffer: vi.fn(),
+      flush: vi.fn(() => {
+        if (flushSideEffect) {
+          flushSideEffect({ eventHandlers, processCallbacks });
+        }
+      }),
+      removeAllListeners: vi.fn(),
+      process: vi.fn((callback: (events: Record<string, any>) => Promise<void>) => {
+        processCallbacks.push(callback);
+      }),
+    },
+    groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+    ...extras,
+  };
+
+  return { sock, eventHandlers, processCallbacks };
+}
+
+/** Helper to trigger an event via .on() handlers */
+function triggerOnEvent(eventHandlers: Map<string, Function[]>, event: string, data: any) {
+  const handlers = eventHandlers.get(event) || [];
+  for (const h of handlers) {
+    h(data);
+  }
+}
+
+/** Helper to trigger events via process callbacks (for messaging-history.set, messages.upsert) */
+async function triggerProcessEvent(
+  processCallbacks: Array<(events: Record<string, any>) => Promise<void>>,
+  events: Record<string, any>,
+) {
+  for (const cb of processCallbacks) {
+    await cb(events);
+  }
+}
 
 describe('sync module', () => {
   beforeEach(() => {
@@ -81,22 +157,7 @@ describe('sync module', () => {
       const { syncWhatsApp } = await import('../sync.js');
       const emit = vi.fn();
 
-      // Create a mock socket with event system
-      const eventHandlers = new Map<string, Function[]>();
-      const mockSock = {
-        user: { id: '1234567890@s.whatsapp.net' },
-        ws: { close: vi.fn() },
-        ev: {
-          on: vi.fn((event: string, handler: Function) => {
-            if (!eventHandlers.has(event)) eventHandlers.set(event, []);
-            eventHandlers.get(event)!.push(handler);
-          }),
-          off: vi.fn(),
-          buffer: vi.fn(),
-          flush: vi.fn(),
-          removeAllListeners: vi.fn(),
-        },
-      };
+      const { sock: mockSock } = createMockSock();
 
       const ctx = {
         accountId: 'a1',
@@ -126,6 +187,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -138,24 +200,28 @@ describe('sync module', () => {
           buffer: vi.fn(),
           flush: vi.fn(() => {
             // Simulate history arriving on flush
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'msg1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'Hello from history' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                    pushName: 'Alice',
-                  },
-                ],
-                chats: [{ id: '5551234@s.whatsapp.net', name: 'Alice' }],
-                contacts: [{ id: '5551234@s.whatsapp.net', notify: 'Alice' }],
-                progress: 100,
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'msg1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'Hello from history' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                      pushName: 'Alice',
+                    },
+                  ],
+                  chats: [{ id: '5551234@s.whatsapp.net', name: 'Alice' }],
+                  contacts: [{ id: '5551234@s.whatsapp.net', notify: 'Alice' }],
+                  progress: 100,
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -189,6 +255,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -201,22 +268,26 @@ describe('sync module', () => {
           buffer: vi.fn(),
           flush: vi.fn(() => {
             // Simulate a real-time message arriving
-            const upsertHandlers = eventHandlers.get('messages.upsert') || [];
-            for (const h of upsertHandlers) {
-              h({
-                type: 'notify',
-                messages: [
-                  {
-                    key: { id: 'rt1', remoteJid: '5559876@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'Real-time message' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                    pushName: 'Bob',
-                  },
-                ],
+            for (const cb of processCallbacks) {
+              cb({
+                'messages.upsert': {
+                  type: 'notify',
+                  messages: [
+                    {
+                      key: { id: 'rt1', remoteJid: '5559876@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'Real-time message' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                      pushName: 'Bob',
+                    },
+                  ],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -243,6 +314,7 @@ describe('sync module', () => {
       const onDisconnect = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -266,6 +338,9 @@ describe('sync module', () => {
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
       };
 
@@ -292,6 +367,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const abortCtrl = new AbortController();
       abortCtrl.abort();
 
@@ -307,6 +383,9 @@ describe('sync module', () => {
           buffer: vi.fn(),
           flush: vi.fn(),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -329,6 +408,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -340,22 +420,26 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'status1', remoteJid: 'status@broadcast', fromMe: false },
-                    message: { conversation: 'Status post' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'status1', remoteJid: 'status@broadcast', fromMe: false },
+                      message: { conversation: 'Status post' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -385,6 +469,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -396,29 +481,33 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: {
-                      id: 'grp1',
-                      remoteJid: '120363@g.us',
-                      fromMe: false,
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: {
+                        id: 'grp1',
+                        remoteJid: '120363@g.us',
+                        fromMe: false,
+                        participant: '5551234@s.whatsapp.net',
+                      },
                       participant: '5551234@s.whatsapp.net',
+                      message: { conversation: 'Group hello' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                      pushName: 'GroupMember',
                     },
-                    participant: '5551234@s.whatsapp.net',
-                    message: { conversation: 'Group hello' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                    pushName: 'GroupMember',
-                  },
-                ],
-                chats: [{ id: '120363@g.us', name: 'Test Group' }],
-                contacts: [{ id: '5551234@s.whatsapp.net', notify: 'GroupMember' }],
+                  ],
+                  chats: [{ id: '120363@g.us', name: 'Test Group' }],
+                  contacts: [{ id: '5551234@s.whatsapp.net', notify: 'GroupMember' }],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -449,6 +538,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -460,29 +550,33 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'img1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      imageMessage: {
-                        caption: 'Check this out',
-                        mimetype: 'image/jpeg',
-                        // No mediaKey/directPath so media download skips
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'img1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        imageMessage: {
+                          caption: 'Check this out',
+                          mimetype: 'image/jpeg',
+                          // No mediaKey/directPath so media download skips
+                        },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                      pushName: 'Alice',
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                    pushName: 'Alice',
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -511,6 +605,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -522,27 +617,31 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'cc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      contactMessage: {
-                        displayName: 'Carol',
-                        vcard: 'BEGIN:VCARD\nFN:Carol Smith\nTEL;type=CELL:+15559876\nEND:VCARD',
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'cc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        contactMessage: {
+                          displayName: 'Carol',
+                          vcard: 'BEGIN:VCARD\nFN:Carol Smith\nTEL;type=CELL:+15559876\nEND:VCARD',
+                        },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -571,6 +670,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -582,29 +682,33 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'loc1', remoteJid: '5551234@s.whatsapp.net', fromMe: true },
-                    message: {
-                      locationMessage: {
-                        degreesLatitude: 25.2048,
-                        degreesLongitude: 55.2708,
-                        name: 'Burj Khalifa',
-                        address: '1 Sheikh Mohammed bin Rashid Blvd',
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'loc1', remoteJid: '5551234@s.whatsapp.net', fromMe: true },
+                      message: {
+                        locationMessage: {
+                          degreesLatitude: 25.2048,
+                          degreesLongitude: 55.2708,
+                          name: 'Burj Khalifa',
+                          address: '1 Sheikh Mohammed bin Rashid Blvd',
+                        },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -639,6 +743,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -650,27 +755,31 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'proto1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: { protocolMessage: { type: 0 } },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                  {
-                    key: { id: 'react1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: { reactionMessage: { text: '👍' } },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'proto1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: { protocolMessage: { type: 0 } },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                    {
+                      key: { id: 'react1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: { reactionMessage: { text: '👍' } },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -696,6 +805,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -707,22 +817,26 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'me1', remoteJid: '5551234@s.whatsapp.net', fromMe: true },
-                    message: { conversation: 'My sent message' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'me1', remoteJid: '5551234@s.whatsapp.net', fromMe: true },
+                      message: { conversation: 'My sent message' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -751,6 +865,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -763,31 +878,36 @@ describe('sync module', () => {
           buffer: vi.fn(),
           flush: vi.fn(() => {
             // Simulate contacts arriving with history
-            const contactHandlers = eventHandlers.get('contacts.upsert') || [];
-            for (const h of contactHandlers) {
-              h([
-                { id: '5551234@s.whatsapp.net', notify: 'Alice' },
-                { id: '5559876@s.whatsapp.net', notify: 'Bob' },
-              ]);
+            for (const cb of processCallbacks) {
+              cb({
+                'contacts.upsert': [
+                  { id: '5551234@s.whatsapp.net', notify: 'Alice' },
+                  { id: '5559876@s.whatsapp.net', notify: 'Bob' },
+                ],
+              });
             }
 
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'c1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'Hi' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                    pushName: 'Alice',
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'c1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'Hi' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                      pushName: 'Alice',
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -817,6 +937,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -828,30 +949,34 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'ext1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      extendedTextMessage: {
-                        text: 'Check out this link https://example.com',
-                        contextInfo: {
-                          mentionedJid: ['5559999@s.whatsapp.net'],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'ext1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        extendedTextMessage: {
+                          text: 'Check out this link https://example.com',
+                          contextInfo: {
+                            mentionedJid: ['5559999@s.whatsapp.net'],
+                          },
                         },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                      pushName: 'Alice',
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                    pushName: 'Alice',
-                  },
-                ],
-                chats: [],
-                contacts: [{ id: '5559999@s.whatsapp.net', notify: 'MentionedUser' }],
+                  ],
+                  chats: [],
+                  contacts: [{ id: '5559999@s.whatsapp.net', notify: 'MentionedUser' }],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -880,6 +1005,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -891,24 +1017,28 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'vid1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      videoMessage: { mimetype: 'video/mp4' },
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'vid1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        videoMessage: { mimetype: 'video/mp4' },
+                      },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -936,6 +1066,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -947,24 +1078,28 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'aud1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      audioMessage: { mimetype: 'audio/ogg' },
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'aud1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        audioMessage: { mimetype: 'audio/ogg' },
+                      },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -992,6 +1127,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1003,24 +1139,28 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'stk1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      stickerMessage: { mimetype: 'image/webp' },
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'stk1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        stickerMessage: { mimetype: 'image/webp' },
+                      },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1048,6 +1188,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1059,27 +1200,31 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'doc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      documentMessage: {
-                        mimetype: 'application/pdf',
-                        fileName: 'report.pdf',
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'doc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        documentMessage: {
+                          mimetype: 'application/pdf',
+                          fileName: 'report.pdf',
+                        },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1107,6 +1252,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1118,35 +1264,40 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            // Simulate phone number share event
-            const phoneShareHandlers = eventHandlers.get('chats.phoneNumberShare') || [];
-            for (const h of phoneShareHandlers) {
-              h({ lid: 'liduser123@lid', jid: '5557777@s.whatsapp.net' });
+            // Simulate phone number share event via process callback
+            for (const cb of processCallbacks) {
+              cb({
+                'chats.phoneNumberShare': { lid: 'liduser123@lid', jid: '5557777@s.whatsapp.net' },
+              });
             }
 
             // Then deliver a message from that LID
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: {
-                      id: 'lid1',
-                      remoteJid: '120363@g.us',
-                      fromMe: false,
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: {
+                        id: 'lid1',
+                        remoteJid: '120363@g.us',
+                        fromMe: false,
+                        participant: 'liduser123@lid',
+                      },
                       participant: 'liduser123@lid',
+                      message: { conversation: 'Message from LID user' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    participant: 'liduser123@lid',
-                    message: { conversation: 'Message from LID user' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [{ id: '120363@g.us', name: 'Test Group' }],
-                contacts: [],
+                  ],
+                  chats: [{ id: '120363@g.us', name: 'Test Group' }],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1175,6 +1326,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1186,17 +1338,21 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            // Fire contacts.update
-            const updateHandlers = eventHandlers.get('contacts.update') || [];
-            for (const h of updateHandlers) {
-              h([
-                { id: '5551234@s.whatsapp.net', notify: 'UpdatedAlice' },
-                { id: 'someLid@lid', notify: 'LidUser' },
-                { id: '5552222@s.whatsapp.net', name: '' }, // empty name, should skip
-              ]);
+            // Fire contacts.update via process callback
+            for (const cb of processCallbacks) {
+              cb({
+                'contacts.update': [
+                  { id: '5551234@s.whatsapp.net', notify: 'UpdatedAlice' },
+                  { id: 'someLid@lid', notify: 'LidUser' },
+                  { id: '5552222@s.whatsapp.net', name: '' },
+                ],
+              });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1230,6 +1386,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1241,25 +1398,30 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            // Fire group-participants.update
-            const gpHandlers = eventHandlers.get('group-participants.update') || [];
-            for (const h of gpHandlers) {
-              h({
-                id: '120363@g.us',
-                participants: ['5551234@s.whatsapp.net', '5559876@s.whatsapp.net'],
-                action: 'add',
+            // Fire group-participants.update via process callback
+            for (const cb of processCallbacks) {
+              cb({
+                'group-participants.update': {
+                  id: '120363@g.us',
+                  participants: ['5551234@s.whatsapp.net', '5559876@s.whatsapp.net'],
+                  action: 'add',
+                },
               });
             }
-            // Fire remove action too
-            for (const h of gpHandlers) {
-              h({
-                id: '120363@g.us',
-                participants: ['5559876@s.whatsapp.net'],
-                action: 'remove',
+            for (const cb of processCallbacks) {
+              cb({
+                'group-participants.update': {
+                  id: '120363@g.us',
+                  participants: ['5559876@s.whatsapp.net'],
+                  action: 'remove',
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({
           '120363@g.us': {
@@ -1295,6 +1457,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1307,6 +1470,9 @@ describe('sync module', () => {
           buffer: vi.fn(),
           flush: vi.fn(),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockRejectedValue(new Error('Not authorized')),
       };
@@ -1336,6 +1502,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1347,32 +1514,36 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'dwc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      documentWithCaptionMessage: {
-                        message: {
-                          documentMessage: {
-                            caption: 'Here is the file',
-                            mimetype: 'application/pdf',
-                            fileName: 'doc.pdf',
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'dwc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        documentWithCaptionMessage: {
+                          message: {
+                            documentMessage: {
+                              caption: 'Here is the file',
+                              mimetype: 'application/pdf',
+                              fileName: 'doc.pdf',
+                            },
                           },
                         },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1401,6 +1572,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1412,35 +1584,39 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'ca1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      contactsArrayMessage: {
-                        contacts: [
-                          {
-                            displayName: 'Carol',
-                            vcard: 'BEGIN:VCARD\nFN:Carol\nTEL:+15559876\nEND:VCARD',
-                          },
-                          {
-                            displayName: 'Dave',
-                            vcard: 'BEGIN:VCARD\nFN:Dave\nTEL:+15551111\nEND:VCARD',
-                          },
-                        ],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'ca1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        contactsArrayMessage: {
+                          contacts: [
+                            {
+                              displayName: 'Carol',
+                              vcard: 'BEGIN:VCARD\nFN:Carol\nTEL:+15559876\nEND:VCARD',
+                            },
+                            {
+                              displayName: 'Dave',
+                              vcard: 'BEGIN:VCARD\nFN:Dave\nTEL:+15551111\nEND:VCARD',
+                            },
+                          ],
+                        },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1471,6 +1647,7 @@ describe('sync module', () => {
       const onDisconnect = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1493,6 +1670,9 @@ describe('sync module', () => {
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
       };
 
@@ -1520,6 +1700,7 @@ describe('sync module', () => {
       const onDisconnect = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1542,6 +1723,9 @@ describe('sync module', () => {
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
       };
 
@@ -1569,6 +1753,7 @@ describe('sync module', () => {
       const onDisconnect = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1591,6 +1776,9 @@ describe('sync module', () => {
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
       };
 
@@ -1614,6 +1802,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1625,31 +1814,20 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const contactHandlers = eventHandlers.get('contacts.upsert') || [];
-            for (const h of contactHandlers) {
-              h([
-                // Phone-based with LID cross-reference
-                {
-                  id: '5551234@s.whatsapp.net',
-                  lid: 'lid123@lid',
-                  notify: 'Alice',
-                },
-                // LID-based contact
-                {
-                  id: 'lid456@lid',
-                  lid: '5559876@s.whatsapp.net', // non-LID lid field = phone
-                  notify: 'Bob',
-                },
-                // LID-based contact with LID lid field (no phone resolution)
-                {
-                  id: 'lid789@lid',
-                  lid: 'lid789@lid',
-                  name: 'Charlie',
-                },
-              ]);
+            for (const cb of processCallbacks) {
+              cb({
+                'contacts.upsert': [
+                  { id: '5551234@s.whatsapp.net', lid: 'lid123@lid', notify: 'Alice' },
+                  { id: 'lid456@lid', lid: '5559876@s.whatsapp.net', notify: 'Bob' },
+                  { id: 'lid789@lid', lid: 'lid789@lid', name: 'Charlie' },
+                ],
+              });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1679,6 +1857,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1690,22 +1869,26 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'od1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'First message' },
-                    messageTimestamp: 1000000,
-                  },
-                ],
-                chats: [{ id: '5551234@s.whatsapp.net', name: 'Alice' }],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'od1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'First message' },
+                      messageTimestamp: 1000000,
+                    },
+                  ],
+                  chats: [{ id: '5551234@s.whatsapp.net', name: 'Alice' }],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         fetchMessageHistory: vi.fn().mockResolvedValue(undefined),
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
@@ -1737,6 +1920,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1748,22 +1932,26 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'odf1', remoteJid: '5559999@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'Test' },
-                    messageTimestamp: 2000000,
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'odf1', remoteJid: '5559999@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'Test' },
+                      messageTimestamp: 2000000,
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         fetchMessageHistory: vi.fn().mockRejectedValue(new Error('Rate limited')),
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
@@ -1794,6 +1982,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1805,27 +1994,31 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'lloc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      liveLocationMessage: {
-                        degreesLatitude: 40.7128,
-                        degreesLongitude: -74.006,
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'lloc1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        liveLocationMessage: {
+                          degreesLatitude: 40.7128,
+                          degreesLongitude: -74.006,
+                        },
                       },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1854,6 +2047,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1865,35 +2059,38 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            // Provide contact data first
-            const contactHandlers = eventHandlers.get('contacts.upsert') || [];
-            for (const h of contactHandlers) {
-              h([{ id: '5557777@s.whatsapp.net', notify: 'Charlie' }]);
+            // Provide contact data first via process callback
+            for (const cb of processCallbacks) {
+              cb({ 'contacts.upsert': [{ id: '5557777@s.whatsapp.net', notify: 'Charlie' }] });
             }
 
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  // fromMe=true DM — other party is remoteJid
-                  {
-                    key: { id: 'dm1', remoteJid: '5557777@s.whatsapp.net', fromMe: true },
-                    message: { conversation: 'Sent to Charlie' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                  // fromMe=false DM — self is recipient
-                  {
-                    key: { id: 'dm2', remoteJid: '5557777@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'From Charlie' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    // fromMe=true DM — other party is remoteJid
+                    {
+                      key: { id: 'dm1', remoteJid: '5557777@s.whatsapp.net', fromMe: true },
+                      message: { conversation: 'Sent to Charlie' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                    // fromMe=false DM — self is recipient
+                    {
+                      key: { id: 'dm2', remoteJid: '5557777@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'From Charlie' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1927,6 +2124,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -1938,22 +2136,26 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: { conversation: 'No key ID' },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: { conversation: 'No key ID' },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
+                    },
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -1991,6 +2193,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -2003,6 +2206,9 @@ describe('sync module', () => {
           buffer: vi.fn(),
           flush: vi.fn(),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -2033,6 +2239,7 @@ describe('sync module', () => {
       const emit = vi.fn();
 
       const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
       const mockSock = {
         user: { id: '1234567890@s.whatsapp.net' },
         ws: { close: vi.fn() },
@@ -2044,24 +2251,28 @@ describe('sync module', () => {
           off: vi.fn(),
           buffer: vi.fn(),
           flush: vi.fn(() => {
-            const historyHandlers = eventHandlers.get('messaging-history.set') || [];
-            for (const h of historyHandlers) {
-              h({
-                messages: [
-                  {
-                    key: { id: 'imgnocap1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
-                    message: {
-                      imageMessage: { mimetype: 'image/jpeg' },
+            for (const cb of processCallbacks) {
+              cb({
+                'messaging-history.set': {
+                  messages: [
+                    {
+                      key: { id: 'imgnocap1', remoteJid: '5551234@s.whatsapp.net', fromMe: false },
+                      message: {
+                        imageMessage: { mimetype: 'image/jpeg' },
+                      },
+                      messageTimestamp: Math.floor(Date.now() / 1000),
                     },
-                    messageTimestamp: Math.floor(Date.now() / 1000),
-                  },
-                ],
-                chats: [],
-                contacts: [],
+                  ],
+                  chats: [],
+                  contacts: [],
+                },
               });
             }
           }),
           removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
         },
         groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
       };
@@ -2082,6 +2293,99 @@ describe('sync module', () => {
       const imgEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'imgnocap1');
       expect(imgEmit).toBeDefined();
       expect(imgEmit![0].content.text).toBe('sent an image');
+    });
+
+    it('calls flushPendingWrites before socket close', async () => {
+      const { syncWhatsApp } = await import('../sync.js');
+      const emit = vi.fn();
+
+      const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
+      const mockSock = {
+        user: { id: '1234567890@s.whatsapp.net' },
+        ws: { close: vi.fn() },
+        ev: {
+          on: vi.fn((event: string, handler: Function) => {
+            if (!eventHandlers.has(event)) eventHandlers.set(event, []);
+            eventHandlers.get(event)!.push(handler);
+          }),
+          off: vi.fn(),
+          buffer: vi.fn(),
+          flush: vi.fn(),
+          removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
+        },
+        groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+      };
+
+      const ctx = {
+        accountId: 'a1',
+        auth: { raw: { sessionDir: '/tmp/test-session-flush' } },
+        cursor: null,
+        jobId: 'j1',
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+        signal: AbortSignal.timeout(500),
+      };
+
+      const promise = syncWhatsApp(ctx as any, emit, mockSock as any);
+      await vi.advanceTimersByTimeAsync(35_000);
+
+      await promise;
+      // flushPendingWrites should be called during cleanup
+      expect(mockFlushPendingWrites).toHaveBeenCalled();
+    });
+
+    it('uses ev.process for messaging-history.set instead of ev.on', async () => {
+      const { syncWhatsApp } = await import('../sync.js');
+      const emit = vi.fn();
+
+      const eventHandlers = new Map<string, Function[]>();
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
+      const mockSock = {
+        user: { id: '1234567890@s.whatsapp.net' },
+        ws: { close: vi.fn() },
+        ev: {
+          on: vi.fn((event: string, handler: Function) => {
+            if (!eventHandlers.has(event)) eventHandlers.set(event, []);
+            eventHandlers.get(event)!.push(handler);
+          }),
+          off: vi.fn(),
+          buffer: vi.fn(),
+          flush: vi.fn(),
+          removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
+        },
+        groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+      };
+
+      const ctx = {
+        accountId: 'a1',
+        auth: { raw: { sessionDir: '/tmp/test-session-evprocess' } },
+        cursor: null,
+        jobId: 'j1',
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+        signal: AbortSignal.timeout(500),
+      };
+
+      const promise = syncWhatsApp(ctx as any, emit, mockSock as any);
+      await vi.advanceTimersByTimeAsync(35_000);
+
+      await promise;
+
+      // ev.process should have been called for history/message handlers
+      expect(mockSock.ev.process).toHaveBeenCalledWith(expect.any(Function));
+
+      // messaging-history.set and messages.upsert should NOT be registered via .on
+      const onCalls = mockSock.ev.on.mock.calls.map((c: any[]) => c[0]);
+      expect(onCalls).not.toContain('messaging-history.set');
+      expect(onCalls).not.toContain('messages.upsert');
+
+      // connection.update should still use .on
+      expect(onCalls).toContain('connection.update');
     });
   });
 });
