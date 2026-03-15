@@ -105,12 +105,17 @@ const botmemPlugin = {
         name: 'memory_ask',
         label: 'Memory Ask',
         description:
-          'Natural language query with LLM-enriched answer synthesized from matching memories. Best for questions like "What did X say about Y?"',
+          'Natural language query with LLM-enriched answer synthesized from matching memories. Best for questions like "What did X say about Y?" Supports multi-turn conversations via conversationId.',
         parameters: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Natural language question about memories' },
             limit: { type: 'number', description: 'Max source memories to consider' },
+            conversationId: {
+              type: 'string',
+              description:
+                'Continue a previous conversation. Pass the conversationId from a prior memory_ask response for follow-up questions.',
+            },
           },
           required: ['query'],
         },
@@ -119,6 +124,7 @@ const botmemPlugin = {
             String(params.query),
             undefined,
             (params.limit as number) ?? config.defaultLimit,
+            params.conversationId as string | undefined,
           );
           return { content: [{ type: 'text' as const, text: toonify(result) }] };
         },

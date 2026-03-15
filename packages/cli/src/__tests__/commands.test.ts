@@ -419,7 +419,7 @@ describe('runAsk', () => {
   it('should ask with query', async () => {
     const client = createMockClient();
     await runAsk(client, ['what', 'happened?'], false);
-    expect(client.agentAsk).toHaveBeenCalledWith('what happened?', undefined, undefined);
+    expect(client.agentAsk).toHaveBeenCalledWith('what happened?', undefined, undefined, undefined);
   });
 
   it('should use summarize when --summarize flag', async () => {
@@ -449,6 +449,7 @@ describe('runAsk', () => {
       'test',
       { sourceType: 'email', connectorType: 'gmail', memoryBankId: 'bank-1' },
       5,
+      undefined,
     );
   });
 

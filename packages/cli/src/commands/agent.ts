@@ -9,6 +9,7 @@ export const askHelp = `
 
   OPTIONS
     --summarize          Use LLM summarization (POST /agent/summarize)
+    --conversation <id>  Continue a conversation (Typesense conversational RAG)
     --source <type>      Filter by source (email, message, photo, location)
     --connector <type>   Filter by connector (gmail, slack, whatsapp, imessage)
     --memory-bank <id>   Filter by memory bank ID
@@ -19,6 +20,7 @@ export const askHelp = `
     botmem ask "what did Ahmed say about the project?"
     botmem ask "summarize my week" --summarize
     botmem ask "photos from dubai" --source photo --json
+    botmem ask "tell me more" --conversation abc123
 `.trim();
 
 export const contextHelp = `
@@ -37,11 +39,14 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
   const filters: Record<string, string> = {};
   let limit: number | undefined;
   let summarize = false;
+  let conversationId: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--summarize') {
       summarize = true;
+    } else if (a === '--conversation') {
+      conversationId = args[++i];
     } else if (a === '--source' || a === '--connector') {
       const val = args[++i];
       if (!val) {
@@ -74,13 +79,23 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
       queryStr,
       Object.keys(filters).length ? filters : undefined,
       limit,
+      conversationId,
     );
   }
 
   if (json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(formatAgentAnswer((result as Record<string, unknown>).data || result));
+    // Show conversation ID for follow-up queries
+    const data = (result as Record<string, unknown>).data || result;
+    const convId =
+      (data as Record<string, unknown>).conversationId ||
+      ((data as Record<string, { conversationId?: string }>).conversation || {}).conversationId;
+    if (convId) {
+      console.log(`\x1b[36m💬 Conversation: ${convId}\x1b[0m`);
+      console.log(`\x1b[2m   Continue with: botmem ask "..." --conversation ${convId}\x1b[0m\n`);
+    }
+    console.log(formatAgentAnswer(data));
   }
 }
 
