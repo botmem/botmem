@@ -343,10 +343,11 @@ export class BotmemClient {
     query: string,
     filters?: Record<string, string>,
     limit?: number,
+    conversationId?: string,
   ): Promise<Record<string, unknown>> {
     return this.request('/agent/ask', {
       method: 'POST',
-      body: JSON.stringify({ query, filters, limit }),
+      body: JSON.stringify({ query, filters, limit, conversationId }),
     });
   }
 
