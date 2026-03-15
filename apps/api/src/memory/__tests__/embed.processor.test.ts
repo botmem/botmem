@@ -4,7 +4,7 @@ import { EmbedProcessor } from '../embed.processor';
 // Type imports for casting
 import type { DbService } from '../../db/db.service';
 import type { AiService } from '../ai.service';
-import type { QdrantService } from '../qdrant.service';
+import type { TypesenseService } from '../typesense.service';
 import type { MemoryService } from '../memory.service';
 import type { ConnectorsService } from '../../connectors/connectors.service';
 import type { AccountsService } from '../../accounts/accounts.service';
@@ -29,13 +29,13 @@ function createMockAi() {
   } as unknown as AiService;
 }
 
-function createMockQdrant(): QdrantService {
+function createMockTypesense(): TypesenseService {
   return {
     ensureCollection: vi.fn().mockResolvedValue(undefined),
     upsert: vi.fn().mockResolvedValue(undefined),
     search: vi.fn().mockResolvedValue([]),
     remove: vi.fn().mockResolvedValue(undefined),
-  } as unknown as QdrantService;
+  } as unknown as TypesenseService;
 }
 
 function createMockContactsService() {
@@ -254,7 +254,7 @@ function createProcessor(
     createMockCrypto(),
     createMockUserKeyService(),
     createMockAi(),
-    createMockQdrant(),
+    createMockTypesense(),
     {
       getStats: vi.fn(),
       buildGraphDelta: vi.fn().mockResolvedValue(null),

@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { DbService } from '../db/db.service';
 import { MemoryService } from '../memory/memory.service';
 import { AiService } from '../memory/ai.service';
-import { QdrantService } from '../memory/qdrant.service';
+import { TypesenseService } from '../memory/typesense.service';
 import { PeopleService, PersonWithIdentifiers } from '../people/people.service';
 import { ConfigService } from '../config/config.service';
 import { memories, people, memoryPeople } from '../db/schema';
@@ -62,7 +62,7 @@ export class AgentService {
     private dbService: DbService,
     private memoryService: MemoryService,
     private ai: AiService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
     private peopleService: PeopleService,
     private config: ConfigService,
   ) {}
@@ -75,10 +75,13 @@ export class AgentService {
       filters?: { sourceType?: string; connectorType?: string; contactId?: string };
       limit?: number;
       userId?: string;
+      conversationId?: string;
     },
   ): Promise<{
     results: EnrichedMemory[];
     query: string;
+    answer?: string;
+    conversationId?: string;
     parsed?: {
       temporal: { from: string; to: string } | null;
       temporalFallback?: boolean;
@@ -87,6 +90,37 @@ export class AgentService {
     };
   }> {
     const limit = options?.limit ?? 20;
+
+    // Try conversation-powered search first
+    try {
+      const vector = await this.ai.embed(query);
+      const filter = options?.filters ? this.buildFilterForTypesense(options.filters) : undefined;
+      const result = await this.typesense.conversationSearch(
+        query,
+        vector,
+        limit,
+        'botmem-chat',
+        options?.conversationId,
+        filter,
+      );
+
+      if (result.conversation?.answer) {
+        const enriched = await Promise.all(
+          result.results.map((r) => this.enrichMemory(r.id, r.score, options?.userId)),
+        );
+        const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
+        return {
+          results: grouped,
+          query,
+          answer: result.conversation.answer,
+          conversationId: result.conversation.conversationId,
+        };
+      }
+    } catch (err) {
+      this.logger.debug(`Conversation search failed, falling back to regular search: ${err}`);
+    }
+
+    // Fallback: existing search-only path
     const searchResponse = await this.memoryService.search(
       query,
       options?.filters,
@@ -193,8 +227,8 @@ export class AgentService {
     // Generate embedding immediately
     try {
       const vector = await this.ai.embed(text);
-      await this.qdrant.ensureCollection(vector.length);
-      await this.qdrant.upsert(id, vector, {
+      await this.typesense.ensureCollection(vector.length);
+      await this.typesense.upsert(id, vector, {
         memory_id: id,
         source_type: 'note',
         connector_type: 'agent',
@@ -476,6 +510,22 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
       })),
       ...(score !== undefined ? { score } : {}),
     };
+  }
+
+  private buildFilterForTypesense(filters: {
+    sourceType?: string;
+    connectorType?: string;
+    contactId?: string;
+  }): Record<string, unknown> {
+    const must: Array<Record<string, unknown>> = [];
+    if (filters.sourceType) {
+      must.push({ key: 'source_type', match: { value: filters.sourceType } });
+    }
+    if (filters.connectorType) {
+      must.push({ key: 'connector_type', match: { value: filters.connectorType } });
+    }
+    // contactId filtering not supported at vector level — handled post-search
+    return must.length ? { must } : {};
   }
 
   private groupByThread(results: EnrichedMemory[]): EnrichedMemory[] {

@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, like, and, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { QdrantService } from '../memory/qdrant.service';
+import { TypesenseService } from '../memory/typesense.service';
 import { ConfigService } from '../config/config.service';
 import * as schema from '../db/schema';
 import { generateContacts, generateMemories, randomVector, scanForPII } from './fake-data';
@@ -15,7 +15,7 @@ export class DemoService {
   constructor(
     private db: DbService,
     private crypto: CryptoService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
     private config: ConfigService,
   ) {}
 
@@ -146,7 +146,7 @@ export class DemoService {
 
       // Qdrant vector
       const vector = randomVector(dim);
-      await this.qdrant.upsert(mem.id, vector, {
+      await this.typesense.upsert(mem.id, vector, {
         source_type: mem.sourceType,
         connector_type: mem.connectorType,
         event_time: mem.eventTime.toISOString(),
@@ -249,7 +249,7 @@ export class DemoService {
 
       // Remove from Qdrant
       for (const id of memoryIds) {
-        await this.qdrant.remove(id);
+        await this.typesense.remove(id);
       }
     }
 

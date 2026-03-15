@@ -7,7 +7,7 @@ describe('MemoryBanksService', () => {
   let service: MemoryBanksService;
   let mockDb: Record<string, ReturnType<typeof vi.fn>>;
   let cryptoService: Record<string, ReturnType<typeof vi.fn>>;
-  let qdrantService: { remove: ReturnType<typeof vi.fn> };
+  let typesenseService: { remove: ReturnType<typeof vi.fn> };
 
   const fakeBank = {
     id: 'bank-1',
@@ -37,14 +37,14 @@ describe('MemoryBanksService', () => {
       hmac: vi.fn((v: string) => `hmac:${v}`),
     };
 
-    qdrantService = {
+    typesenseService = {
       remove: vi.fn().mockResolvedValue(undefined),
     };
 
     service = new MemoryBanksService(
       { db: mockDb } as unknown as DbService,
       cryptoService as unknown as CryptoService,
-      qdrantService as unknown as import('../../memory/qdrant.service').QdrantService,
+      typesenseService as unknown as import('../../memory/typesense.service').TypesenseService,
     );
   });
 
@@ -116,7 +116,7 @@ describe('MemoryBanksService', () => {
       const result = await service.remove('user-1', 'bank-1');
       expect(result.deleted).toBe(true);
       expect(result.memoriesDeleted).toBe(2);
-      expect(qdrantService.remove).toHaveBeenCalledTimes(2);
+      expect(typesenseService.remove).toHaveBeenCalledTimes(2);
     });
 
     it('throws if trying to delete default bank', async () => {

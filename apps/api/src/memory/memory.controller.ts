@@ -19,7 +19,7 @@ import { MemoryService } from './memory.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { AiService } from './ai.service';
-import { QdrantService } from './qdrant.service';
+import { TypesenseService } from './typesense.service';
 import { EventsService } from '../events/events.service';
 import { memories, memoryContacts, rawEvents } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
@@ -40,7 +40,7 @@ export class MemoryController {
     private dbService: DbService,
     private accountsService: AccountsService,
     private ai: AiService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
     private events: EventsService,
     @InjectQueue('clean') private cleanQueue: Queue,
     @InjectQueue('embed') private embedQueue: Queue,
@@ -179,9 +179,9 @@ export class MemoryController {
   }
 
   @RequiresJwt()
-  @Get('qdrant-info')
-  async getQdrantInfo() {
-    return this.qdrant.getCollectionInfo();
+  @Get('typesense-info')
+  async getTypesenseInfo() {
+    return this.typesense.getCollectionInfo();
   }
 
   @Get('timeline')

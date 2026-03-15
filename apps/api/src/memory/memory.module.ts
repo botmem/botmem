@@ -14,7 +14,7 @@ import { AiCacheService } from './ai-cache.service';
 import { AiService } from './ai.service';
 import { GeminiEmbedService } from './gemini-embed.service';
 import { RerankService } from './rerank.service';
-import { QdrantService } from './qdrant.service';
+import { TypesenseService } from './typesense.service';
 import { EnrichService } from './enrich.service';
 import { CleanProcessor } from './clean.processor';
 import { EmbedProcessor } from './embed.processor';
@@ -54,7 +54,7 @@ import { MemoryController } from './memory.controller';
     AiCacheService,
     RerankService,
     AiService,
-    QdrantService,
+    TypesenseService,
     EnrichService,
     CleanProcessor,
     EmbedProcessor,
@@ -63,6 +63,13 @@ import { MemoryController } from './memory.controller';
     DecayProcessor,
     MemoryService,
   ],
-  exports: [OllamaService, AiService, RerankService, QdrantService, EnrichService, MemoryService],
+  exports: [
+    OllamaService,
+    AiService,
+    RerankService,
+    TypesenseService,
+    EnrichService,
+    MemoryService,
+  ],
 })
 export class MemoryModule {}

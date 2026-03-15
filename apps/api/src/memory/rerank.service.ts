@@ -18,6 +18,8 @@ import { ConfigService } from '../config/config.service';
 export class RerankService implements OnModuleInit {
   private readonly logger = new Logger(RerankService.name);
   private backend: 'ollama' | 'jina' | 'tei' | 'none';
+  private consecutiveFailures = 0;
+  private static readonly MAX_FAILURES = 3;
 
   constructor(private readonly config: ConfigService) {
     this.backend = config.rerankerBackend;
@@ -48,21 +50,34 @@ export class RerankService implements OnModuleInit {
     if (!documents.length) return [];
 
     try {
+      let scores: number[];
       switch (this.backend) {
         case 'tei':
-          return await this.rerankTei(query, documents);
+          scores = await this.rerankTei(query, documents);
+          break;
         case 'ollama':
-          return await this.rerankOllama(query, documents);
+          scores = await this.rerankOllama(query, documents);
+          break;
         case 'jina':
-          return await this.rerankJina(query, documents);
+          scores = await this.rerankJina(query, documents);
+          break;
         default:
           return new Array(documents.length).fill(0);
       }
+      this.consecutiveFailures = 0;
+      return scores;
     } catch (err: unknown) {
+      this.consecutiveFailures++;
       this.logger.error(
-        `Reranker failed, using zero scores: ${err instanceof Error ? err.message : String(err)}`,
-        err instanceof Error ? err.stack : undefined,
+        `Reranker failed (${this.consecutiveFailures}/${RerankService.MAX_FAILURES}), using zero scores: ${err instanceof Error ? err.message : String(err)}`,
       );
+      if (this.consecutiveFailures >= RerankService.MAX_FAILURES) {
+        this.logger.warn(
+          `Reranker failed ${RerankService.MAX_FAILURES} times consecutively — disabling (backend → none). ` +
+            `Fix OLLAMA_RERANKER_MODEL or set RERANKER_BACKEND=none to silence this. Restart to re-enable.`,
+        );
+        this.backend = 'none';
+      }
       return new Array(documents.length).fill(0);
     }
   }
@@ -93,10 +108,87 @@ export class RerankService implements OnModuleInit {
   }
 
   /**
-   * Ollama backend: single batch call to the configured reranker model.
-   * Asks the model to score each document 0.0–1.0 and return JSON.
+   * Ollama backend: scores each document individually using the reranker model.
+   *
+   * qwen3-reranker (and similar cross-encoder models) need a specific prompt format
+   * with `<|doc_start|>` tokens. They output "yes"/"no" and the relevance score comes
+   * from the "yes" token probability. We use the text model as fallback if the
+   * reranker model name contains "reranker" (cross-encoder) since those models
+   * cannot do free-form JSON generation.
+   *
+   * For non-reranker models, falls back to a batch JSON prompt via the text model.
    */
   private async rerankOllama(query: string, documents: string[]): Promise<number[]> {
+    const model = this.config.ollamaRerankerModel;
+    const isRerankerModel = model.toLowerCase().includes('reranker');
+
+    if (isRerankerModel) {
+      return this.rerankOllamaCrossEncoder(query, documents, model);
+    }
+    return this.rerankOllamaGenerative(query, documents, model);
+  }
+
+  /**
+   * Cross-encoder reranker (e.g. qwen3-reranker): score each doc individually.
+   * Uses the model's "yes" token logprob as relevance signal.
+   */
+  private async rerankOllamaCrossEncoder(
+    query: string,
+    documents: string[],
+    model: string,
+  ): Promise<number[]> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.config.ollamaUsername) {
+      headers['Authorization'] =
+        'Basic ' +
+        Buffer.from(`${this.config.ollamaUsername}:${this.config.ollamaPassword}`).toString(
+          'base64',
+        );
+    }
+
+    const scores = await Promise.all(
+      documents.map(async (doc, i) => {
+        const prompt =
+          `<|doc_start|>${doc.slice(0, 512)}<|doc_end|>\n` +
+          `Determine whether the document is relevant to the search query.\n` +
+          `Query: ${query}\n` +
+          `Relevant:`;
+
+        const res = await fetch(`${this.config.ollamaBaseUrl}/api/generate`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            prompt,
+            stream: false,
+            raw: true,
+            options: { temperature: 0, num_predict: 1, num_ctx: 1024 },
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (!res.ok) throw new Error(`Ollama rerank HTTP ${res.status} for doc ${i}`);
+
+        const data = await res.json();
+        const token = (data.response || '').trim().toLowerCase();
+        // "yes" = relevant, anything else = not relevant.
+        // Simple binary scoring since we can't reliably extract logprobs from Ollama.
+        return token.startsWith('yes') ? 1.0 : 0.0;
+      }),
+    );
+
+    return scores;
+  }
+
+  /**
+   * Generative reranker: batch prompt asking a chat model to output JSON scores.
+   * Works with general-purpose models (qwen3, llama, etc.) — NOT cross-encoder reranker models.
+   */
+  private async rerankOllamaGenerative(
+    query: string,
+    documents: string[],
+    model: string,
+  ): Promise<number[]> {
     const docList = documents.map((d, i) => `${i + 1}. ${d.slice(0, 300)}`).join('\n');
     const prompt = `Rate the relevance of each document to the query. Output ONLY a JSON array of ${documents.length} scores from 0.0 to 1.0, in order. No explanation.
 
@@ -111,7 +203,7 @@ JSON array:`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: this.config.ollamaRerankerModel,
+        model,
         messages: [{ role: 'user', content: prompt }],
         stream: false,
         think: false,

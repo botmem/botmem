@@ -7,7 +7,7 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
-import { QdrantService } from './qdrant.service';
+import { TypesenseService } from './typesense.service';
 import { MemoryService } from './memory.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -51,7 +51,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
     private ai: AiService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
     private memoryService: MemoryService,
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
@@ -363,7 +363,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const embedMs = Date.now() - t0;
 
     t0 = Date.now();
-    await this.qdrant.upsert(memoryId, vector, {
+    await this.typesense.upsert(memoryId, vector, {
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
       event_time: event.timestamp,
@@ -457,7 +457,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             { type: 'text', text: currentText },
           ];
           vector = await this.ai.embedMultimodal(parts);
-          await this.qdrant.upsert(memoryId, vector, qdrantPayload);
+          await this.typesense.upsert(memoryId, vector, qdrantPayload);
 
           this.addLog(
             rawEvent.connectorType,
@@ -473,7 +473,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             const reEmbedText =
               currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
             vector = await this.ai.embed(reEmbedText);
-            await this.qdrant.upsert(memoryId, vector, qdrantPayload);
+            await this.typesense.upsert(memoryId, vector, qdrantPayload);
           }
         }
       } catch (err: unknown) {

@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, sql, and, or, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { AiService } from './ai.service';
-import { QdrantService } from './qdrant.service';
+import { TypesenseService } from './typesense.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
@@ -165,7 +165,7 @@ export class MemoryService {
   constructor(
     private dbService: DbService,
     private ai: AiService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
     private connectors: ConnectorsService,
     private pluginRegistry: PluginRegistry,
     private crypto: CryptoService,
@@ -514,11 +514,49 @@ export class MemoryService {
     // Use clean query for embeddings (stripped of temporal tokens)
     const embeddingQuery = nlq.cleanQuery;
 
-    // If filtering by contactId directly, skip hybrid and just fetch that contact's memories
+    // --- Entity resolution ---
+    const queryLower = query.toLowerCase();
+    const queryWords = queryLower
+      .split(/\s+/)
+      .map((w) => w.replace(/'s$/i, ''))
+      .filter((w) => w.length >= 2);
+
+    const entityResult = await this.resolveEntities(queryWords, userId);
+    const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
+    const hasContacts = resolvedContacts.length > 0;
+
+    // --- Build Qdrant-format filter (TypesenseService converts internally) ---
+    const tsFilter = this.buildQdrantFilter(effectiveFilters);
+
+    // --- Single Typesense hybrid search call ---
+    const vector = await this.ai.embedQuery(embeddingQuery);
+    const typesenseResults = await this.typesense.search(
+      vector,
+      effectiveLimit * 3,
+      Object.keys(tsFilter).length ? tsFilter : undefined,
+    );
+    const semanticScores = new Map<string, number>();
+    for (const point of typesenseResults) semanticScores.set(point.id, point.score);
+
+    // --- Contact boost: identify which results belong to resolved contacts ---
+    const contactMatchIds = new Set<string>();
+    let topicMatchCount = 0;
+    if (hasContacts) {
+      const linked = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ memoryId: memoryPeople.memoryId })
+          .from(memoryPeople)
+          .where(inArray(memoryPeople.personId, contactIds)),
+      );
+      const allContactMemoryIds = new Set(linked.map((r) => r.memoryId));
+      for (const point of typesenseResults) {
+        if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
+      }
+      topicMatchCount = contactMatchIds.size;
+    }
+
+    // If filtering by contactId directly, filter Typesense results to that contact's memories
     if (effectiveFilters.contactId) {
-      const vector = await this.ai.embed(embeddingQuery);
-      const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
-      const qdrantResults = await this.qdrant.search(vector, effectiveLimit * 3, qdrantFilter);
       const linkedMemoryIds = new Set(
         (
           await this.dbService.withCurrentUser((db) =>
@@ -529,17 +567,16 @@ export class MemoryService {
           )
         ).map((r) => r.memoryId),
       );
-      const results: SearchResult[] = [];
-      for (const point of qdrantResults) {
+      const contactResults: SearchResult[] = [];
+      for (const point of typesenseResults) {
         if (!linkedMemoryIds.has(point.id)) continue;
         const row = await this.fetchMemoryRow(point.id);
         if (!row) continue;
         const { score, weights } = this.computeWeights(point.score, 0, row.memory, nlq.intent);
-        results.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
-        if (results.length >= effectiveLimit) break;
+        contactResults.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
+        if (contactResults.length >= effectiveLimit) break;
       }
-      const sorted = results.sort((a, b) => b.score - a.score);
-      // Fire afterSearch hook (fire-and-forget)
+      const sorted = contactResults.sort((a, b) => b.score - a.score);
       void this.pluginRegistry.fireHook('afterSearch', {
         query,
         resultCount: sorted.length,
@@ -558,199 +595,28 @@ export class MemoryService {
       };
     }
 
-    // --- Entity-aware hybrid search ---
-
-    const queryLower = query.toLowerCase();
-    const queryWords = queryLower
-      .split(/\s+/)
-      .map((w) => w.replace(/'s$/i, ''))
-      .filter((w) => w.length >= 2);
-
-    // Phase 1: Entity resolution (greedy multi-word span matching)
-    const entityResult = await this.resolveEntities(queryWords, userId);
-    const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
-    const hasContacts = resolvedContacts.length > 0;
-    const hasTopics = topicWords.length > 0;
-
-    // Phase 2: Vector search (use cached query embedding, apply effectiveFilters)
-    const vector = await this.ai.embedQuery(embeddingQuery);
-    const qdrantFilter = this.buildQdrantFilter(effectiveFilters);
-
-    // Fire temporal and non-temporal Qdrant queries in parallel when temporal filters are active.
-    // This eliminates the latency penalty of the temporal fallback path.
-    const hasTemporal = !!(nlq.temporal && effectiveFilters.from);
-    let fallbackQdrantPromise: Promise<Array<{ id: string; score: number }>> | null = null;
-    if (hasTemporal) {
-      const fallbackFilters = { ...effectiveFilters };
-      delete fallbackFilters.from;
-      delete fallbackFilters.to;
-      const fallbackQdrantFilter = this.buildQdrantFilter(fallbackFilters);
-      fallbackQdrantPromise = this.qdrant.search(
-        vector,
-        effectiveLimit * 2,
-        Object.keys(fallbackQdrantFilter).length ? fallbackQdrantFilter : undefined,
-      );
-    }
-
-    const qdrantResults = await this.qdrant.search(
-      vector,
-      effectiveLimit * 5,
-      Object.keys(qdrantFilter).length ? qdrantFilter : undefined,
-    );
-    const semanticScores = new Map<string, number>();
-    for (const point of qdrantResults) semanticScores.set(point.id, point.score);
-
-    // Phase 3: Search execution based on decomposition
-    const textMatchIds = new Set<string>();
-    const contactMatchIds = new Set<string>();
-    let topicMatchCount = 0;
-
-    if (hasContacts) {
-      // Get all memory IDs linked to resolved contacts
-      const linked = await this.dbService.withCurrentUser((db) =>
-        db
-          .select({ memoryId: memoryPeople.memoryId })
-          .from(memoryPeople)
-          .where(inArray(memoryPeople.personId, contactIds)),
-      );
-      const allContactMemoryIds = new Set(linked.map((r) => r.memoryId));
-
-      if (hasTopics) {
-        // Intersect: contact memories filtered by topic words (+ temporal bounds)
-        const topicConditions: SQLWrapper[] = [inArray(memoryPeople.personId, contactIds)];
-        for (const tw of topicWords) {
-          topicConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + tw + '%'}`);
-        }
-        if (effectiveFilters.from)
-          topicConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}`);
-        if (effectiveFilters.to)
-          topicConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}`);
-        const filtered = await this.dbService.withCurrentUser((db) =>
-          db
-            .select({ memoryId: memoryPeople.memoryId })
-            .from(memoryPeople)
-            .innerJoin(memories, eq(memories.id, memoryPeople.memoryId))
-            .where(and(...topicConditions)!),
-        );
-        topicMatchCount = filtered.length;
-        for (const r of filtered) contactMatchIds.add(r.memoryId);
-
-        // Also boost vector results that belong to the contact — only if topic intersection found matches
-        if (topicMatchCount > 0) {
-          for (const point of qdrantResults) {
-            if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
-          }
-        }
-      } else {
-        // Contact browse: intersect Qdrant results with contact memories
-        for (const point of qdrantResults) {
-          if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
-        }
-        // Add capped recent contact memories for browse feel (respect temporal bounds)
-        const contactBrowseConditions: SQLWrapper[] = [inArray(memoryPeople.personId, contactIds)];
-        if (effectiveFilters.from)
-          contactBrowseConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}`);
-        if (effectiveFilters.to)
-          contactBrowseConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}`);
-        const recentContactMems = await this.dbService.withCurrentUser((db) =>
-          db
-            .select({ memoryId: memoryPeople.memoryId })
-            .from(memoryPeople)
-            .innerJoin(memories, eq(memories.id, memoryPeople.memoryId))
-            .where(and(...contactBrowseConditions)!)
-            .orderBy(sql`${memories.eventTime} DESC`)
-            .limit(effectiveLimit * 3),
-        );
-        for (const r of recentContactMems) contactMatchIds.add(r.memoryId);
-      }
-    }
-
-    if (!hasContacts || hasTopics) {
-      // Topic text search using PostgreSQL full-text search (tsvector + tsquery)
-      const searchWords = hasContacts ? topicWords : queryWords;
-      if (searchWords.length > 0) {
-        try {
-          // Build temporal suffix for FTS queries
-          const temporalFrom = effectiveFilters.from
-            ? sql` AND event_time >= ${effectiveFilters.from}`
-            : sql``;
-          const temporalTo = effectiveFilters.to
-            ? sql` AND event_time <= ${effectiveFilters.to}`
-            : sql``;
-
-          // PostgreSQL tsquery: each word as prefix match with AND logic
-          let tsQuery = searchWords.map((w) => `${w}:*`).join(' & ');
-          let ftsResults = await this.dbService.withCurrentUser((db) =>
-            db.execute(
-              sql`SELECT id FROM memories WHERE search_tokens IS NOT NULL AND search_tokens @@ to_tsquery('english', ${tsQuery})${temporalFrom}${temporalTo} LIMIT ${limit * 2}`,
-            ),
-          );
-          // If AND returns nothing and multi-word, retry with OR
-          if (ftsResults.rows.length === 0 && searchWords.length > 1) {
-            tsQuery = searchWords.map((w) => `${w}:*`).join(' | ');
-            ftsResults = await this.dbService.withCurrentUser((db) =>
-              db.execute(
-                sql`SELECT id FROM memories WHERE search_tokens IS NOT NULL AND search_tokens @@ to_tsquery('english', ${tsQuery})${temporalFrom}${temporalTo} LIMIT ${limit * 2}`,
-              ),
-            );
-          }
-          for (const r of ftsResults.rows as { id: string }[]) textMatchIds.add(r.id);
-        } catch {
-          // Fallback to LIKE if full-text search fails
-          const textConditions: SQLWrapper[] = [eq(memories.pipelineComplete, true)];
-          for (const word of searchWords) {
-            textConditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}`);
-          }
-          if (effectiveFilters.sourceType)
-            textConditions.push(eq(memories.sourceType, effectiveFilters.sourceType));
-          if (effectiveFilters.connectorType)
-            textConditions.push(eq(memories.connectorType, effectiveFilters.connectorType));
-          if (effectiveFilters.from)
-            textConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}`);
-          if (effectiveFilters.to)
-            textConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}`);
-          const textMatches = await this.dbService.withCurrentUser((db) =>
-            db
-              .select({ id: memories.id })
-              .from(memories)
-              .where(and(...textConditions)!)
-              .limit(limit * 2),
-          );
-          for (const r of textMatches) textMatchIds.add(r.id);
-        }
-      }
-    }
-
-    const hasExactMatches = textMatchIds.size > 0 || contactMatchIds.size > 0;
-
-    // Collect candidate memory IDs
+    // --- Collect candidate IDs from Typesense results ---
     const allCandidateIds = new Set<string>();
-    for (const id of textMatchIds) allCandidateIds.add(id);
-    for (const id of contactMatchIds) allCandidateIds.add(id);
-    // Always include all Qdrant results — FTS/contact boosts handle ranking
-    for (const point of qdrantResults) allCandidateIds.add(point.id);
+    for (const point of typesenseResults) allCandidateIds.add(point.id);
 
     if (!allCandidateIds.size) {
-      // If temporal filter caused zero results, fall through to temporal fallback below
-      if (!(nlq.temporal && effectiveFilters.from)) {
-        return {
-          items: [],
-          fallback: false,
-          resolvedEntities: hasContacts
-            ? { contacts: resolvedContacts, topicWords, topicMatchCount }
-            : undefined,
-          parsed: {
-            temporal: nlq.temporal,
-            entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
-            intent: nlq.intent,
-            cleanQuery: nlq.cleanQuery,
-            sourceType: nlq.sourceTypeHint ?? undefined,
-          },
-        };
-      }
+      return {
+        items: [],
+        fallback: false,
+        resolvedEntities: hasContacts
+          ? { contacts: resolvedContacts, topicWords, topicMatchCount }
+          : undefined,
+        parsed: {
+          temporal: nlq.temporal,
+          entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
+          intent: nlq.intent,
+          cleanQuery: nlq.cleanQuery,
+          sourceType: nlq.sourceTypeHint ?? undefined,
+        },
+      };
     }
 
-    // Batch fetch all candidate rows in one query
+    // Batch fetch all candidate rows from DB
     const candidateRows: Array<{
       id: string;
       row: { memory: typeof memories.$inferSelect; accountIdentifier: string | null };
@@ -761,13 +627,12 @@ export class MemoryService {
       if (effectiveFilters.sourceType && mem.sourceType !== effectiveFilters.sourceType) continue;
       if (effectiveFilters.connectorType && mem.connectorType !== effectiveFilters.connectorType)
         continue;
-      // Apply temporal filters in SQL-fetched rows
       if (effectiveFilters.from && mem.eventTime < new Date(effectiveFilters.from)) continue;
       if (effectiveFilters.to && mem.eventTime > new Date(effectiveFilters.to)) continue;
       candidateRows.push({ id, row });
     }
 
-    // Rerank top 15 candidates (default on for small result sets, opt-out via rerank=false)
+    // Optional rerank pass on top 15 candidates
     const rerankScores = new Map<string, number>();
     const shouldRerank = rerank ?? candidateRows.length <= 15;
     if (shouldRerank) {
@@ -784,7 +649,7 @@ export class MemoryService {
       }
     }
 
-    // Score all candidates (defer decryption until final results are selected)
+    // Score all candidates with contact boost
     const scoredCandidates: Array<{
       id: string;
       row: (typeof candidateRows)[0]['row'];
@@ -794,7 +659,6 @@ export class MemoryService {
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
       const rerankScore = rerankScores.get(id) ?? 0;
-      const textMultiplier = textMatchIds.has(id) ? 1.3 : 1.0;
       const contactMultiplier = contactMatchIds.has(id) ? 1.25 : 1.0;
 
       const { score, weights } = this.computeWeights(
@@ -803,7 +667,7 @@ export class MemoryService {
         row.memory,
         nlq.intent,
       );
-      const boostedScore = Math.min(score * textMultiplier * contactMultiplier, 1.0);
+      const boostedScore = Math.min(score * contactMultiplier, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
       scoredCandidates.push({ id, row, score: boostedScore, weights: boostedWeights });
@@ -812,49 +676,9 @@ export class MemoryService {
     const MIN_SCORE = 0.35;
     const filtered = scoredCandidates.filter((c) => c.score >= MIN_SCORE);
     const topCandidates = filtered.sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
-    // Only decrypt the final top-N results (avoids expensive AES-256-GCM on filtered-out candidates)
-    const finalItems = topCandidates.map((c) =>
+    const returnItems = topCandidates.map((c) =>
       this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey),
     );
-
-    // Temporal fallback: use the pre-fetched non-temporal Qdrant results (already in flight)
-    let temporalFallback = false;
-    let returnItems = finalItems;
-    if (hasTemporal && finalItems.length === 0 && fallbackQdrantPromise) {
-      const fallbackQdrantResults = await fallbackQdrantPromise;
-      const fallbackFilters = { ...effectiveFilters };
-      delete fallbackFilters.from;
-      delete fallbackFilters.to;
-      const fallbackIds = new Set(fallbackQdrantResults.map((p) => p.id));
-      const fallbackBatch = await this.fetchMemoryRowsBatch([...fallbackIds]);
-      const fallbackScores = new Map<string, number>();
-      for (const p of fallbackQdrantResults) fallbackScores.set(p.id, p.score);
-      const fallbackScoredCandidates: typeof scoredCandidates = [];
-      for (const [fid, frow] of fallbackBatch) {
-        if (fallbackFilters.sourceType && frow.memory.sourceType !== fallbackFilters.sourceType)
-          continue;
-        if (
-          fallbackFilters.connectorType &&
-          frow.memory.connectorType !== fallbackFilters.connectorType
-        )
-          continue;
-        const { score, weights } = this.computeWeights(
-          fallbackScores.get(fid) ?? 0,
-          0,
-          frow.memory,
-          nlq.intent,
-        );
-        fallbackScoredCandidates.push({ id: fid, row: frow, score, weights });
-      }
-      const topFallback = fallbackScoredCandidates
-        .filter((c) => c.score >= MIN_SCORE)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, effectiveLimit);
-      returnItems = topFallback.map((c) =>
-        this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey),
-      );
-      temporalFallback = true;
-    }
 
     // Fire afterSearch hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterSearch', {
@@ -865,13 +689,12 @@ export class MemoryService {
 
     return {
       items: returnItems,
-      fallback: !hasExactMatches,
+      fallback: false,
       resolvedEntities: hasContacts
         ? { contacts: resolvedContacts, topicWords, topicMatchCount }
         : undefined,
       parsed: {
         temporal: nlq.temporal,
-        temporalFallback,
         entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
         intent: nlq.intent,
         cleanQuery: nlq.cleanQuery,
@@ -1090,7 +913,7 @@ export class MemoryService {
       });
     });
     try {
-      await this.qdrant.remove(id);
+      await this.typesense.remove(id);
     } catch {
       // Qdrant removal is best-effort
     }
@@ -1422,7 +1245,7 @@ export class MemoryService {
       const preferredIdx = c.preferredAvatarIndex ?? 0;
       const preferred = avatars[preferredIdx] ?? avatars[0];
       // Use data URI directly if available, fall back to proxy for legacy URL-based avatars
-      const avatarUrl = preferred
+      const avatarUrl = preferred?.url
         ? preferred.url.startsWith('data:')
           ? preferred.url
           : `/api/people/${c.id}/avatar`
@@ -1895,7 +1718,7 @@ export class MemoryService {
     }
 
     // 2. Vector similarity (Qdrant recommend)
-    const recommended = await this.qdrant.recommend(memoryId, limit);
+    const recommended = await this.typesense.recommend(memoryId, limit);
     for (const r of recommended) linkedIds.add(r.id);
 
     // 3. Same-contact memories (shared participants)

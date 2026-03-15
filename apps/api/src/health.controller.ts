@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import Redis from 'ioredis';
 import { Public } from './user-auth/decorators/public.decorator';
 import { DbService } from './db/db.service';
-import { QdrantService } from './memory/qdrant.service';
+import { TypesenseService } from './memory/typesense.service';
 import { ConfigService } from './config/config.service';
 
 @ApiTags('System')
@@ -14,7 +14,7 @@ export class HealthController {
 
   constructor(
     private db: DbService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
     private config: ConfigService,
   ) {
     this.redis = new Redis(this.config.redisUrl, {
@@ -26,10 +26,10 @@ export class HealthController {
 
   @Get()
   async getHealth() {
-    const [postgresResult, redisResult, qdrantResult] = await Promise.allSettled([
+    const [postgresResult, redisResult, typesenseResult] = await Promise.allSettled([
       this.probePostgres(),
       this.probeRedis(),
-      this.probeQdrant(),
+      this.probeTypesense(),
     ]);
 
     return {
@@ -37,7 +37,7 @@ export class HealthController {
       services: {
         postgres: { connected: postgresResult.status === 'fulfilled' && postgresResult.value },
         redis: { connected: redisResult.status === 'fulfilled' && redisResult.value },
-        qdrant: { connected: qdrantResult.status === 'fulfilled' && qdrantResult.value },
+        typesense: { connected: typesenseResult.status === 'fulfilled' && typesenseResult.value },
       },
     };
   }
@@ -59,7 +59,7 @@ export class HealthController {
     }
   }
 
-  private async probeQdrant(): Promise<boolean> {
-    return this.qdrant.healthCheck();
+  private async probeTypesense(): Promise<boolean> {
+    return this.typesense.healthCheck();
   }
 }

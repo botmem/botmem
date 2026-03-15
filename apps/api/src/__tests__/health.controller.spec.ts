@@ -25,7 +25,7 @@ const mockPing: ReturnType<typeof vi.fn> = ioredisMock.__mockPing;
 describe('HealthController', () => {
   let controller: HealthController;
   let mockDbService: { healthCheck: ReturnType<typeof vi.fn> };
-  let mockQdrantService: { healthCheck: ReturnType<typeof vi.fn> };
+  let mockTypesenseService: { healthCheck: ReturnType<typeof vi.fn> };
   let mockConfigService: { redisUrl: string };
 
   beforeEach(() => {
@@ -35,7 +35,7 @@ describe('HealthController', () => {
       healthCheck: vi.fn().mockResolvedValue(true),
     };
 
-    mockQdrantService = {
+    mockTypesenseService = {
       healthCheck: vi.fn().mockResolvedValue(true),
     };
 
@@ -43,7 +43,7 @@ describe('HealthController', () => {
       redisUrl: 'redis://localhost:6379',
     };
 
-    controller = new HealthController(mockDbService, mockQdrantService, mockConfigService);
+    controller = new HealthController(mockDbService, mockTypesenseService, mockConfigService);
   });
 
   it('returns all services connected when everything is healthy', async () => {
@@ -54,7 +54,7 @@ describe('HealthController', () => {
     expect(result.status).toBe('ok');
     expect(result.services.postgres.connected).toBe(true);
     expect(result.services.redis.connected).toBe(true);
-    expect(result.services.qdrant.connected).toBe(true);
+    expect(result.services.typesense.connected).toBe(true);
   });
 
   it('returns connected: false for a service that throws during probe', async () => {
@@ -65,12 +65,12 @@ describe('HealthController', () => {
     expect(result.status).toBe('ok');
     expect(result.services.postgres.connected).toBe(true);
     expect(result.services.redis.connected).toBe(false);
-    expect(result.services.qdrant.connected).toBe(true);
+    expect(result.services.typesense.connected).toBe(true);
   });
 
   it('returns 200 with all services down (never throws)', async () => {
     mockDbService.healthCheck.mockRejectedValue(new Error('DB connection failed'));
-    mockQdrantService.healthCheck.mockResolvedValue(false);
+    mockTypesenseService.healthCheck.mockResolvedValue(false);
     mockPing.mockRejectedValue(new Error('Connection refused'));
 
     const result = await controller.getHealth();
@@ -78,15 +78,15 @@ describe('HealthController', () => {
     expect(result.status).toBe('ok');
     expect(result.services.postgres.connected).toBe(false);
     expect(result.services.redis.connected).toBe(false);
-    expect(result.services.qdrant.connected).toBe(false);
+    expect(result.services.typesense.connected).toBe(false);
   });
 
-  it('QdrantService.healthCheck returning false yields connected: false', async () => {
+  it('TypesenseService.healthCheck returning false yields connected: false', async () => {
     mockPing.mockResolvedValue('PONG');
-    mockQdrantService.healthCheck.mockResolvedValue(false);
+    mockTypesenseService.healthCheck.mockResolvedValue(false);
 
     const result = await controller.getHealth();
 
-    expect(result.services.qdrant.connected).toBe(false);
+    expect(result.services.typesense.connected).toBe(false);
   });
 });

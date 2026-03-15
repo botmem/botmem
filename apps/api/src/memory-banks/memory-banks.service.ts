@@ -3,14 +3,14 @@ import { eq, and, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { memoryBanks, memories, memoryContacts, memoryLinks } from '../db/schema';
-import { QdrantService } from '../memory/qdrant.service';
+import { TypesenseService } from '../memory/typesense.service';
 
 @Injectable()
 export class MemoryBanksService {
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
-    private qdrant: QdrantService,
+    private typesense: TypesenseService,
   ) {}
 
   /** Decrypt memory bank name */
@@ -112,7 +112,7 @@ export class MemoryBanksService {
         // Remove from Qdrant
         for (const id of batch) {
           try {
-            await this.qdrant.remove(id);
+            await this.typesense.remove(id);
           } catch {
             /* best-effort */
           }

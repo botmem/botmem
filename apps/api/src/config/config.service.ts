@@ -121,8 +121,12 @@ export class ConfigService implements OnModuleInit {
     return process.env.OLLAMA_PASSWORD || '';
   }
 
-  get qdrantUrl(): string {
-    return process.env.QDRANT_URL || 'http://localhost:6333';
+  get typesenseUrl(): string {
+    return process.env.TYPESENSE_URL || 'http://localhost:8108';
+  }
+
+  get typesenseApiKey(): string {
+    return process.env.TYPESENSE_API_KEY || 'botmem-ts-key';
   }
 
   get syncDebugLimit(): number {
