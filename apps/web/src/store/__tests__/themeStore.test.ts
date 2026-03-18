@@ -19,11 +19,12 @@ vi.stubGlobal('localStorage', {
   key: (i: number) => Object.keys(store)[i] ?? null,
 });
 
-// Stub document.documentElement.setAttribute
+// Stub document.documentElement
 const setAttrSpy = vi.fn();
 vi.stubGlobal('document', {
   documentElement: {
     setAttribute: setAttrSpy,
+    classList: { add: vi.fn(), remove: vi.fn() },
   },
 });
 

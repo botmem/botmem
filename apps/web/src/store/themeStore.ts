@@ -16,9 +16,11 @@ function getSystemTheme(): ResolvedTheme {
 }
 
 function applyTheme(resolved: ResolvedTheme) {
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('data-theme', resolved);
-  }
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.classList.add('theme-switching');
+  root.setAttribute('data-theme', resolved);
+  setTimeout(() => root.classList.remove('theme-switching'), 200);
 }
 
 export const useThemeStore = create<ThemeStore>()(
