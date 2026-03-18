@@ -17,11 +17,13 @@ describe('MemoryService', () => {
     rerank: ReturnType<typeof vi.fn>;
     generate: ReturnType<typeof vi.fn>;
   };
-  let qdrantService: {
+  let typesenseService: {
     search: ReturnType<typeof vi.fn>;
+    hybridSearch: ReturnType<typeof vi.fn>;
     ensureCollection: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
+    buildFilterString: ReturnType<typeof vi.fn>;
   };
   let connectorsService: { get: ReturnType<typeof vi.fn> };
   let pluginRegistry: {
@@ -64,11 +66,13 @@ describe('MemoryService', () => {
       generate: vi.fn().mockResolvedValue('generated text'),
     };
 
-    qdrantService = {
+    typesenseService = {
       search: vi.fn().mockResolvedValue([]),
+      hybridSearch: vi.fn().mockResolvedValue({ results: [], facetCounts: [], found: 0 }),
       ensureCollection: vi.fn(),
       upsert: vi.fn(),
       remove: vi.fn(),
+      buildFilterString: vi.fn().mockReturnValue(''),
     };
 
     connectorsService = {
@@ -133,7 +137,7 @@ describe('MemoryService', () => {
     service = new MemoryService(
       makeDbService(mockDb),
       aiService,
-      qdrantService,
+      typesenseService,
       connectorsService,
       pluginRegistry,
       cryptoService,
@@ -153,8 +157,12 @@ describe('MemoryService', () => {
       expect(response.items).toEqual([]);
     });
 
-    it('embeds the query and searches Qdrant', async () => {
-      qdrantService.search.mockResolvedValueOnce([{ id: 'mem-1', score: 0.9 }]);
+    it('embeds the query and searches Typesense', async () => {
+      typesenseService.hybridSearch.mockResolvedValueOnce({
+        results: [{ id: 'mem-1', score: 0.9 }],
+        facetCounts: [],
+        found: 1,
+      });
       // fetchMemoryRowsBatch: batch select
       mockDb.where.mockResolvedValueOnce([
         { memory: fakeMemoryRow, accountIdentifier: 'test@gmail.com' },
@@ -164,7 +172,7 @@ describe('MemoryService', () => {
 
       await service.search('meeting with john');
       expect(aiService.embedQuery).toHaveBeenCalled();
-      expect(qdrantService.search).toHaveBeenCalled();
+      expect(typesenseService.hybridSearch).toHaveBeenCalled();
     });
 
     it('returns empty when user has no accounts', async () => {
@@ -176,7 +184,11 @@ describe('MemoryService', () => {
     });
 
     it('applies source type filter from NLQ', async () => {
-      qdrantService.search.mockResolvedValueOnce([]);
+      typesenseService.hybridSearch.mockResolvedValueOnce({
+        results: [],
+        facetCounts: [],
+        found: 0,
+      });
       mockDb.execute.mockResolvedValueOnce({ rows: [] });
 
       // A query like "emails about project" should detect sourceType
@@ -295,11 +307,11 @@ describe('MemoryService', () => {
   describe('delete', () => {
     it('deletes memory from DB and Qdrant', async () => {
       await service.delete('mem-1');
-      expect(qdrantService.remove).toHaveBeenCalledWith('mem-1');
+      expect(typesenseService.remove).toHaveBeenCalledWith('mem-1');
     });
 
     it('handles Qdrant removal failure gracefully', async () => {
-      qdrantService.remove.mockRejectedValueOnce(new Error('Qdrant down'));
+      typesenseService.remove.mockRejectedValueOnce(new Error('Qdrant down'));
       // Should not throw
       await service.delete('mem-1');
     });
