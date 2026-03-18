@@ -73,6 +73,7 @@ describe('MemoryService', () => {
       upsert: vi.fn(),
       remove: vi.fn(),
       buildFilterString: vi.fn().mockReturnValue(''),
+      buildTypesenseFilter: vi.fn().mockReturnValue(''),
     };
 
     connectorsService = {
