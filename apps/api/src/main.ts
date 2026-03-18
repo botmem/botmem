@@ -1,4 +1,11 @@
 import 'reflect-metadata';
+import * as net from 'net';
+
+// Disable Happy Eyeballs (autoSelectFamily) — Node 20+ tries IPv6 first,
+// but on hosts without IPv6 the fallback to IPv4 can silently timeout instead
+// of falling back. This breaks outbound HTTPS to googleapis.com etc.
+net.setDefaultAutoSelectFamily(false);
+
 import * as dotenv from 'dotenv';
 import { join, resolve } from 'path';
 
