@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  BadRequestException,
-  UnauthorizedException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { createHash } from 'crypto';
 
 // Mock ioredis
@@ -26,12 +22,12 @@ vi.mock('ioredis', () => ({
   default: vi.fn(() => redisMock),
 }));
 
-vi.mock('bcrypt', () => ({
+vi.mock('bcryptjs', () => ({
   compare: vi.fn(),
 }));
 
 import { CliAuthService } from '../cli-auth.service';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 function makeConfig() {
   return {

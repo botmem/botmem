@@ -97,7 +97,7 @@ describe('OAuthController.authorizeComplete', () => {
   it('authenticates with email/password when no Bearer token', async () => {
     const req = makeReq();
     // Mock bcrypt at module level
-    vi.mock('bcrypt', () => ({ compare: vi.fn().mockResolvedValue(true) }));
+    vi.mock('bcryptjs', () => ({ compare: vi.fn().mockResolvedValue(true) }));
 
     const result = await controller.authorizeComplete(req, {
       ...baseBody,

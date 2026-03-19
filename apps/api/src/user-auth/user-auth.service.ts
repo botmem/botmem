@@ -8,8 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import * as bcrypt from 'bcrypt';
-import * as argon2 from 'argon2';
+import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { UsersService } from './users.service';
 import { ConfigService } from '../config/config.service';
@@ -110,41 +109,8 @@ export class UserAuthService {
     const dek = await this.userKeyService.getDek(user.id);
 
     if (!user.recoveryKeyHash) {
-      // Pre-migration user: generate recovery key, enqueue re-encryption
-      const newDek = this.userKeyService.generateDek();
-      recoveryKey = newDek.toString('base64');
-      const recoveryKeyHash = this.hashRecoveryKey(recoveryKey);
-      await this.usersService.updateRecoveryKeyHash(user.id, recoveryKeyHash);
-      await this.userKeyService.storeDek(user.id, newDek);
-
-      // Bump key version and enqueue migration from old encryption to new DEK
-      const oldKeyVersion = user.keyVersion ?? 1;
-      const newKeyVersion = await this.usersService.incrementKeyVersion(user.id);
-
-      // Derive old password-based key for re-encryption (kv>=1 memories)
-      let oldKeyBase64 = '';
-      if (oldKeyVersion >= 1 && user.encryptionSalt) {
-        const salt = Buffer.from(user.encryptionSalt, 'base64');
-        const oldKey = (await argon2.hash(password, {
-          type: argon2.argon2id,
-          raw: true,
-          hashLength: 32,
-          salt,
-          timeCost: 3,
-          memoryCost: 19456,
-          parallelism: 1,
-        })) as Buffer;
-        oldKeyBase64 = oldKey.toString('base64');
-      }
-      await this.reencryptQueue.add('reencrypt-memories', {
-        userId: user.id,
-        oldKey: oldKeyBase64,
-        newKey: newDek.toString('base64'),
-        newKeyVersion,
-      });
-      this.logger.log(
-        `Migrated user ${user.id} to recovery key (kv ${oldKeyVersion} → ${newKeyVersion})`,
-      );
+      // Pre-recovery-key user — should not exist after DB wipe (2026-03-09)
+      throw new BadRequestException('Account missing recovery key. Please contact support.');
     } else if (!dek) {
       needsRecoveryKey = true;
     }

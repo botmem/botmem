@@ -10,11 +10,11 @@ import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 import { UserKeyService } from '../../crypto/user-key.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { getQueueToken } from '@nestjs/bullmq';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 // Mock bcrypt for faster tests
-vi.mock('bcrypt', async () => {
-  const actual = await vi.importActual<typeof import('bcrypt')>('bcrypt');
+vi.mock('bcryptjs', async () => {
+  const actual = await vi.importActual<typeof import('bcryptjs')>('bcryptjs');
   return {
     ...actual,
     hash: vi.fn().mockResolvedValue('$2b$12$hashed'),
@@ -34,6 +34,7 @@ describe('UserAuthService', () => {
     passwordHash: '$2b$12$hashed',
     name: 'Test User',
     onboarded: false,
+    recoveryKeyHash: 'abc123hash',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   };

@@ -12,7 +12,7 @@ import { ConfigService } from '../config/config.service';
 import { UserAuthService } from './user-auth.service';
 import { UsersService } from './users.service';
 import { UserKeyService } from '../crypto/user-key.service';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 const CODE_TTL_SECONDS = 600; // 10 minutes
 const SESSION_TTL_SECONDS = 600; // 10 minutes
