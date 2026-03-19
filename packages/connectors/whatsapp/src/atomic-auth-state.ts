@@ -22,8 +22,14 @@ const fixFileName = (file: string) => file?.replace(/\//g, '__')?.replace(/:/g, 
  */
 async function atomicWrite(filePath: string, data: string): Promise<void> {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
-  await writeFile(tmpPath, data);
-  await rename(tmpPath, filePath);
+  try {
+    await writeFile(tmpPath, data);
+    await rename(tmpPath, filePath);
+  } catch (err: unknown) {
+    // Session directory was deleted — silently ignore
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
 }
 
 /** Set of all in-flight write promises — call flushPendingWrites() before socket close */
