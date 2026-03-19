@@ -38,6 +38,7 @@ export function ConnectorAccountRow({
   const { memoryBanks, activeMemoryBankId } = useMemoryBankStore();
   const defaultBankId = activeMemoryBankId || memoryBanks.find((b) => b.isDefault)?.id;
   const [selectedBankId, setSelectedBankId] = useState(defaultBankId);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const showBankSelector = memoryBanks.length > 1;
 
   return (
@@ -115,9 +116,27 @@ export function ConnectorAccountRow({
           >
             SYNC
           </Button>
-          <Button size="sm" variant="danger" onClick={() => onRemove(account.id)}>
-            X
-          </Button>
+          {confirmDelete ? (
+            <>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  onRemove(account.id);
+                  setConfirmDelete(false);
+                }}
+              >
+                CONFIRM
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setConfirmDelete(false)}>
+                CANCEL
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)}>
+              X
+            </Button>
+          )}
         </div>
       </div>
       {account.lastError && (
