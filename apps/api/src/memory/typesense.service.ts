@@ -72,6 +72,11 @@ export class TypesenseService implements OnModuleInit {
           { name: 'event_time', type: 'string' as const, optional: true },
           { name: 'account_id', type: 'string' as const, optional: true },
           { name: 'memory_bank_id', type: 'string' as const, optional: true },
+          { name: 'factuality_label', type: 'string' as const, facet: true, optional: true },
+          { name: 'people', type: 'string[]' as const, facet: true, optional: true },
+          { name: 'pinned', type: 'bool' as const, facet: true, optional: true },
+          { name: 'importance', type: 'float' as const, optional: true },
+          { name: 'entities_text', type: 'string' as const, optional: true },
           { name: 'embedding', type: 'float[]' as const, num_dim: vectorSize },
         ],
       });
@@ -85,10 +90,12 @@ export class TypesenseService implements OnModuleInit {
     payload: Record<string, unknown>,
     retries = 2,
   ): Promise<void> {
+    const flat = this.flattenPayload(payload);
     const doc: Record<string, unknown> = {
       id: memoryId,
       embedding: vector,
-      ...this.flattenPayload(payload),
+      pinned: false,
+      ...flat,
     };
 
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -314,6 +321,123 @@ export class TypesenseService implements OnModuleInit {
           }
         : {}),
     };
+  }
+
+  async hybridSearch(
+    query: string,
+    vector: number[],
+    limit: number,
+    filterBy?: string,
+    facetBy?: string,
+  ): Promise<{
+    results: ScoredPoint[];
+    facetCounts: Array<{ field_name: string; counts: Array<{ value: string; count: number }> }>;
+    found: number;
+  }> {
+    try {
+      const searchParams: Record<string, unknown> = {
+        searches: [
+          {
+            collection: COLLECTION_NAME,
+            q: query || '*',
+            query_by: 'text,entities_text,people',
+            query_by_weights: '3,1,1',
+            vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:0.5)`,
+            per_page: limit,
+            highlight_full_fields: 'text',
+            highlight_start_tag: '<mark>',
+            highlight_end_tag: '</mark>',
+            exclude_fields: 'embedding',
+            ...(filterBy ? { filter_by: filterBy } : {}),
+            ...(facetBy ? { facet_by: facetBy } : {}),
+          },
+        ],
+      };
+
+      const results = await this.client.multiSearch.perform(
+        searchParams as unknown as Parameters<typeof this.client.multiSearch.perform>[0],
+        {},
+      );
+
+      const firstResult = results.results?.[0] as Record<string, unknown> | undefined;
+      const hits = firstResult?.hits as
+        | Array<{
+            document: Record<string, unknown>;
+            vector_distance?: number;
+            text_match_info?: Record<string, unknown>;
+          }>
+        | undefined;
+
+      const scoredResults: ScoredPoint[] = (hits ?? []).map((hit) => ({
+        id: hit.document.id as string,
+        score: 1 - (hit.vector_distance ?? 0),
+        payload: this.extractPayload(hit.document),
+      }));
+
+      const facetCounts =
+        (firstResult?.facet_counts as Array<{
+          field_name: string;
+          counts: Array<{ value: string; count: number }>;
+        }>) ?? [];
+      const found = (firstResult?.found as number) ?? 0;
+
+      return { results: scoredResults, facetCounts, found };
+    } catch (err: unknown) {
+      const status = (err as { httpStatus?: number }).httpStatus;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (status === 404 || msg.includes('Not Found')) {
+        await this.ensureCollection(vector.length);
+        return { results: [], facetCounts: [], found: 0 };
+      }
+      throw err;
+    }
+  }
+
+  buildFilterString(filters: {
+    connectorTypes?: string[];
+    sourceTypes?: string[];
+    factualityLabels?: string[];
+    personNames?: string[];
+    timeRange?: { from?: string; to?: string };
+    pinned?: boolean;
+    accountIds?: string[];
+    memoryBankId?: string;
+    memoryBankIds?: string[];
+  }): string {
+    const parts: string[] = [];
+
+    if (filters.connectorTypes?.length) {
+      parts.push(`connector_type:[${filters.connectorTypes.join(',')}]`);
+    }
+    if (filters.sourceTypes?.length) {
+      parts.push(`source_type:[${filters.sourceTypes.join(',')}]`);
+    }
+    if (filters.factualityLabels?.length) {
+      parts.push(`factuality_label:[${filters.factualityLabels.join(',')}]`);
+    }
+    if (filters.personNames?.length) {
+      const escaped = filters.personNames.map((n) => '`' + n + '`');
+      parts.push(`people:[${escaped.join(',')}]`);
+    }
+    if (filters.timeRange?.from) {
+      parts.push(`event_time:>=${filters.timeRange.from}`);
+    }
+    if (filters.timeRange?.to) {
+      parts.push(`event_time:<=${filters.timeRange.to}`);
+    }
+    if (filters.pinned === true) {
+      parts.push('pinned:=true');
+    }
+    if (filters.accountIds?.length) {
+      parts.push(`account_id:[${filters.accountIds.join(',')}]`);
+    }
+    if (filters.memoryBankId) {
+      parts.push(`memory_bank_id:=${filters.memoryBankId}`);
+    } else if (filters.memoryBankIds?.length) {
+      parts.push(`memory_bank_id:[${filters.memoryBankIds.join(',')}]`);
+    }
+
+    return parts.join(' && ');
   }
 
   async healthCheck(): Promise<boolean> {
