@@ -233,34 +233,31 @@ jobs:
           ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy versioned image to VPS
+        timeout-minutes: 10
         env:
           IMAGE_TAG: ${{ needs.version.outputs.tag }}
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} << DEPLOY
+          SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
+          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} << DEPLOY
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd /opt/botmem
 
             # Update compose to use the versioned image tag
             sed -i 's|image: ghcr.io/botmem/botmem:.*|image: ghcr.io/botmem/botmem:${IMAGE_TAG}|' docker-compose.prod.yml
 
-            # Remove watchtower if still present
-            if grep -q 'watchtower' docker-compose.prod.yml; then
-              docker compose -f docker-compose.prod.yml stop watchtower 2>/dev/null || true
-              docker rm watchtower 2>/dev/null || true
-            fi
-
             docker compose -f docker-compose.prod.yml pull api
             docker compose -f docker-compose.prod.yml up -d api
-            docker image prune -af
-            docker builder prune -af
+            docker image prune -af --filter "until=24h"
             echo "Deployed image: ghcr.io/botmem/botmem:${IMAGE_TAG}"
           DEPLOY
 
       - name: Deploy docs to VPS
         if: steps.docs-check.outputs.changed == 'true'
+        timeout-minutes: 5
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
+          SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
+          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
+          scp $SSH_OPTS -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
 
       - name: Validate deployment
         env:
