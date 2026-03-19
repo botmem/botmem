@@ -24,6 +24,8 @@ export function SearchHeader({
         <input
           ref={inputRef}
           type="text"
+          id="search-memories"
+          name="search-memories"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={(e) => {

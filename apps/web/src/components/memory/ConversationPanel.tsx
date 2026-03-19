@@ -87,6 +87,8 @@ export function ConversationPanel({
       <form onSubmit={handleSubmit} className="border-t-2 border-nb-border p-3">
         <input
           type="text"
+          id="conversation-input"
+          name="conversation-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="ASK A FOLLOW-UP..."

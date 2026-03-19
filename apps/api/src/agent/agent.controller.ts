@@ -11,6 +11,7 @@ import {
   ParseIntPipe,
 } from '@nestjs/common';
 import { AgentService } from './agent.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -32,7 +33,10 @@ function ok<T>(data: T, meta?: { queryTime: number; resultCount: number; sources
 @ApiBearerAuth()
 @Controller('agent')
 export class AgentController {
-  constructor(private readonly agentService: AgentService) {}
+  constructor(
+    private readonly agentService: AgentService,
+    private readonly analytics: AnalyticsService,
+  ) {}
 
   /** Natural language memory search with enriched results. */
   @ReadOnly()
@@ -48,6 +52,16 @@ export class AgentController {
     });
 
     const sources = [...new Set(result.results.map((r) => r.connectorType))];
+    this.analytics.capture(
+      'agent_ask',
+      {
+        query_length: dto.query.length,
+        result_count: result.results.length,
+        query_time_ms: Date.now() - start,
+        sources,
+      },
+      user.id,
+    );
     return ok(result, {
       queryTime: Date.now() - start,
       resultCount: result.results.length,
@@ -89,6 +103,9 @@ export class AgentController {
   async remember(@Body() dto: RememberDto) {
     const start = Date.now();
     const result = await this.agentService.remember(dto.text, dto.metadata);
+    this.analytics.capture('agent_remember', {
+      text_length: dto.text.length,
+    });
     return ok(result, {
       queryTime: Date.now() - start,
       resultCount: 1,
@@ -137,6 +154,15 @@ export class AgentController {
   async summarize(@CurrentUser() user: { id: string }, @Body() dto: SummarizeDto) {
     const start = Date.now();
     const result = await this.agentService.summarize(dto.query, dto.maxResults, user.id);
+    this.analytics.capture(
+      'agent_summarize',
+      {
+        query_length: dto.query.length,
+        result_count: result.memories.length,
+        query_time_ms: Date.now() - start,
+      },
+      user.id,
+    );
 
     const sources = [...new Set(result.memories.map((r) => r.connectorType))];
     return ok(result, {

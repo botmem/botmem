@@ -1,3 +1,6 @@
+// OTel must be loaded before ANY other imports to patch http/express/pg
+import './tracing/otel';
+
 import 'reflect-metadata';
 import * as net from 'net';
 

@@ -44,6 +44,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[clean worker] ${err.message}`));
+    this.worker.on('failed', (job, err) => this.onJobFailed(job, err));
     const concurrency = parseInt(await this.settingsService.get('clean_concurrency'), 10) || 32;
     this.worker.concurrency = concurrency;
     this.settingsService.onChange((key, value) => {
@@ -54,6 +55,38 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
 
     // Migrate jobs from the old monolithic 'memory' queue to 'clean'
     await this.migrateOldMemoryQueue();
+  }
+
+  private async onJobFailed(job: Job | undefined, err: Error) {
+    if (!job) return;
+    const { rawEventId } = job.data;
+    const mid = rawEventId?.slice(0, 8) || '?';
+    const isLastAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
+    if (!isLastAttempt) return;
+
+    // Look up parent job and connector info for logging
+    try {
+      const rows = await this.dbService.db
+        .select({
+          jobId: rawEvents.jobId,
+          connectorType: rawEvents.connectorType,
+          accountId: rawEvents.accountId,
+        })
+        .from(rawEvents)
+        .where(eq(rawEvents.id, rawEventId));
+      const raw = rows[0];
+      if (raw) {
+        this.addLog(
+          raw.connectorType,
+          raw.accountId,
+          'error',
+          `[clean:failed] ${mid} exhausted ${job.attemptsMade} retries: ${err.message}`,
+          raw.jobId,
+        );
+      }
+    } catch {
+      this.logger.warn(`[clean:failed] ${mid}: ${err.message}`);
+    }
   }
 
   private async migrateOldMemoryQueue() {
@@ -119,7 +152,11 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     const connector = this.connectors.get(rawEvent.connectorType);
 
     // Clean
-    const ctx = await this.buildPipelineContext(rawEvent.accountId, rawEvent.connectorType);
+    const ctx = await this.buildPipelineContext(
+      rawEvent.accountId,
+      rawEvent.connectorType,
+      parentJobId,
+    );
     const pipelineClean = connector.manifest.pipeline?.clean !== false;
 
     let text = event.content?.text || '';
@@ -175,6 +212,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         rawEvent.accountId,
         'info',
         `[clean:contact-only] ${mid} — resolving contact without creating memory`,
+        parentJobId,
       );
       try {
         const embedResult = await connector.embed(event, text, ctx);
@@ -234,6 +272,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         rawEvent.accountId,
         'info',
         `[clean:dedup] ${mid} — skipping duplicate source_id ${event.sourceId.slice(0, 30)}`,
+        parentJobId,
       );
       await this.advanceAndComplete(parentJobId);
       return;
@@ -247,6 +286,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
         rawEvent.accountId,
         'info',
         `[clean:skip] ${mid} — pipeline.embed=false`,
+        parentJobId,
       );
       await this.advanceAndComplete(parentJobId);
       return;
@@ -302,6 +342,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
   private async buildPipelineContext(
     accountId: string,
     connectorType: string,
+    jobId?: string | null,
   ): Promise<PipelineContext> {
     let auth: Record<string, unknown> = {};
     try {
@@ -311,17 +352,24 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
       /* empty */
     }
     const logger: ConnectorLogger = {
-      info: (msg) => this.addLog(connectorType, accountId, 'info', msg),
-      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg),
-      error: (msg) => this.addLog(connectorType, accountId, 'error', msg),
-      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg),
+      info: (msg) => this.addLog(connectorType, accountId, 'info', msg, jobId),
+      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg, jobId),
+      error: (msg) => this.addLog(connectorType, accountId, 'error', msg, jobId),
+      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg, jobId),
     };
     return { accountId, auth, logger };
   }
 
-  private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
+  private addLog(
+    connectorType: string,
+    accountId: string | null,
+    level: string,
+    message: string,
+    jobId?: string | null,
+  ) {
     const stage = 'clean';
     this.logsService.add({
+      jobId: jobId ?? undefined,
       connectorType,
       accountId: accountId ?? undefined,
       stage,
@@ -329,6 +377,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
       message,
     });
     this.events.emitToChannel('logs', 'log', {
+      jobId: jobId ?? undefined,
       connectorType,
       accountId,
       stage,

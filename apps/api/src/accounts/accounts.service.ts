@@ -4,6 +4,7 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { TypesenseService } from '../memory/typesense.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { accounts, jobs, rawEvents, memories, memoryLinks, memoryContacts } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
 
@@ -16,6 +17,7 @@ export class AccountsService {
     private crypto: CryptoService,
     private connectors: ConnectorsService,
     private typesense: TypesenseService,
+    private analytics: AnalyticsService,
   ) {}
 
   /** Decrypt authContext and identifier on an account row */
@@ -50,6 +52,13 @@ export class AccountsService {
         updatedAt: now,
       });
     });
+    this.analytics.capture(
+      'account_created',
+      {
+        connector_type: data.connectorType,
+      },
+      data.userId,
+    );
     return this.getById(id);
   }
 
@@ -161,6 +170,15 @@ export class AccountsService {
       await db.delete(jobs).where(eq(jobs.accountId, id));
       await db.delete(accounts).where(eq(accounts.id, id));
     });
+
+    this.analytics.capture(
+      'account_deleted',
+      {
+        connector_type: account.connectorType,
+        memories_deleted: memoryIds.length,
+      },
+      account.userId ?? undefined,
+    );
 
     // Clean up Typesense documents outside the transaction (best-effort)
     if (memoryIds.length > 0) {

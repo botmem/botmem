@@ -71,6 +71,8 @@ export function ConnectorAccountRow({
           <Badge color={statusColors[account.status]}>{account.status}</Badge>
           {showBankSelector && (
             <select
+              id="sync-memory-bank"
+              name="sync-memory-bank"
               value={selectedBankId || ''}
               onChange={(e) => setSelectedBankId(e.target.value || undefined)}
               aria-label="Select memory bank"
@@ -94,6 +96,8 @@ export function ConnectorAccountRow({
             </Button>
           )}
           <select
+            id="sync-schedule"
+            name="sync-schedule"
             value={account.schedule}
             onChange={(e) =>
               useConnectorStore

@@ -6,8 +6,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, className, id, ...props }, ref) => {
+  ({ label, className, id, name, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+    const inputName = name || inputId;
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
@@ -21,6 +22,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           id={inputId}
+          name={inputName}
           className={cn(
             'border-3 border-nb-border px-4 py-3 font-mono bg-nb-surface text-nb-text min-h-[44px]',
             'focus:outline-none focus:border-nb-lime focus:shadow-nb-sm',

@@ -42,6 +42,8 @@ export function ReauthModal({ open, onClose }: ReauthModalProps) {
       </p>
       <form onSubmit={handleSubmit}>
         <textarea
+          id="recovery-key-input"
+          name="recovery-key-input"
           data-ph-mask
           value={recoveryKey}
           onChange={(e) => setRecoveryKey(e.target.value)}

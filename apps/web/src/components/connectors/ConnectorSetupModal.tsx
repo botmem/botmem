@@ -671,6 +671,7 @@ function FormView({
             <Input
               key={field.name}
               label={field.label}
+              name={field.name}
               placeholder={field.placeholder}
               type={field.type === 'string' ? 'text' : field.type}
               value={state.values[field.name] || ''}

@@ -190,6 +190,8 @@ export function SettingsPage() {
                       </div>
                       <input
                         type="number"
+                        id={`setting-${setting.key}`}
+                        name={`setting-${setting.key}`}
                         min={setting.min}
                         max={setting.max}
                         value={settings[setting.key] ?? setting.default}

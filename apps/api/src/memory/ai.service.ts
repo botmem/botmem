@@ -5,6 +5,7 @@ import { OpenRouterService } from './openrouter.service';
 import { GeminiEmbedService, EmbedPart } from './gemini-embed.service';
 import { AiCacheService } from './ai-cache.service';
 import { RerankService } from './rerank.service';
+import { Traced } from '../tracing/traced.decorator';
 
 /** In-memory LRU cache for query embeddings (avoids re-embedding identical/recent queries) */
 class EmbedLruCache {
@@ -79,6 +80,7 @@ export class AiService {
     }
   }
 
+  @Traced('ai.embed')
   async embed(text: string, retries?: number): Promise<number[]> {
     const model = this.embedModelName;
 
@@ -120,6 +122,7 @@ export class AiService {
     return this.gemini.embedMultimodal(parts, retries);
   }
 
+  @Traced('ai.generate')
   async generate(
     prompt: string,
     images?: string[],

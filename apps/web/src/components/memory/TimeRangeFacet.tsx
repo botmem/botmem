@@ -15,6 +15,7 @@ export function TimeRangeFacet({ from, to, onChange }: TimeRangeFacetProps) {
         </label>
         <input
           id="time-range-from"
+          name="time-range-from"
           type="date"
           value={from ? from.slice(0, 10) : ''}
           onChange={(e) =>
@@ -29,6 +30,7 @@ export function TimeRangeFacet({ from, to, onChange }: TimeRangeFacetProps) {
         </label>
         <input
           id="time-range-to"
+          name="time-range-to"
           type="date"
           value={to ? to.slice(0, 10) : ''}
           onChange={(e) =>

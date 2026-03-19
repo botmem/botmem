@@ -8,6 +8,7 @@ import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
+import { Traced } from '../tracing/traced.decorator';
 import {
   memories,
   memoryLinks,
@@ -485,6 +486,7 @@ export class MemoryService {
     return { contacts: resolved, topicWords, contactIds };
   }
 
+  @Traced('memory.search')
   async search(
     query: string,
     filters?: SearchFilters,
@@ -813,6 +815,7 @@ export class MemoryService {
     };
   }
 
+  @Traced('memory.ask')
   async ask(
     query: string,
     conversationId?: string,

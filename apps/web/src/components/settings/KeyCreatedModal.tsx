@@ -33,6 +33,8 @@ export function KeyCreatedModal({ open, onClose, apiKey }: KeyCreatedModalProps)
           <div className="flex items-center gap-2">
             <input
               type="text"
+              id="api-key-value"
+              name="api-key-value"
               readOnly
               value={apiKey}
               className="flex-1 font-mono text-sm text-nb-text bg-transparent border-none outline-none select-all"

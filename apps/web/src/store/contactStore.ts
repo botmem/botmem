@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { trackEvent } from '../lib/posthog';
 import type { ApiContact } from '../lib/api';
 
 interface Contact {
@@ -137,6 +138,7 @@ export const useContactStore = create<ContactState>((set, get) => ({
     try {
       const results = await api.searchContacts(query);
       const contacts = results.map(parseContact);
+      trackEvent('contact_search', { query_length: query.length, result_count: contacts.length });
       set({ contacts, total: contacts.length, loading: false });
     } catch (err) {
       console.error('Failed to search contacts:', err);
@@ -191,6 +193,7 @@ export const useContactStore = create<ContactState>((set, get) => ({
   },
 
   mergeContacts: async (targetId, sourceId) => {
+    trackEvent('contact_merge');
     // Optimistic update: remove source from contacts list and suggestion from suggestions
     set((state) => ({
       contacts: state.contacts.filter((c) => c.id !== sourceId),
@@ -217,6 +220,7 @@ export const useContactStore = create<ContactState>((set, get) => ({
   deleteContact: async (id) => {
     try {
       await api.deleteContact(id);
+      trackEvent('contact_deleted');
       set((state) => ({
         contacts: state.contacts.filter((c) => c.id !== id),
         total: state.total - 1,
@@ -275,6 +279,7 @@ export const useContactStore = create<ContactState>((set, get) => ({
   splitContact: async (contactId, identifierIds) => {
     try {
       await api.splitContact(contactId, identifierIds);
+      trackEvent('contact_split', { identifier_count: identifierIds.length });
       await get().loadContacts();
     } catch (err) {
       console.error('Failed to split contact:', err);

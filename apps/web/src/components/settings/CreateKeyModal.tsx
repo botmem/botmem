@@ -100,6 +100,7 @@ export function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps)
           </label>
           <select
             id="key-expiry"
+            name="key-expiry"
             value={expiryChoice}
             onChange={(e) => setExpiryChoice(e.target.value)}
             className="appearance-none border-3 border-nb-border bg-nb-surface font-mono text-sm uppercase text-nb-text px-4 py-3 w-full focus:outline-none focus:border-nb-lime focus:shadow-nb-sm cursor-pointer bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23888%22%20d%3D%22M6%208L1%203h10z%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_12px_center]"
@@ -124,6 +125,7 @@ export function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps)
             </label>
             <input
               id="key-custom-date"
+              name="key-custom-date"
               type="date"
               value={customDate}
               min={new Date().toISOString().split('T')[0]}
