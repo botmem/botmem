@@ -14,7 +14,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import { Response } from 'express';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { createHash } from 'crypto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../user-auth/decorators/public.decorator';
