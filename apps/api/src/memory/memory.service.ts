@@ -402,7 +402,7 @@ export class MemoryService {
     importance: number;
     trust: number;
   } {
-    const defaults = { semantic: 0.4, recency: 0.25, importance: 0.2, trust: 0.15 };
+    const defaults = { semantic: 0.3, recency: 0.35, importance: 0.2, trust: 0.15 };
     try {
       const w = this.connectors.get(connectorType).manifest.weights;
       return {
