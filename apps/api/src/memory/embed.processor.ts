@@ -204,7 +204,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     // --- Resolve contacts (create/find) BEFORE inserting memory ---
     let t0 = Date.now();
     let selfContactId: string | null = null;
-    const resolvedContacts: Array<{ contactId: string; role: string }> = [];
+    const resolvedContacts: Array<{ contactId: string; role: string; name?: string }> = [];
     try {
       const selfRow = await this.dbService.db
         .select({ value: settings.value })
@@ -276,7 +276,8 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           return null;
         });
         if (contact) {
-          resolvedContacts.push({ contactId: contact.id, role });
+          const nameIdent = identifiers.find((i) => i.type === 'name');
+          resolvedContacts.push({ contactId: contact.id, role, name: nameIdent?.value });
 
           // Update avatar for Gmail contact events
           if (gmailPhotoUrl) {
@@ -363,25 +364,23 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const embedMs = Date.now() - t0;
 
     t0 = Date.now();
-    await this.typesense.upsert(memoryId, vector, {
+    // Build searchable payload for Typesense (plaintext for BM25 + facets)
+    const peopleNames = resolvedContacts.map((c) => c.name).filter(Boolean) as string[];
+    const qdrantPayload: Record<string, unknown> = {
+      text: truncatedText,
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
       event_time: event.timestamp,
       account_id: rawEvent.accountId,
       memory_bank_id: memoryBankId,
-    });
+      people: peopleNames,
+    };
+    await this.typesense.upsert(memoryId, vector, qdrantPayload);
     const qdrantMs = Date.now() - t0;
 
     // File processing (image → VL model description, document → text extraction, re-embed)
     const hasFile = mergedMetadata.fileUrl || mergedMetadata.fileBase64;
     const fileMime = (mergedMetadata.mimetype as string) || '';
-    const qdrantPayload = {
-      source_type: event.sourceType,
-      connector_type: rawEvent.connectorType,
-      event_time: event.timestamp,
-      account_id: rawEvent.accountId,
-      memory_bank_id: memoryBankId,
-    };
     if (
       hasFile &&
       (fileMime.startsWith('image/') ||
@@ -473,6 +472,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             const reEmbedText =
               currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
             vector = await this.ai.embed(reEmbedText);
+            qdrantPayload.text = reEmbedText;
             await this.typesense.upsert(memoryId, vector, qdrantPayload);
           }
         }

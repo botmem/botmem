@@ -395,6 +395,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
       t0 = Date.now();
       await this.typesense.upsert(memoryId, vector, {
+        text: truncatedText,
         source_type: event.sourceType,
         connector_type: rawEvent.connectorType,
         event_time: event.timestamp,
@@ -434,6 +435,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
               currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
             vector = await this.ai.embed(reEmbedText);
             await this.typesense.upsert(memoryId, vector, {
+              text: reEmbedText,
               source_type: event.sourceType,
               connector_type: rawEvent.connectorType,
               event_time: event.timestamp,
