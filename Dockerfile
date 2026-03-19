@@ -69,7 +69,6 @@ COPY --from=build /app/apps/web/dist apps/web/dist/
 COPY --from=build /app/packages/shared/package.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist/
 COPY --from=build /app/packages/cli/package.json packages/cli/
-COPY --from=build /app/packages/cli/dist packages/cli/dist/
 COPY --from=build /app/packages/connector-sdk/package.json packages/connector-sdk/
 COPY --from=build /app/packages/connector-sdk/dist packages/connector-sdk/dist/
 COPY --from=build /app/packages/connectors/gmail/package.json packages/connectors/gmail/
