@@ -3,6 +3,7 @@ name: Build & Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -17,9 +18,31 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  gate:
+    name: Deployment Gate
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Skip dependabot commits
+        if: github.actor == 'dependabot[bot]'
+        run: |
+          echo "Skipping deploy for dependabot commit — dependabot PRs are merged but not deployed individually."
+          echo "Deploy will happen on the next human push to main."
+          exit 1
+
+      - name: Check for open Dependabot PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OPEN_DEPENDABOT_PRS=$(gh pr list --repo "${{ github.repository }}" --author "app/dependabot" --state open --json number,title --jq 'length')
+          if [ "$OPEN_DEPENDABOT_PRS" -gt 0 ]; then
+            echo "WARNING: $OPEN_DEPENDABOT_PRS open Dependabot PR(s) — merge or close them."
+            gh pr list --repo "${{ github.repository }}" --author "app/dependabot" --state open --json number,title --jq '.[] | "  - PR #\(.number): \(.title)"'
+          fi
+
   version:
     name: Determine Version
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [gate]
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
