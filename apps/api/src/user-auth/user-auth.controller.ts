@@ -1,9 +1,8 @@
-import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, HttpCode } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { UserAuthService } from './user-auth.service';
 import { CliAuthService } from './cli-auth.service';
 import { UsersService } from './users.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -116,7 +115,6 @@ export class UserAuthController {
     return { ok: true };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('recovery-key')
   @HttpCode(200)
@@ -128,7 +126,6 @@ export class UserAuthController {
     return { ok: true };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('change-password')
   @HttpCode(200)
   async changePassword(@CurrentUser() user: { id: string }, @Body() dto: ChangePasswordDto) {
@@ -136,7 +133,6 @@ export class UserAuthController {
     return { ok: true };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('complete-onboarding')
   @HttpCode(200)
   async completeOnboarding(@CurrentUser() user: { id: string }) {
@@ -144,7 +140,6 @@ export class UserAuthController {
     return { ok: true };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('me')
   async me(@CurrentUser() user: { id: string; email: string }) {
     const fullUser = await this.usersService.findById(user.id);
@@ -197,7 +192,6 @@ export class UserAuthController {
     return this.cliAuthService.approve(body);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('cli/approve-with-token')
   @HttpCode(200)
   async cliApproveWithToken(
