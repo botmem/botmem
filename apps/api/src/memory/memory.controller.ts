@@ -30,6 +30,7 @@ import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
 import { AskMemoriesDto } from './dto/ask-memories.dto';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 @ApiTags('Memories')
 @ApiBearerAuth()
@@ -46,6 +47,7 @@ export class MemoryController {
     @InjectQueue('clean') private cleanQueue: Queue,
     @InjectQueue('embed') private embedQueue: Queue,
     @InjectQueue('enrich') private enrichQueue: Queue,
+    private analytics: AnalyticsService,
   ) {}
 
   @Get('stats')
@@ -347,6 +349,18 @@ export class MemoryController {
       dto.memoryBankId,
       user.memoryBankIds,
     );
+    this.analytics.capture(
+      'server_search',
+      {
+        query_length: dto.query.length,
+        result_count: result.items.length,
+        has_filters: !!(dto.connectorTypes?.length || dto.sourceTypes?.length || dto.timeRange),
+        rerank: dto.rerank ?? false,
+        memory_bank_id: dto.memoryBankId,
+      },
+      user.id,
+    );
+
     // Enrich search results with linked people
     if (result.items.length) {
       const peopleMap = await this.memoryService.getPeopleForMemories(
@@ -368,6 +382,15 @@ export class MemoryController {
   ) {
     if (await this.memoryService.needsRecoveryKey(user.id))
       return { answer: '', conversationId: '', citations: [], needsRecoveryKey: true };
+    this.analytics.capture(
+      'server_ask',
+      {
+        query_length: dto.query.length,
+        has_conversation: !!dto.conversationId,
+        memory_bank_id: dto.memoryBankId,
+      },
+      user.id,
+    );
     return this.memoryService.ask(
       dto.query,
       dto.conversationId,

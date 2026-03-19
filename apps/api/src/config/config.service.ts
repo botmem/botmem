@@ -358,6 +358,20 @@ export class ConfigService implements OnModuleInit {
     return 1024;
   }
 
+  // --- OpenTelemetry ---
+
+  get otelEnabled(): boolean {
+    return process.env.OTEL_ENABLED === 'true';
+  }
+
+  get otelExporterEndpoint(): string {
+    return process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+  }
+
+  get otelServiceName(): string {
+    return process.env.OTEL_SERVICE_NAME || 'botmem-api';
+  }
+
   /** Sensible concurrency defaults based on AI backend (local GPU vs cloud API) */
   get aiConcurrency(): { embed: number; enrich: number; memory: number } {
     // Embed concurrency follows embedBackend (cloud APIs can handle high concurrency)

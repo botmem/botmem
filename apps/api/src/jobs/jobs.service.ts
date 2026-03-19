@@ -1,19 +1,25 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { eq, desc, inArray, sql } from 'drizzle-orm';
+import { eq, desc, inArray, sql, and, lt, isNull } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { jobs } from '../db/schema';
 import { TraceContext } from '../tracing/trace.context';
+import { EventsService } from '../events/events.service';
+
+/** How long a job can stay "running" with no progress before being marked stale */
+const STALE_JOB_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 @Injectable()
 export class JobsService {
+  private readonly logger = new Logger(JobsService.name);
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
     @InjectQueue('sync') private syncQueue: Queue,
     private traceContext: TraceContext,
+    private events: EventsService,
   ) {}
 
   /** Decrypt accountIdentifier on a job row */
@@ -198,5 +204,41 @@ export class JobsService {
       await this.dbService.withCurrentUser((db) => db.delete(jobs).where(eq(jobs.id, j.id)));
     }
     return done.length;
+  }
+
+  /**
+   * Find jobs stuck in "running" status for longer than STALE_JOB_THRESHOLD_MS
+   * and mark them as failed. Called periodically from SyncProcessor.onModuleInit.
+   */
+  async reapStaleJobs(): Promise<number> {
+    const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS);
+    const stale = await this.dbService.db
+      .select({
+        id: jobs.id,
+        connectorType: jobs.connectorType,
+        progress: jobs.progress,
+        total: jobs.total,
+      })
+      .from(jobs)
+      .where(and(eq(jobs.status, 'running'), lt(jobs.startedAt, cutoff), isNull(jobs.completedAt)));
+
+    for (const job of stale) {
+      const error = `Job stalled — stuck in "running" for over ${STALE_JOB_THRESHOLD_MS / 3600000}h (progress: ${job.progress}/${job.total})`;
+      await this.dbService.db
+        .update(jobs)
+        .set({ status: 'failed', error, completedAt: new Date() })
+        .where(eq(jobs.id, job.id));
+      this.logger.warn(`[reaper] Marked stale job ${job.id} (${job.connectorType}) as failed`);
+      this.events.emitToChannel(`job:${job.id}`, 'job:complete', {
+        jobId: job.id,
+        status: 'failed',
+      });
+      this.events.emitToChannel('dashboard', 'dashboard:jobs', {
+        trigger: 'job_reaped',
+        jobId: job.id,
+      });
+    }
+
+    return stale.length;
   }
 }

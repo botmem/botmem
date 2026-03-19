@@ -499,6 +499,8 @@ function ContactPickerModal({
     <Modal open={open} onClose={onClose} title="SELECT YOUR IDENTITY">
       <input
         type="text"
+        id="identity-search"
+        name="identity-search"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
         placeholder="Search contacts..."

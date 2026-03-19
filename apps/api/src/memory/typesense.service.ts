@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import Typesense from 'typesense';
 import type { Client as TypesenseClient } from 'typesense';
 import { ConfigService } from '../config/config.service';
+import { Traced } from '../tracing/traced.decorator';
 
 export interface ScoredPoint {
   id: string;
@@ -127,6 +128,7 @@ export class TypesenseService implements OnModuleInit {
     }
   }
 
+  @Traced('typesense.search')
   async search(
     vector: number[],
     limit: number,

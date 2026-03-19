@@ -32,6 +32,7 @@ import {
 import { photoDescriptionPrompt } from './prompts';
 import { normalizeEntities } from './entity-normalizer';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
+import { Traced } from '../tracing/traced.decorator';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
 const MAX_CONTENT_LENGTH = 10_000;
@@ -71,6 +72,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[embed worker] ${err.message}`));
+    this.worker.on('failed', (job, err) => this.onJobFailed(job, err));
     const defaultC = this.config.aiConcurrency.embed;
     const concurrency =
       parseInt(await this.settingsService.get('embed_concurrency'), 10) || defaultC;
@@ -83,6 +85,37 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     });
   }
 
+  private async onJobFailed(job: Job | undefined, err: Error) {
+    if (!job) return;
+    const { rawEventId } = job.data;
+    const mid = rawEventId?.slice(0, 8) || '?';
+    const isLastAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
+    if (!isLastAttempt) return;
+
+    try {
+      const rows = await this.dbService.db
+        .select({
+          jobId: rawEvents.jobId,
+          connectorType: rawEvents.connectorType,
+          accountId: rawEvents.accountId,
+        })
+        .from(rawEvents)
+        .where(eq(rawEvents.id, rawEventId));
+      const raw = rows[0];
+      if (raw) {
+        this.addLog(
+          raw.connectorType,
+          raw.accountId,
+          'error',
+          `[embed:failed] ${mid} exhausted ${job.attemptsMade} retries: ${err.message}`,
+          raw.jobId,
+        );
+      }
+    } catch {
+      this.logger.warn(`[embed:failed] ${mid}: ${err.message}`);
+    }
+  }
+
   async process(job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>) {
     const trace = job.data._trace;
     const traceId = trace?.traceId || generateTraceId();
@@ -90,6 +123,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     return this.traceContext.run({ traceId, spanId }, () => this._process(job));
   }
 
+  @Traced('embed.process')
   private async _process(
     job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>,
   ) {
@@ -128,13 +162,18 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       metadata.attachments = attachments;
     }
 
-    const ctx = await this.buildPipelineContext(rawEvent.accountId, rawEvent.connectorType);
+    const ctx = await this.buildPipelineContext(
+      rawEvent.accountId,
+      rawEvent.connectorType,
+      parentJobId,
+    );
 
     this.addLog(
       rawEvent.connectorType,
       rawEvent.accountId,
       'info',
       `[embed:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+      parentJobId,
     );
 
     const pipelineStart = Date.now();
@@ -423,6 +462,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
                 rawEvent.accountId,
                 'warn',
                 `[embed:vl] ${mid} VL description failed: ${vlErr instanceof Error ? vlErr.message : String(vlErr)}`,
+                parentJobId,
               );
             }
           }
@@ -463,10 +503,16 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             rawEvent.accountId,
             'info',
             `[embed:multimodal] ${mid} ${fileMime} embedded directly via Gemini (${vector.length}d)`,
+            parentJobId,
           );
         } else {
           // Existing path: VL model for images, text extraction for docs, then re-embed
-          const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
+          const fileContent = await this.processFile(
+            memoryId,
+            mergedMetadata,
+            rawEvent,
+            parentJobId,
+          );
           if (fileContent) {
             currentText = fileContent + '\n\n' + currentText;
             const reEmbedText =
@@ -482,6 +528,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           rawEvent.accountId,
           'warn',
           `[embed:file] ${mid} file processing failed: ${err instanceof Error ? err.message : String(err)}`,
+          parentJobId,
         );
       }
     }
@@ -634,6 +681,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       rawEvent.accountId,
       'info',
       `[embed:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`,
+      parentJobId,
     );
 
     this.analytics.capture('embed_complete', {
@@ -713,6 +761,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     memoryId: string,
     metadata: Record<string, unknown>,
     rawEvent: { accountId: string; connectorType: string },
+    jobId?: string | null,
   ): Promise<string | null> {
     const fileBase64: string = (metadata.fileBase64 as string) || '';
     const mimetype: string = (metadata.mimetype as string) || '';
@@ -724,6 +773,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       rawEvent.accountId,
       'info',
       `[embed:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'}) ${fileBase64 ? 'inline' : 'url'}`,
+      jobId,
     );
 
     const fileBuffer = await this.getFileBuffer(metadata, rawEvent);
@@ -944,6 +994,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
   private async buildPipelineContext(
     accountId: string,
     connectorType: string,
+    jobId?: string | null,
   ): Promise<PipelineContext> {
     let auth: Record<string, unknown> = {};
     try {
@@ -956,10 +1007,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       );
     }
     const logger: ConnectorLogger = {
-      info: (msg) => this.addLog(connectorType, accountId, 'info', msg),
-      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg),
-      error: (msg) => this.addLog(connectorType, accountId, 'error', msg),
-      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg),
+      info: (msg) => this.addLog(connectorType, accountId, 'info', msg, jobId),
+      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg, jobId),
+      error: (msg) => this.addLog(connectorType, accountId, 'error', msg, jobId),
+      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg, jobId),
     };
     return { accountId, auth, logger };
   }
@@ -987,9 +1038,16 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
+  private addLog(
+    connectorType: string,
+    accountId: string | null,
+    level: string,
+    message: string,
+    jobId?: string | null,
+  ) {
     const stage = 'embed';
     this.logsService.add({
+      jobId: jobId ?? undefined,
       connectorType,
       accountId: accountId ?? undefined,
       stage,
@@ -997,6 +1055,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       message,
     });
     this.events.emitToChannel('logs', 'log', {
+      jobId: jobId ?? undefined,
       connectorType,
       accountId,
       stage,

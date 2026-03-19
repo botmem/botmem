@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { trackEvent } from '../lib/posthog';
 
 export interface MemoryBank {
   id: string;
@@ -57,6 +58,7 @@ export const useMemoryBankStore = create<MemoryBankState>((set, get) => ({
   createMemoryBank: async (name: string) => {
     try {
       await api.createMemoryBank(name);
+      trackEvent('memory_bank_created');
       await get().loadMemoryBanks();
     } catch (err) {
       console.error('Failed to create memory bank:', err);
@@ -79,6 +81,7 @@ export const useMemoryBankStore = create<MemoryBankState>((set, get) => ({
   deleteMemoryBank: async (id: string) => {
     try {
       await api.deleteMemoryBank(id);
+      trackEvent('memory_bank_deleted');
       const activeId = get().activeMemoryBankId;
       if (activeId === id) {
         set({ activeMemoryBankId: null });
@@ -92,6 +95,7 @@ export const useMemoryBankStore = create<MemoryBankState>((set, get) => ({
   },
 
   setActiveMemoryBank: (id: string | null) => {
+    trackEvent('memory_bank_switched', { bank_id: id });
     set({ activeMemoryBankId: id });
     if (id) {
       localStorage.setItem(STORAGE_KEY, id);

@@ -121,6 +121,9 @@ describe('EnrichProcessor', () => {
       pluginRegistry,
       configService as unknown as import('../../config/config.service').ConfigService,
       traceContext,
+      {
+        capture: vi.fn(),
+      } as unknown as import('../../analytics/analytics.service').AnalyticsService,
     );
   });
 

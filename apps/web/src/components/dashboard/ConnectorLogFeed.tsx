@@ -213,6 +213,8 @@ export function ConnectorLogFeed({
         {/* Search */}
         <input
           type="text"
+          id="log-filter"
+          name="log-filter"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder="filter..."

@@ -156,6 +156,7 @@ export function ContactDetailPanel({
           </label>
           <input
             id="contact-display-name"
+            name="contact-display-name"
             type="text"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
@@ -241,6 +242,8 @@ export function ContactDetailPanel({
             <div className="mt-2 border-2 border-nb-border bg-nb-surface-muted p-2">
               <input
                 type="text"
+                id="merge-contact-search"
+                name="merge-contact-search"
                 value={mergeSearch}
                 onChange={(e) => setMergeSearch(e.target.value)}
                 placeholder="Search person to absorb..."

@@ -13,8 +13,10 @@ import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { rawEvents, memories, accounts, users } from '../db/schema';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
+import { Traced } from '../tracing/traced.decorator';
 
 @Processor('enrich')
 export class EnrichProcessor extends WorkerHost implements OnModuleInit {
@@ -32,12 +34,14 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     private pluginRegistry: PluginRegistry,
     private config: ConfigService,
     private traceContext: TraceContext,
+    private analytics: AnalyticsService,
   ) {
     super();
   }
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[enrich worker] ${err.message}`));
+    this.worker.on('failed', (job, err) => this.onJobFailed(job, err));
     const defaultC = this.config.aiConcurrency.enrich;
     const concurrency =
       parseInt(await this.settingsService.get('enrich_concurrency'), 10) || defaultC;
@@ -47,6 +51,64 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       if (key === 'enrich_concurrency') {
         this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
+    });
+  }
+
+  private async onJobFailed(job: Job | undefined, err: Error) {
+    if (!job) return;
+    const { rawEventId, memoryId } = job.data;
+    const mid = (memoryId || rawEventId)?.slice(0, 8) || '?';
+    const isLastAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
+    if (!isLastAttempt) return;
+
+    try {
+      const rows = await this.dbService.db
+        .select({
+          jobId: rawEvents.jobId,
+          connectorType: rawEvents.connectorType,
+          accountId: rawEvents.accountId,
+        })
+        .from(rawEvents)
+        .where(eq(rawEvents.id, rawEventId));
+      const raw = rows[0];
+      if (raw) {
+        this.addLog(
+          raw.connectorType,
+          raw.accountId,
+          'error',
+          `[enrich:failed] ${mid} exhausted ${job.attemptsMade} retries: ${err.message}`,
+          raw.jobId,
+        );
+      }
+    } catch {
+      this.logger.warn(`[enrich:failed] ${mid}: ${err.message}`);
+    }
+  }
+
+  private addLog(
+    connectorType: string,
+    accountId: string | null,
+    level: string,
+    message: string,
+    jobId?: string | null,
+  ) {
+    const stage = 'enrich';
+    this.logsService.add({
+      jobId: jobId ?? undefined,
+      connectorType,
+      accountId: accountId ?? undefined,
+      stage,
+      level,
+      message,
+    });
+    this.events.emitToChannel('logs', 'log', {
+      jobId: jobId ?? undefined,
+      connectorType,
+      accountId,
+      stage,
+      level,
+      message,
+      timestamp: new Date(),
     });
   }
 
@@ -63,6 +125,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     return this.traceContext.run({ traceId, spanId }, () => this._process(job));
   }
 
+  @Traced('enrich.process')
   private async _process(
     job: Job<{
       rawEventId: string;
@@ -189,6 +252,17 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       'dashboard:memory-stats-changed',
       async () => ({ ts: Date.now() }),
       2000,
+    );
+
+    this.analytics.capture(
+      'enrich_complete',
+      {
+        connector_type: connectorType,
+        source_type: mem?.sourceType,
+        has_entities: !!(mem?.entities && mem.entities !== '[]'),
+        factuality: mem?.factuality,
+      },
+      ownerUserId ?? undefined,
     );
 
     // Advance parent job progress

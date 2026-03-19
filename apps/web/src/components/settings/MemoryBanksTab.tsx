@@ -83,6 +83,8 @@ export function MemoryBanksTab() {
       <div className="flex gap-3 mb-6">
         <input
           type="text"
+          id="new-bank-name"
+          name="new-bank-name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
@@ -120,6 +122,8 @@ export function MemoryBanksTab() {
                   <div className="flex gap-2 items-center">
                     <input
                       type="text"
+                      id="rename-bank"
+                      name="rename-bank"
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={(e) => {

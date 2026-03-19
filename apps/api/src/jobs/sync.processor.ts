@@ -17,6 +17,7 @@ import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
+import { Traced } from '../tracing/traced.decorator';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
 @Processor('sync')
@@ -60,6 +61,20 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         BaseConnector.DEBUG_SYNC_LIMIT = parseInt(value, 10) || 0;
       }
     });
+
+    // Periodic stale job reaper — runs every 10 minutes
+    setInterval(
+      () => {
+        this.jobsService.reapStaleJobs().catch((err) => {
+          this.logger.warn(`[reaper] Failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      },
+      10 * 60 * 1000,
+    );
+    // Run once on startup (after a short delay to let DB initialize)
+    setTimeout(() => {
+      this.jobsService.reapStaleJobs().catch(() => {});
+    }, 30_000);
   }
 
   async process(
@@ -77,6 +92,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     return this.traceContext.run({ traceId, spanId }, () => this._process(job));
   }
 
+  @Traced('sync.process')
   private async _process(
     job: Job<{
       accountId: string;

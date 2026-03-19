@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { trackEvent } from '../lib/posthog';
 
 export type ThemePreference = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
@@ -31,6 +32,7 @@ export const useThemeStore = create<ThemeStore>()(
       setTheme: (theme) => {
         const resolved = theme === 'system' ? getSystemTheme() : theme;
         applyTheme(resolved);
+        trackEvent('theme_changed', { theme, resolved });
         set({ theme, resolvedTheme: resolved });
       },
     }),
