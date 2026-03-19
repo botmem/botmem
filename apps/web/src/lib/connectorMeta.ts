@@ -10,6 +10,7 @@ export const CONNECTOR_ICONS: Record<string, string> = {
   'photos-immich': 'Ph',
   photos: 'Ph',
   locations: 'Lo',
+  telegram: 'Tg',
 };
 
 export const CONNECTOR_LABELS: Record<string, string> = {
@@ -19,6 +20,7 @@ export const CONNECTOR_LABELS: Record<string, string> = {
   imessage: 'iMessage',
   photos: 'Photos',
   locations: 'Locations',
+  telegram: 'Telegram',
 };
 
 export function getConnectorIcon(type: string): string {
