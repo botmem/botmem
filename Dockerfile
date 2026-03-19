@@ -57,8 +57,38 @@ RUN pnpm --filter @botmem/shared run build && \
     pnpm --filter @botmem/api run build
 
 FROM base AS runtime
-WORKDIR /app/apps/api
-COPY --from=build /app /app
+WORKDIR /app
+
+# Copy only what's needed at runtime (not source, tests, or dev deps)
+COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/.npmrc ./
+COPY --from=build /app/apps/api/package.json apps/api/
+COPY --from=build /app/apps/api/dist apps/api/dist/
+COPY --from=build /app/apps/api/drizzle.config.ts apps/api/
+COPY --from=build /app/apps/api/src/db apps/api/src/db/
+COPY --from=build /app/apps/web/dist apps/web/dist/
+COPY --from=build /app/packages/shared/package.json packages/shared/
+COPY --from=build /app/packages/shared/dist packages/shared/dist/
+COPY --from=build /app/packages/cli/package.json packages/cli/
+COPY --from=build /app/packages/cli/dist packages/cli/dist/
+COPY --from=build /app/packages/connector-sdk/package.json packages/connector-sdk/
+COPY --from=build /app/packages/connector-sdk/dist packages/connector-sdk/dist/
+COPY --from=build /app/packages/connectors/gmail/package.json packages/connectors/gmail/
+COPY --from=build /app/packages/connectors/gmail/dist packages/connectors/gmail/dist/
+COPY --from=build /app/packages/connectors/slack/package.json packages/connectors/slack/
+COPY --from=build /app/packages/connectors/slack/dist packages/connectors/slack/dist/
+COPY --from=build /app/packages/connectors/whatsapp/package.json packages/connectors/whatsapp/
+COPY --from=build /app/packages/connectors/whatsapp/dist packages/connectors/whatsapp/dist/
+COPY --from=build /app/packages/connectors/imessage/package.json packages/connectors/imessage/
+COPY --from=build /app/packages/connectors/imessage/dist packages/connectors/imessage/dist/
+COPY --from=build /app/packages/connectors/photos-immich/package.json packages/connectors/photos-immich/
+COPY --from=build /app/packages/connectors/photos-immich/dist packages/connectors/photos-immich/dist/
+COPY --from=build /app/packages/connectors/locations/package.json packages/connectors/locations/
+COPY --from=build /app/packages/connectors/locations/dist packages/connectors/locations/dist/
+
+# Install production deps only (ignore-scripts skips husky/prepare hooks)
+RUN echo "shamefully-hoist=true" > .npmrc && \
+    pnpm install --frozen-lockfile --prod --ignore-scripts 2>/dev/null || pnpm install --prod --ignore-scripts
+
 RUN mkdir -p /data
 EXPOSE 12412
 ENV NODE_ENV=production
