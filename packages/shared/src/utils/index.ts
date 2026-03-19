@@ -53,6 +53,7 @@ export const CONNECTOR_COLORS: Record<string, string> = {
   imessage: '#4ECDC4',
   photos: '#FFE66D',
   locations: '#4CAF50',
+  telegram: '#29B6F6',
   // Source type hub colors
   email: '#FF6B9D',
   message: '#A855F7',

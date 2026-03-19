@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cn, formatTime, formatDate, formatRelative, truncate, CONNECTOR_COLORS } from '../index.js';
+import {
+  cn,
+  formatTime,
+  formatDate,
+  formatRelative,
+  truncate,
+  CONNECTOR_COLORS,
+} from '../index.js';
 
 describe('cn', () => {
   it('merges class names', () => {
@@ -128,6 +135,6 @@ describe('CONNECTOR_COLORS', () => {
   });
 
   it('has all color entries', () => {
-    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(12);
+    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(13);
   });
 });
