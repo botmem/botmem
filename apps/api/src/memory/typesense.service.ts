@@ -94,10 +94,16 @@ export class TypesenseService implements OnModuleInit {
     const doc: Record<string, unknown> = {
       id: memoryId,
       embedding: vector,
-      // Defaults for required fields that may not be in payload
-      pinned: false,
+      // Defaults for all required fields in the Typesense collection schema.
+      // The existing collection has these as non-optional, so every upsert must include them.
+      text: '',
+      connector_type: '',
+      source_type: '',
+      event_time: 0,
       importance: 0.5,
       recall_count: 0,
+      pinned: false,
+      // Payload overrides defaults
       ...flat,
     };
 
