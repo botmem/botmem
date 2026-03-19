@@ -147,13 +147,19 @@ function meReducer(state: MeState, action: MeAction): MeState {
   switch (action.type) {
     case 'FETCH_START':
       return { ...state, loading: true };
-    case 'FETCH_SUCCESS':
+    case 'FETCH_SUCCESS': {
+      const data = action.data;
+      if (data?.identity) {
+        const raw = data.identity.avatars;
+        data.identity.avatars = typeof raw === 'string' ? JSON.parse(raw) : raw || [];
+      }
       return {
         ...state,
-        data: action.data,
+        data,
         loading: false,
-        selectedAvatarIndex: action.data?.identity?.preferredAvatarIndex ?? 0,
+        selectedAvatarIndex: data?.identity?.preferredAvatarIndex ?? 0,
       };
+    }
     case 'FETCH_ERROR':
       return { ...state, loading: false };
     case 'OPEN_PICKER':

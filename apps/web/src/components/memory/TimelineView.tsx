@@ -27,16 +27,16 @@ export function TimelineView({ memories, loading }: TimelineViewProps) {
   }, [memories]);
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Left: Stream + Timeline */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Stream Graph */}
-        <div className="h-36 border-b-2 border-nb-border shrink-0">
-          <StreamGraph memories={memories} className="h-full" />
-        </div>
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Stream Graph — full width, above the list+sidebar row */}
+      <div className="h-36 border-b-2 border-nb-border shrink-0">
+        <StreamGraph memories={memories} className="h-full" />
+      </div>
 
-        {/* Day-grouped Timeline */}
-        <div className="flex-1 overflow-y-auto">
+      {/* Timeline list + Detail sidebar row */}
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        {/* Left: Day-grouped Timeline */}
+        <div className="flex-1 overflow-y-auto min-w-0">
           {loading && (
             <div className="p-4 font-mono text-xs text-nb-muted uppercase">Loading...</div>
           )}
@@ -62,14 +62,14 @@ export function TimelineView({ memories, loading }: TimelineViewProps) {
             </div>
           ))}
         </div>
-      </div>
 
-      {/* Right: Detail Panel */}
-      {selectedMemory && (
-        <aside className="hidden lg:flex w-96 shrink-0">
-          <MemoryDetailSidebar memory={selectedMemory} onClose={() => setSelectedId(null)} />
-        </aside>
-      )}
+        {/* Right: Detail Panel — only beside the timeline list, not the stream graph */}
+        {selectedMemory && (
+          <aside className="hidden lg:flex w-96 shrink-0">
+            <MemoryDetailSidebar memory={selectedMemory} onClose={() => setSelectedId(null)} />
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

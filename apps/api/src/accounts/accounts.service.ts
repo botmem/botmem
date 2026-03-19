@@ -1,8 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { eq, sql, inArray } from 'drizzle-orm';
+import { eq, sql, inArray, or } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { ConnectorsService } from '../connectors/connectors.service';
+import { TypesenseService } from '../memory/typesense.service';
 import { accounts, jobs, rawEvents, memories, memoryLinks, memoryContacts } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
 
@@ -14,6 +15,7 @@ export class AccountsService {
     private dbService: DbService,
     private crypto: CryptoService,
     private connectors: ConnectorsService,
+    private typesense: TypesenseService,
   ) {}
 
   /** Decrypt authContext and identifier on an account row */
@@ -134,19 +136,23 @@ export class AccountsService {
     }
 
     // Wrap all deletes in a transaction for atomicity
+    let memoryIds: string[] = [];
     await this.dbService.withCurrentUser(async (db) => {
       const accountMemories = await db
         .select({ id: memories.id })
         .from(memories)
         .where(eq(memories.accountId, id));
-      const memoryIds = accountMemories.map((m: { id: string }) => m.id);
+      memoryIds = accountMemories.map((m: { id: string }) => m.id);
 
       if (memoryIds.length > 0) {
         for (let i = 0; i < memoryIds.length; i += 500) {
           const batch = memoryIds.slice(i, i + 500);
           await db.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
-          await db.delete(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch));
-          await db.delete(memoryLinks).where(inArray(memoryLinks.dstMemoryId, batch));
+          await db
+            .delete(memoryLinks)
+            .where(
+              or(inArray(memoryLinks.srcMemoryId, batch), inArray(memoryLinks.dstMemoryId, batch)),
+            );
         }
       }
 
@@ -155,5 +161,14 @@ export class AccountsService {
       await db.delete(jobs).where(eq(jobs.accountId, id));
       await db.delete(accounts).where(eq(accounts.id, id));
     });
+
+    // Clean up Typesense documents outside the transaction (best-effort)
+    if (memoryIds.length > 0) {
+      const TYPESENSE_BATCH = 40;
+      for (let i = 0; i < memoryIds.length; i += TYPESENSE_BATCH) {
+        const batch = memoryIds.slice(i, i + TYPESENSE_BATCH);
+        await Promise.allSettled(batch.map((mid) => this.typesense.remove(mid)));
+      }
+    }
   }
 }

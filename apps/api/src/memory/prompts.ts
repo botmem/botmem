@@ -86,14 +86,19 @@ export function entityExtractionPrompt(
       ? `\nSource: ${sourceType || 'unknown'} from ${connectorType || 'unknown'} connector.\n`
       : '';
 
+  const isPhoto = sourceType === 'photo' || sourceType === 'file';
+  const photoRule = isPhoto
+    ? `\nIMPORTANT: This is a photo. Only extract entities from the DESCRIPTION text (what is visible in the photo). Do NOT extract dates, camera models, file names, GPS coordinates, or any technical metadata as entities. Only extract people (from face names or description), locations visible in the scene, and objects/events described.\n`
+    : '';
+
   return `Extract named entities from the following text. Return JSON: {"entities":[{"type":"...","value":"..."}]}
 Types: person, group, organization, location, date, event, product, concept, quantity, language, other.
 Max 20 entities. Only extract specific, named entities — no pronouns, greetings, or generic words.
-${contextLine}
+${contextLine}${photoRule}
 Examples:
 - Email: "Meeting with Sarah at Google HQ on Friday" → [{"type":"person","value":"Sarah"},{"type":"organization","value":"Google"},{"type":"location","value":"Google HQ"},{"type":"date","value":"Friday"}]
 - Chat: "Did you see the new iPhone 16?" → [{"type":"product","value":"iPhone 16"}]
-- Photo metadata: "Location: Paris, France. People: John, Maria" → [{"type":"location","value":"Paris, France"},{"type":"person","value":"John"},{"type":"person","value":"Maria"}]
+- Photo: "Three women standing in a restaurant. People: Sophie, Amelie" → [{"type":"person","value":"Sophie"},{"type":"person","value":"Amelie"},{"type":"location","value":"restaurant"}]
 
 Text: "${truncated}"`;
 }

@@ -29,9 +29,6 @@ const DashboardPage = lazy(() =>
 const ConnectorsPage = lazy(() =>
   import('./pages/ConnectorsPage').then((m) => ({ default: m.ConnectorsPage })),
 );
-const MemoryExplorerPage = lazy(() =>
-  import('./pages/MemoryExplorerPage').then((m) => ({ default: m.MemoryExplorerPage })),
-);
 const ContactsPage = lazy(() =>
   import('./pages/ContactsPage').then((m) => ({ default: m.ContactsPage })),
 );
@@ -179,7 +176,7 @@ export function AppRoutes() {
               <Route path="me" element={<MePage />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="connectors" element={<ConnectorsPage />} />
-              <Route path="memories" element={<MemoryExplorerPage />} />
+              <Route path="memories" element={<Navigate to="/dashboard" replace />} />
               <Route path="people" element={<ContactsPage />} />
               <Route path="contacts" element={<Navigate to="/people" replace />} />
               <Route path="settings" element={<SettingsPage />} />

@@ -113,8 +113,11 @@ function MemoryContext({
 
   // Photo metadata
   if (metadata.people?.length) {
-    const names = metadata.people.map((p) => (typeof p === 'string' ? p : p.name || '')).join(', ');
-    rows.push({ label: 'People', value: names });
+    const names = metadata.people
+      .map((p) => (typeof p === 'string' ? p : p.name || ''))
+      .filter((n) => n.trim().length > 0)
+      .join(', ');
+    if (names) rows.push({ label: 'People', value: names });
   }
   if (metadata.cameraMake || metadata.cameraModel) {
     rows.push({

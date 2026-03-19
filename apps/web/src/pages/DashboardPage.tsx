@@ -44,8 +44,15 @@ export function DashboardPage() {
     fetchMoreLogs,
   } = useJobs();
   const { accounts } = useConnectors();
-  const { graphData, loadGraph, loadFullGraph, graphPreview, graphLoading, memoryStats } =
-    useMemories();
+  const {
+    graphData,
+    loadGraph,
+    loadFullGraph,
+    loadGraphForIds,
+    graphPreview,
+    graphLoading,
+    memoryStats,
+  } = useMemories();
   const { retrying, retryAllFailed } = useJobStore();
   const timelineMemories = useMemoryStore((s) => s.memories);
   const timelineLoading = useMemoryStore((s) => s.loading);
@@ -82,7 +89,17 @@ export function DashboardPage() {
     }
   };
 
-  const graphSearch = useSearch();
+  const graphSearch = useSearch({
+    onResults: (results) => {
+      // Load graph for exactly the search-matched memory IDs
+      const ids = Array.from(results.memoryIds);
+      if (ids.length > 0) loadGraphForIds(ids);
+    },
+    onClear: () => {
+      // Restore preview graph when search is cleared
+      loadGraph();
+    },
+  });
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -182,7 +199,10 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="mt-4 min-h-[20rem] sm:min-h-[35rem]">
+      <div
+        className="mt-4 min-h-[20rem] sm:min-h-[35rem] flex flex-col"
+        style={{ height: activeTab === 'timeline' ? 'calc(100dvh - 10rem)' : undefined }}
+      >
         {activeTab === 'overview' && (
           <>
             {/* Graph FIRST */}

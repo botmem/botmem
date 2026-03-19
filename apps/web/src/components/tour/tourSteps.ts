@@ -48,13 +48,6 @@ export const tourSteps: TourStep[] = [
       'Everyone mentioned across your data, deduplicated and linked. Merge duplicates and explore connections.',
   },
   {
-    page: '/memories',
-    target: '[data-tour="memory-search"]',
-    title: 'Search Memories',
-    description:
-      'Natural language search across all your data sources. Try "meetings last week" or "photos from vacation".',
-  },
-  {
     page: '',
     target: '',
     title: 'Connect Your Tools',

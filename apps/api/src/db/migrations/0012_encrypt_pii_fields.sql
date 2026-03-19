@@ -24,10 +24,21 @@ ALTER TABLE memories ALTER COLUMN factuality SET DEFAULT '{"label":"UNVERIFIED",
 
 -- Create indexes on hash columns
 CREATE INDEX IF NOT EXISTS idx_accounts_identifier_hash ON accounts(identifier_hash);
-CREATE INDEX IF NOT EXISTS idx_person_identifiers_value_hash ON person_identifiers(identifier_value_hash);
-CREATE INDEX IF NOT EXISTS idx_people_display_name_hash ON people(display_name_hash);
 CREATE INDEX IF NOT EXISTS idx_memory_banks_name_hash ON memory_banks(name_hash);
 CREATE INDEX IF NOT EXISTS idx_memories_factuality_label ON memories(factuality_label);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'person_identifiers') THEN
+    CREATE INDEX IF NOT EXISTS idx_person_identifiers_value_hash ON person_identifiers(identifier_value_hash);
+  ELSIF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'contact_identifiers') THEN
+    CREATE INDEX IF NOT EXISTS idx_contact_identifiers_value_hash ON contact_identifiers(identifier_value_hash);
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'people') THEN
+    CREATE INDEX IF NOT EXISTS idx_people_display_name_hash ON people(display_name_hash);
+  ELSIF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'contacts') THEN
+    CREATE INDEX IF NOT EXISTS idx_contacts_display_name_hash ON contacts(display_name_hash);
+  END IF;
+END $$;
 
 -- Drop old plaintext indexes (they become useless after encryption)
 DROP INDEX IF EXISTS idx_contacts_display_name;

@@ -8,6 +8,7 @@ describe('AccountsService', () => {
   let dbService: Record<string, unknown>;
   let crypto: Record<string, ReturnType<typeof vi.fn>>;
   let connectors: Record<string, ReturnType<typeof vi.fn>>;
+  let typesense: Record<string, ReturnType<typeof vi.fn>>;
 
   // Chain-style mock that supports select/from/where/limit/delete/insert/update/set/values
   function createChainDb(results: unknown[] = []) {
@@ -47,7 +48,10 @@ describe('AccountsService', () => {
         revokeAuth: vi.fn().mockResolvedValue(undefined),
       }),
     };
-    service = new AccountsService(dbService, crypto, connectors);
+    typesense = {
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
+    service = new AccountsService(dbService, crypto, connectors, typesense);
   });
 
   describe('create', () => {

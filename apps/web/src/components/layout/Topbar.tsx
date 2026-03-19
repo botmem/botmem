@@ -7,7 +7,6 @@ import { useAuth } from '../../hooks/useAuth';
 const pageTitles: Record<string, string> = {
   '/dashboard': 'DASHBOARD',
   '/connectors': 'CONNECTORS',
-  '/memories': 'MEMORY EXPLORER',
   '/contacts': 'PEOPLE',
   '/settings': 'SETTINGS',
 };

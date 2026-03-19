@@ -176,12 +176,22 @@ export class EnrichService {
       entities = await this.extractEntities(memory.text, memory.sourceType, memory.connectorType);
       entityMs = Date.now() - t0;
 
-      // Default factuality for non-email sources
-      factuality = {
-        label: 'UNVERIFIED',
-        confidence: 0.5,
-        rationale: `default for ${memory.sourceType} — factuality classification skipped`,
-      };
+      // Photos with people detected are FACT (the photo proves they were there)
+      const hasPeople = this.memoryHasPeople(memory.metadata);
+      if ((memory.sourceType === 'photo' || memory.sourceType === 'file') && hasPeople) {
+        factuality = {
+          label: 'FACT',
+          confidence: 0.9,
+          rationale: 'photo with identified people — visual evidence',
+        };
+      } else {
+        // Default factuality for non-email sources
+        factuality = {
+          label: 'UNVERIFIED',
+          confidence: 0.5,
+          rationale: `default for ${memory.sourceType} — factuality classification skipped`,
+        };
+      }
     }
 
     // Deduplicate entities
@@ -248,6 +258,18 @@ export class EnrichService {
       'info',
       `[enrich:done] ${mid} in ${totalMs}ms — entities=${entityMs}ms(${entities.length}) factuality=${factLabel} links=${linkMs}ms`,
     );
+  }
+
+  private memoryHasPeople(metadataJson: string | null): boolean {
+    if (!metadataJson) return false;
+    try {
+      const meta = JSON.parse(metadataJson);
+      const people = meta.people as Array<{ name?: string }> | undefined;
+      if (!people || !Array.isArray(people)) return false;
+      return people.some((p) => p.name && p.name.trim().length > 0);
+    } catch {
+      return false;
+    }
   }
 
   private addLog(connectorType: string, accountId: string | null, level: string, message: string) {

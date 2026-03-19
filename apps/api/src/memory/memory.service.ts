@@ -737,12 +737,20 @@ export class MemoryService {
       const semanticScore = semanticScores.get(id) ?? 0;
       const rerankScore = rerankScores.get(id) ?? 0;
       // Multi-contact boost: memories linked to ALL resolved contacts get strongest boost
+      // For mixed queries (contacts + keywords), use a softer boost so keyword-matching
+      // memories (e.g. messages mentioning "sick") aren't drowned out by photos that
+      // only match the contact names.
       const memContactCount = contactMatchCount.get(id) || 0;
+      const softBoost = !isPureContactQuery && contactIds.length > 0;
       const contactMultiplier =
         memContactCount >= contactIds.length
-          ? 1.6 // matches ALL resolved contacts (e.g. both Amelie AND Nugget)
+          ? softBoost
+            ? 1.2
+            : 1.6 // soft boost for mixed queries, full boost for pure contact queries
           : memContactCount > 0
-            ? 1.3 // matches some resolved contacts
+            ? softBoost
+              ? 1.1
+              : 1.3
             : isPureContactQuery
               ? 0.5 // pure contact query but memory isn't linked to any — demote
               : 1.0;
@@ -1368,7 +1376,7 @@ export class MemoryService {
       return {
         id: m.id,
         label,
-        text: m.sourceType === 'photo' ? '' : m.text,
+        text: m.text,
         type: m.sourceType,
         connectorType: m.connectorType,
         factuality: factLabel,

@@ -23,10 +23,12 @@ function getAvatarImage(url: string): HTMLImageElement | null {
 
 /** Load image via fetch with auth headers (for protected endpoints like thumbnails) */
 function getAuthedImage(url: string, token: string | null): HTMLImageElement | null {
-  const cached = imageCache.get(url);
+  // Include token presence in cache key so images re-fetch when auth becomes available
+  const cacheKey = token ? url : `${url}:noauth`;
+  const cached = imageCache.get(cacheKey);
   if (cached === 'loading' || cached === 'failed') return null;
   if (cached) return cached;
-  imageCache.set(url, 'loading');
+  imageCache.set(cacheKey, 'loading');
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   fetch(url, { headers, credentials: 'include' })
@@ -37,15 +39,15 @@ function getAuthedImage(url: string, token: string | null): HTMLImageElement | n
     .then((blob) => {
       const img = new Image();
       img.onload = () => {
-        imageCache.set(url, img);
+        imageCache.set(cacheKey, img);
       };
       img.onerror = () => {
-        imageCache.set(url, 'failed');
+        imageCache.set(cacheKey, 'failed');
       };
       img.src = URL.createObjectURL(blob);
     })
     .catch(() => {
-      imageCache.set(url, 'failed');
+      imageCache.set(cacheKey, 'failed');
     });
   return null;
 }
@@ -282,7 +284,12 @@ export function renderNode(
   const isTopResult = rankScore === 1;
 
   const focusDimmed = isFocusActive && !isFocusVisible;
-  ctx.globalAlpha = focusDimmed ? DIM_OPACITY : 1;
+  // Search transparency: non-top results are semi-transparent until a node is clicked
+  const searchActive = rc.searchMatchIds !== null && rc.searchMatchIds.size > 0;
+  const hasSelection = rc.selectedNodeId !== null;
+  const isNonTopMatch = searchActive && isDirectMatch && !isTopResult;
+  const searchDimmed = isNonTopMatch && !hasSelection;
+  ctx.globalAlpha = focusDimmed ? DIM_OPACITY : searchDimmed ? 0.55 : 1;
 
   if (isConnector) {
     const color = CONNECTOR_COLORS[node.source] || '#999';
@@ -339,12 +346,6 @@ export function renderNode(
     ctx.moveTo(x - 2, y + 1);
     ctx.lineTo(x + 2, y + 1);
     ctx.stroke();
-    if (globalScale > 1.0 || isDirectMatch) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : FILE_COLOR;
-      ctx.textAlign = 'center';
-      ctx.fillText(truncate(node.label, 20), x, y + size + 12 / globalScale);
-    }
   } else if (isGroup) {
     const radius = 10;
     drawHexagon(ctx, x + 1.5, y + 1.5, radius);
@@ -371,12 +372,6 @@ export function renderNode(
     ctx.beginPath();
     ctx.arc(x, y + 4, 5, Math.PI, 0);
     ctx.fill();
-    if (globalScale > 1.0 || isDirectMatch) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : GROUP_COLOR;
-      ctx.textAlign = 'center';
-      ctx.fillText(truncate(node.label, 20), x, y + radius + 12 / globalScale);
-    }
   } else if (isDevice) {
     const w = 20;
     const h = 14;
@@ -398,20 +393,14 @@ export function renderNode(
     ctx.fillStyle = _tc.surface;
     ctx.fillRect(x - 2, y - 3, 4, 6);
     ctx.fillRect(x - 1.5, y - 2.5, 3, 4);
-    if (globalScale > 1.0 || isDirectMatch) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : DEVICE_COLOR;
-      ctx.textAlign = 'center';
-      ctx.fillText(truncate(node.label, 20), x, y + h / 2 + 12 / globalScale);
-    }
   } else if (isContact) {
     const isSelf = rc.selfNodeId === node.id;
     const contactColor = isSelf ? SELF_COLOR : CONTACT_COLOR;
     const radius = isSelf ? 10 : 8;
-    // Use data URI from node directly, fall back to proxy for legacy URLs
+    // Use data URI from node directly, fall back to authed proxy for all contacts
     const avatarImg = node.avatarUrl?.startsWith('data:')
       ? getAvatarImage(node.avatarUrl)
-      : node.avatarUrl && node.id
+      : node.id
         ? getAuthedImage(`/api/people/${node.id.replace('contact-', '')}/avatar`, rc.authToken)
         : null;
 
@@ -480,7 +469,8 @@ export function renderNode(
     }
   } else if (isPhoto) {
     const baseSize = 8 + (node.importance || 0.5) * 10;
-    const size = rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize;
+    const rankSize = rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize;
+    const size = isTopResult ? rankSize * 1.3 : rankSize;
     const r = 3;
     // Prefer inline data URL (no HTTP request), fall back to authed thumbnail endpoint
     const thumbImg = node.thumbnailDataUrl
@@ -539,15 +529,11 @@ export function renderNode(
       ctx.lineWidth = 1.5;
     }
     ctx.stroke();
-    if (globalScale > 1.5 || isDirectMatch) {
-      ctx.font = `bold ${(isTopResult ? 12 : 10) / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : PHOTO_COLOR;
-      ctx.textAlign = 'center';
-      ctx.fillText(truncate(node.label, 20), x, y + size / 2 + 10 / globalScale);
-    }
+    // No labels for photo nodes — too polluted at scale
   } else {
     const baseSize = 6 + (node.importance || 0.5) * 12;
-    const radius = (rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize) / 2;
+    const rankSize = rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize;
+    const radius = (isTopResult ? rankSize * 1.3 : rankSize) / 2;
     const color = CONNECTOR_COLORS[node.source] || '#999';
 
     if (isTopResult) {
@@ -596,13 +582,7 @@ export function renderNode(
     if (glyph) {
       ctx.drawImage(glyph as CanvasImageSource, x - radius, y - radius, radius * 2, radius * 2);
     }
-    // Label
-    if (globalScale > 1.5 || isDirectMatch) {
-      ctx.font = `bold ${(isTopResult ? 12 : 10) / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : _tc.text;
-      ctx.textAlign = 'center';
-      ctx.fillText(truncate(node.label, 20), x, y + radius + 10 / globalScale);
-    }
+    // No labels for memory nodes — too polluted at scale
   }
 
   ctx.globalAlpha = 1;

@@ -67,26 +67,6 @@ const navItems: { to: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
-    to: '/memories',
-    label: 'MEMORIES',
-    icon: (
-      <svg
-        width={s}
-        height={s}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="8" cy="6" r="4" />
-        <circle cx="5" cy="10" r="3.5" />
-        <circle cx="11" cy="10" r="3.5" />
-      </svg>
-    ),
-  },
-  {
     to: '/people',
     label: 'PEOPLE',
     icon: (

@@ -43,23 +43,27 @@ export const accounts = pgTable(
   ],
 );
 
-export const jobs = pgTable('jobs', {
-  id: text('id').primaryKey(),
-  accountId: text('account_id')
-    .notNull()
-    .references(() => accounts.id),
-  connectorType: text('connector_type').notNull(),
-  accountIdentifier: text('account_identifier'),
-  memoryBankId: text('memory_bank_id'),
-  status: text('status').notNull().default('queued'),
-  priority: integer('priority').notNull().default(0),
-  progress: integer('progress').notNull().default(0),
-  total: integer('total').notNull().default(0),
-  error: text('error'),
-  startedAt: timestamp('started_at', { withTimezone: true }),
-  completedAt: timestamp('completed_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-});
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    connectorType: text('connector_type').notNull(),
+    accountIdentifier: text('account_identifier'),
+    memoryBankId: text('memory_bank_id'),
+    status: text('status').notNull().default('queued'),
+    priority: integer('priority').notNull().default(0),
+    progress: integer('progress').notNull().default(0),
+    total: integer('total').notNull().default(0),
+    error: text('error'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [index('idx_jobs_account_id').on(table.accountId)],
+);
 
 export const connectorCredentials = pgTable('connector_credentials', {
   connectorType: text('connector_type').primaryKey(),
@@ -84,6 +88,7 @@ export const rawEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [
+    index('idx_raw_events_account_id').on(table.accountId),
     index('idx_raw_events_source_id').on(table.sourceId),
     index('idx_raw_events_job_id').on(table.jobId),
   ],
@@ -123,6 +128,7 @@ export const memories = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [
+    index('idx_memories_account_id').on(table.accountId),
     index('idx_memories_pipeline_complete').on(table.pipelineComplete),
     index('idx_memories_embedding_status').on(table.embeddingStatus),
     index('idx_memories_event_time').on(table.eventTime),
