@@ -46,9 +46,9 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
               <line x1="2" y1="14" x2="16" y2="14" />
             </svg>
           </button>
-          <h2 className="font-display text-lg sm:text-2xl font-bold tracking-wider text-nb-text">
+          <h1 className="font-display text-lg sm:text-2xl font-bold tracking-wider text-nb-text">
             {title}
-          </h2>
+          </h1>
         </div>
         <div className="flex items-center gap-3">
           {user && (

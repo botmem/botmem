@@ -20,7 +20,7 @@ export function Shell() {
       {/* Mobile sidebar drawer overlay */}
       {mobileNavOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          className="fixed inset-0 bg-nb-bg/80 z-40 md:hidden"
           role="button"
           tabIndex={0}
           onClick={() => setMobileNavOpen(false)}

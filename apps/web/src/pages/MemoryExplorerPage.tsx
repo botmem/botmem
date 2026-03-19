@@ -1,59 +1,117 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import type { Memory, SourceType } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
-import { MemorySearchBar } from '../components/memory/MemorySearchBar';
-import { SearchResultsBanner } from '../components/memory/SearchResultsBanner';
+import { useMemoryStore } from '../store/memoryStore';
+import { SearchHeader } from '../components/memory/SearchHeader';
 import { MemoryCard } from '../components/memory/MemoryCard';
 import { MemoryDetailPanel } from '../components/memory/MemoryDetailPanel';
-import { useMemories } from '../hooks/useMemories';
+import { SearchResultsBanner } from '../components/memory/SearchResultsBanner';
+import { useSearchKeyboard } from '../hooks/useSearchKeyboard';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
-import { InfiniteScrollList } from '../components/ui/InfiniteScrollList';
 import { ReauthModal } from '../components/ui/ReauthModal';
 
 export function MemoryExplorerPage() {
-  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
-  const lastAutoSelectQuery = useRef('');
-  const {
-    filtered,
-    query,
-    filters,
-    setQuery,
-    setFilters,
-    loading,
-    loadingMore,
-    hasMore,
-    loadMoreMemories,
-    loadMemories,
-    searchFallback,
-    searchPending,
-    resolvedEntities,
-    parsed,
-    memoryStats,
-    totalMemories,
-    error,
-  } = useMemories();
-  const needsRecoveryKey = !!memoryStats?.needsRecoveryKey;
-  const availableSources = useMemo(() => {
-    if (!memoryStats?.bySource) return [];
-    return Object.keys(memoryStats.bySource).filter(
-      (k) => Number(memoryStats.bySource[k]) > 0,
-    ) as SourceType[];
-  }, [memoryStats?.bySource]);
-  const [reauthOpen, setReauthOpen] = useState(false);
+  const query = useMemoryStore((s) => s.query);
+  const setQuery = useMemoryStore((s) => s.setQuery);
+  const memories = useMemoryStore((s) => s.memories);
+  const loading = useMemoryStore((s) => s.loading);
+  const loadingMore = useMemoryStore((s) => s.loadingMore);
+  const hasMore = useMemoryStore((s) => s.hasMore);
+  const searchMemories = useMemoryStore((s) => s.searchMemories);
+  const loadMemories = useMemoryStore((s) => s.loadMemories);
+  const loadMoreMemories = useMemoryStore((s) => s.loadMoreMemories);
+  const totalMemories = useMemoryStore((s) => s.totalMemories);
+  const searchFallback = useMemoryStore((s) => s.searchFallback);
+  const resolvedEntities = useMemoryStore((s) => s.resolvedEntities);
+  const parsed = useMemoryStore((s) => s.parsed);
+  const connectWs = useMemoryStore((s) => s.connectWs);
+  const memoryStats = useMemoryStore((s) => s.memoryStats);
+  const error = useMemoryStore((s) => s.error);
 
-  // Auto-select top result only when a new search completes
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  const needsRecoveryKey = !!memoryStats?.needsRecoveryKey;
+  const selectedMemory = memories.find((m) => m.id === selectedMemoryId) || null;
+
+  useSearchKeyboard({
+    searchInputRef,
+    resultsRef,
+    memories,
+    selectedMemoryId,
+    onSelectMemory: setSelectedMemoryId,
+  });
+
+  // Load memories and connect WS on mount
   useEffect(() => {
-    if (!loading && query.trim() && filtered.length > 0 && lastAutoSelectQuery.current !== query) {
-      lastAutoSelectQuery.current = query;
-      setSelectedMemory(filtered[0]);
+    loadMemories();
+    connectWs();
+  }, [loadMemories, connectWs]);
+
+  // Debounced search: triggers searchMemories 500ms after typing stops
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const trimmed = query.trim();
+    if (!trimmed) {
+      // Empty query — reload all memories
+      loadMemories();
+      return;
     }
-  }, [loading, query, filtered]);
+    if (trimmed.length < 3) return; // wait for at least 3 chars
+
+    debounceRef.current = setTimeout(() => {
+      searchMemories(trimmed);
+    }, 500);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, searchMemories, loadMemories]);
+
+  // Immediate search on Enter
+  const handleSearch = useCallback(() => {
+    const trimmed = query.trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!trimmed) {
+      loadMemories();
+    } else {
+      searchMemories(trimmed);
+    }
+  }, [query, searchMemories, loadMemories]);
+
+  // Auto-select top result on new search (only on large screens where detail panel is inline)
+  const lastAutoSelectQuery = useRef('');
+  useEffect(() => {
+    if (!loading && query.trim() && memories.length > 0 && lastAutoSelectQuery.current !== query) {
+      lastAutoSelectQuery.current = query;
+      // Only auto-select on lg+ viewports — on smaller screens it triggers the full-screen overlay
+      if (window.innerWidth >= 1024) {
+        setSelectedMemoryId(memories[0].id);
+      }
+    }
+  }, [loading, query, memories]);
+
+  // Infinite scroll handler
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLElement>) => {
+      if (loadingMore || !hasMore || query.trim()) return;
+      const el = e.currentTarget;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) {
+        loadMoreMemories();
+      }
+    },
+    [loadingMore, hasMore, query, loadMoreMemories],
+  );
 
   return (
     <PageContainer>
       <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
+
       {needsRecoveryKey && (
         <div className="mt-4 flex flex-col items-center justify-center gap-4 py-20 border-2 border-nb-border/40 bg-nb-surface/30">
           <svg
@@ -81,121 +139,119 @@ export function MemoryExplorerPage() {
           </button>
         </div>
       )}
+
       {!needsRecoveryKey && (
-        <div className="mt-4 flex flex-col h-[calc(100dvh-9rem)] sm:h-[calc(100dvh-10rem)]">
-          <div className="flex flex-col min-h-0 h-full">
-            <div className="flex items-center gap-3" data-tour="memory-search">
-              <div className="flex-1">
-                <MemorySearchBar
+        <div className="flex flex-col h-[calc(100dvh-5rem)]">
+          {/* Search Header */}
+          <SearchHeader
+            query={query}
+            onQueryChange={setQuery}
+            onSearch={handleSearch}
+            loading={loading}
+            resultCount={query.trim() ? memories.length : totalMemories}
+            inputRef={searchInputRef}
+          />
+
+          {/* Main Content */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Center: Results */}
+            <main ref={resultsRef} className="flex-1 overflow-y-auto p-4" onScroll={handleScroll}>
+              {!loading && query.trim() && (
+                <SearchResultsBanner
+                  resolvedEntities={resolvedEntities}
+                  resultCount={memories.length}
+                  searchFallback={searchFallback}
                   query={query}
-                  onQueryChange={setQuery}
-                  sourceFilter={filters.source}
-                  onSourceChange={(s) => setFilters({ source: s })}
-                  resultCount={query.trim() ? filtered.length : totalMemories}
-                  loading={loading}
-                  pending={searchPending}
-                  availableSources={availableSources}
+                  parsed={parsed}
                 />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col md:flex-row gap-4 min-h-0 flex-1">
-              <InfiniteScrollList
-                items={filtered}
-                renderItem={(m, i) => (
-                  <MemoryCard
-                    memory={m}
-                    onClick={() => setSelectedMemory(m)}
-                    selected={selectedMemory?.id === m.id}
-                    topResult={i === 0 && !!query.trim()}
-                  />
-                )}
-                keyExtractor={(m) => m.id}
-                hasMore={hasMore}
-                loading={loading}
-                loadingMore={loadingMore}
-                onLoadMore={loadMoreMemories}
-                disabled={!!query.trim()}
-                className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2"
-                header={
-                  !loading && query.trim() ? (
-                    <SearchResultsBanner
-                      resolvedEntities={resolvedEntities}
-                      resultCount={filtered.length}
-                      searchFallback={searchFallback}
-                      query={query}
-                      parsed={parsed}
-                    />
-                  ) : undefined
-                }
-                loadingSkeleton={<Skeleton variant="card" count={3} />}
-                emptyState={
-                  error ? (
-                    <EmptyState
-                      icon="!"
-                      title="Failed to Load"
-                      subtitle={error}
-                      action={{ label: 'Retry', onClick: loadMemories }}
-                    />
-                  ) : (
-                    <EmptyState
-                      icon="0"
-                      title="No Memories Found"
-                      subtitle="Try adjusting your filters"
-                    />
-                  )
-                }
-              />
-
-              {/* Desktop detail panel */}
-              {selectedMemory && (
-                <div className="hidden md:block md:w-96 md:shrink-0 overflow-y-auto">
-                  <MemoryDetailPanel
-                    memory={selectedMemory}
-                    onClose={() => setSelectedMemory(null)}
-                  />
-                </div>
               )}
 
-              {/* Mobile full-screen detail overlay */}
-              <div
-                className={cn(
-                  'fixed inset-0 z-50 bg-nb-bg overflow-y-auto md:hidden',
-                  selectedMemory ? 'block' : 'hidden',
-                )}
-              >
-                <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
-                  <button
-                    onClick={() => setSelectedMemory(null)}
-                    className="border-2 border-nb-border size-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M10 3L5 8l5 5" />
-                    </svg>
-                  </button>
-                  <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
-                    DETAIL
-                  </span>
-                </div>
-                {selectedMemory && (
-                  <div className="p-4">
-                    <MemoryDetailPanel
-                      memory={selectedMemory}
-                      onClose={() => setSelectedMemory(null)}
-                    />
-                  </div>
-                )}
+              {loading && <Skeleton variant="card" count={3} />}
+
+              {!loading &&
+                memories.length === 0 &&
+                (error ? (
+                  <EmptyState
+                    icon="!"
+                    title="Failed to Load"
+                    subtitle={error}
+                    action={{ label: 'Retry', onClick: loadMemories }}
+                  />
+                ) : !(resolvedEntities || searchFallback) ? (
+                  <EmptyState
+                    icon="0"
+                    title="No Memories Found"
+                    subtitle="Try a different search query"
+                  />
+                ) : null)}
+
+              <div className="flex flex-col gap-3">
+                {memories.map((m, i) => (
+                  <MemoryCard
+                    key={m.id}
+                    memory={m}
+                    onClick={() => setSelectedMemoryId(m.id)}
+                    selected={selectedMemoryId === m.id}
+                    topResult={i === 0 && !!query.trim()}
+                  />
+                ))}
               </div>
+
+              {loadingMore && (
+                <div className="py-4">
+                  <Skeleton variant="card" count={2} />
+                </div>
+              )}
+            </main>
+
+            {/* Right: Detail Panel (shown when memory selected, hidden on mobile) */}
+            {selectedMemory && (
+              <aside className="hidden lg:block w-96 flex-shrink-0 border-l-2 border-nb-border overflow-y-auto">
+                <MemoryDetailPanel
+                  memory={selectedMemory}
+                  onClose={() => setSelectedMemoryId(null)}
+                />
+              </aside>
+            )}
+          </div>
+
+          {/* Mobile full-screen detail overlay */}
+          <div
+            className={cn(
+              'fixed inset-0 z-50 bg-nb-bg overflow-y-auto lg:hidden',
+              selectedMemory ? 'block' : 'hidden',
+            )}
+          >
+            <div className="p-4 border-b-4 border-nb-border flex items-center gap-3 bg-nb-surface">
+              <button
+                onClick={() => setSelectedMemoryId(null)}
+                className="border-2 border-nb-border size-11 flex items-center justify-center hover:bg-nb-lime hover:text-black transition-colors cursor-pointer text-nb-text"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M10 3L5 8l5 5" />
+                </svg>
+              </button>
+              <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
+                DETAIL
+              </span>
             </div>
+            {selectedMemory && (
+              <div className="p-4">
+                <MemoryDetailPanel
+                  memory={selectedMemory}
+                  onClose={() => setSelectedMemoryId(null)}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

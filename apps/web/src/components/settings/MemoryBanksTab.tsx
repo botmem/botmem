@@ -87,6 +87,7 @@ export function MemoryBanksTab() {
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
           placeholder="NEW BANK NAME"
+          aria-label="New memory bank name"
           className="flex-1 border-3 border-nb-border px-4 py-2.5 font-mono bg-nb-surface text-nb-text focus:outline-none focus:border-nb-lime focus:shadow-nb-sm placeholder:text-nb-muted placeholder:uppercase"
         />
         <Button onClick={handleCreate} disabled={creating || !newName.trim()} size="sm">
@@ -128,6 +129,7 @@ export function MemoryBanksTab() {
                           setEditName('');
                         }
                       }}
+                      aria-label="Rename memory bank"
                       className="flex-1 border-3 border-nb-lime px-3 py-1.5 font-mono text-sm bg-nb-surface text-nb-text focus:outline-none"
                     />
                     <button
@@ -153,7 +155,7 @@ export function MemoryBanksTab() {
                         {bank.name}
                       </span>
                       {bank.isDefault === true && (
-                        <span className="font-mono text-[10px] font-bold uppercase tracking-wider bg-nb-lime text-black px-1.5 py-0.5 border-2 border-nb-border">
+                        <span className="font-mono text-[11px] font-bold uppercase tracking-wider bg-nb-lime text-black px-1.5 py-0.5 border-2 border-nb-border">
                           DEFAULT
                         </span>
                       )}

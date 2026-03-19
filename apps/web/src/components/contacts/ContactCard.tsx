@@ -89,13 +89,13 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
               <Badge
                 key={`${ident.type}-${ident.value}`}
                 color={IDENTIFIER_COLORS[ident.type]}
-                className="text-[10px] py-0 leading-tight"
+                className="text-[11px] py-0 leading-tight"
               >
                 {ident.value}
               </Badge>
             ))}
             {extraCount > 0 && (
-              <Badge className="text-[10px] py-0 leading-tight">+{extraCount}</Badge>
+              <Badge className="text-[11px] py-0 leading-tight">+{extraCount}</Badge>
             )}
           </div>
         </div>

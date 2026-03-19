@@ -72,6 +72,7 @@ export function ConnectorAccountRow({
             <select
               value={selectedBankId || ''}
               onChange={(e) => setSelectedBankId(e.target.value || undefined)}
+              aria-label="Select memory bank"
               className="appearance-none border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-text px-2 py-1.5 focus:outline-none focus:border-nb-lime cursor-pointer"
             >
               {memoryBanks.map((bank) => (
@@ -98,6 +99,7 @@ export function ConnectorAccountRow({
                 .getState()
                 .updateSchedule(account.id, e.target.value as SyncSchedule)
             }
+            aria-label="Select sync schedule"
             className="appearance-none border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-text px-2 py-1.5 focus:outline-none focus:border-nb-lime cursor-pointer"
           >
             {SCHEDULE_OPTIONS.map((opt) => (

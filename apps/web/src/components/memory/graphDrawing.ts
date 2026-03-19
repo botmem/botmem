@@ -59,6 +59,34 @@ const DEVICE_COLOR = '#2DD4BF';
 const HIGHLIGHT_COLOR = '#A3E635';
 const DIM_OPACITY = 0.15;
 
+/** Read live CSS custom-property values so the graph matches the active theme. */
+function getThemeColors() {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name: string) => s.getPropertyValue(name).trim();
+  return {
+    bg: v('--color-nb-bg') || '#0D0D0D',
+    surface: v('--color-nb-surface') || '#1A1A1A',
+    border: v('--color-nb-border') || '#333',
+    text: v('--color-nb-text') || '#E0E0E0',
+    muted: v('--color-nb-muted') || '#A0A0A0',
+    accent: v('--color-nb-lime') || '#C4F53A',
+  };
+}
+
+/** Cached theme — refreshed once per animation frame via refreshThemeCache(). */
+let _tc = getThemeColors();
+export function refreshThemeCache() {
+  _tc = getThemeColors();
+}
+
+export const ENTITY_COLORS: Record<string, string> = {
+  person: '#C4F53A',
+  organization: '#0088CC',
+  location: '#5856D6',
+  date: '#E67E00',
+  amount: '#EA4335',
+};
+
 export {
   CONTACT_COLOR,
   SELF_COLOR,
@@ -108,7 +136,7 @@ function getGlyphCanvas(
 
   const cx = s / 2;
   const cy = s / 2;
-  const bg = '#1A1A2E';
+  const bg = 'transparent';
 
   if (source === 'email') {
     const ew = s * 0.55;
@@ -228,6 +256,7 @@ export interface NodeRenderCtx {
   selfNodeId: string | null;
   scoreMap: Map<string, number> | null;
   authToken: string | null;
+  selectedNodeId: string | null;
 }
 
 export function renderNode(
@@ -252,8 +281,8 @@ export function renderNode(
   const rankScore = isDirectMatch ? (rc.scoreMap?.get(node.id) ?? 0.5) : -1;
   const isTopResult = rankScore === 1;
 
-  // No opacity changes — focus mode is the only exception
-  ctx.globalAlpha = isFocusActive && !isFocusVisible ? DIM_OPACITY : 1;
+  const focusDimmed = isFocusActive && !isFocusVisible;
+  ctx.globalAlpha = focusDimmed ? DIM_OPACITY : 1;
 
   if (isConnector) {
     const color = CONNECTOR_COLORS[node.source] || '#999';
@@ -261,7 +290,7 @@ export function renderNode(
     const h = 20;
     const r = 5;
     drawRoundedRect(ctx, x + 2, y + 2, w, h, r);
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillStyle = _tc.border + '30';
     ctx.fill();
     drawRoundedRect(ctx, x, y, w, h, r);
     ctx.fillStyle = color;
@@ -270,12 +299,12 @@ export function renderNode(
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 3;
     } else {
-      ctx.strokeStyle = '#E0E0E0';
+      ctx.strokeStyle = _tc.border;
       ctx.lineWidth = 2;
     }
     ctx.stroke();
     ctx.font = `bold ${8}px IBM Plex Mono`;
-    ctx.fillStyle = '#1A1A2E';
+    ctx.fillStyle = _tc.surface;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(node.label.toUpperCase().slice(0, 6), x, y);
@@ -289,7 +318,7 @@ export function renderNode(
   } else if (isFile) {
     const size = 7;
     drawDiamond(ctx, x + 1.5, y + 1.5, size);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillStyle = _tc.border + '30';
     ctx.fill();
     drawDiamond(ctx, x, y, size);
     ctx.fillStyle = FILE_COLOR;
@@ -298,7 +327,7 @@ export function renderNode(
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 3;
     } else {
-      ctx.strokeStyle = '#E0E0E0';
+      ctx.strokeStyle = _tc.border;
       ctx.lineWidth = 1.5;
     }
     ctx.stroke();
@@ -319,7 +348,7 @@ export function renderNode(
   } else if (isGroup) {
     const radius = 10;
     drawHexagon(ctx, x + 1.5, y + 1.5, radius);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillStyle = _tc.border + '30';
     ctx.fill();
     drawHexagon(ctx, x, y, radius);
     ctx.fillStyle = GROUP_COLOR;
@@ -328,11 +357,11 @@ export function renderNode(
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 3;
     } else {
-      ctx.strokeStyle = '#E0E0E0';
+      ctx.strokeStyle = _tc.border;
       ctx.lineWidth = 2;
     }
     ctx.stroke();
-    ctx.fillStyle = '#1A1A2E';
+    ctx.fillStyle = _tc.surface;
     ctx.beginPath();
     ctx.arc(x - 2.5, y - 1, 2, 0, 2 * Math.PI);
     ctx.fill();
@@ -353,7 +382,7 @@ export function renderNode(
     const h = 14;
     const r = 4;
     drawRoundedRect(ctx, x + 1.5, y + 1.5, w, h, r);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillStyle = _tc.border + '30';
     ctx.fill();
     drawRoundedRect(ctx, x, y, w, h, r);
     ctx.fillStyle = DEVICE_COLOR;
@@ -362,11 +391,11 @@ export function renderNode(
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 3;
     } else {
-      ctx.strokeStyle = '#E0E0E0';
+      ctx.strokeStyle = _tc.border;
       ctx.lineWidth = 1.5;
     }
     ctx.stroke();
-    ctx.fillStyle = '#1A1A2E';
+    ctx.fillStyle = _tc.surface;
     ctx.fillRect(x - 2, y - 3, 4, 6);
     ctx.fillRect(x - 1.5, y - 2.5, 3, 4);
     if (globalScale > 1.0 || isDirectMatch) {
@@ -389,7 +418,7 @@ export function renderNode(
     // Shadow
     ctx.beginPath();
     ctx.arc(x + 1.5, y + 1.5, radius, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillStyle = _tc.border + '30';
     ctx.fill();
 
     if (avatarImg) {
@@ -418,7 +447,7 @@ export function renderNode(
       ctx.strokeStyle = '#FFF';
       ctx.lineWidth = 3;
     } else {
-      ctx.strokeStyle = avatarImg ? 'rgba(255,255,255,0.6)' : '#E0E0E0';
+      ctx.strokeStyle = avatarImg ? _tc.muted : _tc.border;
       ctx.lineWidth = 2;
     }
     ctx.stroke();
@@ -426,14 +455,14 @@ export function renderNode(
     // Inner icon (only when no avatar)
     if (!avatarImg) {
       if (isSelf) {
-        ctx.fillStyle = '#1A1A2E';
+        ctx.fillStyle = _tc.surface;
         ctx.font = `bold 10px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('\u2605', x, y);
         ctx.textBaseline = 'alphabetic';
       } else {
-        ctx.fillStyle = '#1A1A2E';
+        ctx.fillStyle = _tc.surface;
         ctx.beginPath();
         ctx.arc(x, y - 2, 3, 0, 2 * Math.PI);
         ctx.fill();
@@ -464,7 +493,7 @@ export function renderNode(
     }
     // Shadow
     drawRoundedRect(ctx, x + 1.5, y + 1.5, size, size, r);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillStyle = _tc.border + '30';
     ctx.fill();
 
     if (thumbImg) {
@@ -484,7 +513,7 @@ export function renderNode(
       drawRoundedRect(ctx, x, y, size, size, r);
       ctx.fillStyle = PHOTO_COLOR;
       ctx.fill();
-      ctx.fillStyle = '#1A1A2E';
+      ctx.fillStyle = _tc.surface;
       const s = size * 0.22;
       ctx.beginPath();
       ctx.arc(x + s, y - s, s * 0.5, 0, 2 * Math.PI);
@@ -506,7 +535,7 @@ export function renderNode(
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 4;
     } else {
-      ctx.strokeStyle = thumbImg ? 'rgba(255,255,255,0.6)' : '#E0E0E0';
+      ctx.strokeStyle = thumbImg ? _tc.muted : _tc.border;
       ctx.lineWidth = 1.5;
     }
     ctx.stroke();
@@ -518,42 +547,61 @@ export function renderNode(
     }
   } else {
     const baseSize = 6 + (node.importance || 0.5) * 12;
-    const size = rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize;
+    const radius = (rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize) / 2;
     const color = CONNECTOR_COLORS[node.source] || '#999';
+
     if (isTopResult) {
       ctx.shadowColor = HIGHLIGHT_COLOR;
       ctx.shadowBlur = 8 + rankScore * 12;
     }
     // Shadow
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(x - size / 2 + 2, y - size / 2 + 2, size, size);
-    // Fill
+    ctx.beginPath();
+    ctx.arc(x + 1.5, y + 1.5, radius, 0, 2 * Math.PI);
+    ctx.fillStyle = _tc.border + '30';
+    ctx.fill();
+    // Fill circle
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, 2 * Math.PI);
     ctx.fillStyle = color;
-    ctx.fillRect(x - size / 2, y - size / 2, size, size);
+    ctx.fill();
     if (isTopResult) {
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
     }
-    // Border
-    if (isTopResult) {
+    // Selected node glow
+    if (rc.selectedNodeId === node.id) {
+      ctx.shadowColor = HIGHLIGHT_COLOR;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.strokeStyle = HIGHLIGHT_COLOR;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    } else if (isTopResult) {
       ctx.strokeStyle = HIGHLIGHT_COLOR;
       ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.stroke();
     } else {
-      ctx.strokeStyle = '#E0E0E0';
+      ctx.strokeStyle = _tc.border;
       ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.stroke();
     }
-    ctx.strokeRect(x - size / 2, y - size / 2, size, size);
-    // Inner glyph — drawn from pre-rendered offscreen canvas
-    const glyph = getGlyphCanvas(node.source, size, color);
+    // Inner glyph
+    const glyph = getGlyphCanvas(node.source, radius * 2, color);
     if (glyph) {
-      ctx.drawImage(glyph as CanvasImageSource, x - size / 2, y - size / 2, size, size);
+      ctx.drawImage(glyph as CanvasImageSource, x - radius, y - radius, radius * 2, radius * 2);
     }
     // Label
     if (globalScale > 1.5 || isDirectMatch) {
       ctx.font = `bold ${(isTopResult ? 12 : 10) / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : '#F0F0F0';
+      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : _tc.text;
       ctx.textAlign = 'center';
-      ctx.fillText(truncate(node.label, 20), x, y + size / 2 + 10 / globalScale);
+      ctx.fillText(truncate(node.label, 20), x, y + radius + 10 / globalScale);
     }
   }
 
@@ -591,7 +639,9 @@ export function renderNodePointerArea(
     ctx.fill();
   } else {
     const size = 6 + (node.importance || 0.5) * 12;
-    const hitSize = Math.max(size + 6, 24);
-    ctx.fillRect(x - hitSize / 2, y - hitSize / 2, hitSize, hitSize);
+    const radius = Math.max(size / 2 + 3, 12);
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+    ctx.fill();
   }
 }

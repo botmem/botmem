@@ -120,7 +120,7 @@ export function ConnectorLogFeed({
           </span>
           <button
             onClick={() => setAutoScroll(!autoScroll)}
-            className="font-mono text-[10px] px-1.5 py-0.5 border border-nb-border/50 cursor-pointer transition-colors"
+            className="font-mono text-[11px] px-1.5 py-0.5 border border-nb-border/50 cursor-pointer transition-colors"
             style={{
               backgroundColor: autoScroll
                 ? 'color-mix(in srgb, var(--color-nb-blue) 12%, transparent)'
@@ -133,7 +133,7 @@ export function ConnectorLogFeed({
           {onClear && (
             <button
               onClick={onClear}
-              className="font-mono text-[10px] px-1.5 py-0.5 border border-nb-red/50 text-nb-red cursor-pointer hover:bg-nb-red/20 transition-colors"
+              className="font-mono text-[11px] px-1.5 py-0.5 border border-nb-red/50 text-nb-red cursor-pointer hover:bg-nb-red/20 transition-colors"
             >
               CLEAR
             </button>
@@ -148,7 +148,7 @@ export function ConnectorLogFeed({
           <button
             key={stage}
             onClick={() => toggleStage(stage)}
-            className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors flex items-center gap-1"
+            className="font-mono text-[11px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors flex items-center gap-1"
             style={{
               borderColor: STAGE_COLORS[stage],
               backgroundColor: stageFilter.has(stage) ? STAGE_COLORS[stage] : 'transparent',
@@ -172,7 +172,7 @@ export function ConnectorLogFeed({
           <button
             key={level}
             onClick={() => toggleLevel(level)}
-            className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
+            className="font-mono text-[11px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
             style={{
               borderColor: LEVEL_COLORS[level],
               backgroundColor: levelFilter.has(level) ? LEVEL_COLORS[level] : 'transparent',
@@ -192,7 +192,7 @@ export function ConnectorLogFeed({
           <button
             key={conn}
             onClick={() => toggleConnector(conn)}
-            className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
+            className="font-mono text-[11px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
             style={{
               borderColor: CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)',
               backgroundColor:
@@ -216,7 +216,7 @@ export function ConnectorLogFeed({
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder="filter..."
-          className="ml-auto font-mono text-[10px] bg-transparent border-b border-nb-border text-nb-text placeholder:text-nb-muted/50 outline-none w-20 focus:w-32 transition-all"
+          className="ml-auto font-mono text-[11px] bg-transparent border-b border-nb-border text-nb-text placeholder:text-nb-muted/50 outline-none w-20 focus:w-32 transition-all"
         />
       </div>
 

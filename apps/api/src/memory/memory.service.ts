@@ -85,6 +85,12 @@ interface SearchFilters {
   memoryBankId?: string;
   memoryBankIds?: string[]; // API key memory bank scoping
   accountIds?: string[]; // User isolation — filter by user's accounts
+  // New multi-value filters for faceted search
+  connectorTypes?: string[];
+  sourceTypes?: string[];
+  factualityLabels?: string[];
+  personNames?: string[];
+  pinned?: boolean;
 }
 
 /** Strip accents/diacritics for fuzzy matching (amélie → amelie) */
@@ -132,11 +138,25 @@ export interface ParsedQuery {
   sourceType?: string;
 }
 
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface FacetCounts {
+  connectorType: FacetValue[];
+  sourceType: FacetValue[];
+  factualityLabel: FacetValue[];
+  people: FacetValue[];
+}
+
 export interface SearchResponse {
   items: SearchResult[];
   fallback: boolean;
   resolvedEntities?: ResolvedEntities;
   parsed?: ParsedQuery;
+  facetCounts?: FacetCounts;
+  found?: number;
 }
 
 /** Check if candidate words match as whole-word boundaries in a contact name.
@@ -528,27 +548,63 @@ export class MemoryService {
     // --- Build Qdrant-format filter (TypesenseService converts internally) ---
     const tsFilter = this.buildQdrantFilter(effectiveFilters);
 
-    // --- Single Typesense hybrid search call ---
+    // --- Build Typesense filter string for faceted search ---
+    const tsFilterString = this.typesense.buildFilterString({
+      connectorTypes: effectiveFilters.connectorTypes,
+      sourceTypes: effectiveFilters.sourceTypes,
+      factualityLabels: effectiveFilters.factualityLabels,
+      personNames: effectiveFilters.personNames,
+      timeRange: { from: effectiveFilters.from, to: effectiveFilters.to },
+      pinned: effectiveFilters.pinned,
+      accountIds: effectiveFilters.accountIds,
+      memoryBankId: effectiveFilters.memoryBankId,
+      memoryBankIds: effectiveFilters.memoryBankIds,
+    });
+
+    // Merge legacy Qdrant-format filter with new filter string
+    const legacyFilterStr = Object.keys(tsFilter).length
+      ? this.typesense['buildTypesenseFilter'](tsFilter)
+      : '';
+    const combinedFilter =
+      [legacyFilterStr, tsFilterString].filter(Boolean).join(' && ') || undefined;
+
+    const FACET_FIELDS = 'connector_type,source_type,factuality_label,people';
+
+    // --- Single Typesense hybrid search call with facets ---
     const vector = await this.ai.embedQuery(embeddingQuery);
-    const typesenseResults = await this.typesense.search(
+    // Cap k to avoid Typesense hybrid search failure at high k values (k>250 with filters can return 0)
+    const hybridK = Math.min(effectiveLimit * 3, 250);
+    const hybridResult = await this.typesense.hybridSearch(
+      embeddingQuery,
       vector,
-      effectiveLimit * 3,
-      Object.keys(tsFilter).length ? tsFilter : undefined,
+      hybridK,
+      combinedFilter,
+      FACET_FIELDS,
     );
+    const typesenseResults = hybridResult.results;
     const semanticScores = new Map<string, number>();
     for (const point of typesenseResults) semanticScores.set(point.id, point.score);
 
     // --- Contact boost: identify which results belong to resolved contacts ---
     const contactMatchIds = new Set<string>();
+    // Track how many resolved contacts each memory is linked to (for multi-contact boost)
+    const contactMatchCount = new Map<string, number>();
     let topicMatchCount = 0;
+    // When query is purely contact names (no topic words), collect ALL contact memories
+    const isPureContactQuery = hasContacts && topicWords.length === 0;
+    let allContactMemoryIds = new Set<string>();
     if (hasContacts) {
       const linked = await this.dbService.withCurrentUser((db) =>
         db
-          .select({ memoryId: memoryPeople.memoryId })
+          .select({ memoryId: memoryPeople.memoryId, personId: memoryPeople.personId })
           .from(memoryPeople)
           .where(inArray(memoryPeople.personId, contactIds)),
       );
-      const allContactMemoryIds = new Set(linked.map((r) => r.memoryId));
+      allContactMemoryIds = new Set(linked.map((r) => r.memoryId));
+      // Count how many resolved contacts each memory is linked to
+      for (const r of linked) {
+        contactMatchCount.set(r.memoryId, (contactMatchCount.get(r.memoryId) || 0) + 1);
+      }
       for (const point of typesenseResults) {
         if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
       }
@@ -598,6 +654,27 @@ export class MemoryService {
     // --- Collect candidate IDs from Typesense results ---
     const allCandidateIds = new Set<string>();
     for (const point of typesenseResults) allCandidateIds.add(point.id);
+
+    // For pure contact queries, inject top contact-linked memories that Typesense may have missed
+    if (isPureContactQuery && allContactMemoryIds.size > 0) {
+      // Prioritize memories linked to ALL resolved contacts
+      const multiContactMemories: string[] = [];
+      const singleContactMemories: string[] = [];
+      for (const memId of allContactMemoryIds) {
+        if (!allCandidateIds.has(memId)) {
+          const count = contactMatchCount.get(memId) || 0;
+          if (count >= contactIds.length) multiContactMemories.push(memId);
+          else singleContactMemories.push(memId);
+        }
+      }
+      // Add multi-contact matches first, then single-contact, up to limit
+      const inject = [...multiContactMemories, ...singleContactMemories].slice(0, effectiveLimit);
+      for (const id of inject) {
+        allCandidateIds.add(id);
+        // Give injected contact memories a baseline semantic score
+        if (!semanticScores.has(id)) semanticScores.set(id, 0.4);
+      }
+    }
 
     if (!allCandidateIds.size) {
       return {
@@ -659,7 +736,16 @@ export class MemoryService {
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
       const rerankScore = rerankScores.get(id) ?? 0;
-      const contactMultiplier = contactMatchIds.has(id) ? 1.25 : 1.0;
+      // Multi-contact boost: memories linked to ALL resolved contacts get strongest boost
+      const memContactCount = contactMatchCount.get(id) || 0;
+      const contactMultiplier =
+        memContactCount >= contactIds.length
+          ? 1.6 // matches ALL resolved contacts (e.g. both Amelie AND Nugget)
+          : memContactCount > 0
+            ? 1.3 // matches some resolved contacts
+            : isPureContactQuery
+              ? 0.5 // pure contact query but memory isn't linked to any — demote
+              : 1.0;
 
       const { score, weights } = this.computeWeights(
         semanticScore,
@@ -687,6 +773,20 @@ export class MemoryService {
       topScore: returnItems[0]?.score,
     });
 
+    // Map Typesense facet_counts to our structure
+    const facetCounts: FacetCounts = {
+      connectorType: [],
+      sourceType: [],
+      factualityLabel: [],
+      people: [],
+    };
+    for (const fc of hybridResult.facetCounts) {
+      if (fc.field_name === 'connector_type') facetCounts.connectorType = fc.counts;
+      else if (fc.field_name === 'source_type') facetCounts.sourceType = fc.counts;
+      else if (fc.field_name === 'factuality_label') facetCounts.factualityLabel = fc.counts;
+      else if (fc.field_name === 'people') facetCounts.people = fc.counts;
+    }
+
     return {
       items: returnItems,
       fallback: false,
@@ -700,6 +800,71 @@ export class MemoryService {
         cleanQuery: nlq.cleanQuery,
         sourceType: nlq.sourceTypeHint ?? undefined,
       },
+      facetCounts,
+      found: hybridResult.found,
+    };
+  }
+
+  async ask(
+    query: string,
+    conversationId?: string,
+    userId?: string,
+    memoryBankId?: string,
+    memoryBankIds?: string[],
+  ): Promise<{
+    answer: string;
+    conversationId: string;
+    citations: SearchResult[];
+  }> {
+    const resolvedKey = await this.resolveUserKey(userId);
+    const vector = await this.ai.embedQuery(query);
+    const conversationModelId = 'botmem-chat';
+
+    // Build filter for user isolation
+    const userAccountIds = await this.getUserAccountIds(userId);
+    const must: Array<Record<string, unknown>> = [];
+    if (userAccountIds?.length) {
+      must.push({ key: 'account_id', match: { any: userAccountIds } });
+    }
+    if (memoryBankId) {
+      must.push({ key: 'memory_bank_id', match: { value: memoryBankId } });
+    } else if (memoryBankIds?.length) {
+      must.push({ key: 'memory_bank_id', match: { any: memoryBankIds } });
+    }
+    const filter = must.length ? { must } : undefined;
+
+    const result = await this.typesense.conversationSearch(
+      query,
+      vector,
+      20,
+      conversationModelId,
+      conversationId || undefined,
+      filter,
+    );
+
+    // Map citations to SearchResult format
+    const citationIds = result.results.map((r) => r.id);
+    const batchRows = await this.fetchMemoryRowsBatch(citationIds);
+    const citations: SearchResult[] = [];
+    for (const point of result.results) {
+      const row = batchRows.get(point.id);
+      if (!row) continue;
+      const { score, weights } = this.computeWeights(point.score, 0, row.memory, 'recall');
+      citations.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
+    }
+
+    // Enrich with people
+    if (citations.length) {
+      const peopleMap = await this.getPeopleForMemories(citations.map((c) => c.id));
+      for (const item of citations) {
+        item.people = peopleMap.get(item.id) || [];
+      }
+    }
+
+    return {
+      answer: result.conversation?.answer || 'No relevant memories found for this question.',
+      conversationId: result.conversation?.conversationId || '',
+      citations,
     };
   }
 

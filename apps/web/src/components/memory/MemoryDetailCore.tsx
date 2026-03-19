@@ -80,7 +80,7 @@ function MemoryContext({
 
     // Show recipient for DMs
     if (!metadata.isGroup && metadata.chatId) {
-      const chatPhone = metadata.chatId.replace(/@.*$/, '');
+      const chatPhone = String(metadata.chatId).replace(/@.*$/, '');
       if (metadata.fromMe) {
         // Sent by you → recipient is the chat contact
         const recipientName = resolvedRecipientName || chatPhone;
@@ -213,7 +213,7 @@ export function MemoryDetailCore({
       {/* Source badges */}
       <div className="flex gap-1 flex-wrap">
         <span
-          className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase"
+          className="border-2 border-nb-border px-2 py-0.5 font-mono text-[11px] font-bold uppercase"
           style={{
             backgroundColor: CONNECTOR_COLORS[sourceConnector || source] || 'var(--color-nb-gray)',
             color: 'var(--color-nb-black)',
@@ -222,7 +222,7 @@ export function MemoryDetailCore({
           {sourceConnector || source}
         </span>
         {sourceConnector && sourceConnector !== source && (
-          <span className="border-2 border-nb-border px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-nb-text">
+          <span className="border-2 border-nb-border px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-nb-text">
             {source}
           </span>
         )}
@@ -301,7 +301,7 @@ export function MemoryDetailCore({
 
       {/* Compact timestamps (graph panel style) */}
       {compact && eventTime && !showTimestamps && (
-        <div className="font-mono text-[10px] text-nb-muted">
+        <div className="font-mono text-[11px] text-nb-muted">
           EVENT: {new Date(eventTime).toLocaleDateString()}{' '}
           {new Date(eventTime).toLocaleTimeString()}
         </div>
@@ -309,7 +309,7 @@ export function MemoryDetailCore({
 
       {/* Connection count + importance */}
       {(connectionCount != null || importance != null) && (
-        <div className="flex gap-3 font-mono text-[10px]">
+        <div className="flex gap-3 font-mono text-[11px]">
           {connectionCount != null && (
             <span className="text-nb-muted">
               Connections: <span className="text-nb-text font-bold">{connectionCount}</span>
@@ -335,7 +335,7 @@ export function MemoryDetailCore({
               <div key={key} className="flex items-center gap-1.5">
                 <span
                   className={cn(
-                    'font-mono text-[10px] uppercase text-nb-muted',
+                    'font-mono text-[11px] uppercase text-nb-muted',
                     compact ? 'w-16' : 'w-20',
                   )}
                 >
@@ -351,7 +351,7 @@ export function MemoryDetailCore({
                     }}
                   />
                 </div>
-                <span className="font-mono text-[10px] w-8 text-right text-nb-text">
+                <span className="font-mono text-[11px] w-8 text-right text-nb-text">
                   {(typeof val === 'number' ? val * 100 : 0).toFixed(0)}%
                 </span>
               </div>
@@ -372,7 +372,7 @@ export function MemoryDetailCore({
                 return (
                   <span
                     key={e}
-                    className="border border-nb-border px-1.5 py-0.5 font-mono text-[10px] bg-nb-surface text-nb-text"
+                    className="border border-nb-border px-1.5 py-0.5 font-mono text-[11px] bg-nb-surface text-nb-text"
                   >
                     {e}
                   </span>

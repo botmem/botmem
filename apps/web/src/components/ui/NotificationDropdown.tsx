@@ -106,7 +106,7 @@ export function NotificationDropdown({
             {unreadCount > 0 && (
               <button
                 onClick={onMarkAllRead}
-                className="font-mono text-[10px] font-bold uppercase text-nb-muted hover:text-nb-text transition-colors cursor-pointer"
+                className="font-mono text-[11px] font-bold uppercase text-nb-muted hover:text-nb-text transition-colors cursor-pointer"
               >
                 Mark all read
               </button>
@@ -151,7 +151,7 @@ export function NotificationDropdown({
                     >
                       {n.message}
                     </p>
-                    <span className="font-mono text-[10px] text-nb-muted">
+                    <span className="font-mono text-[11px] text-nb-muted">
                       {relativeTime(n.time)}
                     </span>
                   </div>

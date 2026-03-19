@@ -72,7 +72,7 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
             <button
               key={status}
               onClick={() => toggleStatus(status)}
-              className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
+              className="font-mono text-[11px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
               style={{
                 borderColor: STATUS_COLORS[status],
                 backgroundColor: statusFilter.has(status) ? STATUS_COLORS[status] : 'transparent',
@@ -93,7 +93,7 @@ export function JobTable({ jobs, onCancel, onMove }: JobTableProps) {
               <button
                 key={conn}
                 onClick={() => toggleConnector(conn)}
-                className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
+                className="font-mono text-[11px] font-bold uppercase px-2 py-0.5 border-2 cursor-pointer transition-colors"
                 style={{
                   borderColor: CONNECTOR_COLORS[conn] || 'var(--color-nb-muted)',
                   backgroundColor:

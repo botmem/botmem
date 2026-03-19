@@ -8,28 +8,22 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { api } from '../lib/api';
 import { Avatar } from '../components/ui/Avatar';
+import {
+  CONNECTOR_COLORS,
+  CONNECTOR_LABELS,
+  getConnectorColor,
+  getConnectorIcon,
+} from '../lib/connectorMeta';
 
 /* ---------- connector display config ---------- */
 
-const CONNECTOR_META: Record<string, { icon: string; color: string; label: string }> = {
-  gmail: { icon: '@', color: '#EF4444', label: 'Gmail' },
-  slack: { icon: '#', color: '#4ECDC4', label: 'Slack' },
-  whatsapp: { icon: 'W', color: '#22C55E', label: 'WhatsApp' },
-  imessage: { icon: 'i', color: '#A855F7', label: 'iMessage' },
-  'photos-immich': { icon: 'P', color: '#FF8A50', label: 'Photos' },
-  owntracks: { icon: 'L', color: '#FFE66D', label: 'OwnTracks' },
-};
-
 function connectorMeta(type: string) {
-  return CONNECTOR_META[type] ?? { icon: '?', color: '#888888', label: type };
+  return {
+    icon: getConnectorIcon(type),
+    color: getConnectorColor(type),
+    label: CONNECTOR_LABELS[type] ?? type,
+  };
 }
-
-const SOURCE_COLORS: Record<string, string> = {
-  email: '#EF4444',
-  message: '#4ECDC4',
-  photo: '#FF8A50',
-  location: '#FFE66D',
-};
 
 /* ---------- helper: truncate text ---------- */
 
@@ -255,10 +249,26 @@ function IdentityHeader({
 
 function StatsGrid({ stats }: { stats: MeData['stats'] }) {
   const statCards = [
-    { label: 'TOTAL MEMORIES', value: stats.totalMemories.toLocaleString(), color: '#C4F53A' },
-    { label: 'TOTAL CONTACTS', value: stats.totalContacts.toLocaleString(), color: '#4ECDC4' },
-    { label: 'OLDEST MEMORY', value: formatDate(stats.oldestMemory), color: '#FF6B9D' },
-    { label: 'NEWEST MEMORY', value: formatDate(stats.newestMemory), color: '#FFE66D' },
+    {
+      label: 'TOTAL MEMORIES',
+      value: stats.totalMemories.toLocaleString(),
+      color: 'var(--color-nb-lime)',
+    },
+    {
+      label: 'TOTAL CONTACTS',
+      value: stats.totalContacts.toLocaleString(),
+      color: 'var(--color-nb-blue)',
+    },
+    {
+      label: 'OLDEST MEMORY',
+      value: formatDate(stats.oldestMemory),
+      color: 'var(--color-nb-pink)',
+    },
+    {
+      label: 'NEWEST MEMORY',
+      value: formatDate(stats.newestMemory),
+      color: 'var(--color-nb-yellow)',
+    },
   ];
 
   return (
@@ -342,11 +352,13 @@ function ConnectedAccountsList({ accounts }: { accounts: MeData['accounts'] }) {
                 <p className="font-display text-xs font-bold uppercase text-nb-text">
                   {meta.label}
                 </p>
-                <p className="font-mono text-[10px] text-nb-muted truncate">{acct.identifier}</p>
+                <p className="font-mono text-[11px] text-nb-muted truncate">{acct.identifier}</p>
               </div>
               <div className="text-right shrink-0">
-                <Badge color={isActive ? '#22C55E' : '#888888'}>{acct.status}</Badge>
-                <p className="font-mono text-[10px] text-nb-muted mt-1">
+                <Badge color={isActive ? 'var(--color-nb-green)' : 'var(--color-nb-muted)'}>
+                  {acct.status}
+                </Badge>
+                <p className="font-mono text-[11px] text-nb-muted mt-1">
                   {(acct.memoriesCount ?? acct.itemsSynced ?? 0).toLocaleString()} memories
                 </p>
               </div>
@@ -423,12 +435,12 @@ function RecentActivity({ recentMemories }: { recentMemories: MeData['recentMemo
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge
-                    color={SOURCE_COLORS[mem.sourceType] ?? '#888'}
-                    className="text-[10px] py-0"
+                    color={CONNECTOR_COLORS[mem.sourceType] ?? 'var(--color-nb-muted)'}
+                    className="text-[11px] py-0"
                   >
                     {mem.sourceType}
                   </Badge>
-                  <span className="font-mono text-[10px] text-nb-muted">
+                  <span className="font-mono text-[11px] text-nb-muted">
                     {relativeTime(mem.eventTime)}
                   </span>
                 </div>
@@ -507,7 +519,7 @@ function ContactPickerModal({
                   <p className="font-display text-sm font-bold uppercase truncate">
                     {c.displayName}
                   </p>
-                  <p className="font-mono text-[10px] text-nb-muted truncate">
+                  <p className="font-mono text-[11px] text-nb-muted truncate">
                     {email ?? phone ?? '--'}
                   </p>
                 </div>

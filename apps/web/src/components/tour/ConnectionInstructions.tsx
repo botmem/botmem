@@ -82,7 +82,7 @@ export function ConnectionInstructions({ open, onClose }: Props) {
             <span className="font-display text-sm font-bold uppercase text-nb-text block mb-0.5">
               {copied === agent.key ? 'Copied!' : agent.label}
             </span>
-            <span className="font-mono text-[10px] text-nb-muted leading-tight block">
+            <span className="font-mono text-[11px] text-nb-muted leading-tight block">
               {agent.description}
             </span>
           </button>
@@ -99,7 +99,7 @@ export function ConnectionInstructions({ open, onClose }: Props) {
           </code>
           <button
             onClick={() => copyToClipboard('npm install -g @botmem/cli', 'cli')}
-            className="px-3 py-2 border border-nb-border bg-nb-surface font-mono text-[10px] uppercase text-nb-muted hover:text-nb-text cursor-pointer shrink-0"
+            className="px-3 py-2 border border-nb-border bg-nb-surface font-mono text-[11px] uppercase text-nb-muted hover:text-nb-text cursor-pointer shrink-0"
           >
             {copied === 'cli' ? 'Copied!' : 'Copy'}
           </button>

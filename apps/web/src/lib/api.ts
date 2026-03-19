@@ -126,6 +126,33 @@ export interface ApiGraphData {
   edges?: ApiGraphEdge[];
 }
 
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface ApiFacetCounts {
+  connectorType: FacetValue[];
+  sourceType: FacetValue[];
+  factualityLabel: FacetValue[];
+  people: FacetValue[];
+}
+
+export interface ApiSearchFilters {
+  connectorTypes?: string[];
+  sourceTypes?: string[];
+  factualityLabels?: string[];
+  personNames?: string[];
+  timeRange?: { from?: string; to?: string };
+  pinned?: boolean;
+}
+
+export interface ApiAskResponse {
+  answer: string;
+  conversationId: string;
+  citations: ApiMemoryItem[];
+}
+
 export interface ApiSearchResponse {
   items: ApiMemoryItem[];
   fallback: boolean;
@@ -141,6 +168,8 @@ export interface ApiSearchResponse {
     intent: 'recall' | 'browse' | 'find';
     cleanQuery: string;
   };
+  facetCounts?: ApiFacetCounts;
+  found?: number;
 }
 
 export interface ApiMemoryStats {
@@ -322,13 +351,34 @@ export const api = {
   // Memories
   searchMemories: (
     query: string,
-    filters?: Record<string, string>,
+    filters?: ApiSearchFilters,
     limit?: number,
     memoryBankId?: string,
   ) =>
     request<ApiSearchResponse>('/memories/search', {
       method: 'POST',
-      body: JSON.stringify({ query, filters, limit, memoryBankId: memoryBankId || undefined }),
+      body: JSON.stringify({
+        query,
+        ...(filters?.connectorTypes?.length ? { connectorTypes: filters.connectorTypes } : {}),
+        ...(filters?.sourceTypes?.length ? { sourceTypes: filters.sourceTypes } : {}),
+        ...(filters?.factualityLabels?.length
+          ? { factualityLabels: filters.factualityLabels }
+          : {}),
+        ...(filters?.personNames?.length ? { personNames: filters.personNames } : {}),
+        ...(filters?.timeRange ? { timeRange: filters.timeRange } : {}),
+        ...(filters?.pinned !== undefined ? { pinned: filters.pinned } : {}),
+        limit,
+        memoryBankId: memoryBankId || undefined,
+      }),
+    }),
+  askMemories: (query: string, conversationId?: string, memoryBankId?: string) =>
+    request<ApiAskResponse>('/memories/ask', {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        conversationId: conversationId || undefined,
+        memoryBankId: memoryBankId || undefined,
+      }),
     }),
   listMemories: (params?: {
     limit?: number;

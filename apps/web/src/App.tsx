@@ -1,4 +1,5 @@
 import { useEffect, lazy, Suspense } from 'react';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Logo } from './components/ui/Logo';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Shell } from './components/layout/Shell';
@@ -142,49 +143,51 @@ export function AppRoutes() {
       <AuthInitializer />
       <ScrollToTop />
       <PostHogPageviewTracker />
-      <Suspense fallback={<LoadingScreen />}>
-        <Routes>
-          <Route index element={<LandingOrApp />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/landing" element={<LandingPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="/terms" element={<TermsPage />} />
-          <Route path="/data-policy" element={<DataPolicyPage />} />
-          <Route path="/oauth/consent" element={<OAuthConsentPage />} />
-          <Route path="/cli-login" element={<CliLoginPage />} />
-          <Route
-            path="/onboarding"
-            element={
-              <AuthGuard requireOnboarded={false}>
-                <OnboardingPage />
-              </AuthGuard>
-            }
-          />
-          <Route
-            element={
-              <AuthGuard requireOnboarded>
-                <>
-                  <PostHogIdentifier />
-                  <Shell />
-                </>
-              </AuthGuard>
-            }
-          >
-            <Route path="me" element={<MePage />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="connectors" element={<ConnectorsPage />} />
-            <Route path="memories" element={<MemoryExplorerPage />} />
-            <Route path="people" element={<ContactsPage />} />
-            <Route path="contacts" element={<Navigate to="/people" replace />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<LoadingScreen />}>
+          <Routes>
+            <Route index element={<LandingOrApp />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/landing" element={<LandingPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/data-policy" element={<DataPolicyPage />} />
+            <Route path="/oauth/consent" element={<OAuthConsentPage />} />
+            <Route path="/cli-login" element={<CliLoginPage />} />
+            <Route
+              path="/onboarding"
+              element={
+                <AuthGuard requireOnboarded={false}>
+                  <OnboardingPage />
+                </AuthGuard>
+              }
+            />
+            <Route
+              element={
+                <AuthGuard requireOnboarded>
+                  <>
+                    <PostHogIdentifier />
+                    <Shell />
+                  </>
+                </AuthGuard>
+              }
+            >
+              <Route path="me" element={<MePage />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="connectors" element={<ConnectorsPage />} />
+              <Route path="memories" element={<MemoryExplorerPage />} />
+              <Route path="people" element={<ContactsPage />} />
+              <Route path="contacts" element={<Navigate to="/people" replace />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </>
   );
 }

@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 import type { Memory, SourceType, GraphData, GraphNode, GraphEdge } from '@botmem/shared';
 import { api } from '../lib/api';
-import type { ApiMemoryItem, ApiGraphNode, ApiGraphEdge, ApiMemoryStats } from '../lib/api';
+import type {
+  ApiMemoryItem,
+  ApiGraphNode,
+  ApiGraphEdge,
+  ApiMemoryStats,
+  ApiSearchFilters,
+  ApiFacetCounts,
+} from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from './authStore';
 import { useMemoryBankStore } from './memoryBankStore';
@@ -24,6 +31,29 @@ interface ParsedQuery {
   entities: { id: string; displayName: string }[];
   intent: 'recall' | 'browse' | 'find';
   cleanQuery: string;
+}
+
+interface ActiveFilters {
+  connectorTypes: string[];
+  sourceTypes: string[];
+  factualityLabels: string[];
+  personNames: string[];
+  timeRange: { from: string | null; to: string | null };
+  pinned: boolean | null;
+}
+
+interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: ApiMemoryItem[];
+  timestamp: number;
+}
+
+interface ConversationState {
+  id: string | null;
+  messages: ConversationMessage[];
+  loading: boolean;
 }
 
 interface GraphDelta {
@@ -49,6 +79,33 @@ interface MemoryState {
   parsed: ParsedQuery | null;
   memoryStats: ApiMemoryStats | null;
   error: string | null;
+
+  // Search mode
+  mode: 'search' | 'ask';
+  setMode: (m: 'search' | 'ask') => void;
+
+  // Facets from Typesense
+  facets: ApiFacetCounts;
+
+  // Active filters
+  activeFilters: ActiveFilters;
+  toggleFilter: (
+    key: 'connectorTypes' | 'sourceTypes' | 'factualityLabels' | 'personNames',
+    value: string,
+  ) => void;
+  setTimeRange: (from: string | null, to: string | null) => void;
+  setPinnedFilter: (pinned: boolean | null) => void;
+  clearAllFilters: () => void;
+
+  // Presets
+  activePreset: string | null;
+  applyPreset: (presetId: string) => void;
+
+  // Conversation (Ask mode)
+  conversation: ConversationState;
+  sendMessage: (query: string) => Promise<void>;
+  clearConversation: () => void;
+
   setQuery: (q: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   getFiltered: () => Memory[];
@@ -82,7 +139,7 @@ function safeJsonParse<T>(value: unknown, fallback: T): T {
   }
 }
 
-function apiMemoryToShared(raw: ApiMemoryItem): Memory {
+export function apiMemoryToShared(raw: ApiMemoryItem): Memory {
   return {
     id: raw.id,
     source: (raw.sourceType || 'message') as SourceType,
@@ -160,6 +217,18 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   memories: [],
   query: '',
   filters: { source: null, minImportance: 0 },
+  mode: 'search',
+  facets: { connectorType: [], sourceType: [], factualityLabel: [], people: [] },
+  activeFilters: {
+    connectorTypes: [],
+    sourceTypes: [],
+    factualityLabels: [],
+    personNames: [],
+    timeRange: { from: null, to: null },
+    pinned: null,
+  },
+  activePreset: null,
+  conversation: { id: null, messages: [], loading: false },
   graphData: { nodes: [], links: [] },
   graphPreview: true,
   graphLoading: false,
@@ -184,6 +253,174 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     if (f.source !== undefined && f.source !== prev.source && !get().query.trim()) {
       get().loadMemories();
     }
+  },
+
+  setMode: (mode) => {
+    set({ mode });
+    trackEvent('search_mode_change', { mode });
+  },
+
+  toggleFilter: (key, value) => {
+    set((state) => {
+      const current = state.activeFilters[key] as string[];
+      const updated = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return {
+        activeFilters: { ...state.activeFilters, [key]: updated },
+        activePreset: null,
+      };
+    });
+    const { query, mode } = get();
+    if (mode === 'search') {
+      get().searchMemories(query);
+    }
+  },
+
+  setTimeRange: (from, to) => {
+    set((state) => ({
+      activeFilters: {
+        ...state.activeFilters,
+        timeRange: { from, to },
+      },
+      activePreset: null,
+    }));
+    const { query, mode } = get();
+    if (mode === 'search') {
+      get().searchMemories(query);
+    }
+  },
+
+  setPinnedFilter: (pinned) => {
+    set((state) => ({
+      activeFilters: { ...state.activeFilters, pinned },
+      activePreset: null,
+    }));
+    const { query, mode } = get();
+    if (mode === 'search') {
+      get().searchMemories(query);
+    }
+  },
+
+  clearAllFilters: () => {
+    set({
+      activeFilters: {
+        connectorTypes: [],
+        sourceTypes: [],
+        factualityLabels: [],
+        personNames: [],
+        timeRange: { from: null, to: null },
+        pinned: null,
+      },
+      activePreset: null,
+    });
+    const { query, mode } = get();
+    if (mode === 'search') {
+      get().searchMemories(query);
+    }
+  },
+
+  applyPreset: (presetId) => {
+    const current = get().activePreset;
+    if (current === presetId) {
+      get().clearAllFilters();
+      return;
+    }
+
+    const PRESETS: Record<string, Partial<ActiveFilters>> = {
+      recent_emails: { sourceTypes: ['email'] },
+      recent_photos: { sourceTypes: ['photo'] },
+      pinned: { pinned: true },
+      facts_only: { factualityLabels: ['FACT'] },
+      this_week: {
+        timeRange: {
+          from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+          to: new Date().toISOString(),
+        },
+      },
+    };
+
+    const preset = PRESETS[presetId];
+    if (!preset) return;
+
+    set({
+      activePreset: presetId,
+      activeFilters: {
+        connectorTypes: [],
+        sourceTypes: [],
+        factualityLabels: [],
+        personNames: [],
+        timeRange: { from: null, to: null },
+        pinned: null,
+        ...preset,
+      },
+    });
+    trackEvent('search_preset', { preset: presetId });
+
+    get().searchMemories(get().query || '*');
+  },
+
+  sendMessage: async (query) => {
+    const { conversation } = get();
+    const userMsg: ConversationMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: query,
+      timestamp: Date.now(),
+    };
+
+    set((state) => ({
+      conversation: {
+        ...state.conversation,
+        messages: [...state.conversation.messages, userMsg],
+        loading: true,
+      },
+    }));
+
+    try {
+      const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+      const result = await api.askMemories(
+        query,
+        conversation.id || undefined,
+        bankId || undefined,
+      );
+
+      const assistantMsg: ConversationMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: result.answer,
+        citations: result.citations,
+        timestamp: Date.now(),
+      };
+
+      set((state) => ({
+        conversation: {
+          id: result.conversationId || state.conversation.id,
+          messages: [...state.conversation.messages, assistantMsg],
+          loading: false,
+        },
+      }));
+      trackEvent('ask_query', { query_length: query.length, has_answer: !!result.answer });
+    } catch (err) {
+      console.error('Ask failed:', err);
+      const errorMsg: ConversationMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: "Sorry, I couldn't process your question. Please try again.",
+        timestamp: Date.now(),
+      };
+      set((state) => ({
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, errorMsg],
+          loading: false,
+        },
+      }));
+    }
+  },
+
+  clearConversation: () => {
+    set({ conversation: { id: null, messages: [], loading: false } });
   },
 
   getFiltered: () => {
@@ -286,7 +523,30 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     });
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
-      const result = await api.searchMemories(query, undefined, undefined, bankId || undefined);
+      const { activeFilters } = get();
+
+      // Build API filters from activeFilters
+      const apiFilters: ApiSearchFilters = {};
+      if (activeFilters.connectorTypes.length)
+        apiFilters.connectorTypes = activeFilters.connectorTypes;
+      if (activeFilters.sourceTypes.length) apiFilters.sourceTypes = activeFilters.sourceTypes;
+      if (activeFilters.factualityLabels.length)
+        apiFilters.factualityLabels = activeFilters.factualityLabels;
+      if (activeFilters.personNames.length) apiFilters.personNames = activeFilters.personNames;
+      if (activeFilters.timeRange.from || activeFilters.timeRange.to) {
+        apiFilters.timeRange = {
+          from: activeFilters.timeRange.from || undefined,
+          to: activeFilters.timeRange.to || undefined,
+        };
+      }
+      if (activeFilters.pinned !== null) apiFilters.pinned = activeFilters.pinned;
+
+      const result = await api.searchMemories(
+        query,
+        Object.keys(apiFilters).length ? apiFilters : undefined,
+        undefined,
+        bankId || undefined,
+      );
       const mems = result.items.map(apiMemoryToShared);
       trackEvent('search', {
         query_length: query.length,
@@ -299,6 +559,12 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         searchFallback: result.fallback,
         resolvedEntities: result.resolvedEntities || null,
         parsed: result.parsed ?? null,
+        facets: result.facetCounts || {
+          connectorType: [],
+          sourceType: [],
+          factualityLabel: [],
+          people: [],
+        },
       });
     } catch (err) {
       console.error('Failed to search memories:', err);
@@ -631,6 +897,18 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       memories: [],
       query: '',
       filters: { source: null, minImportance: 0 },
+      mode: 'search',
+      facets: { connectorType: [], sourceType: [], factualityLabel: [], people: [] },
+      activeFilters: {
+        connectorTypes: [],
+        sourceTypes: [],
+        factualityLabels: [],
+        personNames: [],
+        timeRange: { from: null, to: null },
+        pinned: null,
+      },
+      activePreset: null,
+      conversation: { id: null, messages: [], loading: false },
       graphData: { nodes: [], links: [] },
       graphPreview: true,
       graphLoading: false,

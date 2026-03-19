@@ -28,7 +28,7 @@ export function JobRow({ job, onCancel, onMove }: JobRowProps) {
           </span>
           {job.accountIdentifier && (
             <span
-              className="font-mono text-[10px] text-nb-muted block truncate"
+              className="font-mono text-[11px] text-nb-muted block truncate"
               title={job.accountIdentifier}
             >
               {job.accountIdentifier}

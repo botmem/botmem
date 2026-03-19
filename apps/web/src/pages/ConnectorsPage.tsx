@@ -54,7 +54,7 @@ function ConnectorStatusDot({ type }: { type: string }) {
   return (
     <span className="inline-flex items-center gap-1 ml-2">
       <span className={cn('size-2 rounded-full', color)} />
-      <span className="font-mono text-[10px] text-nb-muted uppercase">{label}</span>
+      <span className="font-mono text-[11px] text-nb-muted uppercase">{label}</span>
     </span>
   );
 }

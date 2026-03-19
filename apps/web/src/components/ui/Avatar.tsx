@@ -20,6 +20,7 @@ const TEXT_SIZE_MAP = {
 interface AvatarProps {
   contactId?: string;
   src?: string;
+  name?: string;
   fallbackInitials?: string;
   isSelf?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg';
@@ -30,12 +31,14 @@ interface AvatarProps {
 export function Avatar({
   contactId,
   src,
+  name,
   fallbackInitials = '?',
   isSelf,
   size = 'sm',
   className = '',
   borderColor,
 }: AvatarProps) {
+  const altText = name || (isSelf ? 'Your avatar' : 'User avatar');
   const sizeClass = SIZE_MAP[size];
   const textSize = TEXT_SIZE_MAP[size];
   const border = borderColor || (isSelf ? SELF_COLOR : undefined);
@@ -76,7 +79,7 @@ export function Avatar({
     return (
       <img
         src={imgSrc}
-        alt=""
+        alt={altText}
         className={cn('border-3 border-nb-border object-cover', sizeClass, className)}
         style={borderStyle}
       />
@@ -86,7 +89,7 @@ export function Avatar({
   return (
     <AuthedImage
       src={imgSrc}
-      alt=""
+      alt={altText}
       className={cn('border-3 border-nb-border object-cover', sizeClass, className)}
       fallback={fallbackNode}
     />

@@ -364,7 +364,7 @@ function PhoneCodeAuthView({
           {showApiFields && (
             <>
               <div className="border-t-3 border-nb-border pt-3">
-                <p className="font-mono text-[10px] text-nb-muted uppercase mb-3">
+                <p className="font-mono text-[11px] text-nb-muted uppercase mb-3">
                   Optional — get from my.telegram.org/apps
                 </p>
               </div>
@@ -411,7 +411,7 @@ function PhoneCodeAuthView({
 
           <div className="flex items-center gap-2 justify-center">
             <div className="size-2 bg-nb-lime rounded-full animate-pulse" />
-            <p className="font-mono text-[10px] text-nb-muted uppercase">Waiting for code...</p>
+            <p className="font-mono text-[11px] text-nb-muted uppercase">Waiting for code...</p>
           </div>
 
           <Button type="submit" disabled={loading || !code}>
@@ -543,7 +543,7 @@ function QrAuthView({
             <div className="bg-white p-3 rounded">
               <img src={state.qrData} alt="WhatsApp QR Code" className="size-64" />
             </div>
-            <p className="font-mono text-[10px] text-nb-muted text-center">
+            <p className="font-mono text-[11px] text-nb-muted text-center">
               Open WhatsApp → Settings → Linked Devices → Link a Device
             </p>
             <div className="flex items-center gap-2 mt-2">

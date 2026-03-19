@@ -187,7 +187,7 @@ export function ContactDetailPanel({
                   }}
                   className="accent-nb-lime shrink-0"
                 />
-                <Badge color={IDENTIFIER_COLORS[ident.type]} className="text-[10px] py-0 shrink-0">
+                <Badge color={IDENTIFIER_COLORS[ident.type]} className="text-[11px] py-0 shrink-0">
                   {ident.type}
                 </Badge>
                 <span className="font-mono text-xs text-nb-text truncate flex-1">
@@ -196,7 +196,7 @@ export function ContactDetailPanel({
                 <button
                   onClick={() => removeIdentifier(contact.id, ident.id)}
                   disabled={contact.identifiers.length <= 1}
-                  className="border border-nb-border size-5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                  className="border border-nb-border size-5 flex items-center justify-center text-[11px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                 >
                   X
                 </button>
@@ -274,7 +274,7 @@ export function ContactDetailPanel({
                 </div>
               )}
               {mergeSearch.trim() && mergeResults.length === 0 && (
-                <p className="font-mono text-[10px] text-nb-muted mt-1">No matches</p>
+                <p className="font-mono text-[11px] text-nb-muted mt-1">No matches</p>
               )}
               <p className="font-mono text-[9px] text-nb-muted mt-1.5">
                 Their identifiers and memories will be absorbed into {contact.displayName}
@@ -295,10 +295,10 @@ export function ContactDetailPanel({
             {memories.map((m) => (
               <div key={m.id} className="border-2 border-nb-border p-2 bg-nb-surface-muted">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-mono text-[10px] text-nb-muted">
+                  <span className="font-mono text-[11px] text-nb-muted">
                     {formatDate(m.eventTime || m.createdAt || '')}
                   </span>
-                  <Badge className="text-[10px] py-0">{m.connectorType}</Badge>
+                  <Badge className="text-[11px] py-0">{m.connectorType}</Badge>
                 </div>
                 <p className="font-mono text-xs text-nb-text line-clamp-2">{m.text}</p>
               </div>

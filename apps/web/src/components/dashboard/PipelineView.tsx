@@ -29,7 +29,7 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
         PIPELINE
       </div>
 
-      <div className="p-2 md:p-4 flex items-center gap-0 overflow-x-auto">
+      <div className="p-2 md:p-4 flex flex-wrap items-center gap-0 overflow-x-auto">
         {PIPELINE_STAGES.map((stage, i) => {
           const stats = queueStats[stage];
           const meta = STAGE_META[stage];
@@ -39,7 +39,10 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
           const hasFailed = stats.failed > 0;
 
           return (
-            <div key={stage} className="flex items-center flex-1 min-w-[68px] sm:min-w-[80px]">
+            <div
+              key={stage}
+              className="flex items-center min-w-[calc(50%-0.5rem)] sm:min-w-0 flex-1"
+            >
               <div className="flex-1 min-w-0 overflow-hidden">
                 <div
                   className="border-2 p-1.5 md:p-3 relative transition-colors"
@@ -64,7 +67,7 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                       {meta.icon}
                     </span>
                     <span
-                      className="font-display text-[10px] md:text-xs font-bold uppercase tracking-wider"
+                      className="font-display text-[11px] md:text-xs font-bold uppercase tracking-wider"
                       style={{ color: isActive ? meta.color : 'var(--color-nb-muted)' }}
                     >
                       {meta.label}
@@ -90,7 +93,7 @@ export function PipelineView({ queueStats }: PipelineViewProps) {
                             }}
                           />
                           <span
-                            className="font-mono text-[10px]"
+                            className="font-mono text-[11px]"
                             style={{
                               color:
                                 value > 0

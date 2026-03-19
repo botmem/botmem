@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
+import { useEffect, useRef, useMemo, useState, lazy, Suspense } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { AnimatedNumber } from '../components/ui/AnimatedNumber';
 import { Tabs } from '../components/ui/Tabs';
+import { SearchInput } from '../components/ui/SearchInput';
 import { ReauthModal } from '../components/ui/ReauthModal';
 import { ConnectorLogFeed } from '../components/dashboard/ConnectorLogFeed';
 import { JobTable } from '../components/dashboard/JobTable';
@@ -10,11 +11,15 @@ import { PipelineView } from '../components/dashboard/PipelineView';
 const MemoryGraph = lazy(() =>
   import('../components/memory/MemoryGraph').then((m) => ({ default: m.MemoryGraph })),
 );
+const TimelineView = lazy(() =>
+  import('../components/memory/TimelineView').then((m) => ({ default: m.TimelineView })),
+);
 import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
 import { useSearch } from '../hooks/useSearch';
 import { useJobStore } from '../store/jobStore';
+import { useMemoryStore, apiMemoryToShared } from '../store/memoryStore';
 import { useMemoryBankStore } from '../store/memoryBankStore';
 import { useTourStore } from '../store/tourStore';
 import { api } from '../lib/api';
@@ -22,6 +27,7 @@ import { Button } from '../components/ui/Button';
 
 const dashTabs = [
   { id: 'overview', label: 'OVERVIEW' },
+  { id: 'timeline', label: 'TIMELINE' },
   { id: 'logs', label: 'LOGS' },
 ];
 
@@ -38,16 +44,12 @@ export function DashboardPage() {
     fetchMoreLogs,
   } = useJobs();
   const { accounts } = useConnectors();
-  const {
-    graphData,
-    loadGraph,
-    loadFullGraph,
-    loadGraphForIds,
-    graphPreview,
-    graphLoading,
-    memoryStats,
-  } = useMemories();
+  const { graphData, loadGraph, loadFullGraph, graphPreview, graphLoading, memoryStats } =
+    useMemories();
   const { retrying, retryAllFailed } = useJobStore();
+  const timelineMemories = useMemoryStore((s) => s.memories);
+  const timelineLoading = useMemoryStore((s) => s.loading);
+  const loadMemories = useMemoryStore((s) => s.loadMemories);
   const [activeTab, setActiveTab] = useState('overview');
   const [reauthOpen, setReauthOpen] = useState(false);
 
@@ -80,19 +82,15 @@ export function DashboardPage() {
     }
   };
 
-  const onSearchResults = useCallback(
-    async (results: { memoryIds: Set<string> }) => {
-      if (loadGraphForIds) await loadGraphForIds([...results.memoryIds]);
-    },
-    [loadGraphForIds],
+  const graphSearch = useSearch();
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // When search has results, convert to Memory[] for the timeline view
+  const searchTimelineMemories = useMemo(
+    () => graphSearch.results?.items.map(apiMemoryToShared) ?? null,
+    [graphSearch.results],
   );
-  const onSearchClear = useCallback(() => {
-    loadGraph();
-  }, [loadGraph]);
-  const graphSearch = useSearch({
-    onResults: onSearchResults,
-    onClear: onSearchClear,
-  });
 
   // Load graph once when stats become available (initial mount)
   const initialGraphLoaded = useRef(false);
@@ -102,6 +100,13 @@ export function DashboardPage() {
       loadGraph();
     }
   }, [memoryStats, loadGraph]);
+
+  // Load memories when timeline tab is activated (only if store is empty)
+  useEffect(() => {
+    if (activeTab === 'timeline' && timelineMemories.length === 0 && !timelineLoading) {
+      loadMemories();
+    }
+  }, [activeTab, timelineMemories.length, timelineLoading, loadMemories]);
 
   // Reload graph when the user switches memory banks (event-driven via Zustand subscribe)
   useEffect(() => {
@@ -133,16 +138,29 @@ export function DashboardPage() {
     : 0;
 
   const stats = [
-    { label: 'TOTAL MEMORIES', value: totalMemories, color: '#C4F53A' },
-    { label: 'PENDING', value: pipelinePending, color: '#FF6B9D' },
-    { label: 'CONNECTORS', value: activeConnectors, color: '#4ECDC4' },
-    { label: 'FAILED JOBS', value: failedJobs, color: '#EF4444' },
+    { label: 'TOTAL MEMORIES', value: totalMemories, color: 'var(--color-nb-lime)' },
+    { label: 'PENDING', value: pipelinePending, color: 'var(--color-nb-pink)' },
+    { label: 'CONNECTORS', value: activeConnectors, color: 'var(--color-nb-blue)' },
+    { label: 'FAILED JOBS', value: failedJobs, color: 'var(--color-nb-red)' },
   ];
 
   return (
     <PageContainer>
       <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
+
+      {/* Persistent search — visible on overview + timeline tabs */}
+      {activeTab !== 'logs' && (
+        <div className="mt-4">
+          <SearchInput
+            value={graphSearch.term}
+            onChange={graphSearch.setTerm}
+            pending={graphSearch.pending}
+            placeholder="SEARCH MEMORIES..."
+            inputRef={searchInputRef}
+          />
+        </div>
+      )}
 
       {hasDemoData && !demoBannerDismissed && (
         <div className="mt-4 border-3 border-nb-border bg-amber-100 dark:bg-yellow-950/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -210,8 +228,8 @@ export function DashboardPage() {
                   graphPreview={graphPreview}
                   graphLoading={graphLoading}
                   onLoadAll={loadFullGraph}
-                  onLoadGraphForIds={loadGraphForIds}
                   search={graphSearch}
+                  searchInputRef={searchInputRef}
                 />
               </Suspense>
             </div>
@@ -235,7 +253,7 @@ export function DashboardPage() {
                       <button
                         onClick={retryAllFailed}
                         disabled={retrying}
-                        className="font-mono text-[10px] font-bold uppercase px-2 py-1 border-2 border-nb-red text-nb-red cursor-pointer hover:bg-nb-red hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="font-mono text-[11px] font-bold uppercase px-2 py-1 border-2 border-nb-red text-nb-red cursor-pointer hover:bg-nb-red hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {retrying ? 'RETRYING...' : 'RETRY ALL'}
                       </button>
@@ -252,6 +270,21 @@ export function DashboardPage() {
               </div>
             )}
           </>
+        )}
+
+        {activeTab === 'timeline' && (
+          <Suspense
+            fallback={
+              <div className="h-64 flex items-center justify-center text-nb-muted font-mono text-sm">
+                Loading timeline...
+              </div>
+            }
+          >
+            <TimelineView
+              memories={searchTimelineMemories ?? timelineMemories}
+              loading={graphSearch.pending || (!searchTimelineMemories && timelineLoading)}
+            />
+          </Suspense>
         )}
 
         {activeTab === 'logs' && (

@@ -113,10 +113,6 @@ export function SettingsPage() {
 
   return (
     <PageContainer>
-      <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-nb-text mb-6">
-        SETTINGS
-      </h1>
-
       <Tabs tabs={TABS} active={activeTab} onChange={handleTabChange} />
 
       <div className="mt-6 flex flex-col gap-6">

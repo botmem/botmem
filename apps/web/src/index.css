@@ -3,12 +3,13 @@
 
 @theme {
   --color-nb-bg: #0D0D0D;
-  --color-nb-surface: #1A1A2E;
-  --color-nb-surface-hover: #252540;
-  --color-nb-surface-muted: #2A2A45;
-  --color-nb-border: #E0E0E0;
-  --color-nb-text: #F0F0F0;
-  --color-nb-muted: #ABB2BF;
+  --color-nb-surface: #1A1A1A;
+  --color-nb-surface-hover: #252525;
+  --color-nb-surface-muted: #2A2A2A;
+  --color-nb-border: #333333;
+  --color-nb-border-strong: #444444;
+  --color-nb-text: #E0E0E0;
+  --color-nb-muted: #A0A0A0;
   --color-nb-black: #000000;
   --color-nb-pink: #FF6B9D;
   --color-nb-lime: #C4F53A;
@@ -24,38 +25,40 @@
   --font-mono: 'IBM Plex Mono', monospace;
   --font-body: 'IBM Plex Mono', monospace;
 
-  --shadow-nb-sm: 2px 2px 0 rgba(255, 255, 255, 0.12);
-  --shadow-nb: 4px 4px 0 rgba(255, 255, 255, 0.12);
-  --shadow-nb-lg: 6px 6px 0 rgba(255, 255, 255, 0.12);
+  --shadow-nb-sm: 2px 2px 0 rgba(255, 255, 255, 0.06);
+  --shadow-nb: 4px 4px 0 rgba(255, 255, 255, 0.06);
+  --shadow-nb-lg: 6px 6px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* ─── Light mode token overrides ───────────────────────────────────────────
-   Neobrutalist light: warm off-white bg, pure-white surfaces, BLACK borders.
-   Accent colors (lime, teal, pink, etc.) are unchanged — same in both modes.
-   Shadows flip from white-glow to dark-offset for legibility on light bg.
+   Warm off-white bg, white surfaces, subtle gray borders (matching POC).
+   Accent colors darken for legibility on light backgrounds.
    ─────────────────────────────────────────────────────────────────────────── */
 [data-theme="light"] {
-  --color-nb-bg: #F5F5F0;
+  --color-nb-bg: #F5F3EF;
   --color-nb-surface: #FFFFFF;
-  --color-nb-surface-hover: #EFEFEA;
-  --color-nb-surface-muted: #E5E5E0;
-  --color-nb-border: #0D0D0D;
-  --color-nb-text: #0D0D0D;
-  --color-nb-muted: #4A4A45;
-  --color-nb-lime: #78A300;
+  --color-nb-surface-hover: #EDEAE4;
+  --color-nb-surface-muted: #E5E2DC;
+  --color-nb-border: #D4D0C8;
+  --color-nb-border-strong: #B0ADA6;
+  --color-nb-text: #1A1A1A;
+  --color-nb-muted: #6B6B6B;
+  --color-nb-lime: #5A7A10;
   --color-nb-blue: #0E8C83;
   --color-nb-green: #15803D;
   --color-nb-pink: #D4366C;
   --color-nb-purple: #7C3AED;
   --color-nb-black: #000000;
 
-  --shadow-nb-sm: 2px 2px 0 rgba(0, 0, 0, 0.15);
-  --shadow-nb: 4px 4px 0 rgba(0, 0, 0, 0.15);
-  --shadow-nb-lg: 6px 6px 0 rgba(0, 0, 0, 0.15);
+  --shadow-nb-sm: 2px 2px 0 rgba(0, 0, 0, 0.1);
+  --shadow-nb: 4px 4px 0 rgba(0, 0, 0, 0.1);
+  --shadow-nb-lg: 6px 6px 0 rgba(0, 0, 0, 0.1);
 }
 
-/* Transition for smooth theme switch (skip layout properties to avoid jank) */
-*, *::before, *::after {
+/* Transition only during theme switch — scoped to avoid global style recalc */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
   transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
@@ -107,9 +110,14 @@ input, textarea, select, button {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .landing-fade-in {
     opacity: 1;
     transform: none;
-    transition: none;
   }
 }

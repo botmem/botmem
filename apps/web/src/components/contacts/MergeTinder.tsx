@@ -185,7 +185,7 @@ export function MergeTinder({
       <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span>Merge Review</span>
-          <Badge color="var(--color-nb-yellow)" className="text-[10px] py-0">
+          <Badge color="var(--color-nb-yellow)" className="text-[11px] py-0">
             {suggestions.length}
           </Badge>
         </div>
@@ -263,7 +263,7 @@ export function MergeTinder({
       {/* Up next preview */}
       {suggestions.length > index + 1 && (
         <div className="px-4 pb-3 flex flex-col gap-1.5">
-          <span className="font-mono text-[10px] text-nb-muted uppercase">Up next</span>
+          <span className="font-mono text-[11px] text-nb-muted uppercase">Up next</span>
           {suggestions.slice(index + 1, index + 3).map((s, i) => (
             <div
               key={`${s.contact1.id}::${s.contact2.id}`}
@@ -273,7 +273,7 @@ export function MergeTinder({
               <span className="font-mono text-xs text-nb-text truncate flex-1">
                 {s.contact1.displayName}
               </span>
-              <span className="font-mono text-[10px] text-nb-muted shrink-0">{'\u2194'}</span>
+              <span className="font-mono text-[11px] text-nb-muted shrink-0">{'\u2194'}</span>
               <span className="font-mono text-xs text-nb-text truncate flex-1 text-right">
                 {s.contact2.displayName}
               </span>
@@ -356,7 +356,7 @@ export function MergeTinder({
       </div>
 
       {/* Keyboard hint */}
-      <div className="border-t border-nb-border px-4 py-1.5 bg-nb-surface-muted flex items-center justify-center gap-4 font-mono text-[10px] text-nb-muted">
+      <div className="border-t border-nb-border px-4 py-1.5 bg-nb-surface-muted flex items-center justify-center gap-4 font-mono text-[11px] text-nb-muted">
         <span>
           <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2190'}</kbd> Skip
         </span>

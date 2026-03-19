@@ -715,7 +715,7 @@ function HowItWorks() {
               <div>{t.label}</div>
               <div
                 className={cn(
-                  'text-[10px] font-mono font-normal tracking-normal mt-0.5',
+                  'text-[11px] font-mono font-normal tracking-normal mt-0.5',
                   activeTab === i ? 'text-black/60' : 'text-nb-muted',
                 )}
               >

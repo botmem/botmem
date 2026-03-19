@@ -124,16 +124,19 @@ export function useFilteredGraph({
       keepNodes.add(node.id);
     }
 
-    const links = data.links.filter((l) => {
+    const links: GraphEdge[] = [];
+    for (const l of data.links) {
       const src = linkNodeId(l.source);
       const tgt = linkNodeId(l.target);
-      if (!keepNodes.has(src) || !keepNodes.has(tgt)) return false;
+      if (!keepNodes.has(src) || !keepNodes.has(tgt)) continue;
       const type = l.linkType || 'related';
-      if (filters.hiddenEdgeTypes.has(type)) return false;
+      if (filters.hiddenEdgeTypes.has(type)) continue;
       if (adaptiveConfig?.hideDecorativeLinks && (type === 'involves' || type === 'source'))
-        return false;
-      return true;
-    });
+        continue;
+      // Create clean link with string IDs — react-force-graph-2d mutates
+      // source/target to object refs which become stale on re-filter
+      links.push({ ...l, source: src, target: tgt });
+    }
 
     // Build connection counts from filtered links only (not all links)
     const filteredConnCounts = new Map<string, number>();

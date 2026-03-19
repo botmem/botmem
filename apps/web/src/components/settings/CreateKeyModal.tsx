@@ -140,7 +140,7 @@ export function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps)
             >
               Bank Access
             </label>
-            <p className="font-mono text-[10px] text-nb-muted mb-2">
+            <p className="font-mono text-[11px] text-nb-muted mb-2">
               Leave unchecked for access to all banks
             </p>
             <div className="flex flex-col gap-1.5">
@@ -158,7 +158,7 @@ export function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps)
                   <span className="font-mono text-sm text-nb-text uppercase">
                     {bank.name}
                     {bank.isDefault && (
-                      <span className="ml-1 text-nb-muted text-[10px]">(DEFAULT)</span>
+                      <span className="ml-1 text-nb-muted text-[11px]">(DEFAULT)</span>
                     )}
                   </span>
                 </label>

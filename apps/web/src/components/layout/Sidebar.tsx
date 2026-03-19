@@ -216,7 +216,7 @@ function BankSelector({ collapsed }: { collapsed: boolean }) {
     <div ref={ref} className="relative px-3 py-2 border-b-3 border-nb-border">
       <label
         htmlFor="bank-selector"
-        className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1 block"
+        className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1 block"
       >
         BANK
       </label>

@@ -96,7 +96,7 @@ export function IntegrationsTab() {
             {copied === 'mcp-url' ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <p className="font-mono text-[10px] text-nb-muted mt-1">
+        <p className="font-mono text-[11px] text-nb-muted mt-1">
           Use this URL for remote MCP connections (Streamable HTTP transport). Requires OAuth or API
           key auth.
         </p>
@@ -123,7 +123,7 @@ export function IntegrationsTab() {
               <span className="font-display text-sm font-bold uppercase text-nb-text block mb-0.5">
                 {copied === agent.key ? 'Copied!' : agent.label}
               </span>
-              <span className="font-mono text-[10px] text-nb-muted leading-tight block">
+              <span className="font-mono text-[11px] text-nb-muted leading-tight block">
                 {agent.description}
               </span>
             </button>

@@ -31,13 +31,12 @@ function LegendToggle({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 px-2 py-1 border-2 font-mono text-[11px] uppercase cursor-pointer transition-all"
-      style={{
-        borderColor: active ? '#E0E0E0' : '#444',
-        opacity: active ? 1 : 0.35,
-        backgroundColor: active ? 'rgba(255,255,255,0.05)' : 'transparent',
-        color: active ? '#F0F0F0' : '#888',
-      }}
+      className={[
+        'flex items-center gap-1.5 px-2 py-1 border-2 font-mono text-[11px] uppercase cursor-pointer transition-all',
+        active
+          ? 'border-nb-text bg-nb-surface-hover text-nb-text'
+          : 'border-nb-border-strong opacity-35 text-nb-muted',
+      ].join(' ')}
     >
       {icon}
       {label}
@@ -63,11 +62,12 @@ const EDGE_TYPE_LABELS: Record<string, string> = {
 };
 
 function SourceTypeIcon({ sourceType, color }: { sourceType: string; color: string }) {
-  const bg = '#1A1A2E';
+  const bg = 'var(--color-nb-surface)';
+  const stroke = 'var(--color-nb-text)';
   if (sourceType === 'email') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16">
-        <rect x="1" y="1" width="14" height="14" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+        <rect x="1" y="1" width="14" height="14" fill={color} stroke={stroke} strokeWidth="1" />
         <rect x="3.5" y="4.5" width="9" height="7" rx="0.5" fill={bg} />
         <polyline points="3.5,4.5 8,8.5 12.5,4.5" fill="none" stroke={color} strokeWidth="1" />
       </svg>
@@ -76,7 +76,7 @@ function SourceTypeIcon({ sourceType, color }: { sourceType: string; color: stri
   if (sourceType === 'message') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16">
-        <rect x="1" y="1" width="14" height="14" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+        <rect x="1" y="1" width="14" height="14" fill={color} stroke={stroke} strokeWidth="1" />
         <rect x="3" y="4" width="10" height="7" rx="1.5" fill={bg} />
         <circle cx="6" cy="7.5" r="0.8" fill={color} />
         <circle cx="8" cy="7.5" r="0.8" fill={color} />
@@ -88,7 +88,7 @@ function SourceTypeIcon({ sourceType, color }: { sourceType: string; color: stri
   if (sourceType === 'location') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16">
-        <rect x="1" y="1" width="14" height="14" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+        <rect x="1" y="1" width="14" height="14" fill={color} stroke={stroke} strokeWidth="1" />
         <path
           d="M8,3.5 C6,3.5 4.5,5 4.5,7 C4.5,9.5 8,13 8,13 C8,13 11.5,9.5 11.5,7 C11.5,5 10,3.5 8,3.5Z"
           fill={bg}
@@ -100,7 +100,7 @@ function SourceTypeIcon({ sourceType, color }: { sourceType: string; color: stri
   // Fallback: plain square
   return (
     <svg width="14" height="14" viewBox="0 0 14 14">
-      <rect x="1" y="1" width="12" height="12" fill={color} stroke="#E0E0E0" strokeWidth="1" />
+      <rect x="1" y="1" width="12" height="12" fill={color} stroke={stroke} strokeWidth="1" />
     </svg>
   );
 }
@@ -132,13 +132,13 @@ export function GraphLegend({
           className="border-2 border-nb-border h-8 px-3 flex items-center gap-2 font-mono text-xs font-bold uppercase bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
         >
           Legend
-          <span className="text-[10px]">{legendOpen ? '\u2212' : '+'}</span>
+          <span className="text-[11px]">{legendOpen ? '\u2212' : '+'}</span>
         </button>
 
         {legendOpen && (
           <div className="absolute bottom-full left-0 mb-1 w-72 border-3 border-nb-border bg-nb-surface shadow-nb p-3 flex flex-col gap-3">
             <div>
-              <div className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
+              <div className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
                 Nodes
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -152,11 +152,11 @@ export function GraphLegend({
                         cy="8"
                         r="7"
                         fill={CONTACT_COLOR}
-                        stroke="#E0E0E0"
+                        stroke="var(--color-nb-text)"
                         strokeWidth="1"
                       />
-                      <circle cx="8" cy="6" r="2.5" fill="#1A1A2E" />
-                      <ellipse cx="8" cy="13" rx="4" ry="3" fill="#1A1A2E" />
+                      <circle cx="8" cy="6" r="2.5" fill="var(--color-nb-surface)" />
+                      <ellipse cx="8" cy="13" rx="4" ry="3" fill="var(--color-nb-surface)" />
                     </svg>
                   }
                   label="People"
@@ -169,12 +169,12 @@ export function GraphLegend({
                       <polygon
                         points="8,1 14.5,4.5 14.5,11.5 8,15 1.5,11.5 1.5,4.5"
                         fill={GROUP_COLOR}
-                        stroke="#E0E0E0"
+                        stroke="var(--color-nb-text)"
                         strokeWidth="1"
                       />
-                      <circle cx="5.5" cy="6.5" r="1.5" fill="#1A1A2E" />
-                      <circle cx="10.5" cy="6.5" r="1.5" fill="#1A1A2E" />
-                      <ellipse cx="8" cy="11.5" rx="4" ry="2.5" fill="#1A1A2E" />
+                      <circle cx="5.5" cy="6.5" r="1.5" fill="var(--color-nb-surface)" />
+                      <circle cx="10.5" cy="6.5" r="1.5" fill="var(--color-nb-surface)" />
+                      <ellipse cx="8" cy="11.5" rx="4" ry="2.5" fill="var(--color-nb-surface)" />
                     </svg>
                   }
                   label="Groups"
@@ -187,11 +187,25 @@ export function GraphLegend({
                       <polygon
                         points="8,1 15,8 8,15 1,8"
                         fill={FILE_COLOR}
-                        stroke="#E0E0E0"
+                        stroke="var(--color-nb-text)"
                         strokeWidth="1"
                       />
-                      <line x1="5" y1="7" x2="11" y2="7" stroke="#1A1A2E" strokeWidth="1.5" />
-                      <line x1="5" y1="9.5" x2="11" y2="9.5" stroke="#1A1A2E" strokeWidth="1.5" />
+                      <line
+                        x1="5"
+                        y1="7"
+                        x2="11"
+                        y2="7"
+                        stroke="var(--color-nb-surface)"
+                        strokeWidth="1.5"
+                      />
+                      <line
+                        x1="5"
+                        y1="9.5"
+                        x2="11"
+                        y2="9.5"
+                        stroke="var(--color-nb-surface)"
+                        strokeWidth="1.5"
+                      />
                     </svg>
                   }
                   label="Files"
@@ -208,11 +222,14 @@ export function GraphLegend({
                         height="12"
                         rx="3"
                         fill={PHOTO_COLOR}
-                        stroke="#E0E0E0"
+                        stroke="var(--color-nb-text)"
                         strokeWidth="1"
                       />
-                      <circle cx="10" cy="5.5" r="1.5" fill="#1A1A2E" />
-                      <polygon points="3,12 6.5,7 9,10 10.5,8.5 13,12" fill="#1A1A2E" />
+                      <circle cx="10" cy="5.5" r="1.5" fill="var(--color-nb-surface)" />
+                      <polygon
+                        points="3,12 6.5,7 9,10 10.5,8.5 13,12"
+                        fill="var(--color-nb-surface)"
+                      />
                     </svg>
                   }
                   label="Photos"
@@ -229,34 +246,51 @@ export function GraphLegend({
                         height="12"
                         rx="3"
                         fill={DEVICE_COLOR}
-                        stroke="#E0E0E0"
+                        stroke="var(--color-nb-text)"
                         strokeWidth="1"
                       />
-                      <rect x="6" y="4" width="4" height="7" rx="0.5" fill="#1A1A2E" />
-                      <circle cx="8" cy="12" r="0.8" fill="#1A1A2E" />
+                      <rect
+                        x="6"
+                        y="4"
+                        width="4"
+                        height="7"
+                        rx="0.5"
+                        fill="var(--color-nb-surface)"
+                      />
+                      <circle cx="8" cy="12" r="0.8" fill="var(--color-nb-surface)" />
                     </svg>
                   }
                   label="Devices"
                 />
-                {sourceTypes
-                  .filter((st) => st !== 'file' && st !== 'photo')
-                  .map((st) => {
-                    const color = CONNECTOR_COLORS[st] || '#999';
-                    return (
-                      <LegendToggle
-                        key={st}
-                        active={!filters.hiddenSourceTypes.has(st)}
-                        onClick={() => dispatch({ type: 'toggleSourceType', source: st })}
-                        icon={<SourceTypeIcon sourceType={st} color={color} />}
-                        label={SOURCE_TYPE_LABELS[st] || st}
-                      />
-                    );
-                  })}
               </div>
             </div>
 
+            {sourceTypes.filter((st) => st !== 'file' && st !== 'photo').length > 0 && (
+              <div>
+                <div className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
+                  Source
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sourceTypes
+                    .filter((st) => st !== 'file' && st !== 'photo')
+                    .map((st) => {
+                      const color = CONNECTOR_COLORS[st] || '#999';
+                      return (
+                        <LegendToggle
+                          key={st}
+                          active={!filters.hiddenSourceTypes.has(st)}
+                          onClick={() => dispatch({ type: 'toggleSourceType', source: st })}
+                          icon={<SourceTypeIcon sourceType={st} color={color} />}
+                          label={SOURCE_TYPE_LABELS[st] || st}
+                        />
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
             <div>
-              <div className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
+              <div className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
                 Relationships
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -285,10 +319,10 @@ export function GraphLegend({
             </div>
 
             <div>
-              <div className="font-display text-[10px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
+              <div className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
                 Size = Importance
               </div>
-              <div className="flex items-center gap-2 font-mono text-[10px] text-nb-muted">
+              <div className="flex items-center gap-2 font-mono text-[11px] text-nb-muted">
                 <span className="size-2 border border-nb-muted inline-block" /> low
                 <span className="size-3 border border-nb-muted inline-block" /> med
                 <span className="size-4 border border-nb-muted inline-block" /> high

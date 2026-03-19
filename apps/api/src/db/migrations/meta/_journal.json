@@ -85,6 +85,27 @@
       "when": 1773800000000,
       "tag": "0011_add_search_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1773900000000,
+      "tag": "0012_encrypt_pii_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1773950000000,
+      "tag": "0013_rename_contacts_to_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774060000000,
+      "tag": "0014_catch_up_schema",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,25 @@
-import { IsString, IsNotEmpty, IsOptional, IsObject, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsBoolean,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+class TimeRangeDto {
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  to?: string;
+}
 
 export class SearchMemoriesDto {
   @IsString()
@@ -6,8 +27,33 @@ export class SearchMemoriesDto {
   query!: string;
 
   @IsOptional()
-  @IsObject()
-  filters?: Record<string, string>;
+  @IsArray()
+  @IsString({ each: true })
+  connectorTypes?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  sourceTypes?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  factualityLabels?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  personNames?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TimeRangeDto)
+  timeRange?: TimeRangeDto;
+
+  @IsOptional()
+  @IsBoolean()
+  pinned?: boolean;
 
   @IsOptional()
   @IsInt()

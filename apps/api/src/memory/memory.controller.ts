@@ -29,6 +29,7 @@ import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
+import { AskMemoriesDto } from './dto/ask-memories.dto';
 
 @ApiTags('Memories')
 @ApiBearerAuth()
@@ -326,9 +327,20 @@ export class MemoryController {
   ) {
     if (await this.memoryService.needsRecoveryKey(user.id))
       return { results: [], needsRecoveryKey: true };
+
+    // Map typed DTO to SearchFilters
+    const filters: Record<string, unknown> = {};
+    if (dto.connectorTypes?.length) filters.connectorTypes = dto.connectorTypes;
+    if (dto.sourceTypes?.length) filters.sourceTypes = dto.sourceTypes;
+    if (dto.factualityLabels?.length) filters.factualityLabels = dto.factualityLabels;
+    if (dto.personNames?.length) filters.personNames = dto.personNames;
+    if (dto.timeRange?.from) filters.from = dto.timeRange.from;
+    if (dto.timeRange?.to) filters.to = dto.timeRange.to;
+    if (dto.pinned !== undefined) filters.pinned = dto.pinned;
+
     const result = await this.memoryService.search(
       dto.query,
-      dto.filters,
+      filters as any,
       dto.limit,
       dto.rerank,
       user.id,
@@ -345,6 +357,24 @@ export class MemoryController {
       }
     }
     return result;
+  }
+
+  @ReadOnly()
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Post('ask')
+  async ask(
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
+    @Body() dto: AskMemoriesDto,
+  ) {
+    if (await this.memoryService.needsRecoveryKey(user.id))
+      return { answer: '', conversationId: '', citations: [], needsRecoveryKey: true };
+    return this.memoryService.ask(
+      dto.query,
+      dto.conversationId,
+      user.id,
+      dto.memoryBankId,
+      user.memoryBankIds,
+    );
   }
 
   @RequiresJwt()

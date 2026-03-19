@@ -37,7 +37,7 @@ export function SearchInput({
       {pending && (
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
           <div className="size-3 border-2 border-nb-lime border-t-transparent rounded-full animate-spin" />
-          <span className="font-mono text-[10px] text-nb-lime uppercase">Searching...</span>
+          <span className="font-mono text-[11px] text-nb-lime uppercase">Searching...</span>
         </div>
       )}
     </div>

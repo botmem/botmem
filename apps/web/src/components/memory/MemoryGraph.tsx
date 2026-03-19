@@ -4,9 +4,9 @@ import type { GraphData, GraphNode, GraphEdge } from '@botmem/shared';
 import { SearchResultsBanner } from './SearchResultsBanner';
 import { NodeDetailPanel } from './NodeDetailPanel';
 import { GraphLegend } from './GraphLegend';
-import { SearchInput } from '../ui/SearchInput';
+
 import { filterReducer, uiReducer } from './graphReducers';
-import { renderNode, renderNodePointerArea } from './graphDrawing';
+import { renderNode, renderNodePointerArea, refreshThemeCache } from './graphDrawing';
 import type { NodeRenderCtx } from './graphDrawing';
 import { useGraphKeyboard } from './useGraphKeyboard';
 import { useFilteredGraph } from './useFilteredGraph';
@@ -25,8 +25,8 @@ interface MemoryGraphProps {
   graphPreview?: boolean;
   graphLoading?: boolean;
   onLoadAll?: () => void;
-  onLoadGraphForIds?: (ids: string[]) => Promise<void>;
   search: UseSearchReturn;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 export function MemoryGraph({
@@ -36,13 +36,16 @@ export function MemoryGraph({
   graphLoading,
   onLoadAll,
   search,
+  searchInputRef: externalSearchInputRef,
 }: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphInstance | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const fallbackSearchInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = externalSearchInputRef || fallbackSearchInputRef;
 
   const [ForceGraph, setForceGraph] = useState<ForceGraphComponent | null>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
+  const [bgColor, setBgColor] = useState('#1A1A1A');
   const [selfNodeId, setSelfNodeId] = useState<string | null>(null);
 
   const [filters, dispatchFilter] = useReducer(filterReducer, {
@@ -107,6 +110,16 @@ export function MemoryGraph({
       });
     }
   }, [data.nodes.length, data.links.length]);
+
+  // Listen for search-person events from NodeDetailPanel SEARCH button
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const name = (e as CustomEvent).detail?.name;
+      if (name) search.setTerm(name);
+    };
+    window.addEventListener('botmem:search-person', handler);
+    return () => window.removeEventListener('botmem:search-person', handler);
+  }, [search]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -192,11 +205,19 @@ export function MemoryGraph({
     adaptiveConfig,
   });
 
-  const handleNodeDoubleClick = useCallback((node: GraphNode) => {
-    dispatchUI({ type: 'doubleClickNode', node });
-  }, []);
+  const handleNodeDoubleClick = useCallback(
+    (node: GraphNode) => {
+      // For contact/person nodes, trigger a search with their name
+      if (node.nodeType === 'contact' && node.label) {
+        search.setTerm(node.label);
+      }
+      dispatchUI({ type: 'doubleClickNode', node });
+    },
+    [search],
+  );
 
   const authToken = useAuthStore((s) => s.accessToken);
+
   const renderCtx = useMemo<NodeRenderCtx>(
     () => ({
       searchMatchIds,
@@ -205,9 +226,33 @@ export function MemoryGraph({
       selfNodeId,
       scoreMap: searchState.results?.scoreMap ?? null,
       authToken,
+      selectedNodeId: ui.selectedNode?.id ?? null,
     }),
-    [searchMatchIds, highlightedIds, focusVisibleIds, selfNodeId, searchState.results, authToken],
+    [
+      searchMatchIds,
+      highlightedIds,
+      focusVisibleIds,
+      selfNodeId,
+      searchState.results,
+      authToken,
+      ui.selectedNode,
+    ],
   );
+
+  // Refresh theme colors + graph background when data-theme attribute changes
+  useEffect(() => {
+    const syncTheme = () => {
+      refreshThemeCache();
+      const surface = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-nb-surface')
+        .trim();
+      if (surface) setBgColor(surface);
+    };
+    syncTheme();
+    const obs = new MutationObserver(syncTheme);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
 
   const nodeCanvasObject = useCallback(
     (node: SimulationNode, ctx: CanvasRenderingContext2D, globalScale: number) =>
@@ -255,18 +300,6 @@ export function MemoryGraph({
         ui.isFullscreen ? 'fixed inset-0 z-50 bg-nb-bg flex flex-col p-4 overflow-hidden' : ''
       }
     >
-      {/* Controls */}
-      <div className="flex items-center gap-3 mb-2">
-        <SearchInput
-          value={search.term}
-          onChange={search.setTerm}
-          pending={search.pending}
-          placeholder="SEARCH NODES, ENTITIES..."
-          className="flex-1"
-          inputRef={searchInputRef}
-        />
-      </div>
-
       {/* Status bar */}
       <div className="flex items-center gap-4 mb-2 font-mono text-xs text-nb-muted uppercase">
         {graphNotReady ? (
@@ -291,7 +324,7 @@ export function MemoryGraph({
             {adaptiveConfig.performanceMode && (
               <span className="text-nb-lime cursor-help relative group" title="">
                 &#9889;
-                <span className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-nb-surface border-2 border-nb-border px-2 py-1 text-[10px] text-nb-text normal-case whitespace-nowrap shadow-lg">
+                <span className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-nb-surface border-2 border-nb-border px-2 py-1 text-[11px] text-nb-text normal-case whitespace-nowrap shadow-lg">
                   {totalNodes}+ nodes — reduced detail for performance
                 </span>
               </span>
@@ -379,14 +412,14 @@ export function MemoryGraph({
                 }
               }
             }}
-            backgroundColor="#1A1A2E"
+            backgroundColor={bgColor}
           />
         )}
 
         {/* Keyboard shortcuts hint */}
         {ui.isFullscreen && (
           <div
-            className="absolute top-3 left-3 z-10 border-2 border-nb-border bg-nb-surface/90 px-3 py-2 font-mono text-[10px] text-nb-muted flex flex-col gap-0.5 pointer-events-none"
+            className="absolute top-3 left-3 z-10 border-2 border-nb-border bg-nb-surface/90 px-3 py-2 font-mono text-[11px] text-nb-muted flex flex-col gap-0.5 pointer-events-none"
             style={{
               opacity: ui.showHint ? 1 : 0,
               transition: 'opacity 0.6s ease-out',

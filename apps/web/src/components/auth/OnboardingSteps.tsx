@@ -183,7 +183,7 @@ export function OnboardingSteps() {
 
           <div className="relative border-3 border-nb-border bg-nb-surface shadow-nb p-6 mb-6">
             <div className="absolute -top-3 left-4 bg-nb-red px-2 py-0.5">
-              <span className="font-display text-[10px] font-bold uppercase tracking-wider text-white">
+              <span className="font-display text-[11px] font-bold uppercase tracking-wider text-white">
                 Save This Key
               </span>
             </div>
