@@ -19,7 +19,6 @@ import { EnrichService } from './enrich.service';
 import { CleanProcessor } from './clean.processor';
 import { EmbedProcessor } from './embed.processor';
 import { EnrichProcessor } from './enrich.processor';
-import { ReencryptProcessor } from './reencrypt.processor';
 import { DecayProcessor } from './decay.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
@@ -44,7 +43,6 @@ import { MemoryController } from './memory.controller';
       },
     }),
     BullModule.registerQueue({ name: 'maintenance' }),
-    BullModule.registerQueue({ name: 'reencrypt' }),
   ],
   controllers: [MemoryController],
   providers: [
@@ -59,7 +57,6 @@ import { MemoryController } from './memory.controller';
     CleanProcessor,
     EmbedProcessor,
     EnrichProcessor,
-    ReencryptProcessor,
     DecayProcessor,
     MemoryService,
   ],

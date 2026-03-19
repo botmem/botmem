@@ -6,8 +6,6 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { keyToMnemonic, resolveRecoveryKey } from '@botmem/shared';
@@ -33,7 +31,6 @@ export class UserAuthService {
     private memoryBanksService: MemoryBanksService,
     private userKeyService: UserKeyService,
     private analytics: AnalyticsService,
-    @InjectQueue('reencrypt') private reencryptQueue: Queue,
   ) {}
 
   private hashRecoveryKey(recoveryKey: string): string {

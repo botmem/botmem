@@ -9,7 +9,6 @@ import { MailService } from '../../mail/mail.service';
 import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 import { UserKeyService } from '../../crypto/user-key.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
-import { getQueueToken } from '@nestjs/bullmq';
 import * as bcrypt from 'bcryptjs';
 
 // Mock bcrypt for faster tests
@@ -104,10 +103,6 @@ describe('UserAuthService', () => {
         {
           provide: AnalyticsService,
           useValue: { capture: vi.fn() },
-        },
-        {
-          provide: getQueueToken('reencrypt'),
-          useValue: { add: vi.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

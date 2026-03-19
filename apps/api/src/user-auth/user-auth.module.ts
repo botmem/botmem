@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule } from '../config/config.module';
 import { ConfigService } from '../config/config.service';
 import { DbModule } from '../db/db.module';
@@ -20,7 +19,6 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     DbModule,
     MailModule,
     CryptoModule,
-    BullModule.registerQueue({ name: 'reencrypt' }),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
