@@ -21,7 +21,12 @@ export async function syncTelegram(
   if (!session) throw new Error('No Telegram session — please re-authenticate');
 
   const client = createClientFromSession(session);
-  await client.connect();
+  await Promise.race([
+    client.connect(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Telegram connection timed out after 60s')), 60_000),
+    ),
+  ]);
 
   let processed = 0;
   const cursors: DialogCursors = ctx.cursor ? JSON.parse(ctx.cursor) : {};
@@ -30,7 +35,12 @@ export async function syncTelegram(
   try {
     // Phase 1: Dialogs + Messages
     ctx.logger.info('Phase 1: Fetching dialogs...');
-    const dialogs = await client.getDialogs({});
+    const dialogs = await Promise.race([
+      client.getDialogs({}),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Telegram getDialogs timed out after 120s')), 120_000),
+      ),
+    ]);
     ctx.logger.info(`Found ${dialogs.length} dialogs`);
 
     for (const dialog of dialogs) {
