@@ -69,7 +69,7 @@ export class TypesenseService implements OnModuleInit {
           { name: 'text', type: 'string' as const, optional: true },
           { name: 'connector_type', type: 'string' as const, facet: true },
           { name: 'source_type', type: 'string' as const, facet: true },
-          { name: 'event_time', type: 'string' as const, optional: true },
+          { name: 'event_time', type: 'int64' as const, sort: true, optional: true },
           { name: 'account_id', type: 'string' as const, optional: true },
           { name: 'memory_bank_id', type: 'string' as const, optional: true },
           { name: 'factuality_label', type: 'string' as const, facet: true, optional: true },
@@ -420,10 +420,12 @@ export class TypesenseService implements OnModuleInit {
       parts.push(`people:[${escaped.join(',')}]`);
     }
     if (filters.timeRange?.from) {
-      parts.push(`event_time:>=${filters.timeRange.from}`);
+      const ts = Math.floor(new Date(filters.timeRange.from).getTime() / 1000);
+      if (!isNaN(ts)) parts.push(`event_time:>=${ts}`);
     }
     if (filters.timeRange?.to) {
-      parts.push(`event_time:<=${filters.timeRange.to}`);
+      const ts = Math.floor(new Date(filters.timeRange.to).getTime() / 1000);
+      if (!isNaN(ts)) parts.push(`event_time:<=${ts}`);
     }
     if (filters.pinned === true) {
       parts.push('pinned:=true');
@@ -635,6 +637,14 @@ export class TypesenseService implements OnModuleInit {
     for (const [key, value] of Object.entries(payload)) {
       if (key === 'embedding') continue; // Don't overwrite embedding field
       if (value === null || value === undefined) continue;
+      // Convert event_time to Unix epoch (int64) for Typesense
+      if (key === 'event_time' && typeof value === 'string') {
+        const ts = Math.floor(new Date(value).getTime() / 1000);
+        if (!isNaN(ts)) {
+          flat[key] = ts;
+          continue;
+        }
+      }
       flat[key] = typeof value === 'object' ? JSON.stringify(value) : value;
     }
     return flat;
