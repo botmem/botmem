@@ -94,7 +94,10 @@ export class TypesenseService implements OnModuleInit {
     const doc: Record<string, unknown> = {
       id: memoryId,
       embedding: vector,
+      // Defaults for required fields that may not be in payload
       pinned: false,
+      importance: 0.5,
+      recall_count: 0,
       ...flat,
     };
 
