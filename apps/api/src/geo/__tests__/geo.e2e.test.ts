@@ -4,8 +4,11 @@ import { Pool } from 'pg';
 /**
  * E2E test for GeoService using real PostgreSQL with cube + earthdistance extensions.
  * Requires a running PostgreSQL instance (from docker-compose).
+ * Skipped in CI where no database is available.
  */
-describe('GeoService E2E', () => {
+const describeWithDb = process.env.CI ? describe.skip : describe;
+
+describeWithDb('GeoService E2E', () => {
   let pool: Pool;
 
   beforeAll(async () => {
