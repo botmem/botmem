@@ -57,6 +57,19 @@ export class TypesenseService implements OnModuleInit {
             `Either delete the collection and re-sync, or set EMBED_DIMENSION to match.`,
         );
       }
+
+      // Migrate people field from string to string[] if needed (one-time fix)
+      const peopleField = collection.fields?.find((f) => f.name === 'people');
+      if (peopleField && peopleField.type === 'string') {
+        this.logger.warn('[ensureCollection] Migrating "people" field from string to string[]');
+        await this.client.collections(COLLECTION_NAME).update({
+          fields: [
+            { name: 'people', drop: true } as Record<string, unknown> as never,
+            { name: 'people', type: 'string[]' as const, facet: true, optional: true },
+          ],
+        });
+        this.logger.log('[ensureCollection] "people" field migrated to string[]');
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('Typesense collection')) throw err;
       const isNotFound =
