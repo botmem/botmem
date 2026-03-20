@@ -183,19 +183,34 @@ Typesense collection `memories`: hybrid BM25 + vector search (cosine), fields in
 
 All under `apps/api/src/`:
 
-| Module        | Purpose                                                                         |
-| ------------- | ------------------------------------------------------------------------------- |
-| `config/`     | Environment + ConfigService                                                     |
-| `db/`         | PostgreSQL init, Drizzle schema, DbService                                      |
-| `connectors/` | Connector registry + factory                                                    |
-| `accounts/`   | Account CRUD, credential management                                             |
-| `auth/`       | OAuth flow orchestration, callback handling                                     |
-| `jobs/`       | Job CRUD, sync triggering, status tracking                                      |
-| `logs/`       | Log persistence + retrieval                                                     |
-| `events/`     | WebSocket gateway (`/events`) for real-time updates                             |
-| `memory/`     | Search, ranking, embedding (OllamaService, TypesenseService), BullMQ processors |
-| `contacts/`   | Contact dedup, identifier merging                                               |
-| `plugins/`    | Plugin/extension system (stub)                                                  |
+| Module          | Purpose                                                                         |
+| --------------- | ------------------------------------------------------------------------------- |
+| `accounts/`     | Account CRUD, credential management                                             |
+| `agent/`        | Agent API endpoints (search, ask, tools for AI agents)                          |
+| `analytics/`    | PostHog analytics integration + event tracking                                  |
+| `api-keys/`     | API key generation, validation, management (`bm_sk_...` tokens)                 |
+| `auth/`         | OAuth flow orchestration, callback handling                                     |
+| `billing/`      | Usage tracking + billing (stub)                                                 |
+| `config/`       | Environment + ConfigService                                                     |
+| `connectors/`   | Connector registry + factory                                                    |
+| `crypto/`       | AES-256-GCM encryption/decryption, recovery key handling                        |
+| `db/`           | PostgreSQL init, Drizzle schema, DbService, migrations                          |
+| `demo/`         | Demo mode with sample data                                                      |
+| `events/`       | WebSocket gateway (`/events`) for real-time updates                             |
+| `geo/`          | Geodecoding (offline GeoNames) for location memories                            |
+| `jobs/`         | Job CRUD, sync triggering, status tracking                                      |
+| `logs/`         | Log persistence + retrieval                                                     |
+| `mail/`         | Transactional email sending                                                     |
+| `mcp/`          | MCP (Model Context Protocol) server integration                                 |
+| `me/`           | Current user profile endpoint                                                   |
+| `memory-banks/` | Memory bank grouping + organization                                             |
+| `memory/`       | Search, ranking, embedding (OllamaService, TypesenseService), BullMQ processors |
+| `oauth/`        | OAuth client credentials + token management                                     |
+| `people/`       | Contact dedup, identifier merging (domain concept: "contacts")                  |
+| `plugins/`      | Plugin/extension system                                                         |
+| `settings/`     | User + system settings API                                                      |
+| `tracing/`      | OpenTelemetry tracing integration                                               |
+| `user-auth/`    | User authentication (Firebase + local), JWT, refresh tokens, recovery key flow  |
 
 ## Frontend
 

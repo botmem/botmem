@@ -1,5 +1,9 @@
 # Contact Resolution
 
+::: info Naming Convention
+The user-facing domain concept is "contacts," but the codebase uses `people` as the canonical name. The API module is `people/`, database tables are `people`, `personIdentifiers`, and `memoryPeople`, and the Drizzle schema exports match. Documentation uses "contacts" for clarity.
+:::
+
 Contacts are a first-class entity in Botmem. The system automatically identifies, deduplicates, and merges people across all connected data sources.
 
 ## How Contact Resolution Works
@@ -25,15 +29,15 @@ Search contact_identifiers for:
 
 ### Identifier Types
 
-| Type | Description | Connectors |
-|---|---|---|
-| `email` | Email address | Gmail, Slack, iMessage |
-| `phone` | Phone number | WhatsApp, Gmail (contacts), Slack |
-| `slack_id` | Slack username or user ID | Slack |
-| `imessage_handle` | iMessage identifier (email or phone) | iMessage |
-| `immich_person_id` | Immich facial recognition person ID | Photos/Immich |
-| `name` | Display name | All connectors |
-| `sip` | SIP address | Gmail (contacts) |
+| Type               | Description                          | Connectors                        |
+| ------------------ | ------------------------------------ | --------------------------------- |
+| `email`            | Email address                        | Gmail, Slack, iMessage            |
+| `phone`            | Phone number                         | WhatsApp, Gmail (contacts), Slack |
+| `slack_id`         | Slack username or user ID            | Slack                             |
+| `imessage_handle`  | iMessage identifier (email or phone) | iMessage                          |
+| `immich_person_id` | Immich facial recognition person ID  | Photos/Immich                     |
+| `name`             | Display name                         | All connectors                    |
+| `sip`              | SIP address                          | Gmail (contacts)                  |
 
 ### Resolution Rules
 
@@ -73,10 +77,10 @@ Photos/Immich: Face tag "John Smith" (person ID: abc-123)
 
 ```typescript
 interface Contact {
-  id: string;           // UUID
-  displayName: string;  // Primary display name
-  avatars: string;      // JSON: [{url, source}]
-  metadata: string;     // JSON: {organizations, birthday, addresses, ...}
+  id: string; // UUID
+  displayName: string; // Primary display name
+  avatars: string; // JSON: [{url, source}]
+  metadata: string; // JSON: {organizations, birthday, addresses, ...}
   createdAt: string;
   updatedAt: string;
 }
@@ -87,11 +91,11 @@ interface Contact {
 ```typescript
 interface ContactIdentifier {
   id: string;
-  contactId: string;        // FK to contacts
-  identifierType: string;   // email, phone, slack_id, etc.
+  contactId: string; // FK to contacts
+  identifierType: string; // email, phone, slack_id, etc.
   identifierValue: string;
-  connectorType: string;    // Which connector provided this
-  confidence: number;       // 0.0 - 1.0
+  connectorType: string; // Which connector provided this
+  confidence: number; // 0.0 - 1.0
   createdAt: string;
 }
 ```
@@ -101,9 +105,9 @@ interface ContactIdentifier {
 ```typescript
 interface MemoryContact {
   id: string;
-  memoryId: string;   // FK to memories
-  contactId: string;  // FK to contacts
-  role: string;       // sender, recipient, mentioned, participant
+  memoryId: string; // FK to memories
+  contactId: string; // FK to contacts
+  role: string; // sender, recipient, mentioned, participant
 }
 ```
 
@@ -146,6 +150,7 @@ curl http://localhost:12412/api/contacts/suggestions
 ```
 
 Suggestions are based on:
+
 - Similar display names (fuzzy matching)
 - Shared identifiers across different connector types
 - Common memory associations
@@ -160,6 +165,7 @@ curl -X POST http://localhost:12412/api/contacts/<contact-a-id>/merge \
 ```
 
 Merging:
+
 1. Moves all identifiers from source to target
 2. Re-links all memory associations
 3. Merges metadata (target fields take precedence)
