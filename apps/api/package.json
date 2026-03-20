@@ -87,7 +87,7 @@
     "@types/pg": "^8.18.0",
     "@types/unzipper": "^0.10.11",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^5.1.4",
+    "@vitejs/plugin-react": "^6.0.1",
     "typescript": "catalog:",
     "unplugin-swc": "^1.5.9",
     "vite": "catalog:",
