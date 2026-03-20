@@ -15,16 +15,16 @@
   "dependencies": {
     "@botmem/shared": "workspace:*",
     "driver.js": "^1.4.0",
-    "firebase": "^12.10.0",
-    "posthog-js": "^1.360.0",
+    "firebase": "^12.11.0",
+    "posthog-js": "^1.363.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-force-graph-2d": "^1.29.1",
     "react-router-dom": "^7.13.1",
-    "zustand": "^5.0.11"
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.1",
+    "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.4.0",
@@ -35,7 +35,7 @@
     "jsdom": "^28.1.0",
     "lightningcss": "^1.32.0",
     "postcss": "^8.5.8",
-    "tailwindcss": "^4.2.1",
+    "tailwindcss": "^4.2.2",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
