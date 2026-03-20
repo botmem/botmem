@@ -8,6 +8,7 @@ import { AccountsModule } from '../accounts/accounts.module';
 import { SettingsModule } from '../settings/settings.module';
 import { CryptoModule } from '../crypto/crypto.module';
 import { JobsModule } from '../jobs/jobs.module';
+import { GeoModule } from '../geo/geo.module';
 import { OllamaService } from './ollama.service';
 import { OpenRouterService } from './openrouter.service';
 import { AiCacheService } from './ai-cache.service';
@@ -32,6 +33,7 @@ import { MemoryController } from './memory.controller';
     AccountsModule,
     SettingsModule,
     CryptoModule,
+    GeoModule,
     forwardRef(() => JobsModule),
     BullModule.registerQueue({ name: 'clean' }),
     BullModule.registerQueue({ name: 'embed' }),

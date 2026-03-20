@@ -269,6 +269,11 @@ function createProcessor(
     createMockPluginRegistry() as unknown as PluginRegistry,
     { capture: vi.fn() } as unknown as AnalyticsService,
     { aiConcurrency: { embed: 2 }, embedBackend: 'ollama' } as unknown as ConfigService,
+    {
+      reverseGeocode: vi
+        .fn()
+        .mockResolvedValue({ city: null, state: null, country: null, countryCode: null }),
+    } as unknown as import('../../geo/geo.service').GeoService,
     enrichQueue as unknown as Queue,
     createMockTraceContext(),
   );

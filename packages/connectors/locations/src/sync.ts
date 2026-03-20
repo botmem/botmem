@@ -1,6 +1,5 @@
 import type { SyncContext, SyncResult, ConnectorDataEvent } from '@botmem/connector-sdk';
-import { OwnTracksClient, reverseGeocode, NOMINATIM_DELAY } from './owntracks.js';
-import type { GeoAddress } from './owntracks.js';
+import { OwnTracksClient } from './owntracks.js';
 import type { CursorState, OwnTracksLocation } from './types.js';
 
 type EmitFn = (event: ConnectorDataEvent) => void;
@@ -9,22 +8,15 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function locationText(loc: OwnTracksLocation, geo?: GeoAddress | null): string {
+function locationText(loc: OwnTracksLocation): string {
   const dt = new Date(loc.tst * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   const coords = `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}`;
-  const enAddr = geo?.en || loc.addr || null;
-  const localAddr = geo?.local || null;
 
   const parts: string[] = [];
 
   // Region label from OwnTracks waypoints (e.g. "Home", "Office")
   if (loc.inregions?.length) {
     parts.push(`At ${loc.inregions.join(', ')}`);
-    if (enAddr) parts.push(`(${enAddr})`);
-    if (localAddr) parts.push(`(${localAddr})`);
-  } else if (enAddr) {
-    parts.push(`At ${enAddr}`);
-    if (localAddr) parts.push(`(${localAddr})`);
   }
 
   // Always include coordinates
@@ -109,32 +101,13 @@ export async function syncLocations(
     emitProgress({ processed: 0, total: newLocations.length });
   }
 
-  // Geocode cache — nearby locations share the same address
-  const geoCache = new Map<string, GeoAddress>();
   let processed = 0;
   let maxTst = lastTst ?? 0;
-  let needsDelay = false;
 
   for (const loc of newLocations) {
     if (ctx.signal.aborted) break;
 
-    // Geocode inline — use cache for nearby points
-    const geoKey = loc.ghash || `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
-    let geo: GeoAddress = { en: loc.addr || null, local: null };
-
-    if (!loc.addr && !loc.inregions?.length) {
-      if (geoCache.has(geoKey)) {
-        geo = geoCache.get(geoKey)!;
-      } else {
-        // Rate limit: Nominatim allows 1 req/sec (reverseGeocode makes 2 calls internally)
-        if (needsDelay) await new Promise((r) => setTimeout(r, NOMINATIM_DELAY));
-        geo = await reverseGeocode(loc.lat, loc.lon);
-        geoCache.set(geoKey, geo);
-        needsDelay = true;
-      }
-    }
-
-    const text = locationText(loc, geo);
+    const text = locationText(loc);
 
     emit({
       sourceType: 'location',
@@ -150,8 +123,6 @@ export async function syncLocations(
           velocity: loc.vel,
           course: loc.cog,
           battery: loc.batt,
-          address: geo.en,
-          addressLocal: geo.local,
           countryCode: loc.cc,
           geohash: loc.ghash,
           regions: loc.inregions,

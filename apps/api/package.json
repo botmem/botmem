@@ -53,6 +53,7 @@
     "drizzle-kit": "^0.30.6",
     "drizzle-orm": "^0.38.4",
     "firebase-admin": "^13.7.0",
+    "i18n-iso-countries": "^7.14.0",
     "ioredis": "^5.10.0",
     "mammoth": "^1.11.0",
     "nodemailer": "^8.0.2",
@@ -67,6 +68,7 @@
     "stopword": "^3.1.5",
     "stripe": "^20.4.1",
     "typesense": "^2.0.0",
+    "unzipper": "^0.12.3",
     "ws": "^8.19.0",
     "xlsx": "^0.18.5"
   },
@@ -83,6 +85,7 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.18.0",
+    "@types/unzipper": "^0.10.11",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.4",
     "typescript": "catalog:",

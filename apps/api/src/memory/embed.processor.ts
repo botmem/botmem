@@ -19,6 +19,7 @@ import { SettingsService } from '../settings/settings.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
+import { GeoService } from '../geo/geo.service';
 import {
   rawEvents,
   memories,
@@ -64,6 +65,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private pluginRegistry: PluginRegistry,
     private analytics: AnalyticsService,
     private config: ConfigService,
+    private geo: GeoService,
     @InjectQueue('enrich') private enrichQueue: Queue,
     private traceContext: TraceContext,
   ) {
@@ -180,7 +182,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
     // Call connector.embed() for entity extraction
     const embedResult = await connector.embed(event, text, ctx);
-    const embedText = embedResult.text || text;
+    let embedText = embedResult.text || text;
 
     // Convert embed entities to normalized {type, value} format for metadata persistence
     const embedEntities = normalizeEntities(
@@ -203,6 +205,28 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       ...(embedResult.metadata || {}),
       embedEntities,
     };
+
+    // Geocode locations: enrich text with resolved city/state/country
+    const metaLat = metadata.lat as number | undefined;
+    const metaLon = metadata.lon as number | undefined;
+    if (metaLat != null && metaLon != null) {
+      try {
+        const geoResult = await this.geo.reverseGeocode(metaLat, metaLon);
+        if (geoResult.city) {
+          const addressParts = [geoResult.city, geoResult.state, geoResult.country].filter(Boolean);
+          const addressStr = addressParts.join(', ');
+          embedText = `At ${addressStr} [${metaLat.toFixed(5)}, ${metaLon.toFixed(5)}] — ${embedText}`;
+          mergedMetadata.city = geoResult.city;
+          mergedMetadata.state = geoResult.state;
+          mergedMetadata.country = geoResult.country;
+          mergedMetadata.countryCode = geoResult.countryCode;
+        }
+      } catch (geoErr) {
+        this.logger.debug(
+          `[embed:geo] ${mid} geocode failed: ${geoErr instanceof Error ? geoErr.message : String(geoErr)}`,
+        );
+      }
+    }
 
     // Look up the memory bank: use explicit job-level override, else default bank
     let memoryBankId: string | null = null;

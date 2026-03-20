@@ -24,13 +24,13 @@ You need a running [OwnTracks Recorder](https://github.com/owntracks/recorder) i
 
 Navigate to the Connectors page and click **Add** on the Locations / OwnTracks connector. Enter:
 
-| Field | Value |
-|---|---|
-| Base URL | Your OwnTracks recorder URL (e.g., `https://owntracks.example.com`) |
-| Username | HTTP auth username |
-| Device | Device identifier (e.g., `iphone`) |
-| HTTP Auth Username | Basic auth username for the recorder API |
-| HTTP Auth Password | Basic auth password for the recorder API |
+| Field              | Value                                                               |
+| ------------------ | ------------------------------------------------------------------- |
+| Base URL           | Your OwnTracks recorder URL (e.g., `https://owntracks.example.com`) |
+| Username           | HTTP auth username                                                  |
+| Device             | Device identifier (e.g., `iphone`)                                  |
+| HTTP Auth Username | Basic auth username for the recorder API                            |
+| HTTP Auth Password | Basic auth password for the recorder API                            |
 
 ::: tip
 The Base URL should not include the `/pub` suffix. The connector builds the correct API paths automatically.
@@ -53,9 +53,10 @@ The Base URL should not include the `/pub` suffix. The connector builds the corr
 
 ## Location Memories
 
-Each location point becomes a memory in the store. The text content is a simple description of the coordinates. During enrichment, the system may extract place names or regions as entities.
+Each location point becomes a memory in the store. During the embed phase, GPS coordinates are resolved offline to city/state/country using the GeoNames cities500 dataset (~200k cities). No external API calls are made — all geocoding happens locally via PostgreSQL's `earthdistance` extension.
 
 Location memories are useful for:
+
 - Answering "where was I on Tuesday?"
 - Cross-referencing with photos taken at the same time
 - Building timelines that include physical movement
@@ -63,7 +64,7 @@ Location memories are useful for:
 ## Limitations
 
 - **OwnTracks Recorder required** -- the connector reads from the recorder's HTTP API, not directly from the mobile app
-- **No reverse geocoding** -- location points are stored as coordinates; place names are not resolved (though the enrichment pipeline may extract them)
+- **City-level geocoding only** -- location names are resolved to city/state/country level (no street addresses). Uses the GeoNames cities500 dataset with ~200k cities worldwide
 - **No regions/waypoints** -- OwnTracks region enter/exit events are not currently imported
 
 ## Troubleshooting
