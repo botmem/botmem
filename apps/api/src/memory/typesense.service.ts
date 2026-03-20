@@ -115,6 +115,11 @@ export class TypesenseService implements OnModuleInit {
       } catch (err: unknown) {
         const status = (err as { httpStatus?: number }).httpStatus;
         const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('must be an array')) {
+          this.logger.error(
+            `[upsert] array field error for ${memoryId}: people=${JSON.stringify(doc.people)} (type=${typeof doc.people}, isArray=${Array.isArray(doc.people)})`,
+          );
+        }
         if (status === 404 || msg.includes('Not Found')) {
           await this.ensureCollection(vector.length);
           continue;
