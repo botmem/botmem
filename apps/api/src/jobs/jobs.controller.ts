@@ -7,7 +7,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { DbService } from '../db/db.service';
 import { EventsService } from '../events/events.service';
-import { rawEvents, memories, memoryContacts, memoryLinks, accounts } from '../db/schema';
+import { rawEvents, memories, memoryPeople, memoryLinks, accounts } from '../db/schema';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Throttle } from '@nestjs/throttler';
@@ -101,6 +101,32 @@ export class JobsController {
     ]);
 
     return { sync, clean, embed, enrich };
+  }
+
+  @Get('queues/failed-reasons')
+  async failedReasons(@Query('queue') queueName?: string, @Query('limit') limit?: string) {
+    const max = Math.min(parseInt(limit || '10', 10), 50);
+    const queues: Record<string, Queue> = {
+      sync: this.syncQueue,
+      clean: this.cleanQueue,
+      embed: this.embedQueue,
+      enrich: this.enrichQueue,
+    };
+    const target = queueName && queues[queueName] ? { [queueName]: queues[queueName] } : queues;
+    const result: Record<
+      string,
+      Array<{ id: string; failedReason: string; attemptsMade: number; timestamp: number }>
+    > = {};
+    for (const [name, queue] of Object.entries(target)) {
+      const failed = await queue.getFailed(0, max);
+      result[name] = failed.map((j) => ({
+        id: j.id || '',
+        failedReason: j.failedReason || '',
+        attemptsMade: j.attemptsMade,
+        timestamp: j.timestamp,
+      }));
+    }
+    return result;
   }
 
   @Get(':id')
@@ -202,7 +228,7 @@ export class JobsController {
                   .where(
                     or(eq(memoryLinks.srcMemoryId, memId), eq(memoryLinks.dstMemoryId, memId)),
                   );
-                await db.delete(memoryContacts).where(eq(memoryContacts.memoryId, memId));
+                await db.delete(memoryPeople).where(eq(memoryPeople.memoryId, memId));
                 await db.delete(memories).where(eq(memories.id, memId));
               }
             });
