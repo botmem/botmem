@@ -159,12 +159,11 @@ The `EnrichProcessor` adds intelligence to memories:
 
 Each stage uses exponential backoff for retries:
 
-| Queue    | Attempts | Initial Delay |
-| -------- | -------- | ------------- |
-| embed    | 2        | 2,000 ms      |
-| file     | 2        | 2,000 ms      |
-| enrich   | 2        | 1,000 ms      |
-| backfill | 2        | 500 ms        |
+| Queue  | Attempts | Initial Delay |
+| ------ | -------- | ------------- |
+| embed  | 2        | 2,000 ms      |
+| file   | 2        | 2,000 ms      |
+| enrich | 2        | 1,000 ms      |
 
 Failed embed jobs set the memory's `embeddingStatus` to `failed`. These can be retried via:
 

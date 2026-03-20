@@ -37,6 +37,25 @@
       "prettier --write"
     ]
   },
+  "description": "Personal memory for AI agents — ingest, search, and retrieve across email, messages, photos, and locations",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/botmem/botmem.git"
+  },
+  "homepage": "https://docs.botmem.xyz",
+  "bugs": {
+    "url": "https://github.com/botmem/botmem/issues"
+  },
+  "keywords": [
+    "memory",
+    "ai-agents",
+    "rag",
+    "personal-data",
+    "semantic-search",
+    "connectors",
+    "nestjs",
+    "typesense"
+  ],
   "license": "AGPL-3.0",
   "packageManager": "pnpm@9.15.0",
   "dependencies": {

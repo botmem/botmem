@@ -111,7 +111,7 @@ export default defineConfig({
 
     footer: {
       message: 'Your memories. Your agents. Your control.',
-      copyright: 'Released under the MIT License.',
+      copyright: 'Released under the AGPL-3.0 License.',
     },
 
     editLink: {

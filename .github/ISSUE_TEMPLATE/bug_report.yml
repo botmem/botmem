@@ -1,0 +1,84 @@
+name: Bug Report
+description: Report a bug in Botmem
+title: '[Bug]: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the details below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug.
+      placeholder: What happened? What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connector
+    attributes:
+      label: Connector
+      description: Which connector is affected (if applicable)?
+      options:
+        - N/A
+        - Gmail
+        - Slack
+        - WhatsApp
+        - iMessage
+        - Photos/Immich
+        - OwnTracks
+        - Telegram
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the system?
+      options:
+        - API
+        - Web UI
+        - CLI
+        - Pipeline (sync/embed/enrich)
+        - Search
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, OS, Docker version, deployment type
+      placeholder: |
+        - Node: 20.x
+        - OS: macOS 15 / Ubuntu 22.04
+        - Docker: 27.x
+        - Deployment: self-hosted / Docker Compose
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: Paste any relevant logs or error messages.
+      render: shell
+    validations:
+      required: false

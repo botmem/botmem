@@ -74,6 +74,30 @@ All must be changed from their default values in production. The server validate
 
 CORS is configured via the `FRONTEND_URL` environment variable. Only the specified origin is allowed to make cross-origin requests. In development, this defaults to `http://localhost:12412`.
 
+## Generating Secrets
+
+All four secrets should be cryptographically random. Use `openssl` to generate them:
+
+```bash
+# Generate a 32-byte base64 secret (suitable for all four variables)
+openssl rand -base64 32
+```
+
+Set each secret independently — do not reuse the same value across `APP_SECRET`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, and `OAUTH_JWT_SECRET`.
+
+## Rate Limiting
+
+The API uses [`@nestjs/throttler`](https://docs.nestjs.com/security/rate-limiting) for rate limiting. Default configuration applies globally to all endpoints. Adjust thresholds via environment variables or the settings API for your deployment's needs.
+
+## PII Handling
+
+What gets encrypted at rest (AES-256-GCM with the user's recovery key):
+
+- **Encrypted:** connector OAuth tokens, API keys, refresh tokens, and any credentials stored in the `accounts.authContext` and `connectorCredentials` columns
+- **Not encrypted:** memory text, entity extractions, embeddings, contact display names, and search index data in Typesense
+
+The recovery key itself is never stored in plaintext — only its SHA-256 hash is persisted. The key is cached in-memory and in Redis (encrypted with `APP_SECRET`) for active sessions.
+
 ## Production Security Checklist
 
 - [ ] All four secrets changed from defaults (`APP_SECRET`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `OAUTH_JWT_SECRET`)
