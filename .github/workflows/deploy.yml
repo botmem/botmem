@@ -275,7 +275,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy versioned image to VPS (zero-downtime)
+      - name: Deploy versioned image to VPS
         timeout-minutes: 10
         env:
           IMAGE_TAG: ${{ needs.version.outputs.tag }}
@@ -288,7 +288,7 @@ jobs:
           scp $SSH_OPTS docker-compose.prod.yml ${VPS}:/opt/botmem/docker-compose.prod.yml
           ssh $SSH_OPTS ${VPS} "chmod +x /opt/botmem/deploy.sh"
 
-          # Login to GHCR and run Swarm rolling deploy
+          # Login to GHCR and deploy
           ssh $SSH_OPTS ${VPS} << DEPLOY
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             /opt/botmem/deploy.sh ${IMAGE_TAG}

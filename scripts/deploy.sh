@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Zero-downtime deployment for Botmem via Docker Swarm
+# Deploy Botmem API with minimal downtime
 #
 # Usage: deploy.sh <image-tag>
 #
-# Docker Swarm handles rolling updates automatically:
-#   - Starts new container (order: start-first)
-#   - Waits for health checks to pass
-#   - Stops old container
-#   - Rolls back automatically on failure
+# Pulls the new image, then recreates only the API container.
+# With health checks + restart: unless-stopped, the gap is ~5-10 seconds.
 #
 # Rollback: deploy.sh <previous-tag>
 
@@ -29,30 +26,15 @@ else
   echo "IMAGE_TAG=${IMAGE_TAG}" >> "$ENV_FILE"
 fi
 
-# Source env for compose variable substitution
-# Only export simple KEY=value lines (no multi-line JSON, no quotes containing special chars)
-set -a
-while IFS='=' read -r key value; do
-  # Skip lines where the value contains characters that look like shell commands
-  case "$value" in
-    *\{*|*\}*|*\(*|*\)*|*\;*|*\`*) continue ;;
-  esac
-  export "$key=$value" 2>/dev/null || true
-done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=[^{]*$' "$ENV_FILE" | grep -v '^#')
-set +a
+cd "$DEPLOY_DIR"
 
 # Pull new image
 docker pull "ghcr.io/botmem/botmem:${IMAGE_TAG}"
 
-# Deploy with compose (Swarm may not be initialized on all VPS instances)
-if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
-  docker stack deploy -c "$COMPOSE_FILE" botmem
-else
-  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
-fi
+# Recreate only the API container (infra stays running)
+docker compose -f "$COMPOSE_FILE" up -d --no-deps api
 
 # Clean up old images
 docker image prune -af --filter "until=24h" 2>/dev/null || true
 
-echo "==> Stack deployed. Swarm is rolling out ${IMAGE_TAG}."
-echo "    Monitor: docker service ps botmem_api"
+echo "==> Deployed: ${IMAGE_TAG}"
