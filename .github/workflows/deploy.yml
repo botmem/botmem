@@ -281,7 +281,7 @@ jobs:
           IMAGE_TAG: ${{ needs.version.outputs.tag }}
         run: |
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
-          VPS="deploy@${{ secrets.VPS_TAILSCALE_HOST }}"
+          VPS="root@${{ secrets.VPS_TAILSCALE_HOST }}"
 
           # Copy deploy script and updated compose file to VPS
           scp $SSH_OPTS scripts/deploy.sh ${VPS}:/opt/botmem/deploy.sh
@@ -299,8 +299,8 @@ jobs:
         timeout-minutes: 5
         run: |
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
-          ssh $SSH_OPTS deploy@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
-          scp $SSH_OPTS -r docs/.vitepress/dist/* deploy@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
+          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
+          scp $SSH_OPTS -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
 
       - name: Validate deployment
         env:
