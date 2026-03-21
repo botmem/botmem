@@ -146,6 +146,9 @@ export class UserAuthService {
       throw new BadRequestException('Invalid recovery key');
     }
 
+    // TODO: Security — implement DEK wrapping. Currently the recovery key IS the DEK.
+    // Should generate random DEK per user, wrap it with recovery-key-derived key via AES-256-GCM,
+    // and store wrapped DEK in users.wrapped_dek column.
     const dek = Buffer.from(recoveryKey, 'base64');
     await this.userKeyService.storeDek(userId, dek);
 

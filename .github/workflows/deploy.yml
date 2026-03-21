@@ -275,23 +275,23 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy versioned image to VPS
+      - name: Deploy versioned image to VPS (zero-downtime)
         timeout-minutes: 10
         env:
           IMAGE_TAG: ${{ needs.version.outputs.tag }}
         run: |
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
-          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} << DEPLOY
+          VPS="deploy@${{ secrets.VPS_TAILSCALE_HOST }}"
+
+          # Copy deploy script and updated compose file to VPS
+          scp $SSH_OPTS scripts/deploy.sh ${VPS}:/opt/botmem/deploy.sh
+          scp $SSH_OPTS docker-compose.prod.yml ${VPS}:/opt/botmem/docker-compose.prod.yml
+          ssh $SSH_OPTS ${VPS} "chmod +x /opt/botmem/deploy.sh"
+
+          # Login to GHCR and run Swarm rolling deploy
+          ssh $SSH_OPTS ${VPS} << DEPLOY
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            cd /opt/botmem
-
-            # Update compose to use the versioned image tag
-            sed -i 's|image: ghcr.io/botmem/botmem:.*|image: ghcr.io/botmem/botmem:${IMAGE_TAG}|' docker-compose.prod.yml
-
-            docker compose -f docker-compose.prod.yml pull api
-            docker compose -f docker-compose.prod.yml up -d api
-            docker image prune -af --filter "until=24h"
-            echo "Deployed image: ghcr.io/botmem/botmem:${IMAGE_TAG}"
+            /opt/botmem/deploy.sh ${IMAGE_TAG}
           DEPLOY
 
       - name: Deploy docs to VPS
@@ -299,8 +299,8 @@ jobs:
         timeout-minutes: 5
         run: |
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
-          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
-          scp $SSH_OPTS -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
+          ssh $SSH_OPTS deploy@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
+          scp $SSH_OPTS -r docs/.vitepress/dist/* deploy@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
 
       - name: Validate deployment
         env:

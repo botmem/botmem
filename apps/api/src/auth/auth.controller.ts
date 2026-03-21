@@ -66,10 +66,11 @@ export class AuthController {
 
   @Post(':type/reauth/:accountId')
   async reauth(
+    @CurrentUser() user: { id: string },
     @Param('type') type: string,
     @Param('accountId') accountId: string,
     @Body() body: { config: Record<string, unknown> },
   ) {
-    return this.authService.reauth(type, accountId, body.config || {});
+    return this.authService.reauth(type, accountId, body.config || {}, user.id);
   }
 }

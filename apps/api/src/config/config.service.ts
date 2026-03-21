@@ -32,27 +32,17 @@ export class ConfigService implements OnModuleInit {
     ];
 
     const insecure = defaults.filter(({ value, default: def }) => value === def);
-    // Self-hosted Docker sets NODE_ENV=production for Express optimizations,
-    // but that doesn't mean it's a public deployment. Only warn loudly when
-    // there's evidence this is a real production deploy (Stripe configured or
-    // explicit PRODUCTION_DEPLOY=true flag).
-    const isRealProduction =
-      process.env.NODE_ENV === 'production' &&
-      (!!this.stripeSecretKey || process.env.PRODUCTION_DEPLOY === 'true');
+    const isProduction = process.env.NODE_ENV === 'production';
 
-    if (insecure.length > 0 && isRealProduction) {
-      const names = insecure.map((d) => d.name).join(', ');
+    if (insecure.length > 0 && isProduction) {
       throw new Error(
-        `FATAL: ${names} using default values in production deployment! ` +
-          `Generate secure secrets with: openssl rand -base64 48`,
+        `FATAL: Default secrets detected in production: ${insecure.map((d) => d.name).join(', ')}. Set real values for these environment variables.`,
       );
-    } else if (insecure.length > 0) {
-      this.logger.log(
-        'Using default dev secrets (OK for local/self-hosted). ' +
-          'For public deployments, generate custom secrets: openssl rand -base64 48',
+    }
+    if (insecure.length > 0) {
+      this.logger.warn(
+        `⚠️  Default secrets in use: ${insecure.map((d) => d.name).join(', ')}. Change these before deploying to production.`,
       );
-    } else {
-      this.logger.log('All secrets are custom-configured');
     }
   }
 
@@ -158,6 +148,10 @@ export class ConfigService implements OnModuleInit {
 
   get appSecret(): string {
     return process.env.APP_SECRET || 'dev-app-secret-change-in-production';
+  }
+
+  get encryptionSalt(): string | undefined {
+    return process.env.ENCRYPTION_SALT || undefined;
   }
 
   // --- SMTP config ---

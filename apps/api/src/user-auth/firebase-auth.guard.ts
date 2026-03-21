@@ -47,11 +47,23 @@ export class FirebaseAuthGuard implements CanActivate {
       ]);
       if (requiresJwt) throw new ForbiddenException('This endpoint requires full authentication');
 
+      let memoryBankIds: string[] | null = null;
+      if (keyRecord.memoryBankIds) {
+        try {
+          const parsed = JSON.parse(keyRecord.memoryBankIds);
+          if (Array.isArray(parsed) && parsed.every((id: unknown) => typeof id === 'string')) {
+            memoryBankIds = parsed;
+          }
+        } catch {
+          /* invalid JSON, treat as no restriction */
+        }
+      }
+
       request.user = {
         id: keyRecord.userId,
         apiKeyId: keyRecord.id,
         scopes: ['read'],
-        memoryBankIds: keyRecord.memoryBankIds ? JSON.parse(keyRecord.memoryBankIds) : null,
+        memoryBankIds,
       };
       return true;
     }
