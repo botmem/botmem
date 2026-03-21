@@ -306,7 +306,6 @@ export class TypesenseService implements OnModuleInit {
       searches: [
         {
           collection: COLLECTION_NAME,
-          q: query,
           query_by: 'text',
           vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:0.3)`,
           per_page: limit,
@@ -315,8 +314,9 @@ export class TypesenseService implements OnModuleInit {
       ],
     };
 
-    // conversation params must be query parameters, not in the POST body
+    // conversation params and q must be query parameters, not in the POST body
     const queryParams: Record<string, unknown> = {
+      q: query,
       conversation: true,
       conversation_model_id: conversationModelId,
       ...(conversationId ? { conversation_id: conversationId } : {}),

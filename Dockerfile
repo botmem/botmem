@@ -72,7 +72,7 @@ RUN find /tmp/connectors-build -mindepth 1 -maxdepth 1 -type d | while read dir;
       name=$(basename "$dir"); \
       mkdir -p "packages/connectors/$name"; \
       cp "$dir/package.json" "packages/connectors/$name/" 2>/dev/null || true; \
-      [ -d "$dir/dist" ] && cp -r "$dir/dist" "packages/connectors/$name/dist"; \
+      [ -d "$dir/dist" ] && cp -r "$dir/dist" "packages/connectors/$name/dist" || true; \
     done && rm -rf /tmp/connectors-build
 
 # Install production deps only (ignore-scripts skips husky/prepare hooks)
