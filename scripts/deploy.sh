@@ -30,8 +30,9 @@ else
 fi
 
 # Source env for compose variable substitution
+# Use grep to extract only valid KEY=VALUE lines (skip multi-line JSON, comments, blanks)
 set -a
-source "$ENV_FILE"
+eval "$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" | grep -v '^#')" || true
 set +a
 
 # Pull new image
