@@ -18,6 +18,7 @@
     "@botmem/connector-gmail": "workspace:*",
     "@botmem/connector-imessage": "workspace:*",
     "@botmem/connector-locations": "workspace:*",
+    "@botmem/connector-outlook": "workspace:*",
     "@botmem/connector-photos-immich": "workspace:*",
     "@botmem/connector-sdk": "workspace:*",
     "@botmem/connector-slack": "workspace:*",
