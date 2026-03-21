@@ -23,7 +23,24 @@ interface AuthState {
   loginWithFirebase: (provider: 'google' | 'github') => Promise<void>;
 }
 
-export const isFirebaseMode = import.meta.env.VITE_AUTH_PROVIDER === 'firebase';
+// Auth provider is determined at runtime from the API, not baked in at build time.
+// Falls back to VITE_AUTH_PROVIDER for dev mode / backward compat.
+export let isFirebaseMode = import.meta.env.VITE_AUTH_PROVIDER === 'firebase';
+
+/** Called once at app startup to sync auth provider with the server. */
+export async function detectAuthProvider(): Promise<void> {
+  try {
+    const res = await fetch('/api/version');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authProvider) {
+        isFirebaseMode = data.authProvider === 'firebase';
+      }
+    }
+  } catch {
+    // API not reachable — keep the build-time default
+  }
+}
 
 const API_BASE = '/api/user-auth';
 
