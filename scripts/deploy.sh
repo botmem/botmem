@@ -30,16 +30,26 @@ else
 fi
 
 # Source env for compose variable substitution
-# Use grep to extract only valid KEY=VALUE lines (skip multi-line JSON, comments, blanks)
+# Only export simple KEY=value lines (no multi-line JSON, no quotes containing special chars)
 set -a
-eval "$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" | grep -v '^#')" || true
+while IFS='=' read -r key value; do
+  # Skip lines where the value contains characters that look like shell commands
+  case "$value" in
+    *\{*|*\}*|*\(*|*\)*|*\;*|*\`*) continue ;;
+  esac
+  export "$key=$value" 2>/dev/null || true
+done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=[^{]*$' "$ENV_FILE" | grep -v '^#')
 set +a
 
 # Pull new image
 docker pull "ghcr.io/botmem/botmem:${IMAGE_TAG}"
 
-# Deploy stack — Swarm detects image change and triggers rolling update
-docker stack deploy -c "$COMPOSE_FILE" botmem
+# Deploy with compose (Swarm may not be initialized on all VPS instances)
+if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
+  docker stack deploy -c "$COMPOSE_FILE" botmem
+else
+  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+fi
 
 # Clean up old images
 docker image prune -af --filter "until=24h" 2>/dev/null || true
