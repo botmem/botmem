@@ -5,6 +5,7 @@ import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { PublicFooter } from '../components/layout/PublicFooter';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { useThemeStore } from '../store/themeStore';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -145,6 +146,15 @@ function Navbar() {
 function HeroVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [isPortrait, setIsPortrait] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 639px)');
+    setIsPortrait(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setIsPortrait(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -162,8 +172,20 @@ function HeroVideo() {
     return () => observer.disconnect();
   }, []);
 
+  // Show inverted theme video: dark site → light video, light site → dark video
+  const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
+  const videoTheme = resolvedTheme === 'dark' ? '' : '-dark';
+  const videoSrc = isPortrait
+    ? `/videos/hero-portrait${videoTheme}.mp4`
+    : `/videos/hero${videoTheme}.mp4`;
+
   return (
-    <div className="bg-nb-surface border-3 border-nb-border shadow-nb-lg overflow-hidden aspect-video">
+    <div
+      className={cn(
+        'bg-nb-surface border-3 border-nb-border shadow-nb-lg overflow-hidden',
+        isPortrait ? 'aspect-[9/16] max-h-[70vh] mx-auto' : 'aspect-video',
+      )}
+    >
       <video
         ref={videoRef}
         autoPlay={isVisible}
@@ -173,7 +195,7 @@ function HeroVideo() {
         preload="none"
         className="w-full h-full object-cover"
         aria-label="Demo showing an AI agent using Botmem to file a pet insurance claim by searching personal memories"
-        {...(isVisible ? { src: '/videos/hero.mp4' } : {})}
+        {...(isVisible ? { src: videoSrc } : {})}
       />
     </div>
   );
@@ -182,7 +204,7 @@ function HeroVideo() {
 function Hero() {
   return (
     <section
-      className="px-4 sm:px-6 pt-10 sm:pt-14 pb-16 max-w-6xl mx-auto"
+      className="px-4 sm:px-6 pt-8 sm:pt-14 pb-12 sm:pb-16 max-w-6xl mx-auto"
       aria-labelledby="hero-heading"
     >
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-8">
@@ -198,10 +220,10 @@ function Hero() {
             your hardware.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3 shrink-0">
+        <div className="flex flex-col sm:flex-row gap-3 shrink-0">
           <Link
             to="/signup"
-            className="font-display text-sm font-bold px-6 py-2.5 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
+            className="font-display text-sm font-bold px-6 py-2.5 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
           >
             START FREE
           </Link>
@@ -209,7 +231,7 @@ function Hero() {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-display text-sm font-bold px-6 py-2.5 bg-transparent text-nb-text border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none hover:bg-nb-surface active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
+            className="font-display text-sm font-bold px-6 py-2.5 bg-transparent text-nb-text border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none hover:bg-nb-surface active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
           >
             VIEW ON GITHUB
           </a>
@@ -738,7 +760,7 @@ function HowItWorks() {
             <span className="size-3 bg-nb-green border border-nb-border" />
             <span className="ml-2 text-nb-muted text-xs">{tab.titleBar}</span>
           </div>
-          <div className="p-4 sm:p-5 flex flex-col gap-1 text-[13px] leading-relaxed min-h-[260px]">
+          <div className="p-4 sm:p-5 flex flex-col gap-1 text-[12px] sm:text-[13px] leading-relaxed min-h-[260px] overflow-x-auto">
             {tab.lines.map((line, i) => {
               const lineKey = `${line.type}-${i}`;
               if (line.type === 'cmd')

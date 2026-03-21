@@ -1,0 +1,38 @@
+<svg viewBox="0 0 210 52" xmlns="http://www.w3.org/2000/svg" fill="none" role="img" aria-label="Botmem logo">
+  <!--
+    Botmem Logo - Horizontal (dark bg)
+    Neobrutalist memory-cell mark + monospace wordmark
+    Primary accent: #C4F53A (lime) - active memory nodes + MEM text
+    Shadow: 4px hard lime offset (matches app shadow-nb pattern)
+  -->
+
+  <!-- Icon mark: 44x44 with 4px hard lime shadow -->
+  <rect x="4" y="4" width="44" height="44" fill="#C4F53A"/>
+  <rect x="0" y="0" width="44" height="44" fill="#0D0D0D" stroke="#F0F0F0" stroke-width="2"/>
+
+  <!-- 3x3 memory cell grid: lit = active memory node, dim = empty slot -->
+  <!-- Pattern: active top-left, top-mid, center, bot-left, bot-right -->
+  <!-- Row 1 -->
+  <rect x="5"  y="5"  width="10" height="10" fill="#C4F53A"/>
+  <rect x="17" y="5"  width="10" height="10" fill="#C4F53A"/>
+  <rect x="29" y="5"  width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+  <!-- Row 2 -->
+  <rect x="5"  y="17" width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+  <rect x="17" y="17" width="10" height="10" fill="#C4F53A"/>
+  <rect x="29" y="17" width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+  <!-- Row 3 -->
+  <rect x="5"  y="29" width="10" height="10" fill="#C4F53A"/>
+  <rect x="17" y="29" width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+  <rect x="29" y="29" width="10" height="10" fill="#C4F53A"/>
+
+  <!-- Wordmark: BOT in muted, MEM in lime. Space Mono Bold. -->
+  <text
+    x="58" y="33"
+    font-family="'Space Mono', 'IBM Plex Mono', 'Courier New', monospace"
+    font-size="22"
+    font-weight="700"
+    letter-spacing="0"
+  >
+    <tspan fill="#888888">BOT</tspan><tspan fill="#C4F53A">MEM</tspan>
+  </text>
+</svg>

@@ -1,0 +1,30 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="none" role="img" aria-label="Botmem mark">
+  <!--
+    Botmem Logo Mark — Icon only (for favicon, avatar, app icon)
+    3×3 memory-cell grid in neobrutalist square frame with lime hard shadow
+    Shadow clips at viewbox edges intentionally (neobrutalist crop effect)
+  -->
+
+  <!-- Hard lime shadow -->
+  <rect x="4" y="4" width="44" height="44" fill="#C4F53A"/>
+
+  <!-- Outer frame -->
+  <rect x="0" y="0" width="44" height="44" fill="#0D0D0D" stroke="#F0F0F0" stroke-width="2"/>
+
+  <!-- Memory cell grid (3×3, 10×10 cells, 2px gaps, 5px inner padding) -->
+
+  <!-- Row 1: ■ ■ □ -->
+  <rect x="5"  y="5"  width="10" height="10" fill="#C4F53A"/>
+  <rect x="17" y="5"  width="10" height="10" fill="#C4F53A"/>
+  <rect x="29" y="5"  width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+
+  <!-- Row 2: □ ■ □ -->
+  <rect x="5"  y="17" width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+  <rect x="17" y="17" width="10" height="10" fill="#C4F53A"/>
+  <rect x="29" y="17" width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+
+  <!-- Row 3: ■ □ ■ -->
+  <rect x="5"  y="29" width="10" height="10" fill="#C4F53A"/>
+  <rect x="17" y="29" width="10" height="10" fill="#252540" stroke="#3A3A60" stroke-width="1"/>
+  <rect x="29" y="29" width="10" height="10" fill="#C4F53A"/>
+</svg>

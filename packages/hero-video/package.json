@@ -1,0 +1,30 @@
+{
+  "name": "@botmem/hero-video",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render HeroVideo out/hero.mp4",
+    "render:dark": "remotion render HeroVideoDark out/hero-dark.mp4",
+    "render:portrait": "remotion render HeroVideoPortrait out/hero-portrait.mp4",
+    "render:portrait-dark": "remotion render HeroVideoPortraitDark out/hero-portrait-dark.mp4",
+    "render:all": "pnpm render && pnpm render:dark && pnpm render:portrait && pnpm render:portrait-dark",
+    "render:gif": "remotion render HeroVideo out/hero.gif --codec gif"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/google-fonts": "^4.0.0",
+    "@remotion/transitions": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/tailwind-v4": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

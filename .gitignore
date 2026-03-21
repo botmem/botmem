@@ -33,10 +33,12 @@ business/
 
 # Tooling state
 .claude-flow/
-.hive-mind/
 .agents/
-.playwright-cli/
 scripts/
-.worktrees/
 *.swp
-botmem.xyz-*
+@notes.md
+TODO.md
+convo.md
+install-cli.sh
+plan.md
+plugins/sample-enricher/
