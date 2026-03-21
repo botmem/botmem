@@ -85,6 +85,8 @@ Make sure you have these models pulled on your Ollama host:
 ollama pull nomic-embed-text      # 768-dim embeddings (default in .env.example)
 ollama pull qwen3:0.6b            # Text enrichment + entity extraction
 ollama pull qwen3-vl:2b           # Vision-language for photos
+# Optional: reranker for better search quality
+ollama pull sam860/qwen3-reranker:0.6b-Q8_0
 ```
 
 If Ollama runs on a different machine, set `OLLAMA_BASE_URL` in your `.env`:

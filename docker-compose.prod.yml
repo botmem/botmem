@@ -1,0 +1,97 @@
+# Production Docker Compose for Botmem
+# Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   1. Copy .env.example to .env.prod and configure:
+#      - DATABASE_URL with a strong password
+#      - APP_SECRET, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, OAUTH_JWT_SECRET (generate with: openssl rand -base64 48)
+#      - FRONTEND_URL / BASE_URL to your domain
+#      - OLLAMA_BASE_URL to your Ollama host
+#   2. Create a Caddyfile (see docs/guide/deployment)
+#
+# Generate secrets: openssl rand -base64 48
+
+services:
+  api:
+    image: ghcr.io/botmem/botmem:latest
+    restart: unless-stopped
+    env_file: .env.prod
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    environment:
+      DATABASE_URL: postgresql://botmem:${POSTGRES_PASSWORD}@postgres:5432/botmem
+      REDIS_URL: redis://redis:6379
+      TYPESENSE_URL: http://typesense:8108
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-botmem-ts-key}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:12412/api/version || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: botmem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: botmem
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U botmem -d botmem']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  typesense:
+    image: typesense/typesense:30.1
+    restart: unless-stopped
+    volumes:
+      - typesense-data:/data
+    command: '--data-dir /data --api-key=${TYPESENSE_API_KEY:-botmem-ts-key} --enable-cors'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8108/health || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  redis-data:
+  typesense-data:
+  caddy-data:
+  caddy-config:

@@ -61,6 +61,12 @@ With the `botmem` CLI, you can:
 
 See the [CLI Reference](/agent-api/cli) for complete command documentation.
 
+## MCP Server
+
+Botmem also exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) endpoint at `POST /mcp` for compatible AI clients. The MCP endpoint uses OAuth Bearer tokens for authentication — API keys (`bm_sk_*`) are not supported on this endpoint.
+
+For most agent integrations, we recommend using the **REST API with API keys** instead, which supports all the same operations and is simpler to set up.
+
 ## Next Steps
 
 - [CLI Reference](/agent-api/cli) for all commands and options

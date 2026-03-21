@@ -20,25 +20,33 @@ Botmem ingests events from your email, messages, photos, and locations — norma
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 20+, pnpm 9.15+
-- Docker (for PostgreSQL, Redis, Typesense)
-
-### Run
+### Docker (recommended)
 
 ```bash
 git clone https://github.com/botmem/botmem.git
 cd botmem
-docker compose up -d          # PostgreSQL, Redis, Typesense
-pnpm install                  # Install all workspace deps
-cp .env.example .env          # Configure environment
+cp .env.example .env          # Configure environment (edit as needed)
+docker compose pull            # Pull the latest image
+docker compose up -d           # Starts everything on http://localhost:12412
+```
+
+### Development
+
+Requires Node.js 20+, pnpm 9.15+, and Docker.
+
+```bash
+git clone https://github.com/botmem/botmem.git
+cd botmem
+docker compose up -d postgres redis typesense   # Infrastructure only
+pnpm install
+cp .env.example .env
 pnpm dev                      # API + web on http://localhost:12412
 ```
 
-### Production (Docker)
+### Production
 
 ```bash
+cp .env.example .env.prod     # Edit with production secrets
 docker compose -f docker-compose.prod.yml up -d
 ```
 

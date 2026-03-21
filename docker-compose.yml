@@ -24,6 +24,7 @@ services:
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       OLLAMA_TEXT_MODEL: ${OLLAMA_TEXT_MODEL:-qwen3:0.6b}
       OLLAMA_VL_MODEL: ${OLLAMA_VL_MODEL:-qwen3-vl:2b}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:12412}
       SYNC_DEBUG_LIMIT: ${SYNC_DEBUG_LIMIT:-500}
     depends_on:
       postgres:

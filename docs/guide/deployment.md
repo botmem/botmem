@@ -29,31 +29,28 @@ A production Botmem deployment consists of:
 
 ## Docker Setup
 
-### Dockerfile
+### Docker Image
 
-The API is built as a single Docker image:
+The official image is published to GHCR for both `amd64` and `arm64`:
 
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY . .
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
-RUN echo "shamefully-hoist=true" > .npmrc
-RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @botmem/shared build
-RUN pnpm --filter @botmem/connector-sdk build
-RUN pnpm --filter @botmem/connector-* build
-RUN pnpm --filter api build
-ENV NODE_OPTIONS=--max-old-space-size=2048
-CMD ["node", "apps/api/dist/main.js"]
+```bash
+docker pull ghcr.io/botmem/botmem:latest
+```
+
+Or build locally from the repo:
+
+```bash
+docker build -t botmem:local .
 ```
 
 ### Production Docker Compose
 
+The repo includes `docker-compose.prod.yml` ready for production use with Caddy (auto-SSL), health checks, and proper service isolation:
+
 ```yaml
 services:
   api:
-    build: .
+    image: ghcr.io/botmem/botmem:latest
     restart: unless-stopped
     env_file: .env.prod
     depends_on:

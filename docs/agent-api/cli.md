@@ -4,10 +4,15 @@ The `botmem` CLI lets you query and manage your personal memory system from the 
 
 ## Installation
 
-The CLI is published to npm:
+The CLI is published to npm as `@botmem/cli`:
 
 ```bash
-npx botmem --help
+# Run directly (no install needed)
+npx @botmem/cli --help
+
+# Or install globally
+npm install -g @botmem/cli
+botmem --help
 ```
 
 Or build from the monorepo:
@@ -39,7 +44,17 @@ botmem login --api-key bm_sk_abc123...
 botmem version
 ```
 
-Credentials are stored locally after login. Alternatively, set `BOTMEM_API_KEY` environment variable.
+Credentials are stored locally in `~/.botmem/config.json` after login. Alternatively, set `BOTMEM_API_KEY` environment variable.
+
+::: tip Self-hosted setup
+On first run, the CLI prompts you to configure your API URL. You can also set it manually:
+
+```bash
+botmem config set-host localhost:12412    # Self-hosted (default)
+botmem config set-host botmem.example.com # Custom domain
+```
+
+:::
 
 ## Commands
 
