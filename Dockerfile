@@ -83,4 +83,6 @@ RUN mkdir -p /data
 EXPOSE 12412
 ENV NODE_ENV=production
 ENV PORT=12412
+RUN chown -R node:node /app
+USER node
 CMD ["node", "apps/api/dist/main.js"]

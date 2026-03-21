@@ -49,7 +49,6 @@ export class OAuthController {
   }
 
   @Post('register')
-  @Public()
   async register(
     @Body() body: { client_name: string; redirect_uris: string[]; grant_types?: string[] },
   ) {
@@ -190,6 +189,9 @@ export class OAuthController {
       if (recoveryKeyHash !== user.recoveryKeyHash) {
         throw new ForbiddenException('Invalid recovery key');
       }
+      // TODO: Security — implement DEK wrapping. Currently the recovery key IS the DEK.
+      // Should generate random DEK per user, wrap it with recovery-key-derived key via AES-256-GCM,
+      // and store wrapped DEK in users.wrapped_dek column.
       const dek = Buffer.from(recoveryKey, 'base64');
       await this.userKeyService.storeDek(user.id, dek);
     }

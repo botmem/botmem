@@ -5,7 +5,7 @@ import { ConfigService } from '../config/config.service';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
-const SALT = 'botmem-enc-v1'; // static salt — key uniqueness comes from APP_SECRET
+const DEFAULT_SALT = 'botmem-enc-v1'; // legacy static salt — prefer ENCRYPTION_SALT env var
 const DEFAULT_APP_SECRET = 'dev-app-secret-change-in-production';
 
 @Injectable()
@@ -20,7 +20,15 @@ export class CryptoService {
         'APP_SECRET is set to the default value. This is insecure — set a unique APP_SECRET for this deployment.',
       );
     }
-    this.key = scryptSync(this.config.appSecret, SALT, 32);
+
+    const salt = this.config.encryptionSalt ?? DEFAULT_SALT;
+    if (!this.config.encryptionSalt) {
+      this.logger.warn(
+        'ENCRYPTION_SALT not set — using legacy static salt. Set a unique ENCRYPTION_SALT for this deployment.',
+      );
+    }
+
+    this.key = scryptSync(this.config.appSecret, salt, 32);
     this.hmacKey = scryptSync(this.config.appSecret, 'botmem-hmac-v1', 32);
   }
 

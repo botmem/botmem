@@ -43,10 +43,9 @@ export class PostHogExceptionFilter extends BaseExceptionFilter {
     } else {
       // Non-HttpException errors may contain circular refs (Socket objects etc.)
       // Send a plain response to avoid "Converting circular structure to JSON"
-      const message = exception instanceof Error ? exception.message : 'Internal server error';
       response.status(status).json({
         statusCode: status,
-        message,
+        message: 'Internal server error',
       });
     }
   }

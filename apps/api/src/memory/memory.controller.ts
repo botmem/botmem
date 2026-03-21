@@ -295,6 +295,13 @@ export class MemoryController {
     // Use thumbnail size instead of preview for faster loading
     const thumbUrl = fileUrl.replace('size=preview', 'size=thumbnail');
 
+    // SSRF guard: validate URL before fetching
+    const { validateUrlForFetch } = await import('../utils/ssrf-guard');
+    const urlCheck = validateUrlForFetch(thumbUrl);
+    if (!urlCheck.valid) {
+      return res.status(HttpStatus.FORBIDDEN).json({ error: 'blocked url' });
+    }
+
     try {
       const upstream = await fetch(thumbUrl, { headers, signal: AbortSignal.timeout(15_000) });
       if (!upstream.ok) return res.status(upstream.status).end();

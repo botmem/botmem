@@ -1,4 +1,10 @@
-import { Injectable, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
@@ -488,7 +494,20 @@ export class AuthService implements OnModuleInit {
   }
 
   /** Re-run initiateAuth for an existing account — validates the new config then updates the account. */
-  async reauth(connectorType: string, accountId: string, config: Record<string, unknown>) {
+  async reauth(
+    connectorType: string,
+    accountId: string,
+    config: Record<string, unknown>,
+    userId?: string,
+  ) {
+    // Verify the caller owns this account
+    if (userId) {
+      const account = await this.accountsService.getById(accountId);
+      if (account.userId !== userId) {
+        throw new ForbiddenException('Account does not belong to this user');
+      }
+    }
+
     const connector = this.connectors.get(connectorType);
     const saved = await this.getSavedCredentials(connectorType);
     const mergedConfig = { ...saved, ...config };

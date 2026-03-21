@@ -20,6 +20,11 @@ import {
 } from '../db/schema';
 import { parseNlq } from './nlq-parser';
 
+/** Escape LIKE metacharacters so user input is treated as literal text. */
+function escapeLike(str: string): string {
+  return str.replace(/[%_\\]/g, '\\$&');
+}
+
 const MINIMAL_STOPS = new Set([
   'a',
   'an',
@@ -1846,7 +1851,7 @@ export class MemoryService {
         .split(/\s+/)
         .filter((w) => w.length >= 2);
       for (const word of words) {
-        conditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + word + '%'}`);
+        conditions.push(sql`LOWER(${memories.text}) LIKE ${'%' + escapeLike(word) + '%'}`);
       }
     }
 
@@ -1985,7 +1990,7 @@ export class MemoryService {
         .where(
           and(
             eq(memories.pipelineComplete, true),
-            sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
+            sql`LOWER(${memories.entities}) LIKE ${'%' + escapeLike(queryLower) + '%'}`,
           ),
         )
         .limit(limit * 5),
@@ -2067,7 +2072,7 @@ export class MemoryService {
         .where(
           and(
             eq(memories.pipelineComplete, true),
-            sql`LOWER(${memories.entities}) LIKE ${'%' + queryLower + '%'}`,
+            sql`LOWER(${memories.entities}) LIKE ${'%' + escapeLike(queryLower) + '%'}`,
           ),
         )
         .orderBy(sql`${memories.eventTime} DESC`)
@@ -2113,7 +2118,7 @@ export class MemoryService {
       db
         .select({ id: people.id, displayName: people.displayName })
         .from(people)
-        .where(sql`LOWER(${people.displayName}) LIKE ${'%' + queryLower + '%'}`)
+        .where(sql`LOWER(${people.displayName}) LIKE ${'%' + escapeLike(queryLower) + '%'}`)
         .limit(10),
     );
 

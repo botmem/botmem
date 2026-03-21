@@ -128,54 +128,29 @@ export class PeopleController {
     for (const avatar of avatars) {
       // Serve base64 data URIs directly from DB
       if (avatar.url.startsWith('data:')) {
+        const ALLOWED_IMAGE_TYPES = new Set([
+          'image/jpeg',
+          'image/png',
+          'image/gif',
+          'image/webp',
+          'image/svg+xml',
+        ]);
         const match = avatar.url.match(/^data:([^;]+);base64,(.+)$/);
         if (match) {
-          res.setHeader('Content-Type', match[1]);
+          const contentType = ALLOWED_IMAGE_TYPES.has(match[1])
+            ? match[1]
+            : 'application/octet-stream';
+          res.setHeader('Content-Type', contentType);
           res.setHeader('Cache-Control', 'public, max-age=86400');
           return res.send(Buffer.from(match[2], 'base64'));
         }
         continue;
       }
 
-      // Validate URL: only allow https:// (block private IPs to prevent SSRF)
-      try {
-        const parsed = new URL(avatar.url);
-        const protocol = parsed.protocol.toLowerCase();
-        if (protocol !== 'https:') continue;
-
-        const hostname = parsed.hostname.toLowerCase();
-        const bare =
-          hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
-
-        // Block IPv6 private/link-local
-        if (
-          bare === '::1' ||
-          bare.startsWith('fc') ||
-          bare.startsWith('fd') ||
-          bare.startsWith('fe80')
-        )
-          continue;
-
-        // Block localhost
-        if (bare === 'localhost' || bare.endsWith('.localhost')) continue;
-
-        // Block IPv4 private/link-local/loopback
-        const ipv4Match = bare.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-        if (ipv4Match) {
-          const [, a, b] = ipv4Match.map(Number);
-          if (
-            a === 127 ||
-            a === 10 ||
-            (a === 172 && b >= 16 && b <= 31) ||
-            (a === 192 && b === 168) ||
-            (a === 169 && b === 254) ||
-            a === 0
-          )
-            continue;
-        }
-      } catch {
-        continue;
-      }
+      // SSRF guard: validate URL before fetching
+      const { validateUrlForFetch } = await import('../utils/ssrf-guard');
+      const urlCheck = validateUrlForFetch(avatar.url);
+      if (!urlCheck.valid) continue;
 
       // Fetch external URLs (legacy data)
       const headers: Record<string, string> = {};
