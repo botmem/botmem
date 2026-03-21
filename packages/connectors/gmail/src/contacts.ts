@@ -150,7 +150,7 @@ export async function syncContacts(
       if (userDefined.length) textParts.push(`Custom: ${userDefined.join(', ')}`);
 
       emit({
-        sourceType: 'message',
+        sourceType: 'contact',
         sourceId: person.resourceName || `contact-${processed}`,
         timestamp: person.metadata?.sources?.[0]?.updateTime || new Date().toISOString(),
         content: {

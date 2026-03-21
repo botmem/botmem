@@ -87,7 +87,7 @@ describe('syncContacts', () => {
     expect(events).toHaveLength(1);
 
     const event = events[0];
-    expect(event.sourceType).toBe('message');
+    expect(event.sourceType).toBe('contact');
     expect(event.sourceId).toBe('people/c1');
     expect(event.content.text).toContain('Contact: Alice Smith');
     expect(event.content.text).toContain('Email: alice@test.com');

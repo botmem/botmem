@@ -141,7 +141,7 @@ describe('SlackConnector', () => {
   describe('embed', () => {
     it('extracts contact entities from contact-type events', () => {
       const event = {
-        sourceType: 'message' as const,
+        sourceType: 'contact' as const,
         sourceId: 'slack-contact:U123',
         timestamp: '2026-01-01T00:00:00Z',
         content: {
@@ -171,7 +171,7 @@ describe('SlackConnector', () => {
 
     it('handles contact with no emails/phones', () => {
       const event = {
-        sourceType: 'message' as const,
+        sourceType: 'contact' as const,
         sourceId: 'slack-contact:U123',
         timestamp: '2026-01-01T00:00:00Z',
         content: {

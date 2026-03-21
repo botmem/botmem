@@ -250,7 +250,7 @@ export async function syncSlack(
   for (const [userId, profile] of users) {
     if (userId === selfId) continue; // Skip self
     emit({
-      sourceType: 'message',
+      sourceType: 'contact',
       sourceId: `slack-contact:${userId}`,
       timestamp: new Date().toISOString(),
       content: {

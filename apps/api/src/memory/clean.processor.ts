@@ -206,7 +206,7 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     const metadata = event.content?.metadata || {};
 
     // Contact-only events — resolve contacts, don't create memory
-    if (metadata.type === 'contact') {
+    if (event.sourceType === 'contact' || metadata.type === 'contact') {
       this.addLog(
         rawEvent.connectorType,
         rawEvent.accountId,

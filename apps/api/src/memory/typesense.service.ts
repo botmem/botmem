@@ -310,34 +310,40 @@ export class TypesenseService implements OnModuleInit {
           query_by: 'text',
           vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:0.3)`,
           per_page: limit,
-          conversation: true,
-          conversation_model_id: conversationModelId,
-          ...(conversationId ? { conversation_id: conversationId } : {}),
           ...(filterStr ? { filter_by: filterStr } : {}),
         },
       ],
     };
 
+    // conversation params must be query parameters, not in the POST body
+    const queryParams: Record<string, unknown> = {
+      conversation: true,
+      conversation_model_id: conversationModelId,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    };
+
     const response = await this.client.multiSearch.perform(
       searchParams as unknown as Parameters<typeof this.client.multiSearch.perform>[0],
-      {},
+      queryParams as unknown as Parameters<typeof this.client.multiSearch.perform>[1],
     );
 
-    const firstResult = response.results?.[0] as Record<string, unknown> | undefined;
-    const hits = firstResult?.hits as
-      | Array<{ document: Record<string, unknown>; vector_distance?: number }>
-      | undefined;
+    const responseAny = response as unknown as {
+      results?: Array<{
+        hits?: Array<{ document: Record<string, unknown>; vector_distance?: number }>;
+      }>;
+      conversation?: { answer?: string; conversation_id?: string };
+    };
 
-    const results: ScoredPoint[] = (hits ?? []).map((hit) => ({
+    const hits = responseAny.results?.[0]?.hits ?? [];
+
+    const results: ScoredPoint[] = hits.map((hit) => ({
       id: hit.document.id as string,
       score: 1 - (hit.vector_distance ?? 0),
       payload: this.extractPayload(hit.document),
     }));
 
     // Extract conversation data from the response
-    const conversationData = (response as Record<string, unknown>).conversation as
-      | { answer?: string; conversation_id?: string }
-      | undefined;
+    const conversationData = responseAny.conversation;
 
     return {
       results,

@@ -199,7 +199,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
 
     // 4. Contact-only events
-    if (metadata.type === 'contact') {
+    if (event.sourceType === 'contact' || metadata.type === 'contact') {
       this.addLog(
         rawEvent.connectorType,
         rawEvent.accountId,

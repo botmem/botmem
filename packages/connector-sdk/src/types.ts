@@ -62,13 +62,13 @@ export interface SyncContext {
 }
 
 export interface ConnectorDataEvent {
-  sourceType: 'email' | 'message' | 'photo' | 'location' | 'file';
+  sourceType: 'email' | 'message' | 'contact' | 'photo' | 'location' | 'file';
   sourceId: string;
   timestamp: string;
   content: {
     text?: string;
     participants?: string[];
-    attachments?: Array<{ uri: string; mimeType: string }>;
+    attachments?: Array<{ uri: string; mimeType: string; filename?: string; size?: number }>;
     metadata: Record<string, unknown>;
   };
 }
@@ -109,6 +109,33 @@ export interface EnrichResult {
   claims?: string[];
   factuality?: { label: string; confidence: number; rationale: string };
   metadata?: Record<string, unknown>;
+}
+
+/** Params passed to completeAuth() for OAuth2 connectors */
+export interface OAuth2CompleteParams {
+  code: string;
+  state?: string;
+  clientId?: string;
+  clientSecret?: string;
+  redirectUri?: string;
+  [key: string]: unknown;
+}
+
+/** Metadata convention for contact-type events (sourceType: 'contact') */
+export interface ContactEventMetadata {
+  type: 'contact';
+  name?: string;
+  givenName?: string;
+  familyName?: string;
+  emails?: string[];
+  phones?: string[];
+  organizations?: Array<{ name?: string; title?: string }>;
+  nicknames?: string[];
+  addresses?: unknown[];
+  birthday?: string;
+  bio?: string;
+  imClients?: string[];
+  photos?: string[];
 }
 
 /** Context passed to pipeline methods */

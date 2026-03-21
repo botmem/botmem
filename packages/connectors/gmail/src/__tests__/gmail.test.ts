@@ -202,7 +202,7 @@ describe('GmailConnector', () => {
   describe('embed', () => {
     it('extracts contact entities with emails, phones, nicknames, orgs', () => {
       const event = {
-        sourceType: 'message' as const,
+        sourceType: 'contact' as const,
         sourceId: 'c1',
         timestamp: '2026-01-01T00:00:00Z',
         content: {
@@ -313,7 +313,7 @@ describe('GmailConnector', () => {
 
     it('handles contact with no identifiers', () => {
       const event = {
-        sourceType: 'message' as const,
+        sourceType: 'contact' as const,
         sourceId: 'c1',
         timestamp: '2026-01-01T00:00:00Z',
         content: {

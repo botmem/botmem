@@ -51,7 +51,7 @@ export abstract class BaseConnector extends EventEmitter {
     const metadata = event.content?.metadata || {};
 
     // Skip noise filtering for contact-type events — always keep those
-    if (metadata.type === 'contact') return true;
+    if (event.sourceType === 'contact' || metadata.type === 'contact') return true;
 
     const reason = detectNoiseReason(text, metadata);
     if (reason) {

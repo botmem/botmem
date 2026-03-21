@@ -7,6 +7,7 @@ import {
   Query,
   Body,
   Res,
+  HttpCode,
   HttpStatus,
   Logger,
   DefaultValuePipe,
@@ -21,8 +22,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { AiService } from './ai.service';
 import { TypesenseService } from './typesense.service';
 import { EventsService } from '../events/events.service';
-import { memories, memoryContacts, rawEvents } from '../db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { memories, memoryContacts, memoryLinks, rawEvents } from '../db/schema';
+import { eq, or, sql } from 'drizzle-orm';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
@@ -156,9 +157,12 @@ export class MemoryController {
 
           if (!rawRows.length) continue;
 
-          // Delete the failed memory (and its contact links) atomically
+          // Delete the failed memory (and its links) atomically
           await db.transaction(async (tx) => {
             await tx.delete(memoryContacts).where(eq(memoryContacts.memoryId, mem.id));
+            await tx
+              .delete(memoryLinks)
+              .where(or(eq(memoryLinks.srcMemoryId, mem.id), eq(memoryLinks.dstMemoryId, mem.id)));
             await tx.delete(memories).where(eq(memories.id, mem.id));
           });
 
@@ -328,6 +332,7 @@ export class MemoryController {
   }
 
   @ReadOnly()
+  @HttpCode(200)
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(
@@ -381,6 +386,7 @@ export class MemoryController {
   }
 
   @ReadOnly()
+  @HttpCode(200)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('ask')
   async ask(

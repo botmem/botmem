@@ -136,7 +136,7 @@ export class SlackConnector extends BaseConnector {
     const participants = event.content?.participants || [];
 
     // Contact events — compound ID per person
-    if (metadata.type === 'contact') {
+    if (event.sourceType === 'contact' || metadata.type === 'contact') {
       const parts: string[] = [];
       if (metadata.name) parts.push(`name:${metadata.name}`);
       if (metadata.slackId) parts.push(`slack_id:${metadata.slackId}`);

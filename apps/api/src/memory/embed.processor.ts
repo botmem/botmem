@@ -309,7 +309,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
 
       // Build avatar lookup maps for this event
       const gmailPhotoUrl =
-        rawEvent.connectorType === 'gmail' && (event.sourceType as string) === 'contact'
+        rawEvent.connectorType === 'gmail' && event.sourceType === 'contact'
           ? (metadata.photoUrl as string | undefined)
           : undefined;
 
