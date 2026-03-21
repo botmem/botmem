@@ -84,6 +84,13 @@ export class AuthService implements OnModuleInit {
       });
   }
 
+  /** Strip sensitive fields before returning account to client. */
+  private redactAccount<T extends Record<string, unknown>>(account: T): Omit<T, 'authContext'> {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { authContext, ...safe } = account;
+    return safe as Omit<T, 'authContext'>;
+  }
+
   /** Create account, validate auth, trigger first sync. Returns existing account if already connected. */
   private async createAndSync(
     connectorType: string,
@@ -209,7 +216,7 @@ export class AuthService implements OnModuleInit {
         result.auth as Record<string, unknown>,
         userId,
       );
-      return { type: 'complete' as const, account };
+      return { type: 'complete' as const, account: this.redactAccount(account) };
     }
 
     if (result.type === 'qr-code') {
@@ -431,7 +438,7 @@ export class AuthService implements OnModuleInit {
       userId,
     );
 
-    return { account, returnTo: pending?.returnTo };
+    return { account: this.redactAccount(account), returnTo: pending?.returnTo };
   }
 
   async complete(
@@ -443,10 +450,11 @@ export class AuthService implements OnModuleInit {
     const auth = await connector.completeAuth(body.params);
 
     if (body.accountId) {
-      return this.accountsService.update(body.accountId, {
+      const updated = await this.accountsService.update(body.accountId, {
         authContext: JSON.stringify(auth),
         status: 'connected',
       });
+      return this.redactAccount(updated);
     }
 
     const identifier = String(
@@ -455,7 +463,13 @@ export class AuthService implements OnModuleInit {
         ((auth as Record<string, unknown>).raw as Record<string, unknown> | undefined)?.email ||
         connectorType,
     );
-    return this.createAndSync(connectorType, identifier, auth as Record<string, unknown>, userId);
+    const account = await this.createAndSync(
+      connectorType,
+      identifier,
+      auth as Record<string, unknown>,
+      userId,
+    );
+    return this.redactAccount(account);
   }
 
   /** Create an account from tunnel-mode QR auth (auth context already resolved). */
@@ -469,7 +483,8 @@ export class AuthService implements OnModuleInit {
         (authContext.raw as Record<string, unknown> | undefined)?.jid ||
         connectorType,
     );
-    return this.createAndSync(connectorType, identifier, authContext, userId);
+    const account = await this.createAndSync(connectorType, identifier, authContext, userId);
+    return this.redactAccount(account);
   }
 
   /** Re-run initiateAuth for an existing account — validates the new config then updates the account. */
@@ -502,6 +517,7 @@ export class AuthService implements OnModuleInit {
         accountId,
     });
 
-    return this.accountsService.getById(accountId);
+    const account = await this.accountsService.getById(accountId);
+    return this.redactAccount(account);
   }
 }

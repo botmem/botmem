@@ -16,7 +16,8 @@ import type {
 import { detectNoiseReason } from './noise-filter.js';
 
 export abstract class BaseConnector extends EventEmitter {
-  static DEBUG_SYNC_LIMIT = 50;
+  /** Set at startup from SYNC_DEBUG_LIMIT env var. 0 = disabled (unlimited). */
+  static DEBUG_SYNC_LIMIT = 0;
 
   abstract readonly manifest: ConnectorManifest;
 

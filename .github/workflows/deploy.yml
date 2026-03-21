@@ -200,10 +200,43 @@ jobs:
             ghcr.io/botmem/botmem:arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
 
+  create-manifest:
+    name: Create Multi-Arch Manifest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, build-amd64, build-arm64]
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest (version tag)
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          docker manifest create ghcr.io/botmem/botmem:${TAG} \
+            ghcr.io/botmem/botmem:${TAG} \
+            ghcr.io/botmem/botmem:arm64-${TAG}
+          docker manifest annotate ghcr.io/botmem/botmem:${TAG} \
+            ghcr.io/botmem/botmem:arm64-${TAG} --arch arm64
+          docker manifest push ghcr.io/botmem/botmem:${TAG}
+
+      - name: Create and push multi-arch manifest (latest tag)
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          docker manifest create ghcr.io/botmem/botmem:latest \
+            ghcr.io/botmem/botmem:${TAG} \
+            ghcr.io/botmem/botmem:arm64-${TAG}
+          docker manifest annotate ghcr.io/botmem/botmem:latest \
+            ghcr.io/botmem/botmem:arm64-${TAG} --arch arm64
+          docker manifest push ghcr.io/botmem/botmem:latest
+
   deploy:
     name: Deploy to Production
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, build-amd64]
+    needs: [version, create-manifest]
 
     steps:
       - name: Checkout

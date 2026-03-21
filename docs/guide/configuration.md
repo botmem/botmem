@@ -122,10 +122,10 @@ When `STRIPE_SECRET_KEY` is empty, the app runs in self-hosted mode with no bill
 
 ### Other
 
-| Variable           | Default     | Description                                                        |
-| ------------------ | ----------- | ------------------------------------------------------------------ |
-| `SYNC_DEBUG_LIMIT` | `2000`      | Max events per sync (for development; set to `0` to disable limit) |
-| `DECAY_CRON`       | `0 3 * * *` | Cron schedule for recency weight decay (daily at 3am)              |
+| Variable           | Default     | Description                                                     |
+| ------------------ | ----------- | --------------------------------------------------------------- |
+| `SYNC_DEBUG_LIMIT` | `500`       | Max events per sync (set to `0` to disable limit for full sync) |
+| `DECAY_CRON`       | `0 3 * * *` | Cron schedule for recency weight decay (daily at 3am)           |
 
 ## Docker Compose
 
@@ -153,7 +153,7 @@ services:
       - redis-data:/data
 
   typesense:
-    image: typesense/typesense:27.1
+    image: typesense/typesense:30.1
     ports:
       - '8108:8108'
     volumes:

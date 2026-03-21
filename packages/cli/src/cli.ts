@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { createHash, randomBytes } from 'crypto';
 import { createServer } from 'http';
 import { exec } from 'child_process';
+import { createInterface } from 'readline';
 import { BotmemClient, BotmemApiError } from './client.js';
 import { formatStatus, toonify } from './format.js';
 import { runSearch, searchHelp } from './commands/search.js';
@@ -19,7 +20,7 @@ import { runAsk, runContext, askHelp, contextHelp } from './commands/agent.js';
 import { runMemoryBanks, memoryBanksHelp } from './commands/memory-banks.js';
 import { runInstallSkill } from './commands/install-skill.js';
 
-const DEFAULT_API_URL = 'https://api.botmem.xyz/api';
+const DEFAULT_API_URL = 'http://localhost:12412/api';
 
 const CONFIG_DIR = join(homedir(), '.botmem');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
@@ -95,7 +96,7 @@ const HELP = `
   GLOBAL OPTIONS
     --api-key <key>   API key (env: BOTMEM_API_KEY) — preferred for agents
     --token <jwt>     JWT token (env: BOTMEM_TOKEN) — from email/password login
-    --api-url <url>   API base URL override (env: BOTMEM_API_URL, default: https://api.botmem.xyz/api)
+    --api-url <url>   API base URL override (env: BOTMEM_API_URL, default: http://localhost:12412/api)
     --json            Output raw JSON (for piping to jq or scripts)
     --toon            Tool-optimized output: flattened JSON for LLM agents
     -h, --help        Show help (use with any command for details)
@@ -345,6 +346,54 @@ async function runStatus(client: BotmemClient, json: boolean) {
   }
 }
 
+function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function runFirstTimeSetup(): Promise<void> {
+  if (existsSync(CONFIG_FILE)) return;
+  if (!process.stdin.isTTY) return; // non-interactive (piped, agent) — skip
+
+  console.error("Welcome to Botmem CLI! Let's set up your connection.\n");
+  console.error('  1) Self-hosted  (default: http://localhost:12412)');
+  console.error('  2) Custom URL   (enter your own)');
+  console.error('');
+  const choice = await prompt('Choose [1/2] (default: 1): ');
+
+  let apiUrl: string;
+  if (choice === '2') {
+    const custom = await prompt('Enter your Botmem API URL (e.g. https://botmem.example.com): ');
+    if (!custom) {
+      console.error('No URL provided, using default localhost.');
+      apiUrl = DEFAULT_API_URL;
+    } else {
+      apiUrl = custom;
+      if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+        const isLocal = apiUrl.startsWith('localhost') || apiUrl.startsWith('127.0.0.1');
+        apiUrl = `${isLocal ? 'http' : 'https'}://${apiUrl}`;
+      }
+      if (!apiUrl.endsWith('/api')) {
+        apiUrl = apiUrl.replace(/\/+$/, '') + '/api';
+      }
+    }
+  } else {
+    apiUrl = DEFAULT_API_URL;
+  }
+
+  saveConfig({ apiUrl });
+  console.error(`\nConfig saved to ${CONFIG_FILE}`);
+  console.error(`API URL: ${apiUrl}\n`);
+  console.error(
+    'Next: run `botmem login` to authenticate, or `botmem config set-key <bm_sk_...>` to use an API key.\n',
+  );
+}
+
 function openBrowser(url: string) {
   const platform = process.platform;
   const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
@@ -521,6 +570,11 @@ async function main() {
     return;
   }
 
+  // First-time setup prompt (interactive only)
+  if (command !== 'config') {
+    await runFirstTimeSetup();
+  }
+
   // Commands that don't need API access
   if (command === 'install-skill') {
     runInstallSkill();
@@ -619,7 +673,7 @@ async function main() {
     if (err instanceof BotmemApiError) {
       if (err.status === 0) {
         console.error(`Error: Cannot connect to Botmem API at ${apiUrl}`);
-        console.error('Make sure the API server is running (pnpm dev)');
+        console.error('Make sure the API server is running. For self-hosted: docker compose up -d');
       } else {
         console.error(`Error: API returned ${err.status} — ${err.message}`);
         if (err.body) console.error(JSON.stringify(err.body, null, 2));
