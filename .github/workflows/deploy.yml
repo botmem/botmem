@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: deploy-${{ github.ref }}-${{ github.actor }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -21,14 +21,8 @@ jobs:
   gate:
     name: Deployment Gate
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.actor != 'dependabot[bot]'
     steps:
-      - name: Skip dependabot commits
-        if: github.actor == 'dependabot[bot]'
-        run: |
-          echo "Skipping deploy for dependabot commit — dependabot PRs are merged but not deployed individually."
-          echo "Deploy will happen on the next human push to main."
-          exit 1
-
       - name: Check for open Dependabot PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
