@@ -1,6 +1,5 @@
 import type { Auth } from 'firebase/auth';
-
-const isFirebaseMode = import.meta.env.VITE_AUTH_PROVIDER === 'firebase';
+import { isFirebaseMode } from './auth-provider';
 
 let _auth: Auth | null = null;
 let _googleProvider: InstanceType<typeof import('firebase/auth').GoogleAuthProvider> | null = null;
