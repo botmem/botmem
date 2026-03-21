@@ -1,0 +1,14 @@
+# Botmem Production Caddyfile
+#
+# Replace "yourdomain.com" with your actual domain.
+# Caddy will automatically provision and renew SSL certificates via Let's Encrypt.
+#
+# Used by docker-compose.prod.yml:
+#   volumes:
+#     - ./Caddyfile:/etc/caddy/Caddyfile
+#
+# To use: cp Caddyfile.example Caddyfile && edit with your domain
+
+yourdomain.com {
+	reverse_proxy api:12412
+}

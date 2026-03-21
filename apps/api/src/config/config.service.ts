@@ -130,7 +130,7 @@ export class ConfigService implements OnModuleInit {
   }
 
   get syncDebugLimit(): number {
-    return Number.parseInt(process.env.SYNC_DEBUG_LIMIT || '2000', 10);
+    return Number.parseInt(process.env.SYNC_DEBUG_LIMIT || '0', 10);
   }
 
   get posthogApiKey(): string {

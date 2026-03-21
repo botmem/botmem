@@ -122,10 +122,10 @@ When `STRIPE_SECRET_KEY` is empty, the app runs in self-hosted mode with no bill
 
 ### Other
 
-| Variable           | Default     | Description                                                     |
-| ------------------ | ----------- | --------------------------------------------------------------- |
-| `SYNC_DEBUG_LIMIT` | `500`       | Max events per sync (set to `0` to disable limit for full sync) |
-| `DECAY_CRON`       | `0 3 * * *` | Cron schedule for recency weight decay (daily at 3am)           |
+| Variable           | Default     | Description                                                                |
+| ------------------ | ----------- | -------------------------------------------------------------------------- |
+| `SYNC_DEBUG_LIMIT` | `0`         | Max events per sync (`0` = unlimited full sync; set to e.g. `500` for dev) |
+| `DECAY_CRON`       | `0 3 * * *` | Cron schedule for recency weight decay (daily at 3am)                      |
 
 ## Docker Compose
 

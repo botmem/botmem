@@ -30,6 +30,8 @@ docker compose pull            # Pull the latest image
 docker compose up -d           # Starts everything on http://localhost:12412
 ```
 
+> **Next:** You'll need Ollama with models pulled before your first sync. See the [full Quick Start guide](https://docs.botmem.xyz/guide/quickstart) for AI backend setup, account creation, and first sync.
+
 ### Development
 
 Requires Node.js 20+, pnpm 9.15+, and Docker.
@@ -47,10 +49,11 @@ pnpm dev                      # API + web on http://localhost:12412
 
 ```bash
 cp .env.example .env.prod     # Edit with production secrets
+cp Caddyfile.example Caddyfile # Edit with your domain
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-See the [deployment guide](https://docs.botmem.xyz/guide/deployment) for full production setup.
+You'll need to generate secrets (`openssl rand -base64 48`), configure your domain in the Caddyfile, and set up Ollama. See the [deployment guide](https://docs.botmem.xyz/guide/deployment) for full instructions.
 
 ## Architecture
 
@@ -82,7 +85,7 @@ graph LR
 | iMessage      | Local tool             | Messages (macOS only)         |
 | Photos/Immich | API key                | Photos, face tags, metadata   |
 | OwnTracks     | HTTP auth              | GPS locations, geofences      |
-| Telegram      | Bot token              | Messages, media, contacts     |
+| Telegram      | Phone code + 2FA       | Messages, media, contacts     |
 
 ## CLI
 

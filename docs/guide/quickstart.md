@@ -5,7 +5,14 @@ Get Botmem running locally in under five minutes.
 ## Prerequisites
 
 - **Docker** and Docker Compose
-- **Ollama** running somewhere on your network (or use OpenRouter as a cloud alternative)
+- **Ollama** with models pulled — required for data processing. Without it, syncs will complete but memories won't be searchable. Alternatively, use [OpenRouter](#option-b-openrouter-cloud-no-gpu-needed) as a cloud backend (no local GPU needed).
+
+::: details Minimum hardware
+
+- **Without local Ollama**: 2 GB RAM, 1 CPU core, 10 GB disk (runs PostgreSQL, Redis, Typesense, and the API)
+- **With local Ollama**: 8 GB RAM, 4 CPU cores recommended (embedding models need 2-4 GB)
+- **Disk**: grows with data volume — roughly 1 GB per 100k memories
+  :::
 
 ## Option A: Docker (recommended for self-hosting)
 
@@ -29,6 +36,18 @@ The `.env.example` sets `OLLAMA_BASE_URL=http://localhost:11434` — this is the
 - **macOS / Windows**: Works out of the box.
 - **Linux**: The compose file includes `extra_hosts: host.docker.internal:host-gateway` which handles this automatically. If you still have issues, set `OLLAMA_BASE_URL` to your machine's LAN IP in `.env`.
   :::
+
+::: tip No Ollama installed?
+Run `docker compose --profile ollama up -d` to include a bundled Ollama container. Then pull models inside it:
+
+```bash
+docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull qwen3:0.6b
+docker compose exec ollama ollama pull qwen3-vl:2b
+```
+
+When using the bundled container, set `OLLAMA_BASE_URL=http://ollama:11434` in your `.env`.
+:::
 
 Skip to [Step 3: Configure AI Backend](#_3-configure-ai-backend).
 
@@ -137,15 +156,15 @@ You should see a JSON response with the version number.
 
 Navigate to the Connectors page in the web UI. Each connector has its own setup flow:
 
-| Connector       | Auth Type  | What You Need                      |
-| --------------- | ---------- | ---------------------------------- |
-| Gmail / Google  | OAuth 2.0  | Google Cloud OAuth credentials     |
-| Slack           | API Token  | Slack user token (`xoxp-...`)      |
-| WhatsApp        | QR Code    | WhatsApp mobile app                |
-| iMessage        | Local Tool | macOS with iMessage database       |
-| Photos / Immich | API Key    | Immich server URL + API key        |
-| Telegram        | Bot Token  | Telegram Bot API token             |
-| OwnTracks       | API Key    | OwnTracks recorder URL + HTTP auth |
+| Connector       | Auth Type  | What You Need                             |
+| --------------- | ---------- | ----------------------------------------- |
+| Gmail / Google  | OAuth 2.0  | Google Cloud OAuth credentials            |
+| Slack           | API Token  | Slack user token (`xoxp-...`)             |
+| WhatsApp        | QR Code    | WhatsApp mobile app                       |
+| iMessage        | Local Tool | macOS with iMessage database              |
+| Photos / Immich | API Key    | Immich server URL + API key               |
+| Telegram        | Phone Code | Telegram phone number + verification code |
+| OwnTracks       | API Key    | OwnTracks recorder URL + HTTP auth        |
 
 See the [Connectors](/connectors/) section for detailed setup instructions for each source.
 
@@ -197,8 +216,8 @@ docker compose pull      # Ensure latest image
 docker compose up -d     # Fresh start
 ```
 
-::: tip Recommended when upgrading
-Always run `docker compose down -v && docker compose pull && docker compose up -d` when upgrading to a new version, especially if you encounter 404 errors or auth issues.
+::: tip Normal upgrade (preserves data)
+For most upgrades: `docker compose pull && docker compose up -d`. Only use `down -v` if you encounter persistent issues after a major version change — it deletes all data.
 :::
 
 ### API curl examples with special characters
@@ -223,6 +242,25 @@ On startup you may see this warning in the API logs. This is normal — it means
 ### "Using default dev secrets" log message
 
 You'll see `Using default dev secrets (OK for local/self-hosted dev)` in the API logs when running with the default `.env.example` values. This is expected for local development. In production (`NODE_ENV=production`), you must set custom secrets — see [Configuration](/guide/configuration).
+
+### Upgrading
+
+Docker images are tagged with version numbers (e.g., `ghcr.io/botmem/botmem:v1.2.3`). To pin a version, change the `image:` line in `docker-compose.yml`.
+
+For most upgrades, pull the latest image and restart:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+A full reset (wipes all data) is only needed if you encounter persistent issues after a major version change:
+
+```bash
+docker compose down -v   # WARNING: deletes all data
+docker compose pull
+docker compose up -d
+```
 
 ## What Next?
 

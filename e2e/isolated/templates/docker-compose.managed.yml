@@ -1,0 +1,102 @@
+services:
+  botmem:
+    build:
+      context: ${BOTMEM_E2E_SOURCE_DIR:-/Users/amr/Projects/botmem}
+      dockerfile: Dockerfile
+      args:
+        VITE_AUTH_PROVIDER: firebase
+    ports:
+      - '32412:12412'
+    env_file:
+      - .env
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    environment:
+      DATABASE_URL: postgresql://botmem:botmem@postgres:5432/botmem
+      REDIS_URL: redis://redis:6379
+      TYPESENSE_URL: http://typesense:8108
+      TYPESENSE_API_KEY: botmem-ts-key
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-firebase}
+      APP_SECRET: ${APP_SECRET}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      OAUTH_JWT_SECRET: ${OAUTH_JWT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:32412}
+      LOGS_PATH: /runtime/logs/logs.ndjson
+      PLUGINS_DIR: /runtime/plugins
+      AI_BACKEND: ${AI_BACKEND:-openrouter}
+      EMBED_BACKEND: ${EMBED_BACKEND:-openrouter}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      SYNC_DEBUG_LIMIT: ${SYNC_DEBUG_LIMIT:-0}
+    volumes:
+      - ./runtime/logs:/runtime/logs
+      - ./runtime/temp:/runtime/temp
+      - ./runtime/exports:/runtime/exports
+      - ./runtime/plugins:/runtime/plugins
+      - botmem_e2e_managed_api_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:12412/api/version || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - '35432:5432'
+    environment:
+      POSTGRES_USER: botmem
+      POSTGRES_PASSWORD: botmem
+      POSTGRES_DB: botmem
+    volumes:
+      - botmem_e2e_managed_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U botmem -d botmem']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - '36379:6379'
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - botmem_e2e_managed_redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  typesense:
+    image: typesense/typesense:30.1
+    ports:
+      - '38108:8108'
+    volumes:
+      - botmem_e2e_managed_typesense:/data
+    command: --data-dir /data --api-key=botmem-ts-key --enable-cors --enable-search-analytics=true
+    healthcheck:
+      test: ['CMD-SHELL', "bash -c 'echo > /dev/tcp/localhost/8108'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  botmem_e2e_managed_pg:
+  botmem_e2e_managed_redis:
+  botmem_e2e_managed_typesense:
+  botmem_e2e_managed_api_data:

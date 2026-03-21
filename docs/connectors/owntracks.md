@@ -24,13 +24,17 @@ You need a running [OwnTracks Recorder](https://github.com/owntracks/recorder) i
 
 Navigate to the Connectors page and click **Add** on the Locations / OwnTracks connector. Enter:
 
-| Field              | Value                                                               |
-| ------------------ | ------------------------------------------------------------------- |
-| Base URL           | Your OwnTracks recorder URL (e.g., `https://owntracks.example.com`) |
-| Username           | HTTP auth username                                                  |
-| Device             | Device identifier (e.g., `iphone`)                                  |
-| HTTP Auth Username | Basic auth username for the recorder API                            |
-| HTTP Auth Password | Basic auth password for the recorder API                            |
+| Field                  | Value                                                               |
+| ---------------------- | ------------------------------------------------------------------- |
+| Base URL               | Your OwnTracks recorder URL (e.g., `https://owntracks.example.com`) |
+| OwnTracks User         | The username configured in the OwnTracks mobile app                 |
+| Device                 | Device identifier configured in the app (e.g., `iphone`)            |
+| Recorder HTTP Username | Basic auth username for the recorder's HTTP API                     |
+| Recorder HTTP Password | Basic auth password for the recorder's HTTP API                     |
+
+::: tip Username vs HTTP auth
+**OwnTracks User** is the identifier used to organize location data inside the recorder (the `user` in `/api/0/list`). **Recorder HTTP Username/Password** are the credentials for authenticating HTTP requests to the recorder API. They may or may not be the same values.
+:::
 
 ::: tip
 The Base URL should not include the `/pub` suffix. The connector builds the correct API paths automatically.

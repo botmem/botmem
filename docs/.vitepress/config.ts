@@ -10,11 +10,9 @@ export default defineConfig({
 
   head: [
     ['meta', { name: 'theme-color', content: '#C4F53A' }],
-    ['link', { rel: 'canonical', href: 'https://docs.botmem.xyz/' }],
     ['meta', { name: 'robots', content: 'index, follow' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Botmem Docs' }],
-    ['meta', { property: 'og:url', content: 'https://docs.botmem.xyz/' }],
     ['meta', { property: 'og:image', content: 'https://botmem.xyz/brand/og-image.png' }],
     [
       'meta',
@@ -24,6 +22,11 @@ export default defineConfig({
       },
     ],
   ],
+
+  // VitePress generates canonical URLs and og:url per-page automatically via sitemap
+  sitemap: {
+    hostname: 'https://docs.botmem.xyz',
+  },
 
   themeConfig: {
     logo: { light: '/logo-light.svg', dark: '/logo-dark.svg' },
@@ -68,6 +71,7 @@ export default defineConfig({
           { text: 'iMessage', link: '/connectors/imessage' },
           { text: 'Photos / Immich', link: '/connectors/immich' },
           { text: 'Locations / OwnTracks', link: '/connectors/owntracks' },
+          { text: 'Telegram', link: '/connectors/telegram' },
           { text: 'Building a Connector', link: '/connectors/building-a-connector' },
         ],
       },
