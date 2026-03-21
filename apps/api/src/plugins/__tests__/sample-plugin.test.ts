@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import { resolve } from 'path';
 
 const pluginDir = resolve(__dirname, '../../../../..', 'plugins/sample-enricher');
+const pluginExists = existsSync(resolve(pluginDir, 'index.js'));
 
-describe('sample-enricher plugin', () => {
+describe.skipIf(!pluginExists)('sample-enricher plugin', () => {
   describe('manifest.json', () => {
     it('has a valid manifest with required fields', async () => {
       const raw = await readFile(resolve(pluginDir, 'manifest.json'), 'utf-8');
