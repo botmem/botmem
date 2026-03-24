@@ -34,6 +34,7 @@ export class PluginsService {
     await this.loadBuiltin('@botmem/connector-telegram');
     await this.loadBuiltin('@botmem/connector-imessage');
     await this.loadBuiltin('@botmem/connector-locations');
+    await this.loadBuiltin('@botmem/connector-outlook');
 
     // Load external plugins (connectors from directory)
     const dir = resolve(this.config.pluginsDir);
@@ -55,7 +56,7 @@ export class PluginsService {
     try {
       entries = (await readdir(dir, { withFileTypes: true })) as unknown as import('fs').Dirent[];
     } catch {
-      this.logger.warn(`Could not read plugins directory: ${dir}`);
+      this.logger.debug(`No plugins directory at ${dir} (this is normal)`);
       return;
     }
 
