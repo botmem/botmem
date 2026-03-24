@@ -150,9 +150,12 @@ export class EnrichService {
       `[enrich:start] ${memory.sourceType} ${mid} (${memory.text.length} chars)`,
     );
 
-    let entities: Array<{ type: string; value: string }>;
-    let factuality: { label: string; confidence: number; rationale: string } | null;
-    let entityMs: number;
+    // eslint-disable-next-line no-useless-assignment -- defaults needed for catch paths
+    let entities: Array<{ type: string; value: string }> = [];
+    // eslint-disable-next-line no-useless-assignment
+    let factuality: { label: string; confidence: number; rationale: string } | null = null;
+    // eslint-disable-next-line no-useless-assignment
+    let entityMs = 0;
     let factMs = 0;
 
     const shouldClassifyFactuality = FACTUALITY_SOURCE_TYPES.has(memory.sourceType);
