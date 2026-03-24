@@ -114,16 +114,18 @@ describe('EnrichService', () => {
       // For email sourceType, combined prompt: 1 LLM call for entities + factuality
       // DB where() calls:
       // 1. get memory
-      // 2. update entities (entities found)
-      // 3. update factuality
-      // 4. createLinks: select src claims
-      // 5. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update entities (entities found)
+      // 4. update factuality
+      // 5. createLinks: select src claims
+      // 6. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update entities
-        undefined, // 3. update factuality
-        [{ claims: '[]', factuality: null }], // 4. createLinks: select src claims
-        undefined, // 5. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update entities
+        undefined, // 4. update factuality
+        [{ claims: '[]', factuality: null }], // 5. createLinks: select src claims
+        undefined, // 6. update weights
       ];
 
       aiService.generate.mockResolvedValueOnce(
@@ -141,12 +143,14 @@ describe('EnrichService', () => {
       // factuality=null → no factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. createLinks: select src claims
-      // 3. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. createLinks: select src claims
+      // 4. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        [{ claims: '[]', factuality: null }], // 2. createLinks: select src claims
-        undefined, // 3. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        [{ claims: '[]', factuality: null }], // 3. createLinks: select src claims
+        undefined, // 4. update weights
       ];
       aiService.generate.mockRejectedValueOnce(new Error('AI down'));
 
@@ -160,12 +164,14 @@ describe('EnrichService', () => {
       // Or entities with no factuality if factuality field missing from response
       // DB where() calls:
       // 1. get memory
-      // 2. createLinks: select src claims
-      // 3. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. createLinks: select src claims
+      // 4. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        [{ claims: '[]', factuality: null }], // 2. createLinks: select src claims
-        undefined, // 3. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        [{ claims: '[]', factuality: null }], // 3. createLinks: select src claims
+        undefined, // 4. update weights
       ];
       // Combined call returns entities but no valid factuality
       aiService.generate.mockResolvedValueOnce('{"entities":[],"factuality":{}}');
@@ -179,16 +185,18 @@ describe('EnrichService', () => {
       // No entities → no entity update, factuality present → factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality (factuality is valid)
-      // 3. createLinks: select src claims (no claims → no dst factuality query)
-      // 4. batch existing links check
-      // 5. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality (factuality is valid)
+      // 4. createLinks: select src claims (no claims → no dst factuality query)
+      // 5. batch existing links check
+      // 6. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        [], // 4. batch existing links (none found)
-        undefined, // 5. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        [], // 5. batch existing links (none found)
+        undefined, // 6. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -204,18 +212,20 @@ describe('EnrichService', () => {
       // entities present → entity update + factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. update entities
-      // 3. update factuality
-      // 4. createLinks: src claims
-      // 5. batch existing links (found)
-      // 6. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update entities
+      // 4. update factuality
+      // 5. createLinks: src claims
+      // 6. batch existing links (found)
+      // 7. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update entities
-        undefined, // 3. update factuality
-        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        [{ srcMemoryId: 'mem-1', dstMemoryId: 'mem-2' }], // 5. batch existing links
-        undefined, // 6. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update entities
+        undefined, // 4. update factuality
+        [{ claims: '[]', factuality: null }], // 5. createLinks: src claims
+        [{ srcMemoryId: 'mem-1', dstMemoryId: 'mem-2' }], // 6. batch existing links
+        undefined, // 7. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -233,20 +243,22 @@ describe('EnrichService', () => {
       // srcClaims present → dst factuality batch query
       // DB where() calls:
       // 1. get memory
-      // 2. update entities
-      // 3. update factuality
-      // 4. createLinks: src claims (has claims + FACT)
-      // 5. batch existing links
-      // 6. batch dst factuality
-      // 7. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update entities
+      // 4. update factuality
+      // 5. createLinks: src claims (has claims + FACT)
+      // 6. batch existing links
+      // 7. batch dst factuality
+      // 8. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update entities
-        undefined, // 3. update factuality
-        [{ claims: '[{"text":"John works at Google"}]', factuality: '{"label":"FACT"}' }], // 4. src claims
-        [], // 5. batch existing links (none)
-        [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 6. batch dst factuality
-        undefined, // 7. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update entities
+        undefined, // 4. update factuality
+        [{ claims: '[{"text":"John works at Google"}]', factuality: '{"label":"FACT"}' }], // 5. src claims
+        [], // 6. batch existing links (none)
+        [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 7. batch dst factuality
+        undefined, // 8. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.95 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -263,18 +275,20 @@ describe('EnrichService', () => {
       // srcClaims present → dst factuality batch query
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims (has claims + FACT)
-      // 4. batch existing links
-      // 5. batch dst factuality
-      // 6. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims (has claims + FACT)
+      // 5. batch existing links
+      // 6. batch dst factuality
+      // 7. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[{"text":"something"}]', factuality: '{"label":"FACT"}' }], // 3. src claims
-        [], // 4. batch existing links (none)
-        [{ id: 'mem-2', factuality: '{"label":"FICTION"}' }], // 5. batch dst factuality
-        undefined, // 6. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[{"text":"something"}]', factuality: '{"label":"FACT"}' }], // 4. src claims
+        [], // 5. batch existing links (none)
+        [{ id: 'mem-2', factuality: '{"label":"FICTION"}' }], // 6. batch dst factuality
+        undefined, // 7. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.9 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -290,18 +304,20 @@ describe('EnrichService', () => {
       // No entities → no entity update; factuality update present
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims (has claims + FICTION)
-      // 4. batch existing links
-      // 5. batch dst factuality
-      // 6. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims (has claims + FICTION)
+      // 5. batch existing links
+      // 6. batch dst factuality
+      // 7. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '["claim"]', factuality: '{"label":"FICTION"}' }], // 3. src claims
-        [], // 4. batch existing links
-        [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 5. batch dst factuality
-        undefined, // 6. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '["claim"]', factuality: '{"label":"FICTION"}' }], // 4. src claims
+        [], // 5. batch existing links
+        [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 6. batch dst factuality
+        undefined, // 7. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.88 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -317,14 +333,16 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims (no candidates above threshold → returns early)
-      // 4. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims (no candidates above threshold → returns early)
+      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        undefined, // 5. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.5 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -338,14 +356,16 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims (self filtered out → no candidates)
-      // 4. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims (self filtered out → no candidates)
+      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        undefined, // 5. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-1', score: 0.95 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -359,16 +379,18 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims
-      // 4. batch existing links (reverse found)
-      // 5. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims
+      // 5. batch existing links (reverse found)
+      // 6. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        [{ srcMemoryId: 'mem-2', dstMemoryId: 'mem-1' }], // 4. batch existing links (reverse found)
-        undefined, // 5. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        [{ srcMemoryId: 'mem-2', dstMemoryId: 'mem-1' }], // 5. batch existing links (reverse found)
+        undefined, // 6. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -383,12 +405,14 @@ describe('EnrichService', () => {
       // Qdrant fails → createLinks catches error
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. update weights (createLinks error is caught)
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. update weights (createLinks error is caught)
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        undefined, // 3. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        undefined, // 4. update weights
       ];
       qdrantService.recommend.mockRejectedValueOnce(new Error('Qdrant down'));
       aiService.generate.mockResolvedValueOnce(
@@ -402,16 +426,18 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims (malformed JSON → srcClaims=[])
-      // 4. batch existing links
-      // 5. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims (malformed JSON → srcClaims=[])
+      // 5. batch existing links
+      // 6. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: 'not json', factuality: null }], // 3. createLinks: src claims
-        [], // 4. batch existing links
-        undefined, // 5. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: 'not json', factuality: null }], // 4. createLinks: src claims
+        [], // 5. batch existing links
+        undefined, // 6. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -427,16 +453,18 @@ describe('EnrichService', () => {
       // entities found → entity update + factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. update entities
-      // 3. update factuality
-      // 4. createLinks: src claims
-      // 5. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update entities
+      // 4. update factuality
+      // 5. createLinks: src claims
+      // 6. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update entities
-        undefined, // 3. update factuality
-        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update entities
+        undefined, // 4. update factuality
+        [{ claims: '[]', factuality: null }], // 5. createLinks: src claims
+        undefined, // 6. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[{"type":"person","name":"John"},{"type":"person","name":"John"},{"type":"person","name":"Jane"}],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
@@ -461,12 +489,14 @@ describe('EnrichService', () => {
       // No entities → no entity update, no factuality → no factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. createLinks: src claims
-      // 3. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. createLinks: src claims
+      // 4. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        [{ claims: '[]', factuality: null }], // 2. createLinks: src claims
-        undefined, // 3. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
+        undefined, // 4. update weights
       ];
       aiService.generate.mockResolvedValueOnce('not valid json at all');
 
@@ -479,12 +509,14 @@ describe('EnrichService', () => {
       // No entities → no entity update, no factuality → no factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. createLinks: src claims
-      // 3. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. createLinks: src claims
+      // 4. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        [{ claims: '[]', factuality: null }], // 2. createLinks: src claims
-        undefined, // 3. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
+        undefined, // 4. update weights
       ];
       aiService.generate.mockResolvedValueOnce('{"entities":[],"factuality":{"label":"FACT"}}');
 
@@ -496,14 +528,16 @@ describe('EnrichService', () => {
       // entities empty → no entity update; factuality valid → factuality update
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims
-      // 4. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims
+      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        undefined, // 5. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         'Here is the result: {"entities":[],"factuality":{"label":"FACT","confidence":0.9,"rationale":"confirmed"}} end',
@@ -524,14 +558,16 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims
-      // 4. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims
+      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        undefined, // 5. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
@@ -546,14 +582,16 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims
-      // 4. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims
+      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        undefined, // 5. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
@@ -570,14 +608,16 @@ describe('EnrichService', () => {
       // No entities, factuality present → factuality update only
       // DB where() calls:
       // 1. get memory
-      // 2. update factuality
-      // 3. createLinks: src claims
-      // 4. update weights
+      // 2. account userId lookup (for decryption)
+      // 3. update factuality
+      // 4. createLinks: src claims
+      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
-        undefined, // 2. update factuality
-        [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
+        undefined, // 3. update factuality
+        [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
+        undefined, // 5. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
