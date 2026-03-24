@@ -114,10 +114,10 @@ export async function verifyCode(
       return { need2fa: true };
     }
     if (errName === 'PHONE_CODE_INVALID') {
-      throw new Error('Invalid verification code');
+      throw new Error('Invalid verification code', { cause: err });
     }
     if (errName === 'PHONE_CODE_EXPIRED') {
-      throw new Error('Code expired — please request a new one');
+      throw new Error('Code expired — please request a new one', { cause: err });
     }
     throw err;
   }
@@ -155,7 +155,7 @@ export async function verify2fa(wsChannel: string, password: string): Promise<Au
   } catch (err: unknown) {
     const errName = (err as { errorMessage?: string })?.errorMessage || '';
     if (errName === 'PASSWORD_HASH_INVALID') {
-      throw new Error('Wrong 2FA password');
+      throw new Error('Wrong 2FA password', { cause: err });
     }
     throw err;
   }

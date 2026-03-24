@@ -127,6 +127,7 @@ export class IMessageConnector extends BaseConnector {
       throw new Error(
         `Cannot connect to imsg bridge at ${imsgHost}:${imsgPort} — ${err instanceof Error ? err.message : String(err)}. ` +
           'Make sure the imsg RPC bridge is running: socat TCP-LISTEN:19876,reuseaddr,fork EXEC:"imsg rpc"',
+        { cause: err },
       );
     }
 
