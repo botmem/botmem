@@ -22,11 +22,11 @@ describe('CLI config management', () => {
 
   it('should handle missing config file gracefully', () => {
     // loadConfig returns {} if file doesn't exist
-    let result = {};
+    let result: Record<string, unknown> = {};
     try {
-      result = JSON.parse(readFileSync(join(tempDir, 'nonexistent.json'), 'utf-8'));
+      result = JSON.parse(readFileSync(join(tempDir, 'nonexistent.json'), 'utf-8')) as Record<string, unknown>;
     } catch {
-      result = {};
+      // expected — file doesn't exist
     }
     expect(result).toEqual({});
   });
