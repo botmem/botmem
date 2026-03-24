@@ -80,8 +80,28 @@ async function bootstrap() {
   const compression = (await import('compression')).default;
   server.use(compression());
 
+  const helmet = (await import('helmet')).default;
   const cookieParser = (await import('cookie-parser')).default;
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), { rawBody: true });
+
+  // Security headers (CASA 3.4.x, 14.3.2, 14.5.2)
+  app.use(
+    helmet({
+      contentSecurityPolicy: isDev
+        ? false
+        : {
+            directives: {
+              defaultSrc: ["'self'"],
+              scriptSrc: ["'self'"],
+              styleSrc: ["'self'", "'unsafe-inline'"],
+              imgSrc: ["'self'", 'data:', 'https:'],
+              connectSrc: ["'self'", 'https:'],
+            },
+          },
+      hsts: { maxAge: 31536000, includeSubDomains: true },
+    }),
+  );
+
   app.use(cookieParser());
   app.enableShutdownHooks();
   app.useWebSocketAdapter(new WsAdapter(app));
@@ -202,26 +222,28 @@ async function bootstrap() {
     }
   }
 
-  // Swagger / OpenAPI docs
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Botmem API')
-    .setDescription('Personal memory for AI agents')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  const swaggerCss = readFileSync(join(__dirname, 'swagger-theme.css'), 'utf-8');
-  SwaggerModule.setup('api/docs', app, swaggerDocument, {
-    jsonDocumentUrl: 'api/docs/json',
-    customSiteTitle: 'Botmem API Docs',
-    customCss: swaggerCss,
-    swaggerOptions: {
-      docExpansion: 'list',
-      filter: true,
-      showRequestDuration: true,
-      persistAuthorization: true,
-    },
-  });
+  // Swagger / OpenAPI docs — disabled in production (CASA 14.3.2)
+  if (isDev) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Botmem API')
+      .setDescription('Personal memory for AI agents')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    const swaggerCss = readFileSync(join(__dirname, 'swagger-theme.css'), 'utf-8');
+    SwaggerModule.setup('api/docs', app, swaggerDocument, {
+      jsonDocumentUrl: 'api/docs/json',
+      customSiteTitle: 'Botmem API Docs',
+      customCss: swaggerCss,
+      swaggerOptions: {
+        docExpansion: 'list',
+        filter: true,
+        showRequestDuration: true,
+        persistAuthorization: true,
+      },
+    });
+  }
 
   const port = config.port;
   await app.listen(port);
