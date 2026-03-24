@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config people/vitest.config.ts",
     "test:auth": "vitest run --dir auth",
     "test:connectors": "vitest run --dir connectors",
-    "test:people": "vitest run --dir people",
+    "test:people": "vitest run --dir people --config people/vitest.config.ts",
     "test:search": "vitest run --dir search",
     "test:ui": "playwright test",
     "test:cli": "vitest run --dir cli",

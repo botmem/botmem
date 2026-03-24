@@ -44,7 +44,7 @@ beforeAll(async () => {
   user = ctx.user;
   people = await refreshPeople();
   expect(people.length).toBeGreaterThan(10);
-}, 600_000);
+}, 30_000);
 
 afterAll(async () => { await closeApp(); });
 
