@@ -215,6 +215,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     if (controller.signal.aborted) {
       throw new Error(
         `Request timeout: ${path} did not respond within ${REQUEST_TIMEOUT_MS / 1000}s`,
+        { cause: err },
       );
     }
     throw err;
