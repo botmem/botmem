@@ -105,6 +105,15 @@ async function bootstrap() {
     }),
   );
 
+  // Permissions-Policy: restrict browser features (CASA finding #2)
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
+    );
+    next();
+  });
+
   app.use(cookieParser());
   app.enableShutdownHooks();
   app.useWebSocketAdapter(new WsAdapter(app));
