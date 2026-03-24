@@ -13,7 +13,6 @@ describe('UsersService', () => {
     name: 'Test User',
     encryptionSalt: 'salt123',
     onboarded: false,
-    keyVersion: 1,
     recoveryKeyHash: 'hash123',
     firebaseUid: null,
     createdAt: new Date(),
@@ -97,29 +96,6 @@ describe('UsersService', () => {
       mockDb.limit.mockResolvedValueOnce([]);
       const result = await service.getEncryptionSalt('bad-id');
       expect(result).toBeNull();
-    });
-  });
-
-  describe('incrementKeyVersion', () => {
-    it('increments and returns new version', async () => {
-      mockDb.limit.mockResolvedValueOnce([fakeUser]); // findById
-      const result = await service.incrementKeyVersion('user-1');
-      expect(result).toBe(2);
-      expect(mockDb.update).toHaveBeenCalled();
-    });
-  });
-
-  describe('getUserKeyVersion', () => {
-    it('returns key version', async () => {
-      mockDb.limit.mockResolvedValueOnce([{ keyVersion: 3 }]);
-      const result = await service.getUserKeyVersion('user-1');
-      expect(result).toBe(3);
-    });
-
-    it('defaults to 1', async () => {
-      mockDb.limit.mockResolvedValueOnce([]);
-      const result = await service.getUserKeyVersion('bad-id');
-      expect(result).toBe(1);
     });
   });
 

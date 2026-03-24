@@ -28,7 +28,6 @@ import {
   accounts,
   memoryBanks,
   jobs,
-  users,
 } from '../db/schema';
 import { photoDescriptionPrompt } from './prompts';
 import { normalizeEntities } from './entity-normalizer';
@@ -566,18 +565,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     // If DEK unavailable, throw to trigger BullMQ retry (user must submit recovery key).
     let insertText = currentText;
     let insertMetadata = metadataStr;
-    let keyVersion: number | undefined;
 
     if (ownerUserId) {
       const userKey = await this.userKeyService.getDek(ownerUserId);
       if (!userKey) {
         throw new Error('User key not available. Submit recovery key to unlock encryption.');
       }
-      const [user] = await this.dbService.db
-        .select({ keyVersion: users.keyVersion })
-        .from(users)
-        .where(eq(users.id, ownerUserId));
-      keyVersion = user?.keyVersion ?? 1;
 
       const enc = this.crypto.encryptMemoryFieldsWithKey(
         { text: currentText, entities: '', claims: '', metadata: metadataStr },
@@ -605,7 +598,6 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             ingestTime: now,
             metadata: insertMetadata,
             embeddingStatus: 'pending',
-            keyVersion,
             createdAt: now,
           })
           .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] }),

@@ -50,7 +50,6 @@ describe('MemoryService', () => {
     claims: '[]',
     metadata: '{}',
     weights: '{}',
-    keyVersion: 0,
     pinned: false,
     pipelineComplete: true,
     embeddingStatus: 'done',
@@ -95,11 +94,13 @@ describe('MemoryService', () => {
       encrypt: vi.fn().mockImplementation((v: string) => v),
       decrypt: vi.fn().mockImplementation((v: string) => v),
       isEncrypted: vi.fn().mockReturnValue(false),
-      encryptMemoryFields: vi.fn().mockImplementation((f: Record<string, string | null>) => f),
-      decryptMemoryFields: vi.fn().mockImplementation((m: Record<string, string | null>) => m),
       decryptMemoryFieldsWithKey: vi
         .fn()
         .mockImplementation((m: Record<string, string | null>) => m),
+      decryptMemoryFieldsWithKeyStrict: vi
+        .fn()
+        .mockImplementation((m: Record<string, string | null>) => m),
+      decryptWithKeyStrict: vi.fn().mockImplementation((v: string) => v),
     };
 
     userKeyService = {
@@ -207,20 +208,19 @@ describe('MemoryService', () => {
       expect(result!.people[0].displayName).toBe('John');
     });
 
-    it('decrypts with user key for keyVersion >= 1', async () => {
-      const encryptedRow = { ...fakeMemoryRow, keyVersion: 1 };
-      mockDb.where.mockResolvedValueOnce([encryptedRow]);
+    it('decrypts with user key when available', async () => {
+      mockDb.where.mockResolvedValueOnce([fakeMemoryRow]);
       userKeyService.getDek.mockResolvedValueOnce(Buffer.from('userkey'));
 
       await service.getById('mem-1', 'user-1');
-      expect(cryptoService.decryptMemoryFieldsWithKey).toHaveBeenCalled();
+      expect(cryptoService.decryptMemoryFieldsWithKeyStrict).toHaveBeenCalled();
     });
 
     it('returns placeholder when user key not available for encrypted memory', async () => {
-      const encryptedRow = { ...fakeMemoryRow, keyVersion: 1 };
-      mockDb.where.mockResolvedValueOnce([encryptedRow]);
+      mockDb.where.mockResolvedValueOnce([fakeMemoryRow]);
       userKeyService.getDek.mockResolvedValueOnce(null);
       userKeyService.getKey.mockReturnValueOnce(null);
+      cryptoService.isEncrypted.mockReturnValueOnce(true);
 
       const result = await service.getById('mem-1', 'user-1');
       expect(result!.text).toContain('Encrypted');

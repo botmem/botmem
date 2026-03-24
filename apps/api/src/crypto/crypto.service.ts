@@ -2,6 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync } from 'crypto';
 import { ConfigService } from '../config/config.service';
 
+/**
+ * Thrown when decryption fails with a per-user key — indicates the cached DEK is wrong/stale.
+ */
+export class DecryptionFailedError extends Error {
+  constructor(public readonly userId?: string) {
+    super('Decryption failed — cached DEK is invalid');
+    this.name = 'DecryptionFailedError';
+  }
+}
+
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
@@ -101,39 +111,6 @@ export class CryptoService {
     }
   }
 
-  /**
-   * Encrypt memory fields (text, entities, claims, metadata) for at-rest protection.
-   * Called after enrichment is complete, before marking memory as 'done'.
-   */
-  encryptMemoryFields(fields: {
-    text: string;
-    entities: string;
-    claims: string;
-    metadata: string;
-  }) {
-    return {
-      text: this.encrypt(fields.text)!,
-      entities: this.encrypt(fields.entities)!,
-      claims: this.encrypt(fields.claims)!,
-      metadata: this.encrypt(fields.metadata)!,
-    };
-  }
-
-  /**
-   * Decrypt memory fields for reading. Handles plaintext passthrough gracefully.
-   */
-  decryptMemoryFields<
-    T extends { text: string; entities: string; claims: string; metadata: string },
-  >(mem: T): T {
-    return {
-      ...mem,
-      text: this.decrypt(mem.text) ?? mem.text,
-      entities: this.decrypt(mem.entities) ?? mem.entities,
-      claims: this.decrypt(mem.claims) ?? mem.claims,
-      metadata: this.decrypt(mem.metadata) ?? mem.metadata,
-    };
-  }
-
   // --- Per-user key methods (E2EE) ---
 
   /**
@@ -202,6 +179,48 @@ export class CryptoService {
       entities: this.decryptWithKey(mem.entities, key) ?? mem.entities,
       claims: this.decryptWithKey(mem.claims, key) ?? mem.claims,
       metadata: this.decryptWithKey(mem.metadata, key) ?? mem.metadata,
+    };
+  }
+
+  /**
+   * Decrypt with per-user key — throws DecryptionFailedError on failure instead of
+   * returning ciphertext. Used for memory fields where silent failure masks bad DEKs.
+   */
+  decryptWithKeyStrict(ciphertext: string | null | undefined, key: Buffer): string | null {
+    if (ciphertext == null) return null;
+
+    const parts = ciphertext.split(':');
+    if (parts.length !== 3) return ciphertext; // plaintext passthrough
+
+    try {
+      const iv = Buffer.from(parts[0], 'base64');
+      const encrypted = Buffer.from(parts[1], 'base64');
+      const tag = Buffer.from(parts[2], 'base64');
+
+      if (iv.length !== IV_LENGTH || tag.length !== TAG_LENGTH) {
+        return ciphertext; // not our format
+      }
+
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(tag);
+      return decipher.update(encrypted) + decipher.final('utf8');
+    } catch {
+      throw new DecryptionFailedError();
+    }
+  }
+
+  /**
+   * Decrypt memory fields with per-user key — throws on failure.
+   */
+  decryptMemoryFieldsWithKeyStrict<
+    T extends { text: string; entities: string; claims: string; metadata: string },
+  >(mem: T, key: Buffer): T {
+    return {
+      ...mem,
+      text: this.decryptWithKeyStrict(mem.text, key) ?? mem.text,
+      entities: this.decryptWithKeyStrict(mem.entities, key) ?? mem.entities,
+      claims: this.decryptWithKeyStrict(mem.claims, key) ?? mem.claims,
+      metadata: this.decryptWithKeyStrict(mem.metadata, key) ?? mem.metadata,
     };
   }
 }

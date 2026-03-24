@@ -108,12 +108,12 @@ export class DemoService {
 
     for (const mem of fakeMemories) {
       const accountId = accountIds[mem.connectorType];
-      const encrypted = this.crypto.encryptMemoryFields({
+      const encrypted = {
         text: mem.text,
         entities: JSON.stringify(mem.entities),
         claims: JSON.stringify(mem.claims),
         metadata: JSON.stringify(mem.metadata),
-      });
+      };
 
       await this.db.withUserId(userId, (db) =>
         db
@@ -136,7 +136,6 @@ export class DemoService {
             embeddingStatus: 'done',
             pinned: false,
             recallCount: 0,
-            keyVersion: 0,
             pipelineComplete: true,
             enrichedAt: now,
             createdAt: now,

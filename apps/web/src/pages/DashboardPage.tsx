@@ -60,6 +60,11 @@ export function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [reauthOpen, setReauthOpen] = useState(false);
 
+  // Auto-open ReauthModal when server detects stale/missing DEK
+  useEffect(() => {
+    if (memoryStats?.needsRecoveryKey) setReauthOpen(true);
+  }, [memoryStats?.needsRecoveryKey]);
+
   // Demo data banner
   const demoMode = useTourStore((s) => s.demoMode);
   const [hasDemoData, setHasDemoData] = useState(false);

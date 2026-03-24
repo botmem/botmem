@@ -46,50 +46,6 @@ describe('CryptoService', () => {
     expect(service.decrypt(b)).toBe(plaintext);
   });
 
-  it('encryptMemoryFields encrypts all four fields', () => {
-    const fields = {
-      text: 'Meeting with John',
-      entities: JSON.stringify([{ type: 'person', value: 'John' }]),
-      claims: JSON.stringify([]),
-      metadata: JSON.stringify({ subject: 'project' }),
-    };
-    const enc = service.encryptMemoryFields(fields);
-    expect(enc.text).not.toBe(fields.text);
-    expect(enc.entities).not.toBe(fields.entities);
-    expect(enc.claims).not.toBe(fields.claims);
-    expect(enc.metadata).not.toBe(fields.metadata);
-    expect(service.isEncrypted(enc.text)).toBe(true);
-  });
-
-  it('decryptMemoryFields restores all four fields', () => {
-    const fields = {
-      id: 'mem-1',
-      text: 'Meeting with John',
-      entities: JSON.stringify([{ type: 'person', value: 'John' }]),
-      claims: JSON.stringify([]),
-      metadata: JSON.stringify({ subject: 'project' }),
-    };
-    const enc = service.encryptMemoryFields(fields);
-    const dec = service.decryptMemoryFields({ ...fields, ...enc });
-    expect(dec.text).toBe(fields.text);
-    expect(dec.entities).toBe(fields.entities);
-    expect(dec.claims).toBe(fields.claims);
-    expect(dec.metadata).toBe(fields.metadata);
-    expect(dec.id).toBe('mem-1');
-  });
-
-  it('decryptMemoryFields passes through plaintext gracefully', () => {
-    const fields = {
-      text: 'plain text',
-      entities: '[]',
-      claims: '[]',
-      metadata: '{}',
-    };
-    const dec = service.decryptMemoryFields(fields);
-    expect(dec.text).toBe('plain text');
-    expect(dec.entities).toBe('[]');
-  });
-
   // --- Per-user key (E2EE) tests ---
 
   describe('encryptWithKey / decryptWithKey', () => {
@@ -147,6 +103,55 @@ describe('CryptoService', () => {
       expect(dec.claims).toBe(fields.claims);
       expect(dec.metadata).toBe(fields.metadata);
       expect((dec as unknown as { id: string }).id).toBe('mem-1');
+    });
+  });
+
+  describe('decryptWithKeyStrict', () => {
+    const userKey = randomBytes(32);
+
+    it('decrypts correctly with the right key', () => {
+      const plaintext = 'Hello, strict decryption!';
+      const encrypted = service.encryptWithKey(plaintext, userKey)!;
+      const decrypted = service.decryptWithKeyStrict(encrypted, userKey);
+      expect(decrypted).toBe(plaintext);
+    });
+
+    it('returns null for null/undefined input', () => {
+      expect(service.decryptWithKeyStrict(null, userKey)).toBeNull();
+      expect(service.decryptWithKeyStrict(undefined, userKey)).toBeNull();
+    });
+
+    it('throws DecryptionFailedError with wrong key', () => {
+      const wrongKey = randomBytes(32);
+      const encrypted = service.encryptWithKey('secret', userKey)!;
+      expect(() => service.decryptWithKeyStrict(encrypted, wrongKey)).toThrow();
+    });
+  });
+
+  describe('decryptMemoryFieldsWithKeyStrict', () => {
+    const userKey = randomBytes(32);
+
+    it('decrypts all four memory fields with the right key', () => {
+      const fields = {
+        text: 'Meeting with John',
+        entities: JSON.stringify([{ type: 'person', value: 'John' }]),
+        claims: JSON.stringify([]),
+        metadata: JSON.stringify({ subject: 'project' }),
+      };
+      const enc = service.encryptMemoryFieldsWithKey(fields, userKey);
+      const dec = service.decryptMemoryFieldsWithKeyStrict({ id: 'mem-1', ...enc }, userKey);
+      expect(dec.text).toBe(fields.text);
+      expect(dec.entities).toBe(fields.entities);
+      expect(dec.claims).toBe(fields.claims);
+      expect(dec.metadata).toBe(fields.metadata);
+      expect((dec as unknown as { id: string }).id).toBe('mem-1');
+    });
+
+    it('throws DecryptionFailedError with wrong key', () => {
+      const wrongKey = randomBytes(32);
+      const fields = { text: 'secret', entities: '[]', claims: '[]', metadata: '{}' };
+      const enc = service.encryptMemoryFieldsWithKey(fields, userKey);
+      expect(() => service.decryptMemoryFieldsWithKeyStrict({ ...enc }, wrongKey)).toThrow();
     });
   });
 });

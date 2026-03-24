@@ -557,7 +557,6 @@ export class MeService {
           sourceType: memories.sourceType,
           text: memories.text,
           eventTime: memories.eventTime,
-          keyVersion: memories.keyVersion,
         })
         .from(memoryPeople)
         .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
@@ -566,17 +565,14 @@ export class MeService {
         .limit(20);
 
       recentMemories = recentRows.map((row) => {
-        const kv = (row.keyVersion ?? 0) as number;
         let text = row.text;
-        if (kv >= 1 && userId) {
+        if (userId) {
           const userKey = this.userKeyService.getKey(userId);
           if (userKey) {
             text = this.crypto.decryptWithKey(row.text, userKey) ?? text;
-          } else {
+          } else if (this.crypto.isEncrypted(text)) {
             text = '[Encrypted — enter your recovery key to view]';
           }
-        } else {
-          text = this.crypto.decrypt(row.text) ?? text;
         }
         return {
           id: row.id,

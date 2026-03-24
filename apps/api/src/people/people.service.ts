@@ -945,14 +945,12 @@ export class PeopleService {
       entities: string;
       claims: string;
       metadata: string;
-      keyVersion?: number;
     },
   >(mem: T, userId?: string, userKey?: Buffer | null): T {
-    const kv = mem.keyVersion ?? 0;
-    if (kv >= 1 && userId) {
-      if (userKey) {
-        return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
-      }
+    if (userKey) {
+      return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
+    }
+    if (this.crypto.isEncrypted(mem.text)) {
       return {
         ...mem,
         text: '[Encrypted — enter your recovery key to view]',
@@ -960,7 +958,7 @@ export class PeopleService {
         claims: '[]',
       };
     }
-    return this.crypto.decryptMemoryFields(mem);
+    return mem;
   }
 
   async updatePerson(

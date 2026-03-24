@@ -168,21 +168,6 @@ describe('Registration (AUTH-001 → AUTH-015)', () => {
     expect(meRes.body.id).toBe(user.id);
   });
 
-  it('AUTH-014: keyVersion set to 2 after registration', async () => {
-    // We can't read keyVersion from the API directly. Instead verify that
-    // the v2 recovery key flow works (v2 = recovery-key-based encryption).
-    // If keyVersion were not 2, recovery key submission would fail.
-    const user = await registerUser();
-
-    // Submit recovery key — only works if keyVersion=2 (recovery key flow)
-    const res = await authedRequest(user.accessToken)
-      .post('/api/user-auth/recovery-key')
-      .send({ recoveryKey: user.recoveryKey })
-      .expect(200);
-
-    expect(res.body).toEqual({ ok: true });
-  });
-
   it('AUTH-015: SQL injection in email rejected by validation', async () => {
     await request()
       .post('/api/user-auth/register')

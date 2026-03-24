@@ -19,7 +19,7 @@ CASA Tier 2 self-attestation for ASVS 1.8.1, 1.8.2.
 
 | Data                  | Storage                               | Protection                                                                                                           |
 | --------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Memory text           | `memories.text`                       | AES-256-GCM with per-user DEK. `key_version` column tracks encryption key (0 = APP_SECRET, >= 1 = user DEK).         |
+| Memory text           | `memories.text`                       | AES-256-GCM with per-user DEK (recovery key). Stale DEK detection triggers recovery key prompt.                       |
 | Memory entities       | `memories.entities`                   | AES-256-GCM with per-user DEK.                                                                                       |
 | Memory claims         | `memories.claims`                     | AES-256-GCM with per-user DEK.                                                                                       |
 | Memory metadata       | `memories.metadata`                   | AES-256-GCM with per-user DEK.                                                                                       |
