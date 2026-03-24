@@ -258,7 +258,7 @@ export class MemoryController {
     const memory = await this.memoryService.getById(id, user.id);
     if (!memory) return res.status(HttpStatus.NOT_FOUND).json({ error: 'not found' });
 
-    let metadata: Record<string, unknown> = {};
+    let metadata: Record<string, unknown>;
     try {
       metadata =
         typeof memory.metadata === 'string' ? JSON.parse(memory.metadata) : memory.metadata || {};

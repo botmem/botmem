@@ -1512,7 +1512,7 @@ export class MemoryService {
     >();
     for (const raw of allMemories) {
       const m = this.decryptMemoryAuto(raw, userId, graphKey);
-      let meta: Record<string, unknown> = {};
+      let meta: Record<string, unknown>;
       try {
         meta = JSON.parse(m.metadata);
       } catch {
@@ -1561,7 +1561,7 @@ export class MemoryService {
     // Create edges only for memories in the current graph that have these files
     const fileEdges: typeof edges = [];
     for (const m of allMemories) {
-      let meta: Record<string, unknown> = {};
+      let meta: Record<string, unknown>;
       try {
         meta = JSON.parse(this.crypto.decrypt(m.metadata) ?? m.metadata);
       } catch {
@@ -2049,7 +2049,7 @@ export class MemoryService {
     >();
 
     for (const row of rows) {
-      let entities: Array<{ type?: string; value?: string; name?: string }> = [];
+      let entities: Array<{ type?: string; value?: string; name?: string }>;
       try {
         entities = JSON.parse(row.entities);
       } catch {

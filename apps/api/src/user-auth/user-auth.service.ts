@@ -101,7 +101,6 @@ export class UserAuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    let recoveryKey: string | undefined;
     let needsRecoveryKey = false;
 
     // Try 2-tier DEK lookup (memory → Redis)
@@ -126,7 +125,7 @@ export class UserAuthService {
       refreshToken: tokens.refreshToken,
       user: this.sanitizeUser(user),
       needsRecoveryKey,
-      recoveryKey,
+      recoveryKey: undefined,
     };
   }
 
