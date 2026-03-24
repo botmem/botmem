@@ -1,0 +1,32 @@
+{
+  "name": "@botmem/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:auth": "vitest run --dir auth",
+    "test:connectors": "vitest run --dir connectors",
+    "test:people": "vitest run --dir people",
+    "test:search": "vitest run --dir search",
+    "test:ui": "playwright test",
+    "test:cli": "vitest run --dir cli",
+    "test:mcp": "vitest run --dir mcp",
+    "test:user": "vitest run --dir user"
+  },
+  "devDependencies": {
+    "@botmem/shared": "workspace:*",
+    "@nestjs/common": "^11.1.16",
+    "@nestjs/core": "^11.1.16",
+    "@nestjs/testing": "^11.1.16",
+    "@nestjs/platform-express": "^11.1.16",
+    "@playwright/test": "^1.52.0",
+    "supertest": "^7.1.0",
+    "@types/supertest": "^6.0.3",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "unplugin-swc": "^1.5.9",
+    "@swc/core": "^1.15.18",
+    "jsonwebtoken": "^9.0.2",
+    "@types/jsonwebtoken": "^9.0.9"
+  }
+}
