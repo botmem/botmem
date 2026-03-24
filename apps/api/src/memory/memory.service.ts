@@ -212,9 +212,7 @@ export class MemoryService {
       metadata: string;
     },
   >(mem: T, userId?: string | null, resolvedKey?: Buffer | null): T {
-    const userKey = userId
-      ? (resolvedKey ?? this.userKeyService.getKey(userId))
-      : null;
+    const userKey = userId ? (resolvedKey ?? this.userKeyService.getKey(userId)) : null;
 
     if (userKey) {
       try {
@@ -1512,12 +1510,14 @@ export class MemoryService {
     >();
     for (const raw of allMemories) {
       const m = this.decryptMemoryAuto(raw, userId, graphKey);
-      let meta: Record<string, unknown>;
-      try {
-        meta = JSON.parse(m.metadata);
-      } catch {
-        continue;
-      }
+      const meta = (() => {
+        try {
+          return JSON.parse(m.metadata) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })();
+      if (!meta) continue;
       const atts = meta.attachments as Array<{ filename?: string; mimeType?: string }> | undefined;
       if (!atts) continue;
       for (const att of atts) {
@@ -1561,12 +1561,17 @@ export class MemoryService {
     // Create edges only for memories in the current graph that have these files
     const fileEdges: typeof edges = [];
     for (const m of allMemories) {
-      let meta: Record<string, unknown>;
-      try {
-        meta = JSON.parse(this.crypto.decrypt(m.metadata) ?? m.metadata);
-      } catch {
-        continue;
-      }
+      const meta = (() => {
+        try {
+          return JSON.parse(this.crypto.decrypt(m.metadata) ?? m.metadata) as Record<
+            string,
+            unknown
+          >;
+        } catch {
+          return null;
+        }
+      })();
+      if (!meta) continue;
       const attachments = meta.attachments as Array<{ filename?: string }> | undefined;
       if (!attachments?.length) continue;
       for (const att of attachments) {
@@ -2049,12 +2054,18 @@ export class MemoryService {
     >();
 
     for (const row of rows) {
-      let entities: Array<{ type?: string; value?: string; name?: string }>;
-      try {
-        entities = JSON.parse(row.entities);
-      } catch {
-        continue;
-      }
+      const entities = (() => {
+        try {
+          return JSON.parse(row.entities) as Array<{
+            type?: string;
+            value?: string;
+            name?: string;
+          }>;
+        } catch {
+          return null;
+        }
+      })();
+      if (!entities) continue;
 
       for (const e of entities) {
         const value = e.value || e.name || (e as Record<string, unknown>).id;
