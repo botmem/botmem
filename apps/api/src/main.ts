@@ -37,10 +37,13 @@ async function bootstrap() {
   const express = (await import('express')).default;
   const server = express();
   const isDev = process.env.NODE_ENV !== 'production';
-  let vite: Awaited<ReturnType<(typeof import('vite'))['createServer']>> | undefined;
+  let vite:
+    | { middlewares: any; transformIndexHtml: (url: string, html: string) => Promise<string> }
+    | undefined;
 
   // In dev mode, mount Vite BEFORE NestJS so it handles frontend assets + HMR
   if (isDev) {
+    // @ts-expect-error — vite is a dev-only dependency, not available at API typecheck time
     const { createServer: createViteServer } = await import('vite');
     const webRoot = join(__dirname, '..', '..', 'web');
     vite = await createViteServer({
