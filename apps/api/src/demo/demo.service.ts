@@ -52,7 +52,7 @@ export class DemoService {
     }
 
     // 2. Generate contacts
-    const fakeContacts = generateContacts(100);
+    const fakeContacts = generateContacts(20);
     const contactIdMap: Record<number, string> = {};
 
     for (let i = 0; i < fakeContacts.length; i++) {
@@ -89,11 +89,11 @@ export class DemoService {
 
     // 3. Generate memories
     const fakeMemories = generateMemories(fakeContacts, {
-      gmail: 150,
-      slack: 100,
-      whatsapp: 100,
-      imessage: 80,
-      photos: 70,
+      gmail: 15,
+      slack: 10,
+      whatsapp: 10,
+      imessage: 8,
+      photos: 7,
     });
 
     // PII scan
@@ -170,7 +170,7 @@ export class DemoService {
     }
 
     // 4. Generate memory links (~200)
-    const linkCount = Math.min(200, Math.floor(fakeMemories.length * 0.4));
+    const linkCount = Math.min(20, Math.floor(fakeMemories.length * 0.4));
     let linksCreated = 0;
     const usedPairs = new Set<string>();
 
