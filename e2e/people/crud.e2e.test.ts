@@ -16,7 +16,7 @@ beforeAll(async () => {
   user = ctx.user;
   people = ctx.people;
   personId = people[0].id;
-}, 600_000);
+}, 30_000);
 
 afterAll(async () => { await closeApp(); });
 

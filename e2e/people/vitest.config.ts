@@ -11,7 +11,6 @@ export default defineConfig({
     poolOptions: {
       forks: { singleFork: true },
     },
-    include: ['**/*.e2e.test.ts'],
-    exclude: ['ui/**', 'people/**', 'node_modules/**'],
+    include: ['people/**/*.e2e.test.ts'],
   },
 });

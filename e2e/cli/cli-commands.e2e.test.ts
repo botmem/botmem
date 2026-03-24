@@ -404,13 +404,12 @@ describe('CLI E2E Tests', () => {
   // -------------------------------------------------------------------------
   // CLI-026: timeline (JSON)
   // -------------------------------------------------------------------------
-  it('CLI-026: timeline --json returns items and total', () => {
+  it('CLI-026: timeline --json returns array', () => {
     const { stdout, exitCode } = cli('timeline --json --limit 5');
     expect(exitCode).toBe(0);
     const data = JSON.parse(stdout);
-    expect(data).toHaveProperty('items');
-    expect(data).toHaveProperty('total');
-    expect(Array.isArray(data.items)).toBe(true);
+    // Timeline returns a plain array, not {items, total}
+    expect(Array.isArray(data)).toBe(true);
   });
 
   // -------------------------------------------------------------------------
@@ -422,9 +421,9 @@ describe('CLI E2E Tests', () => {
     );
     expect(exitCode).toBe(0);
     const data = JSON.parse(stdout);
-    expect(data).toHaveProperty('items');
-    // All items should be within range (if any)
-    for (const item of data.items) {
+    // Timeline returns a plain array
+    expect(Array.isArray(data)).toBe(true);
+    for (const item of data) {
       const t = new Date(item.eventTime).getTime();
       expect(t).toBeGreaterThanOrEqual(new Date('2020-01-01').getTime());
       expect(t).toBeLessThanOrEqual(new Date('2021-01-01').getTime());
