@@ -89,7 +89,6 @@ export class FirebaseAuthService implements OnModuleInit {
     const newUser = await this.usersService.createUser(email, passwordHash, name, encryptionSalt);
     await this.usersService.setFirebaseUid(newUser!.id, decoded.uid);
     await this.usersService.updateRecoveryKeyHash(newUser!.id, recoveryKeyHash);
-    await this.usersService.incrementKeyVersion(newUser!.id); // bump to 2
     await this.memoryBanksService.getOrCreateDefault(newUser!.id);
     await this.userKeyService.storeDek(newUser!.id, dek);
 

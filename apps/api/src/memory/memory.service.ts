@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { eq, sql, and, or, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -182,6 +182,7 @@ function nameWordsMatch(contactName: string, candidateWords: string[]): boolean 
 
 @Injectable()
 export class MemoryService {
+  private readonly logger = new Logger(MemoryService.name);
   private contactsCache: Map<
     string,
     { data: { id: string; displayName: string; entityType: string }[]; expires: number }
@@ -199,9 +200,9 @@ export class MemoryService {
   ) {}
 
   /**
-   * Decrypt memory fields using the correct key based on keyVersion.
-   * keyVersion=0 -> APP_SECRET, keyVersion>=1 -> per-user key.
-   * Falls back to APP_SECRET if no userId or no user key available.
+   * Decrypt memory fields using per-user DEK.
+   * If DEK is wrong (stale), evicts it and returns placeholder.
+   * If no DEK available, returns placeholder.
    */
   private decryptMemoryAuto<
     T extends {
@@ -209,16 +210,24 @@ export class MemoryService {
       entities: string;
       claims: string;
       metadata: string;
-      keyVersion?: number;
     },
   >(mem: T, userId?: string | null, resolvedKey?: Buffer | null): T {
-    const kv = mem.keyVersion ?? 0;
-    if (kv >= 1 && userId) {
-      const userKey = resolvedKey ?? this.userKeyService.getKey(userId);
-      if (userKey) {
-        return this.crypto.decryptMemoryFieldsWithKey(mem, userKey);
+    const userKey = userId
+      ? (resolvedKey ?? this.userKeyService.getKey(userId))
+      : null;
+
+    if (userKey) {
+      try {
+        return this.crypto.decryptMemoryFieldsWithKeyStrict(mem, userKey);
+      } catch {
+        // DEK is wrong/stale — evict it so needsRecoveryKey triggers
+        if (userId) this.userKeyService.removeKey(userId);
+        this.logger.warn(`Stale DEK detected for user ${userId} — evicted`);
       }
-      // Key not available — return placeholder. User must enter recovery key.
+    }
+
+    // No key or bad key — return placeholder if text looks encrypted
+    if (this.crypto.isEncrypted(mem.text)) {
       return {
         ...mem,
         text: '[Encrypted — enter your recovery key to view]',
@@ -226,7 +235,9 @@ export class MemoryService {
         claims: '[]',
       };
     }
-    return this.crypto.decryptMemoryFields(mem);
+
+    // Plaintext passthrough (e.g. demo data)
+    return mem;
   }
 
   /** Resolve user key once (async) for use in batch decryption. */
@@ -238,21 +249,50 @@ export class MemoryService {
   /** Check if user has encrypted memories but no decryption key available. */
   async needsRecoveryKey(userId?: string): Promise<boolean> {
     if (!userId) return false;
-    // Try async 2-tier lookup first
     const dek = await this.userKeyService.getDek(userId);
     if (dek) return false;
-    // Only flag if there are actually user-encrypted memories (keyVersion >= 1)
+    // Flag if there are any memories for this user
     const [row] = await this.dbService.db
       .select({ count: sql<number>`COUNT(*)` })
       .from(memories)
       .where(
-        and(
-          eq(memories.accountId, sql`(SELECT id FROM accounts WHERE user_id = ${userId} LIMIT 1)`),
-          sql`${memories.keyVersion} >= 1`,
-        ),
+        eq(memories.accountId, sql`(SELECT id FROM accounts WHERE user_id = ${userId} LIMIT 1)`),
       )
       .limit(1);
     return (row?.count ?? 0) > 0;
+  }
+
+  /**
+   * Validate cached DEK by trial-decrypting one memory.
+   * If DEK is stale/wrong, evicts it so needsRecoveryKey returns true.
+   * Returns true if recovery key is needed after validation.
+   */
+  async validateDek(userId?: string): Promise<boolean> {
+    if (!userId) return false;
+    const dek = await this.userKeyService.getDek(userId);
+    if (!dek) return await this.needsRecoveryKey(userId);
+
+    // Grab one encrypted memory to test the DEK
+    const [sample] = await this.dbService.db
+      .select({ text: memories.text })
+      .from(memories)
+      .where(
+        eq(memories.accountId, sql`(SELECT id FROM accounts WHERE user_id = ${userId} LIMIT 1)`),
+      )
+      .limit(1);
+
+    if (!sample) return false; // no memories — nothing to decrypt
+
+    if (!this.crypto.isEncrypted(sample.text)) return false; // plaintext — no DEK needed
+
+    try {
+      this.crypto.decryptWithKeyStrict(sample.text, dek);
+      return false; // DEK works
+    } catch {
+      this.logger.warn(`validateDek: stale DEK for user ${userId} — evicting`);
+      this.userKeyService.removeKey(userId);
+      return true; // needs recovery key
+    }
   }
 
   /** @deprecated Use needsRecoveryKey instead */

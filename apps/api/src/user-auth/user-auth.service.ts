@@ -70,7 +70,6 @@ export class UserAuthService {
 
     // Store recovery key hash and cache DEK
     await this.usersService.updateRecoveryKeyHash(user!.id, recoveryKeyHash);
-    await this.usersService.incrementKeyVersion(user!.id); // bump to 2
     await this.userKeyService.storeDek(user!.id, dek);
 
     // Create default memory bank

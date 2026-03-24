@@ -170,6 +170,7 @@ export interface ApiSearchResponse {
   };
   facetCounts?: ApiFacetCounts;
   found?: number;
+  needsRecoveryKey?: boolean;
 }
 
 export interface ApiMemoryStats {

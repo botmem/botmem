@@ -41,25 +41,6 @@ export class UsersService {
       .where(eq(users.id, userId));
   }
 
-  async incrementKeyVersion(userId: string): Promise<number> {
-    const row = await this.findById(userId);
-    const newVersion = (row?.keyVersion ?? 0) + 1;
-    const now = new Date();
-    await this.db.db
-      .update(users)
-      .set({ keyVersion: newVersion, updatedAt: now })
-      .where(eq(users.id, userId));
-    return newVersion;
-  }
-
-  async getUserKeyVersion(userId: string): Promise<number> {
-    const rows = await this.db.db
-      .select({ keyVersion: users.keyVersion })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    return rows[0]?.keyVersion ?? 1;
-  }
 
   async updateRecoveryKeyHash(userId: string, hash: string) {
     const now = new Date();

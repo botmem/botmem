@@ -14,7 +14,7 @@ import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
-import { rawEvents, memories, accounts, users } from '../db/schema';
+import { rawEvents, memories, accounts } from '../db/schema';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
 
@@ -170,7 +170,6 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           sourceType: memories.sourceType,
           entities: memories.entities,
           factuality: memories.factuality,
-          keyVersion: memories.keyVersion,
         })
         .from(memories)
         .where(eq(memories.id, memoryId));
@@ -181,7 +180,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
 
     // Decrypt text for hooks and search token computation
     let mem = rawMem;
-    if (rawMem && (rawMem.keyVersion ?? 0) >= 1 && ownerUserId) {
+    if (rawMem && ownerUserId) {
       const userKey = await this.userKeyService.getDek(ownerUserId);
       if (userKey) {
         mem = {
@@ -279,7 +278,6 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           claims: memories.claims,
           metadata: memories.metadata,
           accountId: memories.accountId,
-          keyVersion: memories.keyVersion,
         })
         .from(memories)
         .where(eq(memories.id, memoryId));
@@ -316,24 +314,13 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
       throw new Error(`User key not available. Submit recovery key to unlock encryption.`);
     }
 
-    // Get user's current keyVersion — users table is NOT RLS-protected, unscoped OK
-    const [user] = await this.dbService.db
-      .select({ keyVersion: users.keyVersion })
-      .from(users)
-      .where(eq(users.id, ownerUserId));
-    const keyVersion = user?.keyVersion ?? 1;
-
     // Decrypt fields that may already be encrypted from embed time (text, metadata)
     // before re-encrypting all fields together. Entities and claims are written plaintext
     // by the enrich service, so they won't be encrypted yet.
-    const kv = mem.keyVersion ?? 0;
-    const plainFields =
-      kv >= 1
-        ? this.crypto.decryptMemoryFieldsWithKey(
-            { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
-            userKey,
-          )
-        : { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata };
+    const plainFields = this.crypto.decryptMemoryFieldsWithKey(
+      { text: mem.text, entities: mem.entities, claims: mem.claims, metadata: mem.metadata },
+      userKey,
+    );
 
     const enc = this.crypto.encryptMemoryFieldsWithKey(plainFields, userKey);
     await this.dbService.withUserId(ownerUserId, (db) =>
@@ -344,7 +331,6 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
           entities: enc.entities,
           claims: enc.claims,
           metadata: enc.metadata,
-          keyVersion,
         })
         .where(eq(memories.id, memoryId)),
     );

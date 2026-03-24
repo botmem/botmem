@@ -50,7 +50,6 @@ describe('UserAuthService', () => {
       revokeAllUserTokens: vi.fn().mockResolvedValue(undefined),
       updateEncryptionSalt: vi.fn().mockResolvedValue(undefined),
       updateRecoveryKeyHash: vi.fn().mockResolvedValue(undefined),
-      incrementKeyVersion: vi.fn().mockResolvedValue(2),
       updatePasswordHash: vi.fn().mockResolvedValue(undefined),
     };
 

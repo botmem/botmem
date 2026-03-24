@@ -53,8 +53,11 @@ export class MemoryController {
 
   @Get('stats')
   async getStats(@CurrentUser() user: { id: string; memoryBankIds?: string[] }) {
+    // Proactively validate DEK on first data request — evicts stale keys
+    const dekInvalid = await this.memoryService.validateDek(user.id);
     const stats = await this.memoryService.getStats(user.id, user.memoryBankIds);
-    return { ...stats, needsRecoveryKey: await this.memoryService.needsRecoveryKey(user.id) };
+    const needsRecoveryKey = dekInvalid || (await this.memoryService.needsRecoveryKey(user.id));
+    return { ...stats, needsRecoveryKey };
   }
 
   @RequiresJwt()

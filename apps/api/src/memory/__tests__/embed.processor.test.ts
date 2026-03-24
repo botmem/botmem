@@ -178,10 +178,8 @@ function createChainableDbMock(rawEventPayload: string) {
       // 3rd select: accounts lookup for userId → returns account with userId
       // 4th select: memoryBanks default bank → empty
       // 5th select: settings selfContactId → empty
-      // 6th select: users.keyVersion lookup → returns keyVersion 1
       if (selectCallCount === 1) return buildChain([rawEvent]);
       if (selectCallCount === 3) return buildChain([{ userId: 'user-1' }]);
-      if (selectCallCount === 6) return buildChain([{ keyVersion: 1 }]);
       return buildChain([]);
     }),
     insert: vi.fn().mockImplementation(() => {

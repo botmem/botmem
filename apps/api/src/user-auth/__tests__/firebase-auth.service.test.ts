@@ -41,7 +41,6 @@ function makeUsersService() {
     createUser: vi.fn(),
     setFirebaseUid: vi.fn(),
     updateRecoveryKeyHash: vi.fn(),
-    incrementKeyVersion: vi.fn(),
     setOnboarded: vi.fn(),
   } as any;
 }
@@ -259,7 +258,6 @@ describe('FirebaseAuthService', () => {
         'new-user-1',
         expect.any(String),
       );
-      expect(usersService.incrementKeyVersion).toHaveBeenCalledWith('new-user-1');
       expect(memoryBanksService.getOrCreateDefault).toHaveBeenCalledWith('new-user-1');
       expect(userKeyService.storeDek).toHaveBeenCalledWith('new-user-1', expect.any(Buffer));
       expect(result.recoveryKey).toBeDefined();

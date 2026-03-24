@@ -24,7 +24,6 @@ describe('AgentService', () => {
     entities: '[]',
     metadata: '{}',
     weights: '{}',
-    keyVersion: 0,
     pinned: false,
   };
 

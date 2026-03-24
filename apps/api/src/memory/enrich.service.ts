@@ -98,8 +98,7 @@ export class EnrichService {
 
     // Decrypt memory fields — they are encrypted at embed time with user's DEK
     let memory = rawMemory;
-    const kv = rawMemory.keyVersion ?? 0;
-    if (kv >= 1 && rawMemory.accountId) {
+    if (rawMemory.accountId) {
       const [acct] = await this.dbService.db
         .select({ userId: accounts.userId })
         .from(accounts)

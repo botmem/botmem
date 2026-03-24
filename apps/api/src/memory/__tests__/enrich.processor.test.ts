@@ -82,8 +82,6 @@ describe('EnrichProcessor', () => {
       isEncrypted: vi.fn().mockReturnValue(false),
       encrypt: vi.fn().mockImplementation((v: string) => v),
       decrypt: vi.fn().mockImplementation((v: string) => v),
-      encryptMemoryFields: vi.fn().mockImplementation((f: Record<string, string | null>) => f),
-      decryptMemoryFields: vi.fn().mockImplementation((m: Record<string, string | null>) => m),
       encryptMemoryFieldsWithKey: vi
         .fn()
         .mockImplementation((f: Record<string, string | null>) => f),

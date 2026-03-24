@@ -66,7 +66,7 @@ Only 27 out of 751 have a readable factuality label — rest are encrypted or nu
 ### 5. Encryption inconsistency — memories stored as plaintext
 - **Severity**: HIGH
 - **Problem**: Mixed encryption state:
-  - Gmail: 460 encrypted, 40 plaintext (key_version=0)
+  - Gmail: 460 encrypted, 40 plaintext
   - Slack: 74 encrypted, 141 plaintext (majority plaintext!)
   - WhatsApp: 2 encrypted, 1 plaintext
 - **Detail**: Plaintext memories include readable content (GitHub alerts, Slack messages with names/work topics, WhatsApp messages with phone numbers). `encryptMemoryAtRest` is fire-and-forget at line 106 — failures are logged as warnings but the pipeline continues.

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import type { ApiMemoryItem, ApiSearchResponse } from '../lib/api';
 import { useMemoryBankStore } from '../store/memoryBankStore';
+import { useAuthStore } from '../store/authStore';
 
 interface ResolvedEntities {
   contacts: { id: string; displayName: string }[];
@@ -68,6 +69,11 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
       try {
         const bankId = useMemoryBankStore.getState().activeMemoryBankId;
         const res = await api.searchMemories(trimmed, undefined, limit, bankId || undefined);
+
+        // Surface recovery key requirement from search response
+        if (res.needsRecoveryKey) {
+          useAuthStore.setState({ needsRecoveryKey: true });
+        }
 
         const memoryIds = new Set<string>(res.items.map((item) => item.id));
         const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
