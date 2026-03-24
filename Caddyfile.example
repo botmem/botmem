@@ -9,6 +9,42 @@
 #
 # To use: cp Caddyfile.example Caddyfile && edit with your domain
 
+# Global: hide Caddy server header
+{
+	servers {
+		name off
+	}
+}
+
 yourdomain.com {
+	# Block TRACE/TRACK methods (CASA finding #1 — Proxy Disclosure)
+	@trace method TRACE TRACK
+	respond @trace 405
+
+	# Hide server identity
+	header -Server
+	header -X-Powered-By
+
+	# Security headers
+	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+	header X-Content-Type-Options "nosniff"
+	header X-Frame-Options "DENY"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+
+	# Cache-Control for HTML pages (CASA finding #8/#9)
+	@html {
+		not path /api/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
+	}
+	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
+	header @html Pragma "no-cache"
+
+	# Docs site
+	handle /docs* {
+		uri strip_prefix /docs
+		root * /srv/docs
+		file_server
+	}
+
+	# API + frontend
 	reverse_proxy api:12412
 }
