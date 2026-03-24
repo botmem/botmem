@@ -4,7 +4,7 @@ import { Queue } from 'bullmq';
 import { eq, desc, inArray, sql, and, lt, isNull } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { jobs } from '../db/schema';
+import { jobs, accounts } from '../db/schema';
 import { TraceContext } from '../tracing/trace.context';
 import { EventsService } from '../events/events.service';
 
@@ -85,6 +85,27 @@ export class JobsService {
       return results.filter((j) => j.connectorType === filters.connectorType);
     }
     return results;
+  }
+
+  /** Get all jobs belonging to a specific user's accounts (DB-level filtering). */
+  async getAllForUser(userId: string, filters?: { accountId?: string }) {
+    const userAccountRows = await this.dbService.withCurrentUser((db) =>
+      db.select({ id: accounts.id }).from(accounts).where(eq(accounts.userId, userId)),
+    );
+    const userAccountIds = userAccountRows.map((a) => a.id);
+    if (userAccountIds.length === 0) return [];
+
+    const conditions = [inArray(jobs.accountId, userAccountIds)];
+    if (filters?.accountId) conditions.push(eq(jobs.accountId, filters.accountId));
+
+    const results = await this.dbService.withCurrentUser((db) =>
+      db
+        .select()
+        .from(jobs)
+        .where(and(...conditions))
+        .orderBy(desc(jobs.createdAt)),
+    );
+    return results.map((j) => this.decryptJob(j));
   }
 
   async getActive() {

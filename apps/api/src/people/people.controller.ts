@@ -57,19 +57,19 @@ export class PeopleController {
 
   @RequiresJwt()
   @Post('auto-merge')
-  async autoMerge() {
+  async autoMerge(@CurrentUser() _user: { id: string }) {
     return this.peopleService.autoMerge();
   }
 
   @RequiresJwt()
   @Post('reclassify')
-  async reclassify() {
+  async reclassify(@CurrentUser() _user: { id: string }) {
     return this.peopleService.reclassifyEntityTypes();
   }
 
   @RequiresJwt()
   @Post('backfill-avatars')
-  async backfillAvatars() {
+  async backfillAvatars(@CurrentUser() _user: { id: string }) {
     return this.peopleService.backfillAvatarData();
   }
 
@@ -77,12 +77,12 @@ export class PeopleController {
   async getAvatar(
     @Param('id') id: string,
     @Query('index') indexStr: string | undefined,
-    @CurrentUser() _user: { id: string },
+    @CurrentUser() user: { id: string },
     @Res() res: Response,
   ) {
-    let contact: Awaited<ReturnType<typeof this.peopleService.getById>>;
+    let contact: Awaited<ReturnType<typeof this.peopleService.getByIdForUser>>;
     try {
-      contact = await this.peopleService.getById(id);
+      contact = await this.peopleService.getByIdForUser(id, user.id);
     } catch {
       return res.status(HttpStatus.NOT_FOUND).json({ error: 'contact not found' });
     }
@@ -186,8 +186,8 @@ export class PeopleController {
   }
 
   @Get(':id')
-  async getById(@Param('id') id: string) {
-    return this.peopleService.getById(id);
+  async getById(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.peopleService.getByIdForUser(id, user.id);
   }
 
   @Get(':id/memories')
@@ -197,58 +197,88 @@ export class PeopleController {
 
   @RequiresJwt()
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdatePersonDto) {
+  async update(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Body() dto: UpdatePersonDto,
+  ) {
+    // IDOR fix: verify contact belongs to user
+    await this.peopleService.getByIdForUser(id, user.id);
     return this.peopleService.updatePerson(id, dto);
   }
 
   @RequiresJwt()
   @Delete(':id')
-  async delete(@Param('id') id: string) {
+  async delete(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify contact belongs to user
+    await this.peopleService.getByIdForUser(id, user.id);
     await this.peopleService.deletePerson(id);
     return { deleted: true };
   }
 
   @RequiresJwt()
   @Delete(':id/identifiers/:identId')
-  async removeIdentifier(@Param('id') id: string, @Param('identId') identId: string) {
+  async removeIdentifier(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Param('identId') identId: string,
+  ) {
+    // IDOR fix: verify contact belongs to user
+    await this.peopleService.getByIdForUser(id, user.id);
     return this.peopleService.removeIdentifier(id, identId);
   }
 
   @RequiresJwt()
   @Post(':id/split')
-  async split(@Param('id') id: string, @Body() dto: SplitPersonDto) {
+  async split(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Body() dto: SplitPersonDto,
+  ) {
+    // IDOR fix: verify contact belongs to user
+    await this.peopleService.getByIdForUser(id, user.id);
     return this.peopleService.splitPerson(id, dto.identifierIds);
   }
 
   @ReadOnly()
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
-  async search(@Body() dto: SearchPeopleDto) {
-    return this.peopleService.search(dto.query);
+  async search(@CurrentUser() user: { id: string }, @Body() dto: SearchPeopleDto) {
+    return this.peopleService.search(dto.query, user.id);
   }
 
   @RequiresJwt()
   @Post(':id/merge')
-  async merge(@Param('id') id: string, @Body() dto: MergePersonDto) {
+  async merge(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Body() dto: MergePersonDto,
+  ) {
+    // IDOR fix: verify both contacts belong to user
+    await this.peopleService.getByIdForUser(id, user.id);
+    await this.peopleService.getByIdForUser(dto.sourceId, user.id);
     return this.peopleService.mergePeople(id, dto.sourceId);
   }
 
   @RequiresJwt()
   @Post('normalize')
-  async normalize() {
+  async normalize(@CurrentUser() _user: { id: string }) {
     return this.peopleService.normalizeAll();
   }
 
   @RequiresJwt()
   @Post('suggestions/dismiss')
-  async dismissSuggestion(@Body() dto: DismissSuggestionDto) {
+  async dismissSuggestion(@CurrentUser() _user: { id: string }, @Body() dto: DismissSuggestionDto) {
     await this.peopleService.dismissSuggestion(dto.contactId1, dto.contactId2);
     return { dismissed: true };
   }
 
   @RequiresJwt()
   @Post('suggestions/undismiss')
-  async undismissSuggestion(@Body() dto: DismissSuggestionDto) {
+  async undismissSuggestion(
+    @CurrentUser() _user: { id: string },
+    @Body() dto: DismissSuggestionDto,
+  ) {
     await this.peopleService.undismissSuggestion(dto.contactId1, dto.contactId2);
     return { undismissed: true };
   }

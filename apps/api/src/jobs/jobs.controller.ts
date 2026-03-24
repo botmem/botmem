@@ -70,19 +70,13 @@ export class JobsController {
 
   @Get()
   async list(@CurrentUser() user: { id: string }, @Query('accountId') accountId?: string) {
-    // User isolation: only show jobs for user's accounts
-    const userAccounts = await this.dbService.db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(eq(accounts.userId, user.id));
-    const userAccountIds = new Set(userAccounts.map((a) => a.id));
-    const rows = await this.jobsService.getAll({ accountId });
-    const filtered = rows.filter((r) => userAccountIds.has(r.accountId));
-    return { jobs: filtered.map(toApiJob) };
+    // User isolation: only show jobs for user's accounts (filtered at DB level)
+    const rows = await this.jobsService.getAllForUser(user.id, { accountId });
+    return { jobs: rows.map(toApiJob) };
   }
 
   @Get('queues')
-  async queues() {
+  async queues(@CurrentUser() _user: { id: string }) {
     const getStats = async (queue: Queue) => {
       const [waiting, active, completed, failed, delayed] = await Promise.all([
         queue.getWaitingCount(),
@@ -104,7 +98,11 @@ export class JobsController {
   }
 
   @Get('queues/failed-reasons')
-  async failedReasons(@Query('queue') queueName?: string, @Query('limit') limit?: string) {
+  async failedReasons(
+    @CurrentUser() user: { id: string },
+    @Query('queue') queueName?: string,
+    @Query('limit') limit?: string,
+  ) {
     const max = Math.min(parseInt(limit || '10', 10), 50);
     const queues: Record<string, Queue> = {
       sync: this.syncQueue,
@@ -113,26 +111,42 @@ export class JobsController {
       enrich: this.enrichQueue,
     };
     const target = queueName && queues[queueName] ? { [queueName]: queues[queueName] } : queues;
+    // IDOR fix: only return failed jobs belonging to user's accounts
+    const userAccounts = await this.dbService.db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.userId, user.id));
+    const userAccountIds = new Set(userAccounts.map((a) => a.id));
+
     const result: Record<
       string,
       Array<{ id: string; failedReason: string; attemptsMade: number; timestamp: number }>
     > = {};
     for (const [name, queue] of Object.entries(target)) {
       const failed = await queue.getFailed(0, max);
-      result[name] = failed.map((j) => ({
-        id: j.id || '',
-        failedReason: j.failedReason || '',
-        attemptsMade: j.attemptsMade,
-        timestamp: j.timestamp,
-      }));
+      result[name] = failed
+        .filter((j) => j.data?.accountId && userAccountIds.has(j.data.accountId))
+        .map((j) => ({
+          id: j.id || '',
+          failedReason: j.failedReason || '',
+          attemptsMade: j.attemptsMade,
+          timestamp: j.timestamp,
+        }));
     }
     return result;
   }
 
   @Get(':id')
-  async get(@Param('id') id: string) {
+  async get(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     const row = await this.jobsService.getById(id);
     if (!row) return { error: 'not found' };
+    // IDOR fix: verify job belongs to user's account
+    const userAccounts = await this.dbService.db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.userId, user.id));
+    const userAccountIds = new Set(userAccounts.map((a) => a.id));
+    if (!userAccountIds.has(row.accountId)) return { error: 'not found' };
     return toApiJob(row);
   }
 
@@ -144,6 +158,8 @@ export class JobsController {
     @Body() body?: { memoryBankId?: string },
   ) {
     const account = await this.accountsService.getById(accountId);
+    // IDOR fix: verify account belongs to user
+    if (account.userId !== user.id) return { error: 'not found' };
 
     // Validate memoryBankId belongs to the current user if provided
     if (body?.memoryBankId) {
@@ -162,8 +178,9 @@ export class JobsController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @RequiresJwt()
   @Post('retry-failed')
-  async retryFailed() {
-    const rows = await this.jobsService.getAll();
+  async retryFailed(@CurrentUser() user: { id: string }) {
+    // IDOR fix: only retry jobs belonging to user's accounts
+    const rows = await this.jobsService.getAllForUser(user.id);
     let retried = 0;
     const retriedAccountIds = new Set<string>();
 
@@ -295,7 +312,15 @@ export class JobsController {
 
   @RequiresJwt()
   @Delete(':id')
-  async cancel(@Param('id') id: string) {
+  async cancel(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify job belongs to user's account
+    const row = await this.jobsService.getById(id);
+    if (!row) return { error: 'not found' };
+    const userAccounts = await this.dbService.db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.userId, user.id));
+    if (!userAccounts.some((a) => a.id === row.accountId)) return { error: 'not found' };
     await this.jobsService.cancel(id);
     return { ok: true };
   }

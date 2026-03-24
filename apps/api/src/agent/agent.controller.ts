@@ -72,6 +72,7 @@ export class AgentController {
   /** Chronological memory retrieval with optional filters. */
   @Get('timeline')
   async timeline(
+    @CurrentUser() user: { id: string },
     @Query('contactId') contactId?: string,
     @Query('connectorType') connectorType?: string,
     @Query('sourceType') sourceType?: string,
@@ -86,6 +87,7 @@ export class AgentController {
       sourceType,
       days,
       limit,
+      userId: user.id,
     });
 
     const allMems = Object.values(result.results).flat();
@@ -100,12 +102,14 @@ export class AgentController {
   /** Quick memory insertion from agent. */
   @RequiresJwt()
   @Post('remember')
-  async remember(@Body() dto: RememberDto) {
+  async remember(@CurrentUser() user: { id: string }, @Body() dto: RememberDto) {
     const start = Date.now();
-    const result = await this.agentService.remember(dto.text, dto.metadata);
-    this.analytics.capture('agent_remember', {
-      text_length: dto.text.length,
-    });
+    const result = await this.agentService.remember(dto.text, dto.metadata, user.id);
+    this.analytics.capture(
+      'agent_remember',
+      { text_length: dto.text.length },
+      user.id,
+    );
     return ok(result, {
       queryTime: Date.now() - start,
       resultCount: 1,
@@ -116,9 +120,9 @@ export class AgentController {
   /** Delete a memory and its vector. */
   @RequiresJwt()
   @Delete('forget/:id')
-  async forget(@Param('id') id: string) {
+  async forget(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     const start = Date.now();
-    const result = await this.agentService.forget(id);
+    const result = await this.agentService.forget(id, user.id);
     if (!result.deleted) {
       throw new NotFoundException('Memory not found');
     }
@@ -131,9 +135,9 @@ export class AgentController {
 
   /** Full context about a person: contact details, identifiers, recent memories, stats. */
   @Get('context/:contactId')
-  async context(@Param('contactId') contactId: string) {
+  async context(@CurrentUser() user: { id: string }, @Param('contactId') contactId: string) {
     const start = Date.now();
-    const result = await this.agentService.context(contactId);
+    const result = await this.agentService.context(contactId, user.id);
     if (!result) {
       throw new NotFoundException('Contact not found');
     }
@@ -174,9 +178,9 @@ export class AgentController {
 
   /** System health: memory count, contact count, model info. */
   @Get('status')
-  async status() {
+  async status(@CurrentUser() user: { id: string }) {
     const start = Date.now();
-    const result = await this.agentService.status();
+    const result = await this.agentService.status(user.id);
     return ok(result, {
       queryTime: Date.now() - start,
       resultCount: result.memories.total,

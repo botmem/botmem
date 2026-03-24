@@ -322,7 +322,14 @@ export class MemoryController {
   }
 
   @Get(':id/related')
-  async getRelated(@Param('id') id: string, @Query('limit') limit?: string) {
+  async getRelated(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    // IDOR fix: verify memory belongs to user before returning related
+    const memory = await this.memoryService.getById(id, user.id);
+    if (!memory) return { items: [], source: null };
     return this.memoryService.getRelated(id, limit ? parseInt(limit, 10) : undefined);
   }
 
@@ -443,7 +450,10 @@ export class MemoryController {
 
   @RequiresJwt()
   @Post(':id/pin')
-  async pin(@Param('id') id: string) {
+  async pin(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify memory belongs to user
+    const memory = await this.memoryService.getById(id, user.id);
+    if (!memory) return { error: 'not found' };
     return this.dbService.withCurrentUser(async (db) => {
       await db.update(memories).set({ pinned: true }).where(eq(memories.id, id));
       return { ok: true };
@@ -452,7 +462,10 @@ export class MemoryController {
 
   @RequiresJwt()
   @Delete(':id/pin')
-  async unpin(@Param('id') id: string) {
+  async unpin(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify memory belongs to user
+    const memory = await this.memoryService.getById(id, user.id);
+    if (!memory) return { error: 'not found' };
     return this.dbService.withCurrentUser(async (db) => {
       await db.update(memories).set({ pinned: false }).where(eq(memories.id, id));
       return { ok: true };
@@ -461,7 +474,10 @@ export class MemoryController {
 
   @RequiresJwt()
   @Post(':id/recall')
-  async recall(@Param('id') id: string) {
+  async recall(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify memory belongs to user
+    const memory = await this.memoryService.getById(id, user.id);
+    if (!memory) return { error: 'not found' };
     return this.dbService.withCurrentUser(async (db) => {
       await db
         .update(memories)
@@ -473,7 +489,10 @@ export class MemoryController {
 
   @RequiresJwt()
   @Delete(':id')
-  async delete(@Param('id') id: string) {
+  async delete(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify memory belongs to user
+    const memory = await this.memoryService.getById(id, user.id);
+    if (!memory) return { error: 'not found' };
     await this.memoryService.delete(id);
     return { ok: true };
   }

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { eq, sql, and, desc } from 'drizzle-orm';
+import { eq, sql, and, desc, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { DbService } from '../db/db.service';
 import { MemoryService } from '../memory/memory.service';
@@ -148,6 +148,7 @@ export class AgentService {
       sourceType?: string;
       days?: number;
       limit?: number;
+      userId?: string;
     } = {},
   ): Promise<{ results: Record<string, EnrichedMemory[]>; totalCount: number }> {
     return this.dbService.withCurrentUser(async (db) => {
@@ -161,6 +162,14 @@ export class AgentService {
       }
       if (options.sourceType) {
         conditions.push(eq(memories.sourceType, options.sourceType));
+      }
+      // IDOR fix: scope to user's accounts
+      if (options.userId) {
+        const userAccountIds = await this.memoryService.getUserAccountIds(options.userId);
+        if (userAccountIds !== null) {
+          if (userAccountIds.length === 0) return { results: {}, totalCount: 0 };
+          conditions.push(inArray(memories.accountId, userAccountIds));
+        }
       }
 
       let memoryIds: Set<string> | null = null;
@@ -204,7 +213,7 @@ export class AgentService {
 
   // ── remember ───────────────────────────────────────────────────────
 
-  async remember(text: string, metadata?: Record<string, unknown>): Promise<EnrichedMemory> {
+  async remember(text: string, metadata?: Record<string, unknown>, _userId?: string): Promise<EnrichedMemory> {
     const id = randomUUID();
     const now = new Date();
 
@@ -246,8 +255,9 @@ export class AgentService {
 
   // ── forget ─────────────────────────────────────────────────────────
 
-  async forget(memoryId: string): Promise<{ deleted: boolean }> {
-    const existing = await this.memoryService.getById(memoryId);
+  async forget(memoryId: string, userId?: string): Promise<{ deleted: boolean }> {
+    // IDOR fix: verify memory belongs to user
+    const existing = await this.memoryService.getById(memoryId, userId);
     if (!existing) return { deleted: false };
 
     await this.memoryService.delete(memoryId);
@@ -261,7 +271,7 @@ export class AgentService {
 
   // ── context ────────────────────────────────────────────────────────
 
-  async context(contactId: string): Promise<{
+  async context(contactId: string, userId?: string): Promise<{
     contact: PersonWithIdentifiers;
     identifiersByType: Record<string, string[]>;
     recentMemories: EnrichedMemory[];
@@ -271,7 +281,10 @@ export class AgentService {
       dateRange: { earliest: Date; latest: Date } | null;
     };
   } | null> {
-    const contact = await this.peopleService.getById(contactId);
+    // IDOR fix: verify contact belongs to user
+    const contact = userId
+      ? await this.peopleService.getByIdForUser(contactId, userId).catch(() => null)
+      : await this.peopleService.getById(contactId);
     if (!contact) return null;
 
     // Identifiers grouped by type
@@ -431,7 +444,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
 
   // ── status ─────────────────────────────────────────────────────────
 
-  async status(): Promise<{
+  async status(userId?: string): Promise<{
     memories: {
       total: number;
       byConnector: Record<string, number>;
@@ -440,10 +453,16 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     contacts: { total: number };
     embedding: { backend: string; model: string };
   }> {
-    const memStats = await this.memoryService.getStats();
+    const memStats = await this.memoryService.getStats(userId);
 
+    // IDOR fix: scope contact count to user
     const contactCount = await this.dbService.withCurrentUser((db) =>
-      db.select({ count: sql<number>`COUNT(*)` }).from(people),
+      userId
+        ? db
+            .select({ count: sql<number>`COUNT(*)` })
+            .from(people)
+            .where(eq(people.userId, userId))
+        : db.select({ count: sql<number>`COUNT(*)` }).from(people),
     );
 
     return {
