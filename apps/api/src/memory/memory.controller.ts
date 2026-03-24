@@ -258,14 +258,16 @@ export class MemoryController {
     const memory = await this.memoryService.getById(id, user.id);
     if (!memory) return res.status(HttpStatus.NOT_FOUND).json({ error: 'not found' });
 
-    let metadata: Record<string, unknown>;
-    try {
-      metadata =
-        typeof memory.metadata === 'string' ? JSON.parse(memory.metadata) : memory.metadata || {};
-    } catch {
-      // metadata may be encrypted ciphertext when user key is not loaded
-      return res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ error: 'encrypted' });
-    }
+    const metadata: Record<string, unknown> = (() => {
+      try {
+        return typeof memory.metadata === 'string'
+          ? JSON.parse(memory.metadata)
+          : memory.metadata || {};
+      } catch {
+        return null;
+      }
+    })();
+    if (!metadata) return res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ error: 'encrypted' });
 
     // Serve from stored thumbnail if available (no upstream fetch needed)
     if (metadata.thumbnailBase64) {
