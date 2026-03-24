@@ -150,9 +150,9 @@ export class EnrichService {
       `[enrich:start] ${memory.sourceType} ${mid} (${memory.text.length} chars)`,
     );
 
-    let entities: Array<{ type: string; value: string }> = [];
-    let factuality: { label: string; confidence: number; rationale: string } | null = null;
-    let entityMs = 0;
+    let entities: Array<{ type: string; value: string }>;
+    let factuality: { label: string; confidence: number; rationale: string } | null;
+    let entityMs: number;
     let factMs = 0;
 
     const shouldClassifyFactuality = FACTUALITY_SOURCE_TYPES.has(memory.sourceType);
