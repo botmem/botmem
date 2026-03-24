@@ -2,6 +2,7 @@ import { Controller, Get, Patch, Body } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
+import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 
 @ApiTags('Settings')
 @ApiBearerAuth()
@@ -10,7 +11,7 @@ export class SettingsController {
   constructor(private settingsService: SettingsService) {}
 
   @Get()
-  getAll() {
+  getAll(@CurrentUser() _user: { id: string }) {
     return this.settingsService.getAll();
   }
 

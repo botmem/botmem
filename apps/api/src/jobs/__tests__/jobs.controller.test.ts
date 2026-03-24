@@ -10,6 +10,7 @@ import type { Queue } from 'bullmq';
 function createMocks() {
   const jobsService = {
     getAll: vi.fn(),
+    getAllForUser: vi.fn(),
     getById: vi.fn(),
     triggerSync: vi.fn(),
     cancel: vi.fn(),
@@ -80,7 +81,7 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     } = createMocks();
-    vi.mocked(jobsService.getAll).mockResolvedValue([fakeJobRow]);
+    vi.mocked(jobsService.getAllForUser).mockResolvedValue([fakeJobRow]);
 
     const controller = new JobsController(
       jobsService,
@@ -112,7 +113,7 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     } = createMocks();
-    vi.mocked(jobsService.getAll).mockResolvedValue([]);
+    vi.mocked(jobsService.getAllForUser).mockResolvedValue([]);
 
     const controller = new JobsController(
       jobsService,
@@ -127,7 +128,7 @@ describe('JobsController', () => {
     );
     await controller.list({ id: 'u1' }, 'a1');
 
-    expect(jobsService.getAll).toHaveBeenCalledWith({ accountId: 'a1' });
+    expect(jobsService.getAllForUser).toHaveBeenCalledWith('u1', { accountId: 'a1' });
   });
 
   it('get returns mapped job', async () => {
@@ -155,7 +156,7 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     );
-    const result = await controller.get('j1');
+    const result = await controller.get({ id: 'u1' }, 'j1');
 
     expect(result.id).toBe('j1');
   });
@@ -185,7 +186,7 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     );
-    const result = await controller.get('nonexistent');
+    const result = await controller.get({ id: 'u1' }, 'nonexistent');
     expect(result).toEqual({ error: 'not found' });
   });
 
@@ -205,6 +206,7 @@ describe('JobsController', () => {
       id: 'a1',
       connectorType: 'gmail',
       identifier: 'test@gmail.com',
+      userId: 'u1',
     });
     vi.mocked(jobsService.triggerSync).mockResolvedValue(fakeJobRow);
 
@@ -243,6 +245,7 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     } = createMocks();
+    vi.mocked(jobsService.getById).mockResolvedValue(fakeJobRow);
     vi.mocked(jobsService.cancel).mockResolvedValue(undefined);
 
     const controller = new JobsController(
@@ -256,7 +259,7 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     );
-    const result = await controller.cancel('j1');
+    const result = await controller.cancel({ id: 'u1' }, 'j1');
 
     expect(jobsService.cancel).toHaveBeenCalledWith('j1');
     expect(result).toEqual({ ok: true });

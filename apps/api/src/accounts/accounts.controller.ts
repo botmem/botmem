@@ -6,7 +6,7 @@ import {
   Delete,
   Param,
   Body,
-  ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
@@ -111,8 +111,9 @@ export class AccountsController {
   @Get(':id')
   async get(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     const account = await this.accountsService.getById(id);
+    // IDOR fix: return 404 (not 403) to prevent enumeration
     if (account.userId !== user.id) {
-      throw new ForbiddenException('Account does not belong to user');
+      throw new NotFoundException('Account not found');
     }
     return toApiAccount(account);
   }
@@ -133,14 +134,28 @@ export class AccountsController {
 
   @RequiresJwt()
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateAccountDto) {
+  async update(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateAccountDto,
+  ) {
+    // IDOR fix: verify account belongs to user
+    const account = await this.accountsService.getById(id);
+    if (account.userId !== user.id) {
+      throw new NotFoundException('Account not found');
+    }
     const row = await this.accountsService.update(id, dto);
     return toApiAccount(row);
   }
 
   @RequiresJwt()
   @Delete(':id')
-  async remove(@Param('id') id: string) {
+  async remove(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    // IDOR fix: verify account belongs to user
+    const account = await this.accountsService.getById(id);
+    if (account.userId !== user.id) {
+      throw new NotFoundException('Account not found');
+    }
     await this.accountsService.remove(id);
     return { ok: true };
   }

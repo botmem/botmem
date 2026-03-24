@@ -91,15 +91,17 @@ describe('AccountsController', () => {
   });
 
   it('update calls service with schedule', async () => {
+    vi.mocked(service.getById).mockResolvedValue({ ...fakeRow, userId: 'user-1' });
     vi.mocked(service.update).mockResolvedValue({ ...fakeRow, schedule: 'hourly' });
-    const result = await controller.update('a1', { schedule: 'hourly' });
+    const result = await controller.update({ id: 'user-1' }, 'a1', { schedule: 'hourly' });
     expect(service.update).toHaveBeenCalledWith('a1', { schedule: 'hourly' });
     expect(result.schedule).toBe('hourly');
   });
 
   it('remove calls service and returns ok', async () => {
+    vi.mocked(service.getById).mockResolvedValue({ ...fakeRow, userId: 'user-1' });
     vi.mocked(service.remove).mockResolvedValue(undefined);
-    const result = await controller.remove('a1');
+    const result = await controller.remove({ id: 'user-1' }, 'a1');
     expect(service.remove).toHaveBeenCalledWith('a1');
     expect(result).toEqual({ ok: true });
   });

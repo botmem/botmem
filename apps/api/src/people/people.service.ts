@@ -521,6 +521,40 @@ export class PeopleService {
   }
 
   /**
+   * Get a contact by ID with user ownership validation.
+   * Throws (treated as 404) to prevent enumeration if not owned by user.
+   */
+  async getByIdForUser(id: string, userId: string): Promise<PersonWithIdentifiers> {
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select()
+        .from(people)
+        .where(and(eq(people.id, id), eq(people.userId, userId))),
+    );
+    if (!rows.length) {
+      throw new Error('Contact not found');
+    }
+
+    const idents = await this.dbService.withCurrentUser((db) =>
+      db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, id)),
+    );
+
+    return {
+      ...rows[0],
+      displayName: this.crypto.decrypt(rows[0].displayName) ?? rows[0].displayName,
+      avatars: this.decryptJsonb(rows[0].avatars),
+      metadata: this.decryptJsonb(rows[0].metadata),
+      identifiers: idents.map((i) => ({
+        id: i.id,
+        identifierType: i.identifierType,
+        identifierValue: this.crypto.decrypt(i.identifierValue) ?? i.identifierValue,
+        connectorType: i.connectorType,
+        confidence: i.confidence,
+      })),
+    };
+  }
+
+  /**
    * Check if an identifier is a device-format identifier (e.g., "amr/iphone" from OwnTracks).
    * Device identifiers should not appear in the people list.
    */
@@ -662,7 +696,7 @@ export class PeopleService {
     return { items, total };
   }
 
-  async search(query: string): Promise<PersonWithIdentifiers[]> {
+  async search(query: string, userId?: string): Promise<PersonWithIdentifiers[]> {
     const lowerQuery = query.toLowerCase();
     const normQuery = query
       .normalize('NFD')
@@ -670,8 +704,12 @@ export class PeopleService {
       .toLowerCase();
 
     // Since display names and identifier values are encrypted, we can't use SQL LIKE.
-    // Fetch all contacts and filter in-memory after decryption.
-    const allContactRows = await this.dbService.withCurrentUser((db) => db.select().from(people));
+    // Fetch contacts (scoped to user) and filter in-memory after decryption.
+    const allContactRows = await this.dbService.withCurrentUser((db) =>
+      userId
+        ? db.select().from(people).where(eq(people.userId, userId))
+        : db.select().from(people),
+    );
 
     const allIdentRows = await this.dbService.withCurrentUser((db) =>
       db.select().from(personIdentifiers),
