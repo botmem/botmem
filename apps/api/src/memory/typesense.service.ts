@@ -34,17 +34,37 @@ export class TypesenseService implements OnModuleInit {
 
   async onModuleInit() {
     try {
+      await this.waitForTypesense();
       await this.ensureCollection(this.config.embedDimension);
+      // Seed search enhancements (best-effort, don't block startup)
+      Promise.all([this.seedSynonyms(), this.seedStopwords(), this.seedConversationModel()]).catch(
+        (err) =>
+          this.logger.warn('Seeding failed', err instanceof Error ? err.message : String(err)),
+      );
     } catch (err) {
       this.logger.error(
-        'Typesense collection init failed (will retry on first embed)',
-        err instanceof Error ? err.stack : String(err),
+        `Typesense init failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    // Seed search enhancements (best-effort, don't block startup)
-    Promise.all([this.seedSynonyms(), this.seedStopwords(), this.seedConversationModel()]).catch(
-      (err) => this.logger.warn('Seeding failed', err instanceof Error ? err.message : String(err)),
-    );
+  }
+
+  private async waitForTypesense(maxAttempts = 30, intervalMs = 2000): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const health = await this.client.health.retrieve();
+        if (health.ok) {
+          this.logger.log('Typesense is ready');
+          return;
+        }
+      } catch {
+        // not ready yet
+      }
+      this.logger.warn(
+        `Typesense not ready (attempt ${attempt}/${maxAttempts}), retrying in ${intervalMs}ms...`,
+      );
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    throw new Error(`Typesense not ready after ${maxAttempts} attempts — is it running?`);
   }
 
   async ensureCollection(vectorSize: number): Promise<void> {
@@ -383,6 +403,7 @@ export class TypesenseService implements OnModuleInit {
             highlight_start_tag: '<mark>',
             highlight_end_tag: '</mark>',
             exclude_fields: 'embedding',
+            synonym_sets: 'memories-synonyms',
             ...(filterBy ? { filter_by: filterBy } : {}),
             ...(facetBy ? { facet_by: facetBy } : {}),
           },
@@ -499,25 +520,21 @@ export class TypesenseService implements OnModuleInit {
   }
 
   private async seedSynonyms(): Promise<void> {
-    const synonyms = [
-      { id: 'msg-message', synonyms: ['msg', 'message', 'messages', 'dm', 'dms'] },
-      {
-        id: 'pic-photo',
-        synonyms: ['pic', 'photo', 'image', 'picture', 'photos', 'pictures', 'images'],
-      },
-      { id: 'email-mail', synonyms: ['email', 'mail', 'emails', 'mails'] },
-      { id: 'call-phone', synonyms: ['call', 'phone', 'ring', 'dial'] },
-      { id: 'loc-location', synonyms: ['location', 'place', 'spot', 'where', 'address'] },
-    ];
-    for (const syn of synonyms) {
-      try {
-        await this.client
-          .collections(COLLECTION_NAME)
-          .synonyms()
-          .upsert(syn.id, { synonyms: syn.synonyms });
-      } catch {
-        /* best effort */
-      }
+    try {
+      await this.client.synonymSets('memories-synonyms').upsert({
+        items: [
+          { id: 'msg-message', synonyms: ['msg', 'message', 'messages', 'dm', 'dms'] },
+          {
+            id: 'pic-photo',
+            synonyms: ['pic', 'photo', 'image', 'picture', 'photos', 'pictures', 'images'],
+          },
+          { id: 'email-mail', synonyms: ['email', 'mail', 'emails', 'mails'] },
+          { id: 'call-phone', synonyms: ['call', 'phone', 'ring', 'dial'] },
+          { id: 'loc-location', synonyms: ['location', 'place', 'spot', 'where', 'address'] },
+        ],
+      });
+    } catch {
+      /* best effort */
     }
   }
 

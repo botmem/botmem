@@ -138,6 +138,7 @@ describe('TypesenseService', () => {
 
   describe('onModuleInit', () => {
     it('calls ensureCollection and seeding', async () => {
+      mocks.healthRetrieve.mockResolvedValue({ ok: true });
       mocks.collectionRetrieve.mockResolvedValue({
         fields: [{ name: 'embedding', num_dim: 1024 }],
       });
@@ -153,6 +154,7 @@ describe('TypesenseService', () => {
     });
 
     it('handles init failure gracefully', async () => {
+      mocks.healthRetrieve.mockResolvedValue({ ok: true });
       const logSpy = vi
         .spyOn(
           (service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger,
