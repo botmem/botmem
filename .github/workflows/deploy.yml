@@ -305,18 +305,29 @@ jobs:
       - name: Validate deployment
         env:
           EXPECTED_VERSION: ${{ needs.version.outputs.tag }}
+          GITHUB_REPO_NAME: ${{ github.repository }}
         run: |
+          # deploy.sh already does health check + auto-rollback on the VPS.
+          # This step confirms the API is reachable externally.
           for i in $(seq 1 12); do
             RESPONSE=$(curl -sf https://botmem.xyz/api/version 2>/dev/null || echo "")
             if [ -n "$RESPONSE" ]; then
-              echo "Deployment validated — API is healthy (attempt $i)"
-              echo "Response: $RESPONSE"
+              echo "API is healthy (attempt $i): $RESPONSE"
+              # Check if running expected version or a rollback
+              if echo "$RESPONSE" | grep -q "$EXPECTED_VERSION"; then
+                echo "Running expected version $EXPECTED_VERSION"
+              else
+                echo "WARNING: API is healthy but NOT running $EXPECTED_VERSION — deploy.sh likely rolled back"
+                echo "Check VPS logs: ssh botmem-ssh 'docker logs --tail 30 botmem-api-1'"
+              fi
               exit 0
             fi
             echo "Attempt $i: not ready yet, waiting 5s..."
             sleep 5
           done
-          echo "API health check failed after 60s" && exit 1
+          # If we get here, API is completely down (deploy.sh rollback also failed)
+          echo "CRITICAL: API not responding after 60s — deploy.sh rollback may have also failed"
+          exit 1
 
       - name: Validate docs
         if: steps.docs-check.outputs.changed == 'true'
@@ -426,6 +437,20 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           if npm view "@botmem/cli@$VERSION" version 2>/dev/null; then
+            echo "Version $VERSION already published — skipping"
+          else
+            npm publish --access public --tag latest
+          fi
+
+      - name: Build and publish @botmem/imsg-bridge
+        working-directory: packages/imsg-bridge
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm build
+          VERSION="${{ needs.version.outputs.version }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          if npm view "@botmem/imsg-bridge@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"
           else
             npm publish --access public --tag latest
