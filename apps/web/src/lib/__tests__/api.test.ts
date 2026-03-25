@@ -86,6 +86,18 @@ describe('api', () => {
     });
   });
 
+  describe('getBridgeStatus', () => {
+    it('fetches bridge connection status', async () => {
+      mockOk({ connected: true });
+      const result = await api.getBridgeStatus('a1');
+      expect(result.connected).toBe(true);
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/accounts/a1/bridge-status',
+        expect.objectContaining({ headers: expect.any(Object) }),
+      );
+    });
+  });
+
   describe('initiateAuth', () => {
     it('sends POST with config', async () => {
       mockOk({ type: 'redirect', url: 'https://example.com' });
