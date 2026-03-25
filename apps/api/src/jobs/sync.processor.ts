@@ -17,6 +17,8 @@ import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
+import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
+import { WsTunnelTransport } from '../imsg-tunnel/ws-tunnel-transport';
 import { Traced } from '../tracing/traced.decorator';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
@@ -37,6 +39,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private configService: ConfigService,
     private analytics: AnalyticsService,
     private traceContext: TraceContext,
+    private imsgTunnel: ImsgTunnelService,
   ) {
     super();
   }
@@ -108,6 +111,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     const connector = this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
 
+    // Enrich trace context with job metadata for PostHog log correlation
+    this.traceContext.set({ jobId, connectorType });
+
     // Bootstrap (unscoped): resolve ownerUserId for RLS-scoped rawEvents insert
     let ownerUserId: string | undefined;
     {
@@ -116,6 +122,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         .from(accounts)
         .where(eq(accounts.id, accountId));
       ownerUserId = acct?.userId ?? undefined;
+      if (ownerUserId) this.traceContext.set({ userId: ownerUserId });
     }
 
     await this.jobsService.updateJob(jobId, { status: 'running', startedAt: new Date() });
@@ -216,6 +223,18 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         };
 
         const ctx = connector.wrapSyncContext(rawCtx);
+
+        // Inject tunnel transport for remote iMessage bridge
+        if (
+          connectorType === 'imessage' &&
+          account.tunnelMode &&
+          'setTunnelTransport' in connector
+        ) {
+          (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
+            new WsTunnelTransport(this.imsgTunnel, accountId),
+          );
+        }
+
         const result = await connector.sync(ctx);
         totalProcessed += result.processed;
         cursor = result.cursor;

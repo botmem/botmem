@@ -125,6 +125,7 @@ function createMockTraceContext() {
   return {
     current: vi.fn().mockReturnValue(ctx),
     run: vi.fn().mockImplementation((_ctx: unknown, fn: () => unknown) => fn()),
+    set: vi.fn(),
   } as unknown as TraceContext;
 }
 
@@ -272,6 +273,11 @@ function createProcessor(
         .fn()
         .mockResolvedValue({ city: null, state: null, country: null, countryCode: null }),
     } as unknown as import('../../geo/geo.service').GeoService,
+    {
+      canCreateMemory: vi.fn().mockResolvedValue({ allowed: true }),
+      getUsage: vi.fn(),
+      incrementCachedCount: vi.fn(),
+    } as unknown as import('../../billing/quota.service').QuotaService,
     enrichQueue as unknown as Queue,
     createMockTraceContext(),
   );

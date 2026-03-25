@@ -15,8 +15,11 @@ export class TraceMiddleware implements NestMiddleware {
     const traceId = otelCtx?.traceId || generateTraceId();
     const spanId = otelCtx?.spanId || generateSpanId();
 
+    // Extract userId if auth has already set it on the request
+    const userId = (req as Request & { user?: { id?: string } }).user?.id;
+
     res.setHeader('x-trace-id', traceId);
 
-    this.traceContext.run({ traceId, spanId }, () => next());
+    this.traceContext.run({ traceId, spanId, userId }, () => next());
   }
 }

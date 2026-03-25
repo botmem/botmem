@@ -69,9 +69,23 @@ export class LogsService {
     const limit = filters?.limit || 50;
     const path = this.logsPath;
 
+    // Read only the tail of the file to avoid V8 string size limits on large log files.
+    // We read the last ~2MB which is enough for any reasonable query with pagination.
+    const MAX_READ_BYTES = 2 * 1024 * 1024;
     let raw: string;
     try {
-      raw = await fs.readFile(path, 'utf-8');
+      const stat = await fs.stat(path);
+      if (stat.size > MAX_READ_BYTES) {
+        const fh = await fs.open(path, 'r');
+        const buf = Buffer.alloc(MAX_READ_BYTES);
+        await fh.read(buf, 0, MAX_READ_BYTES, stat.size - MAX_READ_BYTES);
+        await fh.close();
+        // Drop the first partial line
+        const text = buf.toString('utf-8');
+        raw = text.slice(text.indexOf('\n') + 1);
+      } else {
+        raw = await fs.readFile(path, 'utf-8');
+      }
     } catch (err: unknown) {
       if (
         err &&

@@ -5,6 +5,9 @@ import { randomBytes } from 'crypto';
 export interface TraceStore {
   traceId: string;
   spanId: string;
+  userId?: string;
+  jobId?: string;
+  connectorType?: string;
 }
 
 /** Generate a W3C-format trace ID (32 hex chars) */
@@ -29,5 +32,11 @@ export class TraceContext {
   /** Get current trace context — returns undefined outside a traced scope */
   current(): TraceStore | undefined {
     return this.storage.getStore();
+  }
+
+  /** Enrich the current trace store with additional metadata (userId, jobId, etc.) */
+  set(patch: Partial<Omit<TraceStore, 'traceId' | 'spanId'>>): void {
+    const store = this.storage.getStore();
+    if (store) Object.assign(store, patch);
   }
 }

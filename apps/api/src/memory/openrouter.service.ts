@@ -37,6 +37,7 @@ export class OpenRouterService implements OnModuleInit {
   }
 
   async embed(text: string, retries = 3): Promise<number[]> {
+    const t0 = Date.now();
     let input = text.length > 8000 ? text.slice(0, 8000) : text;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -61,6 +62,9 @@ export class OpenRouterService implements OnModuleInit {
         if (!data.data?.[0]?.embedding) {
           throw new Error(`Empty embedding response for ${input.length} chars`);
         }
+        this.logger.log(
+          `llm_request provider=openrouter model=${this.embedModel} op=embed duration_ms=${Date.now() - t0} input_chars=${input.length}`,
+        );
         return data.data[0].embedding;
       } catch (err: unknown) {
         if (
@@ -86,6 +90,7 @@ export class OpenRouterService implements OnModuleInit {
     retries = 2,
     format?: Record<string, unknown>,
   ): Promise<{ text: string; inputTokens?: number; outputTokens?: number }> {
+    const t0 = Date.now();
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
 
@@ -147,11 +152,12 @@ export class OpenRouterService implements OnModuleInit {
         const raw = data.choices?.[0]?.message?.content || '';
         // Strip <think>...</think> reasoning tags
         const text = raw.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
-        return {
-          text,
-          inputTokens: data.usage?.prompt_tokens as number | undefined,
-          outputTokens: data.usage?.completion_tokens as number | undefined,
-        };
+        const inputTokens = data.usage?.prompt_tokens as number | undefined;
+        const outputTokens = data.usage?.completion_tokens as number | undefined;
+        this.logger.log(
+          `llm_request provider=openrouter model=${model} op=${hasImages ? 'vl' : 'generate'} duration_ms=${Date.now() - t0} input_tokens=${inputTokens ?? 0} output_tokens=${outputTokens ?? 0}`,
+        );
+        return { text, inputTokens, outputTokens };
       } catch (err) {
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));

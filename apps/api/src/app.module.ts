@@ -36,6 +36,7 @@ import { AuthProviderGuard } from './user-auth/auth-provider.guard';
 import { WriteScopeGuard } from './user-auth/write-scope.guard';
 import { TracingModule } from './tracing/tracing.module';
 import { GeoModule } from './geo/geo.module';
+import { ImsgTunnelModule } from './imsg-tunnel/imsg-tunnel.module';
 
 @Module({
   controllers: [VersionController, HealthController],
@@ -68,6 +69,7 @@ import { GeoModule } from './geo/geo.module';
     OAuthModule,
     DemoModule,
     GeoModule,
+    ImsgTunnelModule,
   ],
   providers: [
     {
