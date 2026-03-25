@@ -1,9 +1,16 @@
 #!/usr/bin/env sh
 
-# Run typecheck and tests on packages changed since origin/main
-# Falls back to all packages if origin/main doesn't exist
+# 1. Run typecheck and unit tests (excludes e2e — those need a running server)
 if git rev-parse --verify origin/main >/dev/null 2>&1; then
   pnpm turbo typecheck test --filter='...[origin/main...HEAD]' --filter='!@botmem/e2e'
 else
   pnpm turbo typecheck test --filter='!@botmem/e2e'
+fi
+
+# 2. Run Playwright e2e tests if the API server is running (advisory — failures don't block push)
+if curl -sf http://localhost:12412/api/version > /dev/null 2>&1; then
+  echo "API server detected — running Playwright e2e tests..."
+  cd e2e && npx playwright test --reporter=line || echo "⚠ Playwright tests had failures (non-blocking — CI is the gate)"
+else
+  echo "API server not running — skipping Playwright e2e tests (start with 'pnpm dev' to include)"
 fi
