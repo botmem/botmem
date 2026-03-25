@@ -6,7 +6,9 @@ interface Props {
   onClose: () => void;
 }
 
-const API_URL = 'https://botmem.xyz';
+function getApiUrl() {
+  return typeof window !== 'undefined' ? window.location.origin : 'https://botmem.xyz';
+}
 
 function mcpConfig() {
   return JSON.stringify(
@@ -15,7 +17,7 @@ function mcpConfig() {
         botmem: {
           command: 'npx',
           args: ['-y', '@botmem/cli', 'mcp'],
-          env: { BOTMEM_API_URL: API_URL },
+          env: { BOTMEM_API_URL: getApiUrl() },
         },
       },
     },
@@ -61,9 +63,9 @@ export function ConnectionInstructions({ open, onClose }: Props) {
       <p className="font-mono text-sm text-nb-muted mb-4">Your Botmem API endpoint:</p>
 
       <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-4 mb-6">
-        <code className="font-mono text-lg text-nb-lime flex-1 select-all">{API_URL}</code>
+        <code className="font-mono text-lg text-nb-lime flex-1 select-all">{getApiUrl()}</code>
         <button
-          onClick={() => copyToClipboard(API_URL, 'url')}
+          onClick={() => copyToClipboard(getApiUrl(), 'url')}
           className="px-3 py-1 border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-muted hover:text-nb-text cursor-pointer shrink-0"
         >
           {copied === 'url' ? 'Copied!' : 'Copy'}

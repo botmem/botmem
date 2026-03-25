@@ -6,7 +6,13 @@ import { CryptoService } from '../crypto/crypto.service';
 import { TypesenseService } from '../memory/typesense.service';
 import { ConfigService } from '../config/config.service';
 import * as schema from '../db/schema';
-import { generateContacts, generateMemories, randomVector, scanForPII } from './fake-data';
+import {
+  generateContacts,
+  generateMemories,
+  randomVector,
+  scanForPII,
+  DEMO_SEARCH_EXAMPLES,
+} from './fake-data';
 
 @Injectable()
 export class DemoService {
@@ -27,6 +33,7 @@ export class DemoService {
     contacts: number;
     links: number;
     piiScan: { clean: boolean; flagged: string[] };
+    searchExamples: typeof DEMO_SEARCH_EXAMPLES;
   }> {
     const now = new Date();
 
@@ -51,8 +58,8 @@ export class DemoService {
       );
     }
 
-    // 2. Generate contacts
-    const fakeContacts = generateContacts(20);
+    // 2. Generate contacts (light — just enough for demo)
+    const fakeContacts = generateContacts(12);
     const contactIdMap: Record<number, string> = {};
 
     for (let i = 0; i < fakeContacts.length; i++) {
@@ -87,14 +94,20 @@ export class DemoService {
       }
     }
 
-    // 3. Generate memories
+    // 3. Generate memories (light — hero memories + a few random per connector)
     const fakeMemories = generateMemories(fakeContacts, {
-      gmail: 15,
-      slack: 10,
-      whatsapp: 10,
-      imessage: 8,
-      photos: 7,
+      gmail: 8,
+      slack: 6,
+      whatsapp: 6,
+      imessage: 5,
+      photos: 5,
     });
+
+    // Prefix sourceId with userId to avoid unique constraint collisions across users
+    const userPrefix = userId.slice(0, 8);
+    for (const mem of fakeMemories) {
+      mem.sourceId = `${userPrefix}-${mem.sourceId}`;
+    }
 
     // PII scan
     const piiScan = scanForPII(fakeMemories.map((m) => m.text));
@@ -143,14 +156,22 @@ export class DemoService {
           .onConflictDoNothing(),
       );
 
-      // Qdrant vector
+      // Typesense vector + text fields (text is CRITICAL for BM25 search)
       const vector = randomVector(dim);
+      const contactNames = mem.contactIndices
+        .map((idx) => fakeContacts[idx]?.displayName)
+        .filter(Boolean);
       await this.typesense.upsert(mem.id, vector, {
+        text: mem.text,
         source_type: mem.sourceType,
         connector_type: mem.connectorType,
         event_time: mem.eventTime.toISOString(),
         account_id: accountId,
         memory_bank_id: memoryBankId,
+        people: contactNames,
+        entities_text: mem.entities.map((e) => e.value).join(', '),
+        importance: mem.weights.importance,
+        factuality_label: mem.factuality.label,
       });
 
       // Memory-contact links
@@ -205,6 +226,7 @@ export class DemoService {
       contacts: fakeContacts.length,
       links: linksCreated,
       piiScan,
+      searchExamples: DEMO_SEARCH_EXAMPLES,
     };
   }
 

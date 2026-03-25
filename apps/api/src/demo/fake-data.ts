@@ -1068,17 +1068,27 @@ export function generateMemories(
   contacts: FakeContact[],
   counts: { gmail: number; slack: number; whatsapp: number; imessage: number; photos: number },
 ): FakeMemory[] {
-  const memories: FakeMemory[] = [];
-  const generators: [number, (contacts: FakeContact[]) => FakeMemory][] = [
-    [counts.gmail, generateGmailMemory],
-    [counts.slack, generateSlackMemory],
-    [counts.whatsapp, generateWhatsAppMemory],
-    [counts.imessage, generateIMessageMemory],
-    [counts.photos, generatePhotoMemory],
+  // Start with deterministic hero memories (searchable by the tour)
+  const heroes = generateHeroMemories(contacts);
+  const memories: FakeMemory[] = [...heroes];
+
+  // Count heroes per connector to avoid exceeding requested counts
+  const heroCounts: Record<string, number> = {};
+  for (const h of heroes) {
+    heroCounts[h.connectorType] = (heroCounts[h.connectorType] || 0) + 1;
+  }
+
+  const generators: [string, number, (contacts: FakeContact[]) => FakeMemory][] = [
+    ['gmail', counts.gmail, generateGmailMemory],
+    ['slack', counts.slack, generateSlackMemory],
+    ['whatsapp', counts.whatsapp, generateWhatsAppMemory],
+    ['imessage', counts.imessage, generateIMessageMemory],
+    ['photos-immich', counts.photos, generatePhotoMemory],
   ];
 
-  for (const [count, generator] of generators) {
-    for (let i = 0; i < count; i++) {
+  for (const [type, count, generator] of generators) {
+    const remaining = Math.max(0, count - (heroCounts[type] || 0));
+    for (let i = 0; i < remaining; i++) {
       memories.push(generator(contacts));
     }
   }
@@ -1091,6 +1101,194 @@ export function randomVector(dimensions: number): number[] {
   const vec = Array.from({ length: dimensions }, () => Math.random() * 2 - 1);
   const magnitude = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0));
   return vec.map((v) => v / magnitude);
+}
+
+// Deterministic hero memories for tour search demonstrations
+// These have known, searchable text that the tour can reference
+export interface DemoSearchExample {
+  query: string;
+  description: string;
+  connectorType: string;
+}
+
+export const DEMO_SEARCH_EXAMPLES: DemoSearchExample[] = [
+  {
+    query: 'GITEX budget review',
+    description: 'Find the Q3 budget email about GITEX',
+    connectorType: 'gmail',
+  },
+  {
+    query: 'dinner Zuma Friday',
+    description: 'WhatsApp plans for dinner',
+    connectorType: 'whatsapp',
+  },
+  {
+    query: 'Burj Khalifa group photo',
+    description: 'Group photo at the observation deck',
+    connectorType: 'photos-immich',
+  },
+  {
+    query: 'deployed production',
+    description: 'Slack deployment notification',
+    connectorType: 'slack',
+  },
+  {
+    query: 'Mediclinic appointment',
+    description: 'iMessage about a doctor appointment',
+    connectorType: 'imessage',
+  },
+];
+
+export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
+  const heroes: FakeMemory[] = [];
+  const person0 = contacts.find((c) => c.entityType === 'person') || contacts[0];
+  const person1 = contacts.filter((c) => c.entityType === 'person')[1] || contacts[1];
+  const person2 = contacts.filter((c) => c.entityType === 'person')[2] || contacts[2];
+
+  // Hero 1: Gmail — GITEX budget review
+  heroes.push({
+    id: randomUUID(),
+    connectorType: 'gmail',
+    sourceType: 'email',
+    sourceId: `demo-gmail-hero-1`,
+    text: `Subject: Q3 Budget Review — GITEX Preparation\n\nHi team,\n\nAttached is the Q3 budget review with special focus on our GITEX 2025 booth and sponsorship costs. Total allocated: AED 450,000. We need final sign-off by Thursday.\n\nKey items:\n- Booth design and construction: AED 180,000\n- Marketing collateral: AED 75,000\n- Staff travel and accommodation: AED 95,000\n- Contingency: AED 100,000\n\nPlease review and confirm.\n\nBest regards,\n${person0.displayName}`,
+    eventTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+    entities: [
+      { type: 'person', value: person0.displayName },
+      { type: 'person', value: person1.displayName },
+      { type: 'event', value: 'GITEX 2025' },
+      { type: 'amount', value: 'AED 450,000' },
+    ],
+    claims: [
+      {
+        claim: `${person0.displayName} shared Q3 budget review for GITEX preparation`,
+        confidence: 0.95,
+      },
+    ],
+    factuality: { label: 'FACT', confidence: 0.9, rationale: 'Official budget document' },
+    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.8, trust: 0.8, final: 0 },
+    metadata: {
+      subject: 'Q3 Budget Review — GITEX Preparation',
+      category: 'work',
+      from: person0.displayName,
+      to: [person1.displayName],
+    },
+    contactIndices: [contacts.indexOf(person0), contacts.indexOf(person1)].filter((i) => i >= 0),
+    contactRoles: ['sender', 'recipient'],
+  });
+
+  // Hero 2: Slack — deployment notification
+  heroes.push({
+    id: randomUUID(),
+    connectorType: 'slack',
+    sourceType: 'message',
+    sourceId: `demo-slack-hero-1`,
+    text: `[#engineering] ${person1.displayName}: Just deployed v2.1 to production. All health checks passing. Release includes the new search filters and webhook integrations. Rollback plan ready if needed. Yalla!`,
+    eventTime: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    entities: [
+      { type: 'person', value: person1.displayName },
+      { type: 'channel', value: '#engineering' },
+    ],
+    claims: [{ claim: `${person1.displayName} deployed v2.1 to production`, confidence: 0.9 }],
+    factuality: { label: 'FACT', confidence: 0.85, rationale: 'Deployment announcement' },
+    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.7, trust: 0.7, final: 0 },
+    metadata: { channel: '#engineering', sender: person1.displayName },
+    contactIndices: [contacts.indexOf(person1)].filter((i) => i >= 0),
+    contactRoles: ['sender'],
+  });
+
+  // Hero 3: WhatsApp — dinner at Zuma
+  heroes.push({
+    id: randomUUID(),
+    connectorType: 'whatsapp',
+    sourceType: 'message',
+    sourceId: `demo-wa-hero-1`,
+    text: `${person2.displayName}: Yalla habibi, dinner at Zuma on Friday at 8pm? I already made a reservation for 4. ${person0.displayName} and ${person1.displayName} are coming too. Don't be late!`,
+    eventTime: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+    entities: [
+      { type: 'person', value: person2.displayName },
+      { type: 'person', value: person0.displayName },
+      { type: 'person', value: person1.displayName },
+      { type: 'location', value: 'Zuma' },
+    ],
+    claims: [
+      {
+        claim: `Dinner planned at Zuma on Friday at 8pm with ${person0.displayName} and ${person1.displayName}`,
+        confidence: 0.85,
+      },
+    ],
+    factuality: { label: 'UNVERIFIED', confidence: 0.7, rationale: 'Personal message' },
+    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.6, trust: 0.5, final: 0 },
+    metadata: { sender: person2.displayName, chat: 'group' },
+    contactIndices: [
+      contacts.indexOf(person2),
+      contacts.indexOf(person0),
+      contacts.indexOf(person1),
+    ].filter((i) => i >= 0),
+    contactRoles: ['sender', 'mentioned', 'mentioned'],
+  });
+
+  // Hero 4: iMessage — Mediclinic appointment
+  heroes.push({
+    id: randomUUID(),
+    connectorType: 'imessage',
+    sourceType: 'message',
+    sourceId: `demo-imsg-hero-1`,
+    text: `${person0.displayName}: Don't forget about the appointment at Mediclinic tomorrow at 3pm. Dr. Fatima Al Zaabi, Building 27, City Walk. Bring your Emirates ID and insurance card.`,
+    eventTime: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+    entities: [
+      { type: 'person', value: person0.displayName },
+      { type: 'person', value: 'Dr. Fatima Al Zaabi' },
+      { type: 'location', value: 'Mediclinic, City Walk' },
+    ],
+    claims: [
+      {
+        claim: `Appointment at Mediclinic tomorrow at 3pm with Dr. Fatima Al Zaabi`,
+        confidence: 0.9,
+      },
+    ],
+    factuality: { label: 'FACT', confidence: 0.85, rationale: 'Appointment reminder' },
+    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.7, trust: 0.6, final: 0 },
+    metadata: { sender: person0.displayName },
+    contactIndices: [contacts.indexOf(person0)].filter((i) => i >= 0),
+    contactRoles: ['sender'],
+  });
+
+  // Hero 5: Photo — Burj Khalifa group photo
+  heroes.push({
+    id: randomUUID(),
+    connectorType: 'photos-immich',
+    sourceType: 'photo',
+    sourceId: `demo-photo-hero-1`,
+    text: `Group photo at Burj Khalifa observation deck, Downtown Dubai. Beautiful sunset over the Gulf with ${person0.displayName}, ${person1.displayName}, and ${person2.displayName}. Golden hour, clear skies. Amazing view of the skyline!`,
+    eventTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    entities: [
+      { type: 'location', value: 'Burj Khalifa, Downtown Dubai' },
+      { type: 'person', value: person0.displayName },
+      { type: 'person', value: person1.displayName },
+      { type: 'person', value: person2.displayName },
+    ],
+    claims: [
+      {
+        claim: `Group photo with ${person0.displayName}, ${person1.displayName}, ${person2.displayName} at Burj Khalifa`,
+        confidence: 0.8,
+      },
+    ],
+    factuality: { label: 'FACT', confidence: 0.9, rationale: 'Photo metadata' },
+    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.7, trust: 0.8, final: 0 },
+    metadata: {
+      location: 'Burj Khalifa, Downtown Dubai',
+      people: [person0.displayName, person1.displayName, person2.displayName],
+    },
+    contactIndices: [
+      contacts.indexOf(person0),
+      contacts.indexOf(person1),
+      contacts.indexOf(person2),
+    ].filter((i) => i >= 0),
+    contactRoles: ['mentioned', 'mentioned', 'mentioned'],
+  });
+
+  return heroes;
 }
 
 // PII scanner

@@ -588,7 +588,13 @@ export const api = {
       status?: string;
       currentPeriodEnd?: string | null;
       cancelAtPeriodEnd?: boolean;
+      quota?: { used: number; limit: number | null; remaining: number | null };
     }>('/billing/info'),
+  getQuota: () =>
+    request<{
+      quota: { used: number; limit: number | null; remaining: number | null };
+      unlimited: boolean;
+    }>('/billing/quota'),
   createCheckoutSession: () => request<{ url: string }>('/billing/checkout', { method: 'POST' }),
   createPortalSession: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
 
@@ -605,6 +611,7 @@ export const api = {
       contacts?: number;
       links?: number;
       error?: string;
+      searchExamples?: Array<{ query: string; description: string; connectorType: string }>;
     }>('/demo/seed', { method: 'POST' }),
   clearDemoData: () =>
     request<{ ok: boolean; deleted: number }>('/demo/seed', { method: 'DELETE' }),

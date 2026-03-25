@@ -1,11 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { driver, type DriveStep, type Driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { useTourStore } from '../../store/tourStore';
 import { tourSteps } from './tourSteps';
-import { ConnectionInstructions } from './ConnectionInstructions';
-import { SubscribeCTA } from './SubscribeCTA';
 import './tour.css';
 
 export function TourManager() {
@@ -13,8 +11,6 @@ export function TourManager() {
   const navigate = useNavigate();
   const location = useLocation();
   const driverRef = useRef<Driver | null>(null);
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showSubscribeCTA, setShowSubscribeCTA] = useState(false);
   const navigatingRef = useRef(false);
 
   const cleanup = useCallback(() => {
@@ -32,23 +28,46 @@ export function TourManager() {
       const steps: DriveStep[] = [];
       for (let i = fromStep; i < tourSteps.length; i++) {
         const step = tourSteps[i];
-        if (i === tourSteps.length - 1) {
-          // Last step — connection instructions (modal, not a DOM target)
-          steps.push({
-            popover: {
-              title: step.title,
-              description: step.description + '\n\nClick "Done" to see setup instructions.',
-            },
-          });
-        } else {
-          steps.push({
-            element: step.target,
-            popover: {
-              title: step.title,
-              description: step.description,
-            },
-          });
+        const driveStep: DriveStep = {
+          element: step.target,
+          popover: {
+            title: step.title,
+            description: step.description,
+          },
+        };
+
+        // Interactive steps: allow user to interact with highlighted element
+        if (step.interactable) {
+          driveStep.disableActiveInteraction = false;
         }
+
+        // Steps with search examples: inject "Try it" button via onPopoverRender
+        if (step.searchExample) {
+          const searchQuery = step.searchExample;
+          driveStep.popover!.onPopoverRender = (popover) => {
+            const tryBtn = document.createElement('button');
+            tryBtn.className = 'botmem-tour-try-btn';
+            tryBtn.textContent = `Try: "${searchQuery}"`;
+            tryBtn.onclick = () => {
+              const input = document.querySelector(
+                '[data-tour="search-bar"] input',
+              ) as HTMLInputElement;
+              if (input) {
+                // Use native setter to trigger React's onChange
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                  HTMLInputElement.prototype,
+                  'value',
+                )?.set;
+                nativeSetter?.call(input, searchQuery);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.focus();
+              }
+            };
+            popover.description.appendChild(tryBtn);
+          };
+        }
+
+        steps.push(driveStep);
       }
 
       const d = driver({
@@ -56,6 +75,10 @@ export function TourManager() {
         showButtons: ['next', 'previous', 'close'],
         steps,
         popoverClass: 'botmem-tour-popover',
+        allowKeyboardControl: true,
+        smoothScroll: true,
+        stagePadding: 8,
+        popoverOffset: 12,
         onDestroyStarted: () => {
           if (!navigatingRef.current) {
             skipTour();
@@ -67,9 +90,9 @@ export function TourManager() {
           const nextRealStep = realStep + 1;
 
           if (nextRealStep >= tourSteps.length) {
-            // Tour complete — show connection modal
+            // Tour complete
             cleanup();
-            setShowConnectModal(true);
+            completeTour();
             return;
           }
 
@@ -104,18 +127,18 @@ export function TourManager() {
         },
       });
 
-      // Wait for elements to render
+      // Wait for elements to render (5s timeout for slow connections)
       const waitAndStart = () => {
         const step = tourSteps[fromStep];
         if (step.target) {
           const el = document.querySelector(step.target);
           if (!el) {
-            // Poll for element (max 2 seconds)
+            // Poll for element (max 5 seconds)
             let tries = 0;
             const interval = setInterval(() => {
               tries++;
               const found = document.querySelector(step.target);
-              if (found || tries > 20) {
+              if (found || tries > 50) {
                 clearInterval(interval);
                 navigatingRef.current = false;
                 d.drive();
@@ -135,7 +158,7 @@ export function TourManager() {
         requestAnimationFrame(waitAndStart);
       });
     },
-    [cleanup, navigate, location.pathname, skipTour],
+    [cleanup, navigate, location.pathname, skipTour, completeTour],
   );
 
   // Start/resume tour when active changes or page navigates
@@ -158,20 +181,5 @@ export function TourManager() {
     return cleanup;
   }, [active, currentStep, location.pathname]);
 
-  const handleConnectClose = () => {
-    setShowConnectModal(false);
-    completeTour();
-    setShowSubscribeCTA(true);
-  };
-
-  const handleSubscribeClose = () => {
-    setShowSubscribeCTA(false);
-  };
-
-  return (
-    <>
-      <ConnectionInstructions open={showConnectModal} onClose={handleConnectClose} />
-      <SubscribeCTA open={showSubscribeCTA} onClose={handleSubscribeClose} />
-    </>
-  );
+  return null;
 }

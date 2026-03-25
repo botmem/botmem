@@ -71,6 +71,30 @@
   color: var(--color-nb-text, #eee) !important;
 }
 
+/* Interactive "Try it" button for search demo steps */
+.botmem-tour-try-btn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 16px;
+  border: 3px solid var(--color-nb-lime, #C4F53A);
+  background: var(--color-nb-lime, #C4F53A);
+  color: #0D0D0D;
+  font-family: var(--font-display, 'Space Mono', monospace);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--color-nb-border, #333);
+  transition: all 0.15s;
+}
+
+.botmem-tour-try-btn:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--color-nb-border, #333);
+}
+
 .driver-overlay {
   background: rgba(0, 0, 0, 0.7) !important;
 }
