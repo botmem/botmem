@@ -111,6 +111,14 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     const connector = this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
 
+    // Skip if this account is already syncing (prevents concurrent syncs sharing rate limits)
+    if (account.status === 'syncing') {
+      this.logger.log(
+        `Skipping sync for account ${accountId} (${connectorType}) — already syncing`,
+      );
+      return;
+    }
+
     // Enrich trace context with job metadata for PostHog log correlation
     this.traceContext.set({ jobId, connectorType });
 

@@ -199,6 +199,31 @@ export class AuthService implements OnModuleInit {
       }
     }
 
+    // iMessage bridge mode: generate token, create account, DON'T auto-sync
+    if (connectorType === 'imessage' && mergedConfig.authMethod === 'bridge') {
+      const { randomBytes } = await import('node:crypto');
+      const bridgeToken = 'imsg_bt_' + randomBytes(32).toString('hex');
+      const myIdentifier = String(mergedConfig.myIdentifier || '');
+
+      const authContext = {
+        raw: { myIdentifier, tunnelMode: true, bridgeToken },
+      };
+
+      const account = await this.accountsService.create({
+        connectorType,
+        identifier: myIdentifier || 'imessage',
+        authContext: JSON.stringify(authContext),
+        userId,
+        tunnelMode: true,
+        status: 'disconnected',
+      });
+
+      return {
+        type: 'complete' as const,
+        account: { ...this.redactAccount(account), bridgeToken },
+      };
+    }
+
     let result;
     try {
       result = await connector.initiateAuth(mergedConfig);

@@ -10,6 +10,7 @@ import type {
   PipelineContext,
 } from '@botmem/connector-sdk';
 import { ImsgClient } from './imsg-client.js';
+import { TcpTransport, type RpcTransport } from './transport.js';
 
 /** Tapback/reaction prefixes used by iMessage */
 const TAPBACK_PREFIXES = [
@@ -32,6 +33,9 @@ const DEFAULT_PORT = 19876;
 const PROGRESS_INTERVAL = 50; // emit progress every N messages
 
 export class IMessageConnector extends BaseConnector {
+  /** Optional tunnel transport injected by SyncProcessor for remote mode. */
+  private tunnelTransport: RpcTransport | null = null;
+
   readonly manifest: ConnectorManifest = {
     id: 'imessage',
     name: 'iMessage',
@@ -67,6 +71,19 @@ export class IMessageConnector extends BaseConnector {
     pipeline: { clean: false, embed: true, enrich: false },
     trustScore: 0.8,
   };
+
+  /**
+   * Inject a tunnel transport for remote bridge mode.
+   * Called by SyncProcessor before sync() when account.tunnelMode is true.
+   */
+  setTunnelTransport(transport: RpcTransport): void {
+    this.tunnelTransport = transport;
+  }
+
+  /** Clear tunnel transport after sync completes. */
+  clearTunnelTransport(): void {
+    this.tunnelTransport = null;
+  }
 
   embed(event: ConnectorDataEvent, cleanedText: string, ctx: PipelineContext): EmbedResult {
     const entities: EmbedResult['entities'] = [];
@@ -115,10 +132,27 @@ export class IMessageConnector extends BaseConnector {
   }
 
   async initiateAuth(config: Record<string, unknown>): Promise<AuthInitResult> {
+    // Bridge (tunnel) mode — token generated server-side, no connectivity check needed
+    if (config.authMethod === 'bridge' || config.tunnelMode) {
+      const myIdentifier = (config.myIdentifier as string) || '';
+      return {
+        type: 'complete',
+        auth: {
+          raw: {
+            myIdentifier,
+            tunnelMode: true,
+            bridgeToken: config.bridgeToken as string,
+          },
+        },
+      };
+    }
+
+    // Local TCP mode — verify bridge connectivity
     const imsgHost = (config.imsgHost as string) || DEFAULT_HOST;
     const imsgPort = (config.imsgPort as number) || DEFAULT_PORT;
 
-    const client = new ImsgClient(imsgHost, imsgPort);
+    const transport = new TcpTransport(imsgHost, imsgPort);
+    const client = new ImsgClient(transport);
     try {
       await client.connect();
       await client.chatsList(1); // ping to verify the bridge works
@@ -147,10 +181,16 @@ export class IMessageConnector extends BaseConnector {
   }
 
   async validateAuth(auth: AuthContext): Promise<boolean> {
+    // Tunnel mode — validation happens via bridge connection status
+    if (auth.raw?.tunnelMode) {
+      return true; // Actual connectivity checked by ImsgTunnelService.isConnected()
+    }
+
     const imsgHost = (auth.raw?.imsgHost as string) || DEFAULT_HOST;
     const imsgPort = (auth.raw?.imsgPort as number) || DEFAULT_PORT;
 
-    const client = new ImsgClient(imsgHost, imsgPort);
+    const transport = new TcpTransport(imsgHost, imsgPort);
+    const client = new ImsgClient(transport);
     try {
       await client.connect();
       await client.chatsList(1);
@@ -166,11 +206,20 @@ export class IMessageConnector extends BaseConnector {
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {
-    const imsgHost = (ctx.auth.raw?.imsgHost as string) || DEFAULT_HOST;
-    const imsgPort = (ctx.auth.raw?.imsgPort as number) || DEFAULT_PORT;
+    // Choose transport: tunnel (remote) or TCP (local)
+    let transport: RpcTransport;
 
-    ctx.logger.info(`Connecting to imsg bridge at ${imsgHost}:${imsgPort}`);
-    const client = new ImsgClient(imsgHost, imsgPort);
+    if (this.tunnelTransport) {
+      ctx.logger.info('Using tunnel transport (remote bridge)');
+      transport = this.tunnelTransport;
+    } else {
+      const imsgHost = (ctx.auth.raw?.imsgHost as string) || DEFAULT_HOST;
+      const imsgPort = (ctx.auth.raw?.imsgPort as number) || DEFAULT_PORT;
+      ctx.logger.info(`Connecting to imsg bridge at ${imsgHost}:${imsgPort}`);
+      transport = new TcpTransport(imsgHost, imsgPort);
+    }
+
+    const client = new ImsgClient(transport);
     await client.connect();
 
     try {
@@ -262,6 +311,7 @@ export class IMessageConnector extends BaseConnector {
       };
     } finally {
       client.disconnect();
+      this.clearTunnelTransport();
     }
   }
 }

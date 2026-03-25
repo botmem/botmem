@@ -459,6 +459,214 @@ function PhoneCodeAuthView({
   );
 }
 
+// --- Bridge Auth View (iMessage remote tunnel) ---
+
+type BridgeStep = 'email' | 'command' | 'connected';
+
+function BridgeAuthView({
+  connectorType,
+  onClose,
+  onConnect,
+}: {
+  connectorType: ConnectorType;
+  onClose: () => void;
+  onConnect: (id: string) => void;
+}) {
+  const fetchAccounts = useConnectorStore((s) => s.fetchAccounts);
+  const [step, setStep] = useState<BridgeStep>('email');
+  const [myIdentifier, setMyIdentifier] = useState('');
+  const [bridgeCommand, setBridgeCommand] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [bridgeConnected, setBridgeConnected] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await api.initiateAuth(connectorType, {
+        myIdentifier,
+        authMethod: 'bridge',
+        tunnelMode: true,
+      });
+
+      if (result.type === 'complete' && result.account) {
+        const acct = result.account as Record<string, string>;
+        const acctId = acct.id || '';
+        setAccountId(acctId);
+
+        // Get the bridge token from the auth context
+        const token = acct.bridgeToken || '';
+        const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const serverUrl = `${wsProto}://${window.location.host}/imsg-tunnel`;
+        const cmd = `npx @botmem/imsg-bridge --token=${token} --server=${serverUrl}`;
+        setBridgeCommand(cmd);
+        setStep('command');
+
+        // Start polling for bridge connection
+        pollRef.current = setInterval(async () => {
+          try {
+            const data = await api.getBridgeStatus(acctId);
+            if (data.connected) {
+              setBridgeConnected(true);
+              setStep('connected');
+              if (pollRef.current) clearInterval(pollRef.current);
+            }
+          } catch {
+            /* ignore poll errors */
+          }
+        }, 2000);
+      } else {
+        setError('Unexpected response from server');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to create bridge';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartSync = async () => {
+    if (!accountId) return;
+    setLoading(true);
+    try {
+      await api.triggerSync(accountId);
+      fetchAccounts();
+      onConnect(myIdentifier);
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start sync');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyCommand = () => {
+    navigator.clipboard.writeText(bridgeCommand);
+  };
+
+  const stepNumber = step === 'email' ? 1 : step === 'command' ? 2 : 3;
+
+  return (
+    <Modal open onClose={onClose} title="Connect iMessage">
+      <StepIndicator current={stepNumber} total={3} />
+
+      {error && (
+        <div className="border-3 border-nb-red bg-nb-red/10 p-3 font-mono text-sm text-nb-red mb-4">
+          {error}
+        </div>
+      )}
+
+      {/* Step 1: Email/Phone */}
+      {step === 'email' && (
+        <form onSubmit={handleEmailSubmit} className="flex flex-col gap-4">
+          <p className="font-mono text-xs text-nb-muted uppercase">
+            Enter your iMessage email or phone number to identify you in conversations
+          </p>
+          <Input
+            label="Your Email or Phone"
+            placeholder="you@icloud.com or +1234567890"
+            value={myIdentifier}
+            onChange={(e) => setMyIdentifier(e.target.value)}
+            required
+            autoFocus
+          />
+          <Button type="submit" disabled={loading}>
+            {loading ? 'SETTING UP...' : 'GENERATE BRIDGE COMMAND'}
+          </Button>
+        </form>
+      )}
+
+      {/* Step 2: Show command */}
+      {step === 'command' && (
+        <div className="flex flex-col gap-4">
+          <p className="font-mono text-xs text-nb-muted uppercase">
+            Run this command on the Mac with your iMessages:
+          </p>
+
+          <div className="relative">
+            <pre className="bg-black border-3 border-nb-border p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
+              {bridgeCommand}
+            </pre>
+            <button
+              type="button"
+              onClick={copyCommand}
+              className="absolute top-2 right-2 px-2 py-1 bg-nb-surface border-2 border-nb-border font-mono text-[10px] text-nb-muted uppercase hover:text-nb-text hover:border-nb-lime transition-colors cursor-pointer"
+            >
+              COPY
+            </button>
+          </div>
+
+          <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
+            <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">
+              Requirements
+            </p>
+            <ul className="font-mono text-xs text-nb-muted space-y-1">
+              <li>• macOS with iMessage signed in</li>
+              <li>• Node.js 20+ installed</li>
+              <li>
+                • Full Disk Access for Terminal (System Settings → Privacy → Full Disk Access)
+              </li>
+            </ul>
+          </div>
+
+          <div className="flex items-center gap-3 py-2">
+            {bridgeConnected ? (
+              <>
+                <div className="size-3 bg-nb-lime" />
+                <p className="font-mono text-sm text-nb-lime uppercase font-bold">
+                  Bridge Connected
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="size-3 bg-nb-muted animate-pulse" />
+                <p className="font-mono text-xs text-nb-muted uppercase">
+                  Waiting for bridge connection...
+                </p>
+              </>
+            )}
+          </div>
+
+          {bridgeConnected && (
+            <Button onClick={handleStartSync} disabled={loading}>
+              {loading ? 'STARTING SYNC...' : 'START SYNC'}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: Connected */}
+      {step === 'connected' && (
+        <div className="flex flex-col gap-4 items-center py-4">
+          <div className="size-16 bg-nb-lime/20 border-3 border-nb-lime flex items-center justify-center">
+            <span className="text-3xl text-nb-lime">✓</span>
+          </div>
+          <p className="font-display text-lg font-bold uppercase">Bridge Connected</p>
+          <p className="font-mono text-xs text-nb-muted text-center">
+            Your iMessages are being synced securely through an encrypted tunnel.
+          </p>
+          <Button onClick={handleStartSync} disabled={loading}>
+            {loading ? 'STARTING SYNC...' : 'START SYNC'}
+          </Button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // --- Sub-components ---
 
 function QrAuthView({
@@ -712,6 +920,7 @@ export function ConnectorSetupModal({
   const authType = manifests.find((m) => m.id === connectorType)?.authType;
   const isQrAuth = authType === 'qr-code';
   const isPhoneCodeAuth = authType === 'phone-code';
+  const isBridgeAuth = connectorType === 'imessage';
 
   const cleanupWs = useCallback(() => {
     if (wsRef.current) {
@@ -837,6 +1046,10 @@ export function ConnectorSetupModal({
   }, [connectorType, manifests, isQrAuth, isPhoneCodeAuth]);
 
   if (!open) return null;
+
+  if (isBridgeAuth) {
+    return <BridgeAuthView connectorType={connectorType} onClose={onClose} onConnect={onConnect} />;
+  }
 
   if (isPhoneCodeAuth) {
     return (

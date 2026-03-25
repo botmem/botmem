@@ -294,6 +294,7 @@ export const api = {
   updateAccount: (id: string, data: { schedule?: string }) =>
     request<ConnectorAccount>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAccount: (id: string) => request<{ ok: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
+  getBridgeStatus: (id: string) => request<{ connected: boolean }>(`/accounts/${id}/bridge-status`),
 
   // Auth
   hasCredentials: (type: string) =>

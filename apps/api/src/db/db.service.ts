@@ -247,6 +247,17 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     return this.withUserId(userId, fn);
   }
 
+  /** Run a raw SQL query bypassing RLS. Use only for system-level operations. */
+  async queryRaw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(sql, params);
+      return result.rows as T[];
+    } finally {
+      client.release();
+    }
+  }
+
   async healthCheck(): Promise<boolean> {
     const client = await this.pool.connect();
     try {

@@ -20,8 +20,7 @@ import {
 import { WebSocket } from 'ws';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { accounts } from '../db/schema';
-import { eq } from 'drizzle-orm';
+// accounts schema import removed — using raw SQL to bypass RLS
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -356,17 +355,25 @@ export class ImsgTunnelService implements OnModuleDestroy {
     // Query all iMessage accounts and check token match
     // (token is stored encrypted in authContext — must decrypt each to compare)
     // Uses db directly (no RLS) since this is system-level auth
-    const rows = await this.dbService.db
-      .select({ id: accounts.id, userId: accounts.userId, authContext: accounts.authContext })
-      .from(accounts)
-      .where(eq(accounts.connectorType, 'imessage'));
+    // Bypass RLS — no user context available at bridge auth time
+    const rows = await this.dbService.queryRaw<{
+      id: string;
+      userId: string | null;
+      authContext: string | null;
+    }>(
+      `SELECT id, user_id AS "userId", auth_context AS "authContext" FROM accounts WHERE connector_type = 'imessage'`,
+    );
 
     for (const row of rows) {
       const decrypted = this.crypto.decrypt(row.authContext);
       if (!decrypted) continue;
       try {
-        const ctx = JSON.parse(decrypted) as { bridgeToken?: string };
-        if (ctx.bridgeToken === token) {
+        const ctx = JSON.parse(decrypted) as {
+          raw?: { bridgeToken?: string };
+          bridgeToken?: string;
+        };
+        const storedToken = ctx.raw?.bridgeToken || ctx.bridgeToken;
+        if (storedToken === token) {
           return { id: row.id, userId: row.userId };
         }
       } catch {

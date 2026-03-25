@@ -34,6 +34,8 @@ export class AccountsService {
     identifier: string;
     authContext?: string;
     userId?: string;
+    tunnelMode?: boolean;
+    status?: string;
   }) {
     const id = crypto.randomUUID();
     const now = new Date();
@@ -44,9 +46,10 @@ export class AccountsService {
         connectorType: data.connectorType,
         identifier: this.crypto.encrypt(data.identifier)!,
         identifierHash: this.crypto.hmac(data.identifier),
-        status: 'connected',
+        status: data.status || 'connected',
         schedule: 'manual',
         authContext: this.crypto.encrypt(data.authContext || null),
+        tunnelMode: data.tunnelMode ?? true,
         itemsSynced: 0,
         createdAt: now,
         updatedAt: now,
