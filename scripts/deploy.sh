@@ -16,7 +16,7 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/botmem}"
 ENV_FILE="${DEPLOY_DIR}/.env.prod"
 COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.prod.yml"
 HEALTH_URL="http://localhost:12412/api/version"
-HEALTH_TIMEOUT=90    # seconds to wait for health check
+HEALTH_TIMEOUT=180   # seconds to wait for health check (NestJS can take 2+ min on 2GB VPS)
 HEALTH_INTERVAL=5    # seconds between health check attempts
 
 echo "==> Deploying ghcr.io/botmem/botmem:${IMAGE_TAG}"
