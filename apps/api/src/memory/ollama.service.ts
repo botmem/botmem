@@ -1,8 +1,8 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 
 @Injectable()
-export class OllamaService implements OnModuleInit {
+export class OllamaService {
   private readonly logger = new Logger(OllamaService.name);
   private baseUrl: string;
   private embedModel: string;
@@ -25,25 +25,11 @@ export class OllamaService implements OnModuleInit {
         : {};
   }
 
-  async onModuleInit() {
-    // Pre-warm embedding model so first search isn't slow
-    try {
-      await fetch(`${this.baseUrl}/api/embed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...this.authHeaders },
-        body: JSON.stringify({ model: this.embedModel, input: 'warmup' }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      this.logger.log(`Pre-warmed embedding model: ${this.embedModel}`);
-    } catch {
-      this.logger.warn(
-        `Failed to pre-warm embedding model "${this.embedModel}" at ${this.baseUrl}. ` +
-          `This is normal if Ollama is still loading. The model will be loaded on first use.`,
-      );
-    }
-  }
+  // No onModuleInit — Ollama models stay loaded in memory.
+  // First real embed/generate call handles any cold start naturally.
 
   async embed(text: string, retries = 3): Promise<number[]> {
+    const t0 = Date.now();
     // Truncate long inputs upfront; models will truncate internally if still too long
     let input = text.length > 8000 ? text.slice(0, 8000) : text;
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -69,6 +55,9 @@ export class OllamaService implements OnModuleInit {
         if (!data.embeddings?.[0]) {
           throw new Error(`Empty embeddings for ${input.length} chars`);
         }
+        this.logger.log(
+          `llm_request provider=ollama model=${this.embedModel} op=embed duration_ms=${Date.now() - t0} input_chars=${input.length}`,
+        );
         return data.embeddings[0];
       } catch (err: unknown) {
         // Also catch context length errors that come through as thrown errors
@@ -92,6 +81,7 @@ export class OllamaService implements OnModuleInit {
     retries = 2,
     format?: Record<string, unknown>,
   ): Promise<{ text: string; inputTokens?: number; outputTokens?: number }> {
+    const t0 = Date.now();
     // Use VL model for images, text model for text-only; always disable thinking
     const hasImages = images?.length;
     const model = hasImages ? this.vlModel : this.textModel;
@@ -127,11 +117,12 @@ export class OllamaService implements OnModuleInit {
         const data = await res.json();
         // Strip <think>...</think> reasoning tags just in case
         const text = (data.message?.content || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
-        return {
-          text,
-          inputTokens: data.prompt_eval_count as number | undefined,
-          outputTokens: data.eval_count as number | undefined,
-        };
+        const inputTokens = data.prompt_eval_count as number | undefined;
+        const outputTokens = data.eval_count as number | undefined;
+        this.logger.log(
+          `llm_request provider=ollama model=${model} op=${hasImages ? 'vl' : 'generate'} duration_ms=${Date.now() - t0} input_tokens=${inputTokens ?? 0} output_tokens=${outputTokens ?? 0}`,
+        );
+        return { text, inputTokens, outputTokens };
       } catch (err) {
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));

@@ -46,6 +46,7 @@ export class GeminiEmbedService implements OnModuleInit {
   }
 
   async embed(text: string, retries = 3): Promise<number[]> {
+    const t0 = Date.now();
     const input = text.length > 8000 ? text.slice(0, 8000) : text;
     return this.withRetry(retries, async () => {
       const client = this.ensureClient();
@@ -56,11 +57,15 @@ export class GeminiEmbedService implements OnModuleInit {
       });
       const values = result.embeddings?.[0]?.values;
       if (!values?.length) throw new Error('Gemini returned empty embedding');
+      this.logger.log(
+        `llm_request provider=gemini model=${this.model} op=embed duration_ms=${Date.now() - t0} input_chars=${input.length}`,
+      );
       return values;
     });
   }
 
   async embedMultimodal(parts: EmbedPart[], retries = 3): Promise<number[]> {
+    const t0 = Date.now();
     return this.withRetry(retries, async () => {
       const client = this.ensureClient();
       const contentParts = parts.map((part) => {
@@ -83,6 +88,9 @@ export class GeminiEmbedService implements OnModuleInit {
       });
       const values = result.embeddings?.[0]?.values;
       if (!values?.length) throw new Error('Gemini returned empty multimodal embedding');
+      this.logger.log(
+        `llm_request provider=gemini model=${this.model} op=embed_multimodal duration_ms=${Date.now() - t0} parts=${parts.length}`,
+      );
       return values;
     });
   }

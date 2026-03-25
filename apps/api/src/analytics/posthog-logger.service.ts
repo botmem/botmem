@@ -86,7 +86,7 @@ export class PostHogLoggerService extends ConsoleLogger {
     const trace = this.traceContext?.current();
 
     this.ph.capture({
-      distinctId: this.serviceName,
+      distinctId: trace?.userId || this.serviceName,
       event: '$log_entry',
       properties: {
         $log_level: level,
@@ -95,6 +95,9 @@ export class PostHogLoggerService extends ConsoleLogger {
         $log_context: context,
         ...(stack && level === 'error' ? { $log_stack: stack } : {}),
         ...(trace ? { $log_trace_id: trace.traceId, $log_span_id: trace.spanId } : {}),
+        ...(trace?.userId ? { userId: trace.userId } : {}),
+        ...(trace?.jobId ? { jobId: trace.jobId } : {}),
+        ...(trace?.connectorType ? { connectorType: trace.connectorType } : {}),
         $current_url: `service://${this.serviceName}`,
       },
     });

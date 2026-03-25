@@ -149,6 +149,12 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
     const connectorType = rawRows[0]?.connectorType || 'unknown';
     const rawAccountId = rawRows[0]?.accountId;
 
+    // Enrich trace context with job metadata for PostHog log correlation
+    this.traceContext.set({
+      jobId: parentJobId ?? undefined,
+      connectorType,
+    });
+
     // Resolve ownerUserId from account (unscoped bootstrap — accounts table needs userId)
     let ownerUserId: string | null = null;
     if (rawAccountId) {
@@ -157,6 +163,7 @@ export class EnrichProcessor extends WorkerHost implements OnModuleInit {
         .from(accounts)
         .where(eq(accounts.id, rawAccountId));
       ownerUserId = acct?.userId ?? null;
+      if (ownerUserId) this.traceContext.set({ userId: ownerUserId });
     }
 
     // Run enrichment (enrichService uses unscoped db internally — acceptable for processor context)

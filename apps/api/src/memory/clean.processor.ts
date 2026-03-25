@@ -146,6 +146,12 @@ export class CleanProcessor extends WorkerHost implements OnModuleInit {
     const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
 
+    // Enrich trace context with job metadata for PostHog log correlation
+    this.traceContext.set({
+      jobId: parentJobId ?? undefined,
+      connectorType: rawEvent.connectorType,
+    });
+
     const event: ConnectorDataEvent = JSON.parse(
       this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
     );

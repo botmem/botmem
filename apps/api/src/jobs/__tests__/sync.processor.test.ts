@@ -100,7 +100,12 @@ function createMockDeps() {
   const traceContext = {
     current: vi.fn().mockReturnValue({ traceId: 'aaaa', spanId: 'bbbb' }),
     run: vi.fn().mockImplementation((_ctx: unknown, fn: () => unknown) => fn()),
-  } as unknown as { current: ReturnType<typeof vi.fn>; run: ReturnType<typeof vi.fn> };
+    set: vi.fn(),
+  } as unknown as {
+    current: ReturnType<typeof vi.fn>;
+    run: ReturnType<typeof vi.fn>;
+    set: ReturnType<typeof vi.fn>;
+  };
 
   const cryptoService = {
     encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : null)),

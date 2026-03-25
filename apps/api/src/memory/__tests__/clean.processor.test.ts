@@ -102,6 +102,7 @@ function createMockTraceContext() {
   return {
     run: vi.fn().mockImplementation((_ctx: unknown, fn: () => unknown) => fn()),
     current: vi.fn().mockReturnValue({ traceId: 'trace-123', spanId: 'span-456' }),
+    set: vi.fn(),
   } as unknown as TraceContext;
 }
 
