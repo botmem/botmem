@@ -9,6 +9,7 @@ import { SchedulerService } from './scheduler.service';
 import { ConfigService } from '../config/config.service';
 import { SettingsModule } from '../settings/settings.module';
 import { BillingModule } from '../billing/billing.module';
+import { ImsgTunnelModule } from '../imsg-tunnel/imsg-tunnel.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BillingModule } from '../billing/billing.module';
     forwardRef(() => AuthModule),
     SettingsModule,
     BillingModule,
+    ImsgTunnelModule,
   ],
   controllers: [JobsController],
   providers: [JobsService, SyncProcessor, SchedulerService],
