@@ -108,6 +108,7 @@ export class UserAuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('reset-password')
   @HttpCode(200)
   async resetPassword(@Body() dto: ResetPasswordDto) {
@@ -158,6 +159,7 @@ export class UserAuthController {
   // --- CLI OAuth Flow ---
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('cli/session')
   async cliCreateSession(
     @Body()
@@ -211,6 +213,7 @@ export class UserAuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('cli/token')
   @HttpCode(200)
   async cliToken(

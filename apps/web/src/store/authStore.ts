@@ -404,7 +404,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'botmem-auth',
-      partialize: (state) => ({ user: state.user }),
+      partialize: (state) => ({
+        user: state.user ? { id: state.user.id } : null,
+      }),
     },
   ),
 );

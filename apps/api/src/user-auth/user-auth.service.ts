@@ -38,8 +38,8 @@ export class UserAuthService {
   }
 
   async register(email: string, password: string, name: string) {
-    if (!password || password.length < 8) {
-      throw new BadRequestException('Password must be at least 8 characters long');
+    if (!password || password.length < 12) {
+      throw new BadRequestException('Password must be at least 12 characters long');
     }
 
     const passwordHash = await bcrypt.hash(password, 12);

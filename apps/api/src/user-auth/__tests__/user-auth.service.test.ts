@@ -112,7 +112,7 @@ describe('UserAuthService', () => {
   describe('register', () => {
     it('creates user with hashed password and returns tokens', async () => {
       vi.mocked(bcrypt.compare).mockResolvedValue(true);
-      const result = await service.register('test@test.com', 'password123', 'Test User');
+      const result = await service.register('test@test.com', 'password12345', 'Test User');
 
       expect(usersService.createUser).toHaveBeenCalledWith(
         'test@test.com',
@@ -125,7 +125,7 @@ describe('UserAuthService', () => {
       expect(result.user.name).toBe('Test User');
     });
 
-    it('rejects passwords shorter than 8 characters', async () => {
+    it('rejects passwords shorter than 12 characters', async () => {
       await expect(service.register('test@test.com', 'short', 'Test User')).rejects.toThrow(
         BadRequestException,
       );
@@ -136,7 +136,7 @@ describe('UserAuthService', () => {
         new Error('UNIQUE constraint failed: users.email'),
       );
 
-      await expect(service.register('test@test.com', 'password123', 'Test User')).rejects.toThrow(
+      await expect(service.register('test@test.com', 'password12345', 'Test User')).rejects.toThrow(
         ConflictException,
       );
     });
@@ -147,7 +147,7 @@ describe('UserAuthService', () => {
       usersService.findByEmail!.mockResolvedValue(mockUser);
       vi.mocked(bcrypt.compare).mockResolvedValue(true);
 
-      const result = await service.login('test@test.com', 'password123');
+      const result = await service.login('test@test.com', 'password12345');
 
       expect(result.accessToken).toBe('mock-jwt-token');
       expect(result.user.email).toBe('test@test.com');
@@ -166,7 +166,7 @@ describe('UserAuthService', () => {
       usersService.findByEmail!.mockResolvedValue(null);
       vi.mocked(bcrypt.compare).mockResolvedValue(false);
 
-      await expect(service.login('nobody@test.com', 'password123')).rejects.toThrow(
+      await expect(service.login('nobody@test.com', 'password12345')).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -176,7 +176,7 @@ describe('UserAuthService', () => {
       vi.mocked(bcrypt.compare).mockResolvedValue(false);
 
       try {
-        await service.login('nobody@test.com', 'password123');
+        await service.login('nobody@test.com', 'password12345');
       } catch {
         // expected
       }
