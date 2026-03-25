@@ -19,7 +19,7 @@ export default defineConfig(({ isSsrBuild }) => ({
   build: {
     target: 'esnext',
     cssMinify: 'lightningcss',
-    rolldownOptions: isSsrBuild
+    rollupOptions: isSsrBuild
       ? {}
       : {
           output: {
