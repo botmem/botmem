@@ -59,17 +59,16 @@ Successful responses vary by endpoint — see the individual reference pages.
 
 ### Memories
 
-| Method   | Path                              | Description                     |
-| -------- | --------------------------------- | ------------------------------- |
-| `POST`   | `/api/memories/search`            | Semantic search across memories |
-| `GET`    | `/api/memories`                   | List memories with pagination   |
-| `GET`    | `/api/memories/stats`             | Get memory statistics           |
-| `GET`    | `/api/memories/graph`             | Get the relationship graph      |
-| `GET`    | `/api/memories/:id`               | Get a single memory             |
-| `POST`   | `/api/memories`                   | Create a manual memory          |
-| `DELETE` | `/api/memories/:id`               | Delete a memory                 |
-| `POST`   | `/api/memories/retry-failed`      | Retry failed embeddings         |
-| `POST`   | `/api/memories/backfill-contacts` | Backfill contact links          |
+| Method   | Path                         | Description                     |
+| -------- | ---------------------------- | ------------------------------- |
+| `POST`   | `/api/memories/search`       | Semantic search across memories |
+| `GET`    | `/api/memories`              | List memories with pagination   |
+| `GET`    | `/api/memories/stats`        | Get memory statistics           |
+| `GET`    | `/api/memories/graph`        | Get the relationship graph      |
+| `GET`    | `/api/memories/:id`          | Get a single memory             |
+| `POST`   | `/api/memories`              | Create a manual memory          |
+| `DELETE` | `/api/memories/:id`          | Delete a memory                 |
+| `POST`   | `/api/memories/retry-failed` | Retry failed embeddings         |
 
 [Full reference](/api/memories)
 
@@ -152,11 +151,14 @@ Successful responses vary by endpoint — see the individual reference pages.
 
 ### Billing (Managed tier only)
 
-| Method | Path                    | Description                        |
-| ------ | ----------------------- | ---------------------------------- |
-| `GET`  | `/api/billing/status`   | Get subscription status            |
-| `POST` | `/api/billing/checkout` | Create Stripe checkout session     |
-| `POST` | `/api/billing/portal`   | Create Stripe customer portal link |
+| Method | Path                    | Description                                     |
+| ------ | ----------------------- | ----------------------------------------------- |
+| `GET`  | `/api/billing/info`     | Get subscription status + memory quota          |
+| `GET`  | `/api/billing/quota`    | Get memory quota usage (used, limit, remaining) |
+| `POST` | `/api/billing/checkout` | Create Stripe checkout session                  |
+| `POST` | `/api/billing/portal`   | Create Stripe customer portal link              |
+
+Free plan: 500 memories total across all connectors. Pro plan: unlimited. Self-hosted: unlimited. Contacts are not counted toward the limit.
 
 ### Settings
 

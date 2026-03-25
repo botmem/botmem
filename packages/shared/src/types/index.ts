@@ -150,11 +150,23 @@ export interface GraphData {
 export type SubscriptionPlan = 'free' | 'pro';
 export type SubscriptionStatus = 'free' | 'active' | 'past_due' | 'canceled' | 'trialing';
 
+/** Free plan: 500 memories total across all connectors */
+export const FREE_MEMORY_LIMIT = 500;
+
+export interface QuotaInfo {
+  used: number;
+  /** null = unlimited (pro or self-hosted) */
+  limit: number | null;
+  /** null = unlimited */
+  remaining: number | null;
+}
+
 export interface BillingInfo {
   plan: SubscriptionPlan;
   status: SubscriptionStatus;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  quota?: QuotaInfo;
 }
 
 export interface User {

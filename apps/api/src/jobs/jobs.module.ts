@@ -8,6 +8,7 @@ import { SyncProcessor } from './sync.processor';
 import { SchedulerService } from './scheduler.service';
 import { ConfigService } from '../config/config.service';
 import { SettingsModule } from '../settings/settings.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SettingsModule } from '../settings/settings.module';
     AccountsModule,
     forwardRef(() => AuthModule),
     SettingsModule,
+    BillingModule,
   ],
   controllers: [JobsController],
   providers: [JobsService, SyncProcessor, SchedulerService],

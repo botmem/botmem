@@ -7,6 +7,7 @@ import { CryptoService } from '../crypto/crypto.service';
 import { jobs, accounts } from '../db/schema';
 import { TraceContext } from '../tracing/trace.context';
 import { EventsService } from '../events/events.service';
+import { QuotaService } from '../billing/quota.service';
 
 /** How long a job can stay "running" with no progress before being marked stale */
 const STALE_JOB_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -20,6 +21,7 @@ export class JobsService {
     @InjectQueue('sync') private syncQueue: Queue,
     private traceContext: TraceContext,
     private events: EventsService,
+    private quotaService: QuotaService,
   ) {}
 
   /** Decrypt accountIdentifier on a job row */
@@ -33,6 +35,24 @@ export class JobsService {
     accountIdentifier?: string,
     memoryBankId?: string,
   ) {
+    // Advisory quota check — warn user if at limit (sync still proceeds for contacts)
+    const [acctRow] = await this.dbService.db
+      .select({ userId: accounts.userId })
+      .from(accounts)
+      .where(eq(accounts.id, accountId))
+      .limit(1);
+    if (acctRow?.userId) {
+      const quota = await this.quotaService.canCreateMemory(acctRow.userId);
+      if (!quota.allowed) {
+        this.events.emitToChannel(`user:${acctRow.userId}`, 'quota:warning', {
+          accountId,
+          connectorType,
+          used: quota.used,
+          limit: quota.limit,
+        });
+      }
+    }
+
     const id = crypto.randomUUID();
     const now = new Date();
 
