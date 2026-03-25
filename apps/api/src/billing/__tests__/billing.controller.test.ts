@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BillingController } from '../billing.controller';
 import { BadRequestException } from '@nestjs/common';
 import type { BillingService } from '../billing.service';
+import type { QuotaService } from '../quota.service';
 import type { ConfigService } from '../../config/config.service';
 
 vi.mock('stripe', () => {
@@ -16,6 +17,7 @@ vi.mock('stripe', () => {
 describe('BillingController', () => {
   let controller: BillingController;
   let billingService: Record<string, ReturnType<typeof vi.fn>>;
+  let quotaService: Record<string, ReturnType<typeof vi.fn>>;
   let config: { isSelfHosted: boolean; stripeSecretKey: string; stripeWebhookSecret: string };
   const user = { id: 'user-1', email: 'test@example.com' };
 
@@ -36,6 +38,9 @@ describe('BillingController', () => {
         }),
         handleWebhookEvent: vi.fn().mockResolvedValue(undefined),
       };
+      quotaService = {
+        getUserQuota: vi.fn().mockResolvedValue({ used: 42, limit: 500, remaining: 458 }),
+      };
       config = {
         isSelfHosted: false,
         stripeSecretKey: 'sk_test_xxx',
@@ -43,6 +48,7 @@ describe('BillingController', () => {
       };
       controller = new BillingController(
         billingService as unknown as BillingService,
+        quotaService as unknown as QuotaService,
         config as unknown as ConfigService,
       );
     });
@@ -67,7 +73,7 @@ describe('BillingController', () => {
     });
 
     describe('GET /info', () => {
-      it('returns enabled billing info', async () => {
+      it('returns enabled billing info with quota', async () => {
         const result = await controller.getBillingInfo(user);
         expect(result).toEqual({
           enabled: true,
@@ -75,6 +81,26 @@ describe('BillingController', () => {
           status: 'active',
           currentPeriodEnd: '2026-04-01T00:00:00.000Z',
           cancelAtPeriodEnd: false,
+          quota: { used: 42, limit: 500, remaining: 458 },
+        });
+      });
+    });
+
+    describe('GET /quota', () => {
+      it('returns quota info', async () => {
+        const result = await controller.getQuota(user);
+        expect(result).toEqual({
+          quota: { used: 42, limit: 500, remaining: 458 },
+          unlimited: false,
+        });
+      });
+
+      it('returns unlimited when limit is null', async () => {
+        quotaService.getUserQuota.mockResolvedValue({ used: 300, limit: null, remaining: null });
+        const result = await controller.getQuota(user);
+        expect(result).toEqual({
+          quota: { used: 300, limit: null, remaining: null },
+          unlimited: true,
         });
       });
     });
@@ -151,6 +177,9 @@ describe('BillingController', () => {
         getBillingInfo: vi.fn(),
         handleWebhookEvent: vi.fn(),
       };
+      quotaService = {
+        getUserQuota: vi.fn().mockResolvedValue({ used: 0, limit: null, remaining: null }),
+      };
       config = {
         isSelfHosted: true,
         stripeSecretKey: '',
@@ -158,6 +187,7 @@ describe('BillingController', () => {
       };
       controller = new BillingController(
         billingService as unknown as BillingService,
+        quotaService as unknown as QuotaService,
         config as unknown as ConfigService,
       );
     });

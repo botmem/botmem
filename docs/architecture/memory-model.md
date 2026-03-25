@@ -16,7 +16,7 @@ interface Memory {
   eventTime: string; // When the event occurred (ISO 8601)
   ingestTime: string; // When Botmem ingested it (ISO 8601)
   factuality: string; // JSON: {label, confidence, rationale}
-  weights: string; // JSON: {semantic, rerank, recency, importance, trust, final}
+  weights: string; // JSON: {semantic, recency, importance, trust, final}
   entities: string; // JSON array: [{type, value, confidence}]
   claims: string; // JSON array: extracted factual claims
   metadata: string; // JSON: connector-specific data
@@ -31,29 +31,26 @@ All JSON fields are stored as text in PostgreSQL and parsed at the application l
 
 When you search for memories, each result receives a **final score** computed from multiple weighted factors.
 
-### Default weights (no reranker)
+### Weights
+
+Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments.
 
 ```
+# Recall intent (default):
 final = 0.40 * semantic + 0.25 * recency + 0.20 * importance + 0.15 * trust
+
+# Browse intent:
+final = 0.40 * semantic + 0.40 * recency + 0.15 * importance + 0.05 * trust
 ```
 
-### With reranker enabled
+### Weight Components (recall intent)
 
-```
-final = 0.40 * semantic + 0.30 * rerank + 0.15 * recency + 0.10 * importance + 0.05 * trust
-```
-
-When a reranker is configured, it provides a second-pass relevance score that significantly improves result quality.
-
-### Weight Components
-
-| Weight (default) | Weight (reranker) | Factor       | Range     | Description                                                            |
-| ---------------- | ----------------- | ------------ | --------- | ---------------------------------------------------------------------- |
-| 0.40             | 0.40              | `semantic`   | 0.0 - 1.0 | Typesense vector similarity between query and memory embeddings        |
-| —                | 0.30              | `rerank`     | 0.0 - 1.0 | Second-pass reranker relevance score                                   |
-| 0.25             | 0.15              | `recency`    | 0.0 - 1.0 | Exponential decay from event time: `exp(-0.005 * age_days)` in search  |
-| 0.20             | 0.10              | `importance` | 0.0 - 1.0 | Base 0.5, boosted by entity count: `0.5 + min(entityCount * 0.1, 0.4)` |
-| 0.15             | 0.05              | `trust`      | 0.0 - 1.0 | Connector-specific base trust score                                    |
+| Weight | Factor       | Range     | Description                                                            |
+| ------ | ------------ | --------- | ---------------------------------------------------------------------- |
+| 0.40   | `semantic`   | 0.0 - 1.0 | Typesense vector similarity between query and memory embeddings        |
+| 0.25   | `recency`    | 0.0 - 1.0 | Exponential decay from event time: `exp(-0.005 * age_days)` in search  |
+| 0.20   | `importance` | 0.0 - 1.0 | Base 0.5, boosted by entity count: `0.5 + min(entityCount * 0.1, 0.4)` |
+| 0.15   | `trust`      | 0.0 - 1.0 | Connector-specific base trust score                                    |
 
 ### Recency Decay
 
@@ -150,6 +147,46 @@ The enrichment processor extracts structured entities from memory text:
 
 Entity types include: `person`, `organization`, `topic`, `date`, `amount`, `location`, `product`, `event`.
 
+## Contact Resolution
+
+During the embed phase, person/group/organization entities are resolved into unified contacts in the `people` table. The goal is **one contact per real person across all connectors**.
+
+### Merge Rules
+
+Contacts merge automatically when they share any of these **universal identifiers**:
+
+| Identifier         | Example            | Drives merge?                      |
+| ------------------ | ------------------ | ---------------------------------- |
+| `email`            | `john@example.com` | Yes                                |
+| `phone`            | `+14155551234`     | Yes                                |
+| `name` (2+ words)  | `John Smith`       | Yes (exact match, accent-stripped) |
+| `slack_id`         | `U0ABC123`         | No — stored but not mergeable      |
+| `telegram_id`      | `12345678`         | No — stored but not mergeable      |
+| `immich_person_id` | `uuid`             | No — stored but not mergeable      |
+
+### Name Normalization
+
+Display names are normalized before hashing for dedup:
+
+- Accents stripped (NFD decompose, remove combining marks): `Amélie` → `Amelie`
+- Lowercased: `John Smith` → `john smith`
+- Whitespace collapsed, zero-width chars removed
+- Single-word names (e.g. "John") do **not** trigger merges — too ambiguous
+
+### Entity Type
+
+Entity type (`person`, `group`, `organization`, `device`) is set at contact creation and never overwritten. A contact created as `person` stays `person` even if later referenced from a group entity.
+
+### Connector Entity Patterns
+
+| Connector        | Entity ID format                          | Merge-driving fields |
+| ---------------- | ----------------------------------------- | -------------------- |
+| Gmail            | `email:x@y.com\|name:John`                | email, name          |
+| Slack (messages) | `name:John\|email:x@y.com`                | email, name          |
+| Slack (contacts) | `name:John\|slack_id:U123\|email:x@y.com` | email, name          |
+| WhatsApp         | `phone:+1234\|name:John`                  | phone, name          |
+| iMessage         | `email:x@y.com` or `phone:+1234`          | email, phone         |
+
 ## Vector Embeddings
 
 Each memory is embedded using the configured AI backend:
@@ -175,3 +212,28 @@ Each document in Typesense carries metadata for filtered search:
 ```
 
 This enables queries like "search only Gmail emails" or "search photos from last month."
+
+## Quota Enforcement
+
+In cloud mode (Firebase auth, Stripe billing), free-plan users are limited to **500 memories total** across all connectors. Pro subscribers and self-hosted deployments have no limit.
+
+### Enforcement points
+
+1. **EmbedProcessor** (primary) — before the memory INSERT, `QuotaService.canCreateMemory()` checks the user's total memory count. If the limit is reached, the memory is skipped (not thrown — the job succeeds with a warning log). Raw events are preserved in `rawEvents` so they can be re-processed after an upgrade.
+
+2. **Sync trigger** (advisory) — when a sync is triggered via `JobsService.triggerSync()`, a pre-check emits a `quota:warning` WebSocket event if the user is at the limit. The sync still proceeds (contacts and groups update regardless).
+
+### What counts
+
+- Only rows in the `memories` table count toward the quota.
+- Contacts, contact identifiers, memory-contact links, and raw events are excluded.
+- The count query: `SELECT COUNT(*) FROM memories WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $userId)`.
+
+### Caching
+
+Memory counts are cached in-process for 30 seconds to avoid repeated DB queries during high-throughput sync. After each successful INSERT, the cache is incremented in-place.
+
+### API
+
+- `GET /api/billing/quota` — returns `{ quota: { used, limit, remaining }, unlimited }`.
+- `GET /api/billing/info` — includes `quota` field alongside plan/status info.

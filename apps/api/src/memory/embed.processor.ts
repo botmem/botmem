@@ -20,6 +20,7 @@ import { PluginRegistry } from '../plugins/plugin-registry';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
 import { GeoService } from '../geo/geo.service';
+import { QuotaService } from '../billing/quota.service';
 import {
   rawEvents,
   memories,
@@ -65,6 +66,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     private analytics: AnalyticsService,
     private config: ConfigService,
     private geo: GeoService,
+    private quotaService: QuotaService,
     @InjectQueue('enrich') private enrichQueue: Queue,
     private traceContext: TraceContext,
   ) {
@@ -140,6 +142,12 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const rawEvent = rows[0];
     const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
+
+    // Enrich trace context with job metadata for PostHog log correlation
+    this.traceContext.set({
+      jobId: parentJobId ?? undefined,
+      connectorType: rawEvent.connectorType,
+    });
 
     const event: ConnectorDataEvent = JSON.parse(
       this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
@@ -561,6 +569,22 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     currentText = stripNullBytes(currentText);
     const metadataStr = stripNullBytes(JSON.stringify(mergedMetadata));
 
+    // Quota check — skip memory creation if free plan limit reached
+    if (ownerUserId) {
+      const quota = await this.quotaService.canCreateMemory(ownerUserId);
+      if (!quota.allowed) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[embed:quota] Skipped — reached ${quota.limit} memory limit (free plan). Upgrade to Pro for unlimited.`,
+          parentJobId,
+        );
+        await this.advanceAndComplete(parentJobId);
+        return;
+      }
+    }
+
     // Encrypt memory fields with user's DEK before inserting into DB.
     // If DEK unavailable, throw to trigger BullMQ retry (user must submit recovery key).
     let insertText = currentText;
@@ -634,6 +658,11 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
         .where(eq(memories.id, memoryId));
     }
     const dbInsertMs = Date.now() - t0;
+
+    // Bump quota cache after successful insert
+    if (ownerUserId) {
+      this.quotaService.incrementCachedCount(ownerUserId);
+    }
 
     // Link contacts + threads now that memory row exists
     let contactCount = 0;

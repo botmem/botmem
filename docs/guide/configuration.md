@@ -50,17 +50,6 @@ Botmem supports two AI backends — **Ollama** (local, default) and **OpenRouter
 When using OpenRouter with Gemini embeddings, set `EMBED_DIMENSION=3072` to match the model's output.
 :::
 
-### Reranker
-
-Reranking improves search result quality by re-scoring initial vector matches. Optional — when disabled, rerank scores are 0.
-
-| Variable                | Default                                    | Description                                        |
-| ----------------------- | ------------------------------------------ | -------------------------------------------------- |
-| `RERANKER_BACKEND`      | `ollama` (or `tei` if RERANKER_URL is set) | Backend: `tei`, `ollama`, `jina`, or `none`        |
-| `RERANKER_URL`          | _(empty)_                                  | HuggingFace TEI `/rerank` endpoint URL             |
-| `OLLAMA_RERANKER_MODEL` | `sam860/qwen3-reranker:0.6b-Q8_0`          | Ollama reranker model                              |
-| `JINA_API_KEY`          | _(empty)_                                  | Jina API key (required if `RERANKER_BACKEND=jina`) |
-
 ### Authentication
 
 | Variable                 | Default                                     | Description                                |
@@ -101,7 +90,9 @@ The server logs `Using default dev secrets (OK for local/self-hosted)` when defa
 | `STRIPE_WEBHOOK_SECRET` | _(empty)_ | Stripe webhook signing secret                |
 | `STRIPE_PRO_PRICE_ID`   | _(empty)_ | Stripe price ID for Pro plan                 |
 
-When `STRIPE_SECRET_KEY` is empty, the app runs in self-hosted mode with no billing features.
+When `STRIPE_SECRET_KEY` is empty, the app runs in self-hosted mode with no billing features and no memory quotas (unlimited).
+
+In cloud mode (Stripe configured), free-plan users are limited to 500 memories total across all connectors. Pro subscribers get unlimited memories. Search always works regardless of plan.
 
 ### Email (optional)
 
@@ -119,6 +110,12 @@ When `STRIPE_SECRET_KEY` is empty, the app runs in self-hosted mode with no bill
 | ----------------- | -------------------------- | ----------------------- |
 | `POSTHOG_API_KEY` | _(empty)_                  | PostHog project API key |
 | `POSTHOG_HOST`    | `https://us.i.posthog.com` | PostHog ingestion host  |
+
+### Conversation Search
+
+| Variable         | Default   | Description                                                                                                               |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key for Typesense conversation model (`gpt-4.1-nano`). Optional — conversation search is skipped when not set. |
 
 ### Other
 
@@ -168,16 +165,6 @@ services:
       - '11434:11434'
     volumes:
       - ollama-data:/root/.ollama
-
-  # Optional: HuggingFace TEI reranker
-  reranker:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
-    profiles: [reranker]
-    ports:
-      - '8080:80'
-    command: --model-id BAAI/bge-reranker-v2-m3 --port 80
-    volumes:
-      - reranker-data:/data
 ```
 
 To start optional services, use Docker Compose profiles:
@@ -189,8 +176,6 @@ docker compose up -d
 # Include local Ollama
 docker compose --profile ollama up -d
 
-# Include TEI reranker
-docker compose --profile reranker up -d
 ```
 
 Ollama can also run separately — either locally or on a dedicated GPU machine. Set `OLLAMA_BASE_URL` to point to wherever your Ollama instance lives.

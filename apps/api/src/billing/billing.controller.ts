@@ -13,6 +13,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { BillingService } from './billing.service';
+import { QuotaService } from './quota.service';
 import { ConfigService } from '../config/config.service';
 import Stripe from 'stripe';
 import type { Request, Response } from 'express';
@@ -26,6 +27,7 @@ export class BillingController {
 
   constructor(
     private billingService: BillingService,
+    private quotaService: QuotaService,
     private config: ConfigService,
   ) {
     if (!this.config.isSelfHosted) {
@@ -55,7 +57,14 @@ export class BillingController {
       return { enabled: false };
     }
     const info = await this.billingService.getBillingInfo(user.id);
-    return { enabled: true, ...info };
+    const quota = await this.quotaService.getUserQuota(user.id);
+    return { enabled: true, ...info, quota };
+  }
+
+  @Get('quota')
+  async getQuota(@CurrentUser() user: { id: string }) {
+    const quota = await this.quotaService.getUserQuota(user.id);
+    return { quota, unlimited: quota.limit === null };
   }
 
   @Public()

@@ -9,6 +9,7 @@ interface BillingData {
   status?: string;
   currentPeriodEnd?: string | null;
   cancelAtPeriodEnd?: boolean;
+  quota?: { used: number; limit: number | null; remaining: number | null };
 }
 
 export function BillingTab() {
@@ -126,11 +127,16 @@ export function BillingTab() {
         )}
       </div>
 
+      {!isPro && billing.quota && billing.quota.limit !== null && (
+        <QuotaBar used={billing.quota.used} limit={billing.quota.limit} />
+      )}
+
       {isPro ? (
         <div>
           <div className="p-4 border-3 border-nb-lime/30 bg-nb-surface-muted mb-4">
             <p className="font-mono text-xs text-nb-muted">Your Pro plan includes:</p>
             <ul className="font-mono text-xs text-nb-text mt-2 flex flex-col gap-1">
+              <li>Unlimited memories</li>
               <li>Unlimited connectors</li>
               <li>Priority enrichment pipeline</li>
               <li>Advanced search &amp; analytics</li>
@@ -164,5 +170,40 @@ export function BillingTab() {
         </div>
       )}
     </>
+  );
+}
+
+function QuotaBar({ used, limit }: { used: number; limit: number }) {
+  const pct = Math.min(100, Math.round((used / limit) * 100));
+  const atLimit = used >= limit;
+
+  return (
+    <div
+      className={cn(
+        'p-4 mb-4 border-3 bg-nb-surface-muted',
+        atLimit ? 'border-nb-red' : 'border-nb-border',
+      )}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-display text-sm font-bold uppercase tracking-wider text-nb-text">
+          MEMORY USAGE
+        </span>
+        <span className={cn('font-mono text-xs', atLimit ? 'text-nb-red' : 'text-nb-muted')}>
+          {used.toLocaleString()} / {limit.toLocaleString()}
+        </span>
+      </div>
+      <div className="w-full h-2 bg-nb-bg border border-nb-border">
+        <div
+          className={cn('h-full transition-all', atLimit ? 'bg-nb-red' : 'bg-nb-lime')}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {atLimit && (
+        <p className="font-mono text-xs text-nb-red mt-2">
+          Memory limit reached. New memories are being skipped during sync. Upgrade to Pro for
+          unlimited.
+        </p>
+      )}
+    </div>
   );
 }
