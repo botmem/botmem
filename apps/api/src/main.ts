@@ -43,7 +43,6 @@ async function bootstrap() {
 
   // In dev mode, mount Vite BEFORE NestJS so it handles frontend assets + HMR
   if (isDev) {
-    // @ts-expect-error — vite is a dev-only dependency, not available at API typecheck time
     const { createServer: createViteServer } = await import('vite');
     const webRoot = join(__dirname, '..', '..', 'web');
     vite = await createViteServer({
