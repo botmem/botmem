@@ -70,6 +70,12 @@ program
       console.log(`  ${msg}`);
     });
 
+    tunnel.on('fatal', (msg: string) => {
+      console.error(`\n  FATAL: ${msg}\n`);
+      db.close();
+      process.exit(1);
+    });
+
     tunnel.connect();
 
     // ── Graceful shutdown ─────────────────────────────────────────────────
