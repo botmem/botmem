@@ -145,8 +145,12 @@ export class TunnelClient extends EventEmitter {
       if (msg.event !== 'auth') return;
 
       if (!msg.data.ok) {
-        this.emit('log', `Auth failed: ${msg.data.reason || 'unknown'}`);
+        const reason = msg.data.reason || 'unknown';
+        this.emit('log', `Auth failed: ${reason}`);
+        // Permanent auth failures — don't reconnect
+        this.destroyed = true;
         this.setStatus('error');
+        this.emit('fatal', `Authentication failed: ${reason}. Check your bridge token.`);
         ws.close(4401, 'Auth failed');
         return;
       }
