@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { eq, desc, inArray, sql, and, lt, isNull } from 'drizzle-orm';
@@ -13,7 +13,7 @@ import { QuotaService } from '../billing/quota.service';
 const STALE_JOB_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 @Injectable()
-export class JobsService {
+export class JobsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(JobsService.name);
   constructor(
     private dbService: DbService,
@@ -23,6 +23,76 @@ export class JobsService {
     private events: EventsService,
     private quotaService: QuotaService,
   ) {}
+
+  async onApplicationBootstrap() {
+    await this.recoverStaleState();
+    await this.cleanOrphanedRepeatJobs();
+  }
+
+  /** Reset accounts stuck in 'syncing' and jobs stuck in 'running' after a crash/restart. */
+  private async recoverStaleState() {
+    // Reset syncing accounts → connected
+    const staleAccounts = await this.dbService.db
+      .update(accounts)
+      .set({ status: 'connected' })
+      .where(eq(accounts.status, 'syncing'))
+      .returning({ id: accounts.id });
+
+    if (staleAccounts.length > 0) {
+      this.logger.log(
+        `[startup] Reset ${staleAccounts.length} stale syncing account(s) to connected`,
+      );
+    }
+
+    // Reset running jobs → failed
+    const staleJobs = await this.dbService.db
+      .update(jobs)
+      .set({ status: 'failed', error: 'Server restarted', completedAt: new Date() })
+      .where(eq(jobs.status, 'running'))
+      .returning({ id: jobs.id });
+
+    if (staleJobs.length > 0) {
+      this.logger.log(`[startup] Reset ${staleJobs.length} stale running job(s) to failed`);
+    }
+
+    // Also reset queued jobs — BullMQ queue was likely flushed on restart
+    const queuedJobs = await this.dbService.db
+      .update(jobs)
+      .set({ status: 'failed', error: 'Server restarted', completedAt: new Date() })
+      .where(eq(jobs.status, 'queued'))
+      .returning({ id: jobs.id });
+
+    if (queuedJobs.length > 0) {
+      this.logger.log(`[startup] Reset ${queuedJobs.length} stale queued job(s) to failed`);
+    }
+  }
+
+  /** Remove BullMQ repeat jobs whose accounts no longer exist. */
+  private async cleanOrphanedRepeatJobs() {
+    const repeatJobs = await this.syncQueue.getRepeatableJobs();
+    let removed = 0;
+
+    for (const rj of repeatJobs) {
+      // Repeatable job names follow pattern: scheduled:<accountId>
+      const accountId = rj.name?.replace('scheduled:', '');
+      if (!accountId) continue;
+
+      const [acct] = await this.dbService.db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1);
+
+      if (!acct) {
+        await this.syncQueue.removeRepeatableByKey(rj.key);
+        removed++;
+      }
+    }
+
+    if (removed > 0) {
+      this.logger.log(`[startup] Removed ${removed} orphaned repeat job(s)`);
+    }
+  }
 
   /** Decrypt accountIdentifier on a job row */
   private decryptJob<T extends { accountIdentifier: string | null }>(row: T): T {
@@ -35,6 +105,24 @@ export class JobsService {
     accountIdentifier?: string,
     memoryBankId?: string,
   ) {
+    // Prevent concurrent syncs for the same account — skip if one is already queued/running
+    const [existing] = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ id: jobs.id, status: jobs.status })
+        .from(jobs)
+        .where(and(eq(jobs.accountId, accountId), inArray(jobs.status, ['queued', 'running'])))
+        .limit(1),
+    );
+    if (existing) {
+      this.logger.log(
+        `Skipping sync for account ${accountId} — job ${existing.id} already ${existing.status}`,
+      );
+      const [job] = await this.dbService.withCurrentUser((db) =>
+        db.select().from(jobs).where(eq(jobs.id, existing.id)),
+      );
+      return job ? this.decryptJob(job) : job;
+    }
+
     // Advisory quota check — warn user if at limit (sync still proceeds for contacts)
     const [acctRow] = await this.dbService.db
       .select({ userId: accounts.userId })
@@ -281,5 +369,23 @@ export class JobsService {
     }
 
     return stale.length;
+  }
+
+  /** Remove all BullMQ repeatable jobs for a given account. Called when an account is deleted. */
+  async removeRepeatableJobsForAccount(accountId: string): Promise<number> {
+    const repeatJobs = await this.syncQueue.getRepeatableJobs();
+    let removed = 0;
+
+    for (const rj of repeatJobs) {
+      if (rj.name === `scheduled:${accountId}`) {
+        await this.syncQueue.removeRepeatableByKey(rj.key);
+        removed++;
+      }
+    }
+
+    if (removed > 0) {
+      this.logger.log(`Removed ${removed} repeatable job(s) for account ${accountId}`);
+    }
+    return removed;
   }
 }
