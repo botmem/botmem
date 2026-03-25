@@ -33,7 +33,7 @@ vi.mock('net', () => {
   };
 });
 
-describe('ImsgClient', () => {
+describe('ImsgClient (via TcpTransport)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockSocket = createMockSocket();
@@ -44,9 +44,14 @@ describe('ImsgClient', () => {
     vi.clearAllMocks();
   });
 
-  async function makeAndConnect() {
+  async function makeClient() {
+    const { TcpTransport } = await import('../transport.js');
     const { ImsgClient } = await import('../imsg-client.js');
-    const client = new ImsgClient('localhost', 19876);
+    return new ImsgClient(new TcpTransport('localhost', 19876));
+  }
+
+  async function makeAndConnect() {
+    const client = await makeClient();
     const p = client.connect();
     const calls = mockSocket.connect.mock.calls;
     calls[calls.length - 1][2](); // trigger connect callback
@@ -56,8 +61,7 @@ describe('ImsgClient', () => {
 
   describe('connect', () => {
     it('resolves when connection succeeds', async () => {
-      const { ImsgClient } = await import('../imsg-client.js');
-      const client = new ImsgClient('localhost', 19876);
+      const client = await makeClient();
       const p = client.connect();
       mockSocket.connect.mock.calls[0][2]();
       await p;
@@ -71,8 +75,7 @@ describe('ImsgClient', () => {
     });
 
     it('rejects on socket error', async () => {
-      const { ImsgClient } = await import('../imsg-client.js');
-      const client = new ImsgClient('localhost', 19876);
+      const client = await makeClient();
       const connectPromise = client.connect();
       mockSocket.emit('error', new Error('Connection refused'));
       await expect(connectPromise).rejects.toThrow('Connection refused');
@@ -89,13 +92,6 @@ describe('ImsgClient', () => {
       client.disconnect();
       expect(mockSocket.destroy).toHaveBeenCalled();
       await expect(reqPromise).rejects.toThrow('Client disconnected');
-    });
-
-    it('clears buffer on disconnect', async () => {
-      const client = await makeAndConnect();
-      (client as unknown as { buffer: string }).buffer = 'leftover';
-      client.disconnect();
-      expect((client as unknown as { buffer: string }).buffer).toBe('');
     });
   });
 
@@ -248,8 +244,7 @@ describe('ImsgClient', () => {
     });
 
     it('rejects when not connected', async () => {
-      const { ImsgClient } = await import('../imsg-client.js');
-      const client = new ImsgClient('localhost', 19876);
+      const client = await makeClient();
       await expect(client.chatsList()).rejects.toThrow('Not connected');
     });
 
