@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { OnModuleInit, Logger } from '@nestjs/common';
+import { OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -39,7 +39,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private configService: ConfigService,
     private analytics: AnalyticsService,
     private traceContext: TraceContext,
-    private imsgTunnel: ImsgTunnelService,
+    @Optional() private imsgTunnel: ImsgTunnelService,
   ) {
     super();
   }
@@ -228,7 +228,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         if (
           connectorType === 'imessage' &&
           account.tunnelMode &&
-          'setTunnelTransport' in connector
+          'setTunnelTransport' in connector &&
+          this.imsgTunnel
         ) {
           (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
             new WsTunnelTransport(this.imsgTunnel, accountId),
