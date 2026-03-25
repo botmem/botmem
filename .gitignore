@@ -33,6 +33,7 @@ business/
 
 # Tooling state
 .claude-flow/
+.claude/worktrees/
 .agents/
 scripts/
 *.swp
