@@ -54,6 +54,8 @@ yourdomain.com {
 		file_server
 	}
 
-	# API + frontend
-	reverse_proxy api:12412
+	# API + frontend — strip Helmet CSP (Caddy sets the authoritative one above)
+	reverse_proxy api:12412 {
+		header_down -Content-Security-Policy
+	}
 }
