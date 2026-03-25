@@ -81,11 +81,13 @@ describe('JobsService', () => {
 
   describe('triggerSync', () => {
     it('creates job and queues sync', async () => {
-      // First chain: select→from→where→limit (quota check) — limit resolves to []
-      // Second chain: withCurrentUser insert (values resolves)
-      // Third chain: withCurrentUser select→from→where (returns job)
-      mockDb.where.mockReturnValueOnce(mockDb); // quota check chain — continues to .limit()
-      mockDb.where.mockResolvedValueOnce([fakeJob]); // select after insert
+      // where calls: 1=dedup(chain), 2=quota(chain), 3=select-after-insert(resolve)
+      // limit calls: 1=dedup(no job), 2=quota(uses default [])
+      mockDb.where
+        .mockReturnValueOnce(mockDb) // dedup where → chain to .limit()
+        .mockReturnValueOnce(mockDb) // quota where → chain to .limit()
+        .mockResolvedValueOnce([fakeJob]); // select-after-insert → resolve
+      mockDb.limit.mockResolvedValueOnce([]); // dedup limit → no existing job
       const result = await service.triggerSync('acc-1', 'gmail', 'test@gmail.com');
       expect(result).toEqual(fakeJob);
       expect(syncQueue.add).toHaveBeenCalledWith(
@@ -93,6 +95,19 @@ describe('JobsService', () => {
         expect.objectContaining({ accountId: 'acc-1', connectorType: 'gmail' }),
         expect.any(Object),
       );
+    });
+
+    it('skips sync when job already queued/running for account', async () => {
+      const existingJob = { ...fakeJob, id: 'existing-job', status: 'running' };
+      // where calls: 1=dedup(chain), 2=select-existing(resolve)
+      mockDb.where
+        .mockReturnValueOnce(mockDb) // dedup where → chain to .limit()
+        .mockResolvedValueOnce([existingJob]); // select existing → resolve
+      mockDb.limit.mockResolvedValueOnce([existingJob]); // dedup limit → found existing
+      const result = await service.triggerSync('acc-1', 'gmail', 'test@gmail.com');
+      expect(result).toEqual(existingJob);
+      // Should NOT have enqueued a new job
+      expect(syncQueue.add).not.toHaveBeenCalled();
     });
   });
 
@@ -233,6 +248,106 @@ describe('JobsService', () => {
     it('returns 0 when no done jobs', async () => {
       mockDb.where.mockResolvedValueOnce([]);
       const result = await service.cleanupDone();
+      expect(result).toBe(0);
+    });
+  });
+
+  describe('onApplicationBootstrap', () => {
+    it('resets stale syncing accounts to connected', async () => {
+      mockDb.returning = vi.fn().mockResolvedValueOnce([{ id: 'acc-1' }]);
+      mockDb.where.mockReturnValueOnce(mockDb); // syncing accounts update
+      mockDb.set.mockReturnValueOnce(mockDb); // chain
+
+      // Mock remaining calls for jobs reset (running + queued) + orphan cleanup
+      mockDb.returning
+        .mockResolvedValueOnce([]) // running jobs
+        .mockResolvedValueOnce([]); // queued jobs
+      mockDb.where
+        .mockReturnValueOnce(mockDb) // running jobs update
+        .mockReturnValueOnce(mockDb); // queued jobs update
+      mockDb.set
+        .mockReturnValueOnce(mockDb) // running jobs
+        .mockReturnValueOnce(mockDb); // queued jobs
+
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([]);
+
+      await service.onApplicationBootstrap();
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(mockDb.set).toHaveBeenCalled();
+    });
+
+    it('resets stale running jobs to failed', async () => {
+      mockDb.returning = vi
+        .fn()
+        .mockResolvedValueOnce([]) // syncing accounts
+        .mockResolvedValueOnce([{ id: 'job-1' }]) // running jobs
+        .mockResolvedValueOnce([]); // queued jobs
+      mockDb.where
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb);
+      mockDb.set
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb);
+
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([]);
+
+      await service.onApplicationBootstrap();
+      expect(mockDb.update).toHaveBeenCalled();
+    });
+
+    it('removes orphaned repeat jobs for deleted accounts', async () => {
+      mockDb.returning = vi
+        .fn()
+        .mockResolvedValueOnce([]) // syncing accounts
+        .mockResolvedValueOnce([]) // running jobs
+        .mockResolvedValueOnce([]); // queued jobs
+      mockDb.where
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb);
+      mockDb.set
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb);
+
+      const removeByKey = vi.fn().mockResolvedValue(undefined);
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([
+        { name: 'scheduled:deleted-acc', key: 'repeat:abc' },
+        { name: 'scheduled:existing-acc', key: 'repeat:def' },
+      ]);
+      (syncQueue as Record<string, unknown>).removeRepeatableByKey = removeByKey;
+
+      // Account lookup: deleted-acc not found, existing-acc found
+      mockDb.limit
+        .mockResolvedValueOnce([]) // deleted-acc → not found
+        .mockResolvedValueOnce([{ id: 'existing-acc' }]); // existing-acc → found
+
+      await service.onApplicationBootstrap();
+      expect(removeByKey).toHaveBeenCalledWith('repeat:abc');
+      expect(removeByKey).not.toHaveBeenCalledWith('repeat:def');
+    });
+  });
+
+  describe('removeRepeatableJobsForAccount', () => {
+    it('removes matching repeatable jobs', async () => {
+      const removeByKey = vi.fn().mockResolvedValue(undefined);
+      (syncQueue as Record<string, unknown>).removeRepeatableByKey = removeByKey;
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([
+        { name: 'scheduled:acc-1', key: 'repeat:k1' },
+        { name: 'scheduled:acc-2', key: 'repeat:k2' },
+      ]);
+
+      const result = await service.removeRepeatableJobsForAccount('acc-1');
+      expect(result).toBe(1);
+      expect(removeByKey).toHaveBeenCalledWith('repeat:k1');
+      expect(removeByKey).not.toHaveBeenCalledWith('repeat:k2');
+    });
+
+    it('returns 0 when no matching jobs', async () => {
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([]);
+      const result = await service.removeRepeatableJobsForAccount('acc-1');
       expect(result).toBe(0);
     });
   });

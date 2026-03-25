@@ -1,4 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { eq, sql, inArray, or } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -18,6 +20,7 @@ export class AccountsService {
     private connectors: ConnectorsService,
     private typesense: TypesenseService,
     private analytics: AnalyticsService,
+    @InjectQueue('sync') private syncQueue: Queue,
   ) {}
 
   /** Decrypt authContext and identifier on an account row */
@@ -145,6 +148,18 @@ export class AccountsService {
       }
     } catch (err) {
       this.logger.warn(`Failed to revoke auth for account ${id} (${account.connectorType}):`, err);
+    }
+
+    // Remove BullMQ repeatable sync jobs for this account
+    try {
+      const repeatJobs = await this.syncQueue.getRepeatableJobs();
+      for (const rj of repeatJobs) {
+        if (rj.name === `scheduled:${id}`) {
+          await this.syncQueue.removeRepeatableByKey(rj.key);
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to clean BullMQ jobs for account ${id}:`, err);
     }
 
     // Wrap all deletes in a transaction for atomicity

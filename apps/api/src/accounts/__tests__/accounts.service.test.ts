@@ -10,6 +10,7 @@ describe('AccountsService', () => {
   let connectors: Record<string, ReturnType<typeof vi.fn>>;
   let typesense: Record<string, ReturnType<typeof vi.fn>>;
   let analytics: Record<string, ReturnType<typeof vi.fn>>;
+  let syncQueue: Record<string, ReturnType<typeof vi.fn>>;
 
   // Chain-style mock that supports select/from/where/limit/delete/insert/update/set/values
   function createChainDb(results: unknown[] = []) {
@@ -53,7 +54,11 @@ describe('AccountsService', () => {
       remove: vi.fn().mockResolvedValue(undefined),
     };
     analytics = { capture: vi.fn() };
-    service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+    syncQueue = {
+      getRepeatableJobs: vi.fn().mockResolvedValue([]),
+      removeRepeatableByKey: vi.fn().mockResolvedValue(undefined),
+    };
+    service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
   });
 
   describe('create', () => {
@@ -223,10 +228,11 @@ describe('AccountsService', () => {
         undefined, // delete accounts
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
 
       await service.remove('a1');
       expect(connectors.get).toHaveBeenCalledWith('gmail');
+      expect(syncQueue.getRepeatableJobs).toHaveBeenCalled();
     });
 
     it('handles revokeAuth failure gracefully', async () => {
@@ -243,7 +249,7 @@ describe('AccountsService', () => {
         undefined,
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
 
       // Should not throw
       await service.remove('a1');
@@ -252,7 +258,7 @@ describe('AccountsService', () => {
     it('throws if account not found', async () => {
       mockDb = createChainDb([[]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
 
       await expect(service.remove('nonexistent')).rejects.toThrow(NotFoundException);
     });
@@ -268,7 +274,7 @@ describe('AccountsService', () => {
         undefined,
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
 
       await service.remove('a1');
     });
@@ -278,9 +284,24 @@ describe('AccountsService', () => {
       connectors.get.mockReturnValue(null);
       mockDb = createChainDb([[account], [], undefined, undefined, undefined, undefined]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
 
       await service.remove('a1');
+    });
+
+    it('removes BullMQ repeatable jobs on delete', async () => {
+      const account = { id: 'a1', connectorType: 'gmail', authContext: null };
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([
+        { name: 'scheduled:a1', key: 'repeat:k1' },
+        { name: 'scheduled:other', key: 'repeat:k2' },
+      ]);
+      mockDb = createChainDb([[account], [], undefined, undefined, undefined, undefined]);
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
+      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+
+      await service.remove('a1');
+      expect(syncQueue.removeRepeatableByKey).toHaveBeenCalledWith('repeat:k1');
+      expect(syncQueue.removeRepeatableByKey).not.toHaveBeenCalledWith('repeat:k2');
     });
   });
 });
