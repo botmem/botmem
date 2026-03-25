@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { keyToMnemonic, resolveRecoveryKey } from '@botmem/shared';
 import { UsersService } from './users.service';
 import { ConfigService } from '../config/config.service';
@@ -140,7 +140,9 @@ export class UserAuthService {
     const recoveryKey = resolveRecoveryKey(recoveryKeyInput);
 
     const hash = this.hashRecoveryKey(recoveryKey);
-    if (hash !== user.recoveryKeyHash) {
+    const hashBuf = Buffer.from(hash, 'hex');
+    const storedBuf = Buffer.from(user.recoveryKeyHash ?? '', 'hex');
+    if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
       throw new BadRequestException('Invalid recovery key');
     }
 

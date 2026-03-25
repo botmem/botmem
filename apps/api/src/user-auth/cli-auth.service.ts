@@ -7,7 +7,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import Redis from 'ioredis';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { ConfigService } from '../config/config.service';
 import { UserAuthService } from './user-auth.service';
 import { UsersService } from './users.service';
@@ -138,7 +138,9 @@ export class CliAuthService implements OnModuleDestroy {
         throw new ForbiddenException('Recovery key required (encryption key not cached)');
       }
       const recoveryKeyHash = createHash('sha256').update(params.recoveryKey).digest('hex');
-      if (recoveryKeyHash !== user.recoveryKeyHash) {
+      const hashBuf = Buffer.from(recoveryKeyHash, 'hex');
+      const storedBuf = Buffer.from(user.recoveryKeyHash ?? '', 'hex');
+      if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
         throw new ForbiddenException('Invalid recovery key');
       }
       const dek = Buffer.from(params.recoveryKey, 'base64');
@@ -195,7 +197,9 @@ export class CliAuthService implements OnModuleDestroy {
       const user = await this.usersService.findById(params.userId);
       if (!user) throw new UnauthorizedException('User not found');
       const recoveryKeyHash = createHash('sha256').update(params.recoveryKey).digest('hex');
-      if (recoveryKeyHash !== user.recoveryKeyHash) {
+      const hashBuf = Buffer.from(recoveryKeyHash, 'hex');
+      const storedBuf = Buffer.from(user.recoveryKeyHash ?? '', 'hex');
+      if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
         throw new ForbiddenException('Invalid recovery key');
       }
       const dek = Buffer.from(params.recoveryKey, 'base64');
