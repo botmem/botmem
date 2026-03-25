@@ -101,7 +101,7 @@ async function bootstrap() {
               connectSrc: ["'self'", 'https:'],
             },
           },
-      hsts: { maxAge: 31536000, includeSubDomains: true },
+      hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
     }),
   );
 

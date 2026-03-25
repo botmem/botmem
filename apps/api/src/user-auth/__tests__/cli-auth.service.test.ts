@@ -146,7 +146,7 @@ describe('CliAuthService', () => {
       const result = await service.approve({
         sessionId: 'sess-1',
         email: 'test@example.com',
-        password: 'password123',
+        password: 'password12345',
       });
 
       expect(result.redirectUri).toContain('http://localhost:9876/callback');
