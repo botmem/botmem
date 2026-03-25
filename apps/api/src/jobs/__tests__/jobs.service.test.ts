@@ -28,17 +28,17 @@ describe('JobsService', () => {
   };
 
   beforeEach(() => {
-    mockDb = {
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      orderBy: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      values: vi.fn().mockResolvedValue(undefined),
-      update: vi.fn().mockReturnThis(),
-      set: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-    };
+    mockDb = {} as Record<string, ReturnType<typeof vi.fn>>;
+    mockDb.select = vi.fn(() => mockDb);
+    mockDb.from = vi.fn(() => mockDb);
+    mockDb.where = vi.fn(() => mockDb);
+    mockDb.limit = vi.fn().mockResolvedValue([]);
+    mockDb.orderBy = vi.fn(() => mockDb);
+    mockDb.insert = vi.fn(() => mockDb);
+    mockDb.values = vi.fn().mockResolvedValue(undefined);
+    mockDb.update = vi.fn(() => mockDb);
+    mockDb.set = vi.fn(() => mockDb);
+    mockDb.delete = vi.fn(() => mockDb);
 
     syncQueue = {
       add: vi.fn().mockResolvedValue(undefined),
@@ -56,6 +56,14 @@ describe('JobsService', () => {
       current: ReturnType<typeof vi.fn>;
     };
 
+    const eventsService = {
+      emitToChannel: vi.fn(),
+    };
+
+    const quotaService = {
+      canCreateMemory: vi.fn().mockResolvedValue({ allowed: true, used: 0, limit: null }),
+    };
+
     service = new JobsService(
       {
         db: mockDb,
@@ -66,11 +74,17 @@ describe('JobsService', () => {
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
       syncQueue,
       traceContext,
+      eventsService as unknown as import('../../events/events.service').EventsService,
+      quotaService as unknown as import('../../billing/quota.service').QuotaService,
     );
   });
 
   describe('triggerSync', () => {
     it('creates job and queues sync', async () => {
+      // First chain: select→from→where→limit (quota check) — limit resolves to []
+      // Second chain: withCurrentUser insert (values resolves)
+      // Third chain: withCurrentUser select→from→where (returns job)
+      mockDb.where.mockReturnValueOnce(mockDb); // quota check chain — continues to .limit()
       mockDb.where.mockResolvedValueOnce([fakeJob]); // select after insert
       const result = await service.triggerSync('acc-1', 'gmail', 'test@gmail.com');
       expect(result).toEqual(fakeJob);
