@@ -41,7 +41,13 @@ import { ImsgTunnelModule } from './imsg-tunnel/imsg-tunnel.module';
 @Module({
   controllers: [VersionController, HealthController],
   imports: [
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: process.env.NODE_ENV === 'production' ? 100 : 10000,
+      },
+    ]),
     TracingModule,
     AnalyticsModule,
     ConfigModule,
