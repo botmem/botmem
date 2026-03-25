@@ -1,5 +1,6 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { OnModuleInit, Logger, Optional } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -17,8 +18,7 @@ import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
-import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
-import { WsTunnelTransport } from '../imsg-tunnel/ws-tunnel-transport';
+import type { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
 import { Traced } from '../tracing/traced.decorator';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
 
@@ -39,9 +39,18 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private configService: ConfigService,
     private analytics: AnalyticsService,
     private traceContext: TraceContext,
-    @Optional() private imsgTunnel: ImsgTunnelService,
+    private moduleRef: ModuleRef,
   ) {
     super();
+  }
+
+  /** Lazily resolve ImsgTunnelService — returns null if not available. */
+  private getImsgTunnel(): ImsgTunnelService | null {
+    try {
+      return this.moduleRef.get('ImsgTunnelService', { strict: false });
+    } catch {
+      return null;
+    }
   }
 
   async onModuleInit() {
@@ -232,16 +241,19 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
         const ctx = connector.wrapSyncContext(rawCtx);
 
-        // Inject tunnel transport for remote iMessage bridge
+        // Inject tunnel transport for remote iMessage bridge (lazy — module may not be loaded)
         if (
           connectorType === 'imessage' &&
           account.tunnelMode &&
-          'setTunnelTransport' in connector &&
-          this.imsgTunnel
+          'setTunnelTransport' in connector
         ) {
-          (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
-            new WsTunnelTransport(this.imsgTunnel, accountId),
-          );
+          const tunnel = this.getImsgTunnel();
+          if (tunnel) {
+            const { WsTunnelTransport } = await import('../imsg-tunnel/ws-tunnel-transport');
+            (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
+              new WsTunnelTransport(tunnel, accountId),
+            );
+          }
         }
 
         const result = await connector.sync(ctx);
