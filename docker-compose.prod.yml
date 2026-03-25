@@ -1,12 +1,6 @@
-# Production Docker Compose / Swarm Stack for Botmem
+# Production Docker Compose for Botmem
 #
-# Deploy with Docker Swarm for zero-downtime rolling updates:
-#   docker swarm init                                    # one-time
-#   source .env.prod && docker stack deploy -c docker-compose.prod.yml botmem
-#
-# Update config uses order: start-first — the new container starts and must
-# pass health checks before the old one is stopped. If it fails, Swarm
-# automatically rolls back.
+# Usage: docker compose -f docker-compose.prod.yml up -d
 #
 # Prerequisites:
 #   1. Copy .env.example to .env.prod and configure:
@@ -22,16 +16,19 @@
 services:
   api:
     image: ghcr.io/botmem/botmem:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     env_file: .env.prod
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     environment:
-      DATABASE_URL: postgresql://botmem:${POSTGRES_PASSWORD}@postgres:5432/botmem
-      REDIS_URL: redis://redis:6379
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-botmem-ts-key}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:12412/api/version || exit 1']
       interval: 10s
@@ -39,21 +36,10 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 30s
-    deploy:
-      replicas: 1
-      update_config:
-        order: start-first
-        failure_action: rollback
-        monitor: 30s
-        delay: 5s
-      rollback_config:
-        order: stop-first
-      restart_policy:
-        condition: any
-        delay: 5s
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: botmem
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -66,55 +52,44 @@ services:
       timeout: 3s
       retries: 5
       start_period: 30s
-    deploy:
-      restart_policy:
-        condition: any
-        delay: 5s
 
   redis:
     image: redis:7.4-alpine
-    command: redis-server --appendonly yes --appendfsync everysec
+    restart: unless-stopped
+    env_file: .env.prod
+    command: redis-server --appendonly yes --appendfsync everysec --requirepass ${REDIS_PASSWORD:-changeme}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD', 'sh', '-c', 'redis-cli -a $$REDIS_PASSWORD ping']
       interval: 5s
       timeout: 3s
       retries: 5
-    deploy:
-      restart_policy:
-        condition: any
-        delay: 5s
 
   typesense:
     image: typesense/typesense:30.1
+    restart: unless-stopped
     volumes:
       - typesense-data:/data
     command: '--data-dir /data --api-key=${TYPESENSE_API_KEY:-botmem-ts-key} --enable-cors'
     healthcheck:
-      test: ['CMD-SHELL', 'curl -sf http://localhost:8108/health || exit 1']
+      test: ['CMD', 'bash', '-c', 'echo > /dev/tcp/localhost/8108']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 120s
-    deploy:
-      restart_policy:
-        condition: any
-        delay: 5s
 
   caddy:
     image: caddy:2-alpine
+    restart: unless-stopped
     ports:
       - '80:80'
       - '443:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./docs-site:/srv/docs:ro
       - caddy-data:/data
       - caddy-config:/config
-    deploy:
-      restart_policy:
-        condition: any
-        delay: 5s
 
 volumes:
   postgres-data:
