@@ -188,6 +188,19 @@ export class AuthService implements OnModuleInit {
       }
     }
 
+    // In Firebase mode, inject server-side Outlook OAuth creds
+    if (this.config.authProvider === 'firebase' && connectorType === 'outlook') {
+      if (this.config.outlookClientId) {
+        mergedConfig = {
+          ...mergedConfig,
+          clientId: this.config.outlookClientId,
+          clientSecret: this.config.outlookClientSecret,
+          tenantId: (mergedConfig.tenantId as string) || 'common',
+          redirectUri: `${this.config.baseUrl}/api/auth/outlook/callback`,
+        };
+      }
+    }
+
     // In Firebase mode, inject server-side Telegram API creds
     if (this.config.authProvider === 'firebase' && connectorType === 'telegram') {
       if (this.config.telegramApiId) {

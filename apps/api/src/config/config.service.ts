@@ -238,6 +238,16 @@ export class ConfigService implements OnModuleInit {
     return process.env.TELEGRAM_API_HASH || '';
   }
 
+  // --- Outlook OAuth (server-side creds for Firebase mode) ---
+
+  get outlookClientId(): string {
+    return process.env.OUTLOOK_CLIENT_ID || '';
+  }
+
+  get outlookClientSecret(): string {
+    return process.env.OUTLOOK_CLIENT_SECRET || '';
+  }
+
   // --- AI Backend ---
 
   get aiBackend(): 'ollama' | 'openrouter' {

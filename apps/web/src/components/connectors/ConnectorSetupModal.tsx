@@ -8,7 +8,14 @@ import { api, createWsConnection, waitForAuth, subscribeToChannel } from '../../
 import { useConnectorStore } from '../../store/connectorStore';
 import { isFirebaseMode } from '../../store/authStore';
 
-const FIREBASE_HIDDEN_FIELDS = new Set(['clientId', 'clientSecret', 'apiId', 'apiHash']);
+const FIREBASE_HIDDEN_FIELDS = new Set([
+  'clientId',
+  'clientSecret',
+  'apiId',
+  'apiHash',
+  'tenantId',
+  'redirectUri',
+]);
 
 interface ConnectorSetupModalProps {
   open: boolean;
