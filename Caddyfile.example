@@ -41,7 +41,7 @@ yourdomain.com {
 	# Rewrite SPA routes to add trailing slash before proxying (CASA finding #3 — Big Redirect)
 	# Prevents NestJS serve-static from issuing a 301 with body content.
 	@spa_no_slash {
-		not path /api/* /docs/*
+		not path /api/* /docs/* /events
 		not path_regexp \.[^/]+$
 		path_regexp ^/[^/]+[^/]$
 	}

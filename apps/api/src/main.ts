@@ -3,6 +3,7 @@ import './tracing/otel';
 
 import 'reflect-metadata';
 import * as net from 'net';
+import { IncomingMessage } from 'http';
 
 // Disable Happy Eyeballs (autoSelectFamily) — Node 20+ tries IPv6 first,
 // but on hosts without IPv6 the fallback to IPv4 can silently timeout instead
@@ -136,6 +137,16 @@ async function bootstrap() {
 
   app.use(cookieParser());
   app.enableShutdownHooks();
+
+  // Strip trailing slashes from WebSocket upgrade URLs before WsAdapter processes them.
+  // Caddy reverse proxy appends '/' to upgrade request paths (e.g. /events → /events/),
+  // but the ws library does exact path matching, so /events/ doesn't match /events.
+  app.getHttpServer().prependListener('upgrade', (req: IncomingMessage) => {
+    if (req.url && req.url.length > 1 && req.url.endsWith('/')) {
+      req.url = req.url.slice(0, -1);
+    }
+  });
+
   app.useWebSocketAdapter(new WsAdapter(app));
   app.setGlobalPrefix('api', {
     exclude: ['.well-known/{*path}', 'oauth/{*path}', 'mcp'],
