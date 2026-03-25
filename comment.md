@@ -28,7 +28,7 @@
 
 **Applicable?** Yes
 
-**Comment:** Credentials encrypted with AES-256-GCM using per-user recovery key as DEK. Passwords hashed with bcrypt (cost 12). JWTs signed with APP_SECRET. TLS enforced via HSTS (max-age=31536000, includeSubDomains, preload). DEK cached in Redis encrypted with APP_SECRET, with 1-hour memory TTL and Buffer zeroing on eviction.
+**Comment:** Credentials encrypted with AES-256-GCM using per-user recovery key as DEK. Passwords hashed with bcrypt (cost 12). JWTs signed with APP_SECRET. TLS enforced via HSTS (max-age=31536000; includeSubDomains; preload). DEK cached in Redis encrypted with APP_SECRET, with 1-hour memory TTL and Buffer zeroing on eviction.
 
 ## 6. Verify that the application employs integrity protections, such as code signing or subresource integrity. The application must not load or execute code from untrusted sources, such as loading includes, modules, plugins, code, or libraries from untrusted sources or the Internet.
 
@@ -36,17 +36,17 @@
 
 **Comment:** All first-party scripts bundled with Vite (content-hashed filenames providing implicit integrity). Content-Security-Policy enforced via Helmet: script-src restricted to 'self' only, connect-src and img-src allow 'self' and https: origins. No untrusted third-party code loaded. Docker images built from pinned dependencies via pnpm lockfile.
 
-## 7. Verify that the application has protection from subdomain takeovers if the application relies upon DNS entries or DNS subdomains, such as expired domain names, out of date DNS pointers or CNAMEs, expired projects at public source code repos, or transient cloud APIs, serverless functions, or storage buckets or similar.
+## 7. Verify that the application has protection from subdomain takeovers if the application relies upon DNS entries or DNS subdomains, such as expired domain names, out of date DNS pointers or CNAMEs, expired projects at public source code repos, or transient cloud APIs, serverless functions, or storage buckets (_autogen-bucket-id_.cloud.example.com) or similar. Protections can include ensuring that DNS names used by applications are regularly checked for expiry or change.
 
 **Applicable?** Yes
 
-**Comment:** Single A record (botmem.xyz → VPS IP 65.20.85.57) managed via Spaceship DNS API. No abandoned subdomains, expired CNAMEs, or orphaned cloud resources. GitHub repository actively maintained. No transient cloud storage buckets or serverless functions in use. DNS records checked and current.
+**Comment:** Single A record (botmem.xyz) managed via Spaceship DNS API. No abandoned subdomains, expired CNAMEs, or orphaned cloud resources. GitHub repository actively maintained. No transient cloud storage buckets or serverless functions in use. DNS records checked and current.
 
 ## 8. Verify that the application has anti-automation controls to protect against excessive calls such as mass data exfiltration, business logic requests, file uploads or denial of service attacks.
 
 **Applicable?** Yes
 
-**Comment:** NestJS ThrottlerModule configured globally (100 requests per 60 seconds). Endpoint-specific rate limits: registration (3/min), login (5/min), password reset (5/min), forgot-password (3/min), recovery key submission (5/min), CLI session/approve/token (5/min each). Cloudflare provides additional DDoS protection at the edge.
+**Comment:** NestJS ThrottlerModule configured globally (100 requests per 60 seconds). Endpoint-specific rate limits: registration (3/min), login (5/min), forgot-password (3/min), reset-password (5/min), recovery key submission (5/min), CLI session/approve/token (5/min each). Cloudflare provides additional DDoS protection at the edge.
 
 ## 9. Verify that files obtained from untrusted sources are stored outside the web root, with limited permissions.
 
@@ -114,13 +114,13 @@
 
 **Comment:** Minimum password length enforced at 12 characters via @MinLength(12) class-validator decorator in RegisterDto, ChangePasswordDto, and ResetPasswordDto. Service-layer fallback check (password.length < 12) in register(). Frontend validates on signup and password reset forms with client-side length check and HTML minLength attribute.
 
-## 20. Verify system generated initial passwords or activation codes SHOULD be securely randomly generated, SHOULD be at least 6 characters long, and MAY contain letters and numbers, and expire after a short period of time.
+## 20. Verify system generated initial passwords or activation codes SHOULD be securely randomly generated, SHOULD be at least 6 characters long, and MAY contain letters and numbers, and expire after a short period of time. These initial secrets must not be permitted to become the long term password.
 
 **Applicable?** No
 
 **Comment:** No system-generated initial passwords or activation codes used. Users set their own password at registration. Password reset uses cryptographically random tokens generated via crypto.randomBytes(32) (256-bit entropy, base64-encoded) with 1-hour expiry and single-use enforcement.
 
-## 21. Verify that passwords are stored in a form that is resistant to offline attacks. Passwords SHALL be salted and hashed using an approved one-way key derivation or password hashing function.
+## 21. Verify that passwords are stored in a form that is resistant to offline attacks. Passwords SHALL be salted and hashed using an approved one-way key derivation or password hashing function. Key derivation and password hashing functions take a password, a salt, and a cost factor as inputs when generating a password hash. ([C6](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
@@ -150,7 +150,7 @@
 
 **Comment:** Password reset tokens generated via crypto.randomBytes(32) — 256 bits of entropy from Node.js CSPRNG, far exceeding the 20-bit minimum. CLI auth codes generated via crypto.randomBytes(48) — 384 bits of entropy.
 
-## 26. Verify that logout and expiration invalidate the session token, such that the back button or a downstream relying party does not resume an authenticated session, including across relying parties.
+## 26. Verify that logout and expiration invalidate the session token, such that the back button or a downstream relying party does not resume an authenticated session, including across relying parties. ([C6](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
@@ -186,19 +186,19 @@
 
 **Comment:** User ID extracted from server-signed JWT token (not from request body or headers). Memory bank IDs validated against user's allowed banks from database. Request DTOs validated with class-validator decorators; whitelist:true strips unknown properties.
 
-## 32. Verify that the principle of least privilege exists - users should only be able to access functions, data files, URLs, controllers, services, and other resources, for which they possess specific authorization.
+## 32. Verify that the principle of least privilege exists - users should only be able to access functions, data files, URLs, controllers, services, and other resources, for which they possess specific authorization. This implies protection against spoofing and elevation of privilege. ([C7](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
 **Comment:** Users access only their own accounts, memories, contacts, and jobs — all database queries scoped by userId extracted from JWT. API keys scoped to specific memory banks. No admin super-user role with broad cross-user access. Docker containers run as non-root user (USER node).
 
-## 33. Verify that access controls fail securely including when an exception occurs.
+## 33. Verify that access controls fail securely including when an exception occurs. ([C10](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
 **Comment:** NestJS guards throw UnauthorizedException (401) on auth failure — request processing stops. Invalid or expired JWTs rejected by JwtService.verify(). Missing tokens result in denial. No fallback to unauthenticated access on exceptions. PostHog exception filter returns generic "Internal server error" for non-HTTP exceptions to prevent information leakage.
 
-## 34. Verify that sensitive data and APIs are protected against Insecure Direct Object Reference (IDOR) attacks targeting creation, reading, updating and deletion of records.
+## 34. Verify that sensitive data and APIs are protected against Insecure Direct Object Reference (IDOR) attacks targeting creation, reading, updating and deletion of records, such as creating or updating someone else's record, viewing everyone's records, or deleting all records.
 
 **Applicable?** Yes
 
@@ -210,7 +210,7 @@
 
 **Comment:** No web-based administrative interface exists in the application. Server management performed via SSH over Tailscale VPN (private network only, key-based authentication). No admin console, dashboard, or management UI requiring MFA.
 
-## 36. Verify that the application has defenses against HTTP parameter pollution attacks, particularly if the application framework makes no distinction about the source of request parameters.
+## 36. Verify that the application has defenses against HTTP parameter pollution attacks, particularly if the application framework makes no distinction about the source of request parameters (GET, POST, cookies, headers, or environment variables).
 
 **Applicable?** Yes
 
@@ -222,7 +222,7 @@
 
 **Comment:** Email sending uses nodemailer's structured sendMail() API — user input (email address, reset URL) passed as structured field parameters, not raw SMTP headers. No direct SMTP header manipulation or string concatenation in email construction. No IMAP integration exists.
 
-## 38. Verify that the application avoids the use of eval() or other dynamic code execution features.
+## 38. Verify that the application avoids the use of eval() or other dynamic code execution features. Where there is no alternative, any user input being included must be sanitized or sandboxed before being executed.
 
 **Applicable?** Yes
 
@@ -240,19 +240,19 @@
 
 **Comment:** No user-supplied SVG upload or processing exists in the application. All SVG files are static assets bundled at build time (logo, icons). Content-Security-Policy restricts script execution sources, mitigating potential SVG-based XSS even if SVG content were introduced.
 
-## 41. Verify that output encoding is relevant for the interpreter and context required.
+## 41. Verify that output encoding is relevant for the interpreter and context required. For example, use encoders specifically for HTML values, HTML attributes, JavaScript, URL parameters, HTTP headers, SMTP, and others as the context requires, especially from untrusted inputs (e.g. names with Unicode or apostrophes, such as ねこ or O'Hara). ([C4](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
 **Comment:** React 19 auto-escapes all rendered text content by default (JSX expressions). No dangerouslySetInnerHTML usage found anywhere in the codebase. API responses use NestJS built-in JSON serialization. Content-Security-Policy restricts inline script execution with explicit source allowlist.
 
-## 42. Verify that the application protects against JSON injection attacks, JSON eval attacks, and JavaScript expression evaluation.
+## 42. Verify that the application protects against JSON injection attacks, JSON eval attacks, and JavaScript expression evaluation. ([C4](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
 **Comment:** All JSON.parse calls operate on trusted data sources (database records, Redis cache, internal BullMQ queues). LLM response parsing wrapped in try-catch with fallback handling. No user-supplied JSON evaluated via eval() or Function constructor. No JavaScript expression evaluation of untrusted input.
 
-## 43. Verify that the application protects against LDAP injection vulnerabilities, or that specific security controls to prevent LDAP injection have been implemented.
+## 43. Verify that the application protects against LDAP injection vulnerabilities, or that specific security controls to prevent LDAP injection have been implemented. ([C4](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** No
 
@@ -270,19 +270,19 @@
 
 **Comment:** Recovery key hash verification uses crypto.timingSafeEqual() for constant-time Buffer comparison (prevents timing attacks). Password verification uses bcrypt.compare() (constant-time internally). Dummy bcrypt hash used for non-existent user lookups to prevent user-enumeration timing attacks. All token generation uses crypto.randomBytes (CSPRNG).
 
-## 46. Verify that random GUIDs are created using the GUID v4 algorithm, and a Cryptographically-secure Pseudo-random Number Generator (CSPRNG).
+## 46. Verify that random GUIDs are created using the GUID v4 algorithm, and a Cryptographically-secure Pseudo-random Number Generator (CSPRNG). GUIDs created using other pseudo-random number generators may be predictable.
 
 **Applicable?** Yes
 
 **Comment:** UUIDs generated via Node.js crypto module (crypto.randomUUID for v4 UUIDs). Recovery keys generated via crypto.randomBytes(32) — 256-bit CSPRNG. Password reset tokens via crypto.randomBytes(32). CLI auth codes via crypto.randomBytes(48). All random generation backed by operating system CSPRNG.
 
-## 47. Verify that key material is not exposed to the application but instead uses an isolated security module like a vault for cryptographic operations.
+## 47. Verify that key material is not exposed to the application but instead uses an isolated security module like a vault for cryptographic operations. ([C8](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
 **Comment:** Recovery key (DEK) managed via dedicated UserKeyService with tiered isolation: memory cache (1-hour inactivity TTL, Buffer.fill(0) zeroing on eviction) and Redis cache (DEK encrypted with APP_SECRET via AES-256-GCM, 30-day TTL). APP_SECRET stored exclusively in environment variables, never logged or exposed via API. CryptoService provides the sole interface for encrypt/decrypt operations.
 
-## 48. Verify that the application does not log credentials or payment details.
+## 48. Verify that the application does not log credentials or payment details. Session tokens should only be stored in logs in an irreversible, hashed form. ([C9, C10](https://owasp.org/www-project-proactive-controls/#div-numbering))
 
 **Applicable?** Yes
 
@@ -312,7 +312,7 @@
 
 **Comment:** PostHog tracks authentication events (login, registration). Job/sync logs record all connector data access operations with timestamps and progress tracking. Connector sync history maintained in jobs table with status, errors, and completion metrics. Recovery key submission events logged (without key content). Application-level logger records auth-related actions per user ID.
 
-## 53. Verify that connections to and from the server use trusted TLS certificates.
+## 53. Verify that connections to and from the server use trusted TLS certificates. Where locally generated or self-signed certificates are used, the server must be configured to only trust specific local CAs and specific self-signed certificates. All others should be rejected.
 
 **Applicable?** Yes
 
