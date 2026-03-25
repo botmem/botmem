@@ -84,26 +84,30 @@ export class DemoController {
 
       if (testUsers.length === 0) return { ok: true, deleted: 0 };
 
-      // Sequential deletes in correct FK dependency order using subqueries
-      const userSubquery = sql`(SELECT id FROM users WHERE email LIKE ${pattern})`;
-      const accountSubquery = sql`(SELECT id FROM accounts WHERE user_id IN ${userSubquery})`;
-      const memorySubquery = sql`(SELECT id FROM memories WHERE account_id IN ${accountSubquery})`;
-      const peopleSubquery = sql`(SELECT id FROM people WHERE user_id IN ${userSubquery})`;
-
-      await this.db.db.execute(
-        sql`DELETE FROM memory_links WHERE src_memory_id IN ${memorySubquery} OR dst_memory_id IN ${memorySubquery}`,
-      );
-      await this.db.db.execute(sql`DELETE FROM memory_people WHERE memory_id IN ${memorySubquery}`);
-      await this.db.db.execute(sql`DELETE FROM memories WHERE id IN ${memorySubquery}`);
-      await this.db.db.execute(sql`DELETE FROM accounts WHERE id IN ${accountSubquery}`);
-      await this.db.db.execute(
-        sql`DELETE FROM person_identifiers WHERE person_id IN ${peopleSubquery}`,
-      );
-      await this.db.db.execute(sql`DELETE FROM people WHERE id IN ${peopleSubquery}`);
-      await this.db.db.execute(sql`DELETE FROM refresh_tokens WHERE user_id IN ${userSubquery}`);
-      await this.db.db.execute(sql`DELETE FROM api_keys WHERE user_id IN ${userSubquery}`);
-      await this.db.db.execute(sql`DELETE FROM memory_banks WHERE user_id IN ${userSubquery}`);
-      await this.db.db.execute(sql`DELETE FROM users WHERE id IN ${userSubquery}`);
+      // Atomic cleanup — PL/pgSQL DO blocks can't use bind params, so we
+      // use sql.raw for the pattern (already validated to be @test.botmem.xyz).
+      // Escape single quotes to prevent SQL injection.
+      const safePattern = pattern.replace(/'/g, "''");
+      await this.db.db.execute(sql`
+        DO $$
+        DECLARE
+          _uids text[] := ARRAY(SELECT id FROM users WHERE email LIKE '${sql.raw(safePattern)}');
+          _aids text[] := ARRAY(SELECT id FROM accounts WHERE user_id = ANY(_uids));
+          _mids text[] := ARRAY(SELECT id FROM memories WHERE account_id = ANY(_aids));
+          _pids text[] := ARRAY(SELECT id FROM people WHERE user_id = ANY(_uids));
+        BEGIN
+          DELETE FROM memory_links WHERE src_memory_id = ANY(_mids) OR dst_memory_id = ANY(_mids);
+          DELETE FROM memory_people WHERE memory_id = ANY(_mids);
+          DELETE FROM memories WHERE id = ANY(_mids);
+          DELETE FROM accounts WHERE id = ANY(_aids);
+          DELETE FROM person_identifiers WHERE person_id = ANY(_pids);
+          DELETE FROM people WHERE id = ANY(_pids);
+          DELETE FROM refresh_tokens WHERE user_id = ANY(_uids);
+          DELETE FROM api_keys WHERE user_id = ANY(_uids);
+          DELETE FROM memory_banks WHERE user_id = ANY(_uids);
+          DELETE FROM users WHERE id = ANY(_uids);
+        END $$
+      `);
 
       this.logger.log(`Cleaned up ${testUsers.length} test users`);
       return { ok: true, deleted: testUsers.length };
