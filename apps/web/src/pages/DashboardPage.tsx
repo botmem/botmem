@@ -85,8 +85,16 @@ export function DashboardPage() {
       await api.clearDemoData();
       setHasDemoData(false);
       useTourStore.getState().startTour(false); // clear demoMode
-      // Refresh dashboard data
+      // Refresh all dashboard data after demo cleanup
       loadGraph();
+      loadMemories();
+      useJobStore.getState().fetchQueueStats();
+      // Re-fetch memory stats (total memories, connectors count, etc.)
+      const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+      api
+        .getMemoryStats({ memoryBankId: bankId || undefined })
+        .then((stats) => useMemoryStore.setState({ memoryStats: stats }))
+        .catch(() => {});
     } catch {
       // ignore
     } finally {
@@ -173,7 +181,7 @@ export function DashboardPage() {
 
       {/* Persistent search — visible on overview + timeline tabs */}
       {activeTab !== 'logs' && (
-        <div className="mt-4">
+        <div className="mt-4" data-tour="search-bar">
           <SearchInput
             value={graphSearch.term}
             onChange={graphSearch.setTerm}

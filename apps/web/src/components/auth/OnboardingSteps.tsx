@@ -121,8 +121,12 @@ export function OnboardingSteps() {
         return;
       }
       dispatch({ type: 'DEMO_DONE' });
+      // Store search examples from seed response for tour
+      if (result.searchExamples) {
+        useTourStore.getState().setSearchExamples(result.searchExamples);
+      }
       completeOnboarding();
-      navigate('/me');
+      navigate('/dashboard');
       // Small delay to let navigation complete before starting tour
       setTimeout(() => {
         useTourStore.getState().startTour(true);
@@ -254,7 +258,7 @@ export function OnboardingSteps() {
                 {demoLoading ? 'Loading...' : 'Explore Demo'}
               </h3>
               <p className="font-mono text-xs text-nb-muted">
-                500 sample memories, 100 contacts — see the full experience with a guided tour
+                Sample memories across 5 sources — see the full experience with a guided tour
               </p>
             </button>
 
