@@ -15,7 +15,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import { Response } from 'express';
 import * as bcrypt from 'bcryptjs';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../user-auth/decorators/public.decorator';
 import { OAuthService } from './oauth.service';
@@ -186,7 +186,9 @@ export class OAuthController {
         throw new ForbiddenException('Recovery key is required (encryption key not cached)');
       }
       const recoveryKeyHash = createHash('sha256').update(recoveryKey).digest('hex');
-      if (recoveryKeyHash !== user.recoveryKeyHash) {
+      const hashBuf = Buffer.from(recoveryKeyHash, 'hex');
+      const storedBuf = Buffer.from(user.recoveryKeyHash ?? '', 'hex');
+      if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
         throw new ForbiddenException('Invalid recovery key');
       }
       // TODO: Security — implement DEK wrapping. Currently the recovery key IS the DEK.
