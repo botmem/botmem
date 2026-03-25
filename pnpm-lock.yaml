@@ -647,6 +647,31 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/imsg-bridge:
+    dependencies:
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
+      commander:
+        specifier: ^13.1.0
+        version: 13.1.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.12
+        version: 7.6.13
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/openclaw-plugin:
     dependencies:
       '@toon-format/toon':
@@ -4271,6 +4296,9 @@ packages:
   '@types/node@10.17.60':
     resolution: {integrity: sha512-F0KIgDJfy2nA3zMLmWGKxcH2ZVEtCZXHHdOQs2gSaQ27+lNeEfGxzkIw90aXswATX7AZ33tahPbzy6KAfUreVw==}
 
+  '@types/node@22.19.15':
+    resolution: {integrity: sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg==}
+
   '@types/node@25.4.0':
     resolution: {integrity: sha512-9wLpoeWuBlcbBpOY3XmzSTG3oscB6xjBEEtn+pYXTfhyXhIxC5FsBer2KTopBlvKEiW9l13po9fq+SJY/5lkhw==}
 
@@ -5224,6 +5252,10 @@ packages:
 
   comma-separated-tokens@2.0.3:
     resolution: {integrity: sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg==}
+
+  commander@13.1.0:
+    resolution: {integrity: sha512-/rFeCpNJQbhSZjGVwO9RFV3xPqbnERS8MmIQzCtD/zl6gpJuV/bMLuN92oG3F7d8oDEHHRrujSXNUr8fpjntKw==}
+    engines: {node: '>=18'}
 
   commander@14.0.3:
     resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
@@ -8551,6 +8583,9 @@ packages:
 
   underscore@1.13.8:
     resolution: {integrity: sha512-DXtD3ZtEQzc7M8m4cXotyHR+FAS18C64asBYY5vqZexfYryNNnDc02W4hKg3rdQuqOYas1jkseX0+nZXjTXnvQ==}
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
@@ -12535,7 +12570,6 @@ snapshots:
   '@types/better-sqlite3@7.6.13':
     dependencies:
       '@types/node': 25.5.0
-    optional: true
 
   '@types/body-parser@1.19.6':
     dependencies:
@@ -12557,7 +12591,7 @@ snapshots:
   '@types/compression@1.8.1':
     dependencies:
       '@types/express': 5.0.6
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
 
   '@types/connect@3.4.38':
     dependencies:
@@ -12617,7 +12651,7 @@ snapshots:
   '@types/jsonwebtoken@9.0.10':
     dependencies:
       '@types/ms': 2.1.0
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
 
   '@types/linkify-it@5.0.0': {}
 
@@ -12648,6 +12682,10 @@ snapshots:
 
   '@types/node@10.17.60': {}
 
+  '@types/node@22.19.15':
+    dependencies:
+      undici-types: 6.21.0
+
   '@types/node@25.4.0':
     dependencies:
       undici-types: 7.18.2
@@ -12658,7 +12696,7 @@ snapshots:
 
   '@types/nodemailer@6.4.23':
     dependencies:
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
 
   '@types/oracledb@6.5.2':
     dependencies:
@@ -12680,7 +12718,7 @@ snapshots:
 
   '@types/pdf-parse@1.1.5':
     dependencies:
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
 
   '@types/pg-pool@2.0.7':
     dependencies:
@@ -12694,7 +12732,7 @@ snapshots:
 
   '@types/pg@8.18.0':
     dependencies:
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
       pg-protocol: 1.13.0
       pg-types: 2.2.0
 
@@ -12759,7 +12797,7 @@ snapshots:
 
   '@types/unzipper@0.10.11':
     dependencies:
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
 
   '@types/validator@13.15.10': {}
 
@@ -12767,7 +12805,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.4.0
+      '@types/node': 25.5.0
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -13542,7 +13580,6 @@ snapshots:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3
-    optional: true
 
   bezier-js@6.1.4: {}
 
@@ -13570,7 +13607,6 @@ snapshots:
   bindings@1.5.0:
     dependencies:
       file-uri-to-path: 1.0.0
-    optional: true
 
   birpc@2.9.0: {}
 
@@ -13744,8 +13780,7 @@ snapshots:
     dependencies:
       readdirp: 4.1.2
 
-  chownr@1.1.4:
-    optional: true
+  chownr@1.1.4: {}
 
   chrome-trace-event@1.0.4: {}
 
@@ -13819,6 +13854,8 @@ snapshots:
       delayed-stream: 1.0.0
 
   comma-separated-tokens@2.0.3: {}
+
+  commander@13.1.0: {}
 
   commander@14.0.3: {}
 
@@ -14072,8 +14109,7 @@ snapshots:
 
   deep-eql@5.0.2: {}
 
-  deep-extend@0.6.0:
-    optional: true
+  deep-extend@0.6.0: {}
 
   deep-is@0.1.4: {}
 
@@ -14556,8 +14592,7 @@ snapshots:
       signal-exit: 3.0.7
       strip-final-newline: 2.0.0
 
-  expand-template@2.0.3:
-    optional: true
+  expand-template@2.0.3: {}
 
   expect-type@1.3.0: {}
 
@@ -14699,8 +14734,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  file-uri-to-path@1.0.0:
-    optional: true
+  file-uri-to-path@1.0.0: {}
 
   filename-reserved-regex@3.0.0: {}
 
@@ -14888,8 +14922,7 @@ snapshots:
 
   fresh@2.0.0: {}
 
-  fs-constants@1.0.0:
-    optional: true
+  fs-constants@1.0.0: {}
 
   fs-extra@10.1.0:
     dependencies:
@@ -15008,8 +15041,7 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  github-from-package@0.0.0:
-    optional: true
+  github-from-package@0.0.0: {}
 
   glob-parent@6.0.2:
     dependencies:
@@ -15276,8 +15308,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ini@1.3.8:
-    optional: true
+  ini@1.3.8: {}
 
   inspect-with-kind@1.0.5:
     dependencies:
@@ -15904,8 +15935,7 @@ snapshots:
 
   mitt@3.0.1: {}
 
-  mkdirp-classic@0.5.3:
-    optional: true
+  mkdirp-classic@0.5.3: {}
 
   module-details-from-path@1.0.4: {}
 
@@ -15956,8 +15986,7 @@ snapshots:
 
   nanoid@3.3.11: {}
 
-  napi-build-utils@2.0.0:
-    optional: true
+  napi-build-utils@2.0.0: {}
 
   natural-compare@1.4.0: {}
 
@@ -15972,7 +16001,6 @@ snapshots:
   node-abi@3.87.0:
     dependencies:
       semver: 7.7.4
-    optional: true
 
   node-abort-controller@3.1.1: {}
 
@@ -16389,7 +16417,6 @@ snapshots:
       simple-get: 4.0.1
       tar-fs: 2.1.4
       tunnel-agent: 0.6.0
-    optional: true
 
   prelude-ls@1.2.1: {}
 
@@ -16511,7 +16538,6 @@ snapshots:
       ini: 1.3.8
       minimist: 1.2.8
       strip-json-comments: 2.0.1
-    optional: true
 
   react-dom@19.2.4(react@19.2.4):
     dependencies:
@@ -16874,15 +16900,13 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  simple-concat@1.0.1:
-    optional: true
+  simple-concat@1.0.1: {}
 
   simple-get@4.0.1:
     dependencies:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
-    optional: true
 
   simple-yenc@1.0.4: {}
 
@@ -17050,8 +17074,7 @@ snapshots:
     dependencies:
       min-indent: 1.0.1
 
-  strip-json-comments@2.0.1:
-    optional: true
+  strip-json-comments@2.0.1: {}
 
   strip-literal@3.1.0:
     dependencies:
@@ -17144,7 +17167,6 @@ snapshots:
       mkdirp-classic: 0.5.3
       pump: 3.0.4
       tar-stream: 2.2.0
-    optional: true
 
   tar-stream@2.2.0:
     dependencies:
@@ -17153,7 +17175,6 @@ snapshots:
       fs-constants: 1.0.0
       inherits: 2.0.4
       readable-stream: 3.6.2
-    optional: true
 
   tar-stream@3.1.8:
     dependencies:
@@ -17348,7 +17369,6 @@ snapshots:
   tunnel-agent@0.6.0:
     dependencies:
       safe-buffer: 5.2.1
-    optional: true
 
   turbo-darwin-64@2.8.16:
     optional: true
@@ -17436,6 +17456,8 @@ snapshots:
       through: 2.3.8
 
   underscore@1.13.8: {}
+
+  undici-types@6.21.0: {}
 
   undici-types@7.18.2: {}
 
