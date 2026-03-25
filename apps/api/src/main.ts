@@ -43,6 +43,7 @@ async function bootstrap() {
 
   // In dev mode, mount Vite BEFORE NestJS so it handles frontend assets + HMR
   if (isDev) {
+    // @ts-expect-error — vite types don't resolve under API's moduleResolution setting
     const { createServer: createViteServer } = await import('vite');
     const webRoot = join(__dirname, '..', '..', 'web');
     vite = await createViteServer({
