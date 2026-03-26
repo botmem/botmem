@@ -117,7 +117,7 @@ async function bootstrap() {
                 'https://cloudflareinsights.com',
                 'wss://botmem.xyz',
               ],
-              frameSrc: ['https://accounts.google.com', 'https://*.firebaseapp.com'],
+              frameSrc: ["'self'", 'https://accounts.google.com', 'https://*.firebaseapp.com'],
               objectSrc: ["'none'"],
               baseUri: ["'self'"],
             },
