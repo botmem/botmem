@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}-${{ github.actor }}
-  cancel-in-progress: false
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
