@@ -84,6 +84,27 @@ async function bootstrap() {
   const compression = (await import('compression')).default;
   server.use(compression());
 
+  // Proxy Firebase auth handler paths (/__/auth/*) so signInWithRedirect
+  // stays on our domain when authDomain is set to our domain.
+  const FIREBASE_HOST = (process.env.VITE_FIREBASE_PROJECT_ID || 'botmem-app') + '.firebaseapp.com';
+  const https = await import('https');
+  server.use('/__', (req: Request, res: Response) => {
+    const proxyReq = https.request(
+      {
+        hostname: FIREBASE_HOST,
+        path: '/__' + req.url,
+        method: req.method,
+        headers: { ...req.headers, host: FIREBASE_HOST },
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+    proxyReq.on('error', () => res.status(502).send('Firebase proxy error'));
+    req.pipe(proxyReq);
+  });
+
   const helmet = (await import('helmet')).default;
   const cookieParser = (await import('cookie-parser')).default;
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), { rawBody: true });
