@@ -49,14 +49,14 @@ async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
 async function getFirebaseAuthFns() {
   await ensureFirebase();
   const {
-    signInWithPopup,
+    signInWithRedirect,
     signOut,
     getIdToken,
     createUserWithEmailAndPassword,
     sendEmailVerification,
   } = await import('firebase/auth');
   return {
-    signInWithPopup,
+    signInWithRedirect,
     signOut,
     getIdToken,
     createUserWithEmailAndPassword,
@@ -346,50 +346,11 @@ export const useAuthStore = create<AuthState>()(
         set({ error: null, isLoading: true });
         try {
           if (!firebaseAuth) throw new Error('Firebase is not configured');
-          const { signInWithPopup, getIdToken } = await getFirebaseAuthFns();
+          const { signInWithRedirect } = await getFirebaseAuthFns();
           const authProvider = provider === 'google' ? googleProvider! : githubProvider!;
-          const result = await signInWithPopup(firebaseAuth, authProvider);
-
-          // Get the Firebase ID token
-          const idToken = await getIdToken(result.user);
-
-          // Sync with backend to create/retrieve local user record
-          const res = await fetch('/api/firebase-auth/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idToken }),
-          });
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({ message: 'Sync failed' }));
-            throw new Error(body.message || 'Backend sync failed');
-          }
-          const data = await res.json();
-
-          trackEvent('login', { method: `firebase_${provider}` });
-          if (data.user?.email) {
-            identifyUser(data.user.id, {
-              email: data.user.email,
-              name: data.user.name ?? undefined,
-            });
-          }
-          // Store Firebase ID token as the accessToken — used for Bearer auth on all API calls
-          set({
-            user: data.user,
-            accessToken: idToken,
-            isLoading: false,
-            recoveryKey: data.recoveryKey ?? null,
-            needsRecoveryKey: !!data.needsRecoveryKey,
-          });
+          // Redirect navigates away — onAuthStateChanged in initialize() handles the return
+          await signInWithRedirect(firebaseAuth, authProvider);
         } catch (err: unknown) {
-          // Firebase popup closed by user is not an error
-          const fbErr = err as { code?: string; message?: string };
-          if (
-            fbErr.code === 'auth/popup-closed-by-user' ||
-            fbErr.code === 'auth/cancelled-popup-request'
-          ) {
-            set({ isLoading: false });
-            return;
-          }
           trackEvent('login_failed', {
             method: `firebase_${provider}`,
             error: err instanceof Error ? err.message : 'unknown',
