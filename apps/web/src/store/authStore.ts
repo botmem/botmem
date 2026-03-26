@@ -276,40 +276,65 @@ export const useAuthStore = create<AuthState>()(
           }
           if (isFirebaseMode && firebaseAuth) {
             const { getIdToken } = await getFirebaseAuthFns();
-            // Wait for Firebase auth state to resolve
-            await new Promise<void>((resolve) => {
-              const unsubscribe = firebaseAuth!.onAuthStateChanged(async (firebaseUser) => {
-                unsubscribe();
-                if (firebaseUser) {
-                  const idToken = await getIdToken(firebaseUser);
-                  const res = await fetch('/api/firebase-auth/sync', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idToken }),
+            const { getRedirectResult } = await import('firebase/auth');
+
+            // Helper: sync a Firebase user with our backend
+            const syncUser = async (firebaseUser: import('firebase/auth').User) => {
+              const idToken = await getIdToken(firebaseUser);
+              const res = await fetch('/api/firebase-auth/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                const localUser = get().user;
+                const merged = {
+                  ...data.user,
+                  onboarded: data.user.onboarded || localUser?.onboarded || false,
+                };
+                if (merged.email) {
+                  identifyUser(merged.id, {
+                    email: merged.email,
+                    name: merged.name ?? undefined,
                   });
-                  if (res.ok) {
-                    const { user: freshUser } = await res.json();
-                    const localUser = get().user;
-                    const merged = {
-                      ...freshUser,
-                      onboarded: freshUser.onboarded || localUser?.onboarded || false,
-                    };
-                    if (merged.email) {
-                      identifyUser(merged.id, {
-                        email: merged.email,
-                        name: merged.name ?? undefined,
-                      });
-                    }
-                    set({ user: merged, accessToken: idToken });
+                }
+                trackEvent('login', { method: 'firebase_redirect' });
+                set({
+                  user: merged,
+                  accessToken: idToken,
+                  recoveryKey: data.recoveryKey ?? null,
+                  needsRecoveryKey: !!data.needsRecoveryKey,
+                });
+                return true;
+              }
+              return false;
+            };
+
+            // Check for redirect result first (signInWithRedirect flow)
+            try {
+              const redirectResult = await getRedirectResult(firebaseAuth!);
+              if (redirectResult?.user) {
+                await syncUser(redirectResult.user);
+              }
+            } catch (err) {
+              console.warn('[authStore] getRedirectResult error:', err);
+            }
+
+            // Then check current auth state (session persistence / already logged in)
+            if (!get().user) {
+              await new Promise<void>((resolve) => {
+                const unsubscribe = firebaseAuth!.onAuthStateChanged(async (firebaseUser) => {
+                  unsubscribe();
+                  if (firebaseUser) {
+                    await syncUser(firebaseUser);
                   } else {
                     set({ user: null, accessToken: null });
                   }
-                } else {
-                  set({ user: null, accessToken: null });
-                }
-                resolve();
+                  resolve();
+                });
               });
-            });
+            }
           } else {
             await get().refreshSession();
           }
