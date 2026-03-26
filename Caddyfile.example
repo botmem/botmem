@@ -54,6 +54,14 @@ yourdomain.com {
 		file_server
 	}
 
+	# Firebase auth redirect handler — proxy /__/auth/* to Firebase so
+	# signInWithRedirect stays on our domain (requires authDomain = yourdomain.com)
+	handle /__/auth/* {
+		reverse_proxy https://YOUR_PROJECT_ID.firebaseapp.com {
+			header_up Host {http.reverse_proxy.upstream.hostport}
+		}
+	}
+
 	# API + frontend — strip Helmet CSP (Caddy sets the authoritative one above)
 	reverse_proxy api:12412 {
 		header_down -Content-Security-Policy
