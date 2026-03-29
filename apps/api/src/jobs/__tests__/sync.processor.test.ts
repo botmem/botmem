@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, it, expect, vi } from 'vitest';
 import { SyncProcessor } from '../sync.processor';
 import { ConnectorsService } from '../../connectors/connectors.service';
@@ -80,9 +81,14 @@ function createMockDeps() {
       ),
   } as unknown as DbService;
 
-  const cleanQueue = {
+  const memoryQueue = {
     add: vi.fn().mockResolvedValue(undefined),
   } as unknown as import('bullmq').Queue;
+
+  const moduleRef = {
+    get: vi.fn().mockReturnValue(null),
+    resolve: vi.fn().mockResolvedValue(null),
+  };
 
   const settingsService = {
     get: vi.fn().mockReturnValue(''),
@@ -122,11 +128,12 @@ function createMockDeps() {
     events,
     dbService,
     cryptoService,
-    cleanQueue,
+    memoryQueue,
     settingsService,
     configService,
     analytics,
     traceContext,
+    moduleRef,
     mockConnector,
   };
 }
@@ -142,11 +149,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockResolvedValue({ cursor: 'c1', hasMore: false, processed: 10 });
@@ -160,11 +168,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
     );
 
     const job = {
@@ -210,11 +219,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockRejectedValue(new Error('API rate limited'));
@@ -228,7 +238,7 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
@@ -270,11 +280,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
       mockConnector,
     } = createMockDeps();
     // First call returns hasMore:true, second returns hasMore:false
@@ -291,7 +302,7 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
@@ -318,11 +329,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockResolvedValue({ cursor: null, hasMore: false, processed: 5 });
@@ -336,7 +348,7 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
@@ -362,11 +374,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockImplementation(
@@ -395,7 +408,7 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
@@ -424,11 +437,12 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,
       traceContext,
+      moduleRef,
       mockConnector,
     } = createMockDeps();
     mockConnector.sync.mockRejectedValue(new Error('fail'));
@@ -442,7 +456,7 @@ describe('SyncProcessor', () => {
       events,
       dbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
-      cleanQueue,
+      memoryQueue,
       settingsService,
       configService,
       analytics,

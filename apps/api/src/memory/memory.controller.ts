@@ -17,6 +17,7 @@ import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { MemoryService } from './memory.service';
+import { MigrationService } from './migration.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { AiService } from './ai.service';
@@ -45,10 +46,9 @@ export class MemoryController {
     private ai: AiService,
     private typesense: TypesenseService,
     private events: EventsService,
-    @InjectQueue('clean') private cleanQueue: Queue,
-    @InjectQueue('embed') private embedQueue: Queue,
-    @InjectQueue('enrich') private enrichQueue: Queue,
+    @InjectQueue('memory') private memoryQueue: Queue,
     private analytics: AnalyticsService,
+    private migrationService: MigrationService,
   ) {}
 
   @Get('stats')
@@ -63,23 +63,14 @@ export class MemoryController {
   @RequiresJwt()
   @Get('queue-status')
   async getQueueStatus() {
-    const queues = {
-      clean: this.cleanQueue,
-      embed: this.embedQueue,
-      enrich: this.enrichQueue,
-    };
-    const status: Record<string, unknown> = {};
-    for (const [name, queue] of Object.entries(queues)) {
-      const [waiting, active, failed, delayed, completed] = await Promise.all([
-        queue.getWaitingCount(),
-        queue.getActiveCount(),
-        queue.getFailedCount(),
-        queue.getDelayedCount(),
-        queue.getCompletedCount(),
-      ]);
-      status[name] = { waiting, active, failed, delayed, completed };
-    }
-    return status;
+    const [waiting, active, failed, delayed, completed] = await Promise.all([
+      this.memoryQueue.getWaitingCount(),
+      this.memoryQueue.getActiveCount(),
+      this.memoryQueue.getFailedCount(),
+      this.memoryQueue.getDelayedCount(),
+      this.memoryQueue.getCompletedCount(),
+    ]);
+    return { memory: { waiting, active, failed, delayed, completed } };
   }
 
   @Get('graph')
@@ -170,8 +161,8 @@ export class MemoryController {
           });
 
           // Re-enqueue through pipeline with generous retries
-          await this.cleanQueue.add(
-            'clean',
+          await this.memoryQueue.add(
+            'process',
             { rawEventId: rawRows[0].id },
             { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
           );
@@ -501,5 +492,18 @@ export class MemoryController {
     if (!memory) return { error: 'not found' };
     await this.memoryService.delete(id);
     return { ok: true };
+  }
+
+  // TODO: Remove migration endpoints after data migration is complete — one-time use only
+  @RequiresJwt()
+  @Post('migrate')
+  async startMigration(@CurrentUser() user: { id: string }, @Query('force') force?: string) {
+    return this.migrationService.startMigration(user.id, force === 'true');
+  }
+
+  @RequiresJwt()
+  @Get('migrate/status')
+  getMigrationStatus() {
+    return this.migrationService.getProgress();
   }
 }

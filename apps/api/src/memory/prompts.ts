@@ -123,28 +123,3 @@ Examples:
 
 Text: "${truncated}"`;
 }
-
-export function photoDescriptionPrompt(existingText: string): string {
-  return `You are describing a photo for a personal memory system. Be STRICTLY factual — only describe what you can actually see.
-
-RULES:
-- Describe ONLY what is visually present: people, objects, setting, actions.
-- If people are listed in the metadata, use those names. NEVER invent names, pet names, or nicknames not in the metadata.
-- Do NOT invent details you cannot see (breed of animal, relationship between people, names of objects, etc.).
-- Do NOT guess emotions, backstories, or narrative context.
-- If you cannot clearly identify something, say so or omit it.
-- Do NOT repeat metadata fields (dates, locations, camera info).
-
-Context from metadata:
-${existingText}
-
-Return 2-3 factual sentences describing what is visible in the photo.`;
-}
-
-export function factualityPrompt(text: string, sourceType: string, connectorType: string): string {
-  // Truncate input to reduce token cost
-  const truncated = text.length > 2000 ? text.slice(0, 2000) : text;
-  return `Classify factuality. Return ONLY JSON: {"label":"FACT"|"UNVERIFIED"|"FICTION","confidence":0-1,"rationale":"..."}
-Source: ${sourceType}/${connectorType}
-Text: "${truncated}"`;
-}

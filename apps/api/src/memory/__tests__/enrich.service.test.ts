@@ -47,6 +47,7 @@ describe('EnrichService', () => {
     mockDb = {
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
       where: vi.fn(() => nextWhereResult()),
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
@@ -125,7 +126,9 @@ describe('EnrichService', () => {
         undefined, // 3. update entities
         undefined, // 4. update factuality
         [{ claims: '[]', factuality: null }], // 5. createLinks: select src claims
-        undefined, // 6. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 6. corroborate: get memory
+        [], // 7. corroborate: get supporters
+        undefined, // 8. update weights
       ];
 
       aiService.generate.mockResolvedValueOnce(
@@ -150,7 +153,9 @@ describe('EnrichService', () => {
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         [{ claims: '[]', factuality: null }], // 3. createLinks: select src claims
-        undefined, // 4. update weights
+        [{ connectorType: 'gmail', factualityLabel: null }], // 4. corroborate: get memory
+        [], // 5. corroborate: get supporters
+        undefined, // 6. update weights
       ];
       aiService.generate.mockRejectedValueOnce(new Error('AI down'));
 
@@ -171,7 +176,9 @@ describe('EnrichService', () => {
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         [{ claims: '[]', factuality: null }], // 3. createLinks: select src claims
-        undefined, // 4. update weights
+        [{ connectorType: 'gmail', factualityLabel: null }], // 4. corroborate: get memory
+        [], // 5. corroborate: get supporters
+        undefined, // 6. update weights
       ];
       // Combined call returns entities but no valid factuality
       aiService.generate.mockResolvedValueOnce('{"entities":[],"factuality":{}}');
@@ -196,7 +203,9 @@ describe('EnrichService', () => {
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
         [], // 5. batch existing links (none found)
-        undefined, // 6. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'FACT' }], // 6. corroborate: get memory
+        [], // 7. corroborate: get supporters
+        undefined, // 8. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -225,7 +234,9 @@ describe('EnrichService', () => {
         undefined, // 4. update factuality
         [{ claims: '[]', factuality: null }], // 5. createLinks: src claims
         [{ srcMemoryId: 'mem-1', dstMemoryId: 'mem-2' }], // 6. batch existing links
-        undefined, // 7. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 7. corroborate: get memory
+        [], // 8. corroborate: get supporters
+        undefined, // 9. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -258,7 +269,9 @@ describe('EnrichService', () => {
         [{ claims: '[{"text":"John works at Google"}]', factuality: '{"label":"FACT"}' }], // 5. src claims
         [], // 6. batch existing links (none)
         [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 7. batch dst factuality
-        undefined, // 8. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'FACT' }], // 8. corroborate: get memory
+        [], // 9. corroborate: get supporters
+        undefined, // 10. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.95 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -288,7 +301,9 @@ describe('EnrichService', () => {
         [{ claims: '[{"text":"something"}]', factuality: '{"label":"FACT"}' }], // 4. src claims
         [], // 5. batch existing links (none)
         [{ id: 'mem-2', factuality: '{"label":"FICTION"}' }], // 6. batch dst factuality
-        undefined, // 7. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'FACT' }], // 7. corroborate: get memory
+        [], // 8. corroborate: get supporters
+        undefined, // 9. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.9 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -317,7 +332,9 @@ describe('EnrichService', () => {
         [{ claims: '["claim"]', factuality: '{"label":"FICTION"}' }], // 4. src claims
         [], // 5. batch existing links
         [{ id: 'mem-2', factuality: '{"label":"FACT"}' }], // 6. batch dst factuality
-        undefined, // 7. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'FICTION' }], // 7. corroborate: get memory
+        [], // 8. corroborate: get supporters
+        undefined, // 9. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.88 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -342,7 +359,9 @@ describe('EnrichService', () => {
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 5. corroborate: get memory
+        [], // 6. corroborate: get supporters
+        undefined, // 7. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.5 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -365,7 +384,9 @@ describe('EnrichService', () => {
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 5. corroborate: get memory
+        [], // 6. corroborate: get supporters
+        undefined, // 7. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-1', score: 0.95 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -390,7 +411,9 @@ describe('EnrichService', () => {
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
         [{ srcMemoryId: 'mem-2', dstMemoryId: 'mem-1' }], // 5. batch existing links (reverse found)
-        undefined, // 6. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 6. corroborate: get memory
+        [], // 7. corroborate: get supporters
+        undefined, // 8. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -412,7 +435,9 @@ describe('EnrichService', () => {
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
-        undefined, // 4. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 4. corroborate: get memory
+        [], // 5. corroborate: get supporters
+        undefined, // 6. update weights
       ];
       qdrantService.recommend.mockRejectedValueOnce(new Error('Qdrant down'));
       aiService.generate.mockResolvedValueOnce(
@@ -437,7 +462,9 @@ describe('EnrichService', () => {
         undefined, // 3. update factuality
         [{ claims: 'not json', factuality: null }], // 4. createLinks: src claims
         [], // 5. batch existing links
-        undefined, // 6. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 6. corroborate: get memory
+        [], // 7. corroborate: get supporters
+        undefined, // 8. update weights
       ];
       qdrantService.recommend.mockResolvedValueOnce([{ id: 'mem-2', score: 0.85 }]);
       aiService.generate.mockResolvedValueOnce(
@@ -464,7 +491,9 @@ describe('EnrichService', () => {
         undefined, // 3. update entities
         undefined, // 4. update factuality
         [{ claims: '[]', factuality: null }], // 5. createLinks: src claims
-        undefined, // 6. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 6. corroborate: get memory
+        [], // 7. corroborate: get supporters
+        undefined, // 8. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[{"type":"person","name":"John"},{"type":"person","name":"John"},{"type":"person","name":"Jane"}],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
@@ -496,7 +525,9 @@ describe('EnrichService', () => {
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ connectorType: 'gmail', factualityLabel: null }], // 4. corroborate: get memory
+        [], // 5. corroborate: get supporters
+        undefined, // 6. update weights
       ];
       aiService.generate.mockResolvedValueOnce('not valid json at all');
 
@@ -516,7 +547,9 @@ describe('EnrichService', () => {
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         [{ claims: '[]', factuality: null }], // 3. createLinks: src claims
-        undefined, // 4. update weights
+        [{ connectorType: 'gmail', factualityLabel: null }], // 4. corroborate: get memory
+        [], // 5. corroborate: get supporters
+        undefined, // 6. update weights
       ];
       aiService.generate.mockResolvedValueOnce('{"entities":[],"factuality":{"label":"FACT"}}');
 
@@ -537,7 +570,9 @@ describe('EnrichService', () => {
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'FACT' }], // 5. corroborate: get memory
+        [], // 6. corroborate: get supporters
+        undefined, // 7. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         'Here is the result: {"entities":[],"factuality":{"label":"FACT","confidence":0.9,"rationale":"confirmed"}} end',
@@ -561,13 +596,16 @@ describe('EnrichService', () => {
       // 2. account userId lookup (for decryption)
       // 3. update factuality
       // 4. createLinks: src claims
-      // 5. update weights
+      // 5-6. corroborate: get memory + supporters
+      // 7. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 5. corroborate: get memory
+        [], // 6. corroborate: get supporters
+        undefined, // 7. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
@@ -580,18 +618,14 @@ describe('EnrichService', () => {
   describe('getTrustScore (via enrich)', () => {
     it('uses connector trust score', async () => {
       // No entities, factuality present → factuality update only
-      // DB where() calls:
-      // 1. get memory
-      // 2. account userId lookup (for decryption)
-      // 3. update factuality
-      // 4. createLinks: src claims
-      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 5. corroborate: get memory
+        [], // 6. corroborate: get supporters
+        undefined, // 7. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',
@@ -606,18 +640,14 @@ describe('EnrichService', () => {
         throw new Error('not found');
       });
       // No entities, factuality present → factuality update only
-      // DB where() calls:
-      // 1. get memory
-      // 2. account userId lookup (for decryption)
-      // 3. update factuality
-      // 4. createLinks: src claims
-      // 5. update weights
       whereResults = [
         [fakeMemory], // 1. get memory
         [{ userId: 'user-1' }], // 2. account userId lookup (for decryption)
         undefined, // 3. update factuality
         [{ claims: '[]', factuality: null }], // 4. createLinks: src claims
-        undefined, // 5. update weights
+        [{ connectorType: 'gmail', factualityLabel: 'UNVERIFIED' }], // 5. corroborate: get memory
+        [], // 6. corroborate: get supporters
+        undefined, // 7. update weights
       ];
       aiService.generate.mockResolvedValueOnce(
         '{"entities":[],"factuality":{"label":"UNVERIFIED","confidence":0.5,"rationale":"default"}}',

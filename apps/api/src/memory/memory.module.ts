@@ -19,11 +19,9 @@ import { RerankService } from './rerank.service';
 import { TypesenseService } from './typesense.service';
 import { EnrichService } from './enrich.service';
 import { ContentCleaner } from './content-cleaner';
-import { CleanProcessor } from './clean.processor';
-import { EmbedProcessor } from './embed.processor';
-import { EnrichProcessor } from './enrich.processor';
 import { DecayProcessor } from './decay.processor';
 import { MemoryProcessor } from './memory.processor';
+import { MigrationService } from './migration.service';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
 
@@ -39,15 +37,6 @@ import { MemoryController } from './memory.controller';
     GeoModule,
     BillingModule,
     forwardRef(() => JobsModule),
-    BullModule.registerQueue({ name: 'clean' }),
-    BullModule.registerQueue({ name: 'embed' }),
-    BullModule.registerQueue({
-      name: 'enrich',
-      defaultJobOptions: {
-        attempts: 48,
-        backoff: { type: 'exponential', delay: 30000 },
-      },
-    }),
     BullModule.registerQueue({ name: 'memory' }),
     BullModule.registerQueue({ name: 'maintenance' }),
   ],
@@ -62,11 +51,9 @@ import { MemoryController } from './memory.controller';
     TypesenseService,
     EnrichService,
     ContentCleaner,
-    CleanProcessor,
-    EmbedProcessor,
-    EnrichProcessor,
     DecayProcessor,
     MemoryProcessor,
+    MigrationService,
     MemoryService,
   ],
   exports: [

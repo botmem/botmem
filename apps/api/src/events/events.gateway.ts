@@ -193,7 +193,7 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     }
 
     // Global channels — allowed for any authenticated user
-    const globalChannels = ['dashboard', 'logs', 'memories', 'notifications'];
+    const globalChannels = ['dashboard', 'memories', 'notifications'];
     if (globalChannels.includes(channel)) {
       return true;
     }

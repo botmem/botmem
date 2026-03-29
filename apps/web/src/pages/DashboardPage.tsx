@@ -11,6 +11,7 @@ const MemoryGraph = lazy(() =>
 const TimelineView = lazy(() =>
   import('../components/memory/TimelineView').then((m) => ({ default: m.TimelineView })),
 );
+import { ConnectorStatusBar } from '../components/dashboard/ConnectorStatusBar';
 import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
 import { useSearch } from '../hooks/useSearch';
@@ -256,6 +257,9 @@ export function DashboardPage() {
                 </Card>
               ))}
             </div>
+
+            {/* Connector sync status */}
+            <ConnectorStatusBar />
           </>
         )}
 
