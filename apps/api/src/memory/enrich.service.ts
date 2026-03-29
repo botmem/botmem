@@ -17,6 +17,12 @@ import {
 } from './prompts';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { normalizeEntities } from './entity-normalizer';
+import {
+  SUPPORTS_THRESHOLD,
+  CONTRADICTS_THRESHOLD,
+  DEFAULT_CONFIDENCE,
+  PHOTO_PEOPLE_CONFIDENCE,
+} from './search.constants';
 
 const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
@@ -118,10 +124,17 @@ export class EnrichService {
       const ageDays = (Date.now() - new Date(memory.eventTime).getTime()) / (1000 * 60 * 60 * 24);
       const recency = Math.exp(-0.015 * ageDays);
       const trust = this.getTrustScore(memory.connectorType);
-      const weights = { semantic: 0, rerank: 0, recency, importance: 0.5, trust, final: 0 };
+      const weights = {
+        semantic: 0,
+        rerank: 0,
+        recency,
+        importance: DEFAULT_CONFIDENCE,
+        trust,
+        final: 0,
+      };
       const defaultFactuality = JSON.stringify({
         label: 'UNVERIFIED',
-        confidence: 0.5,
+        confidence: DEFAULT_CONFIDENCE,
         rationale: 'trivial message — skipped enrichment',
       });
 
@@ -183,14 +196,14 @@ export class EnrichService {
       if ((memory.sourceType === 'photo' || memory.sourceType === 'file') && hasPeople) {
         factuality = {
           label: 'FACT',
-          confidence: 0.9,
+          confidence: PHOTO_PEOPLE_CONFIDENCE,
           rationale: 'photo with identified people — visual evidence',
         };
       } else {
         // Default factuality for non-email sources
         factuality = {
           label: 'UNVERIFIED',
-          confidence: 0.5,
+          confidence: DEFAULT_CONFIDENCE,
           rationale: `default for ${memory.sourceType} — factuality classification skipped`,
         };
       }
@@ -461,10 +474,14 @@ export class EnrichService {
         if (srcClaims.length > 0) {
           const dstFactLabel = dstFactMap.get(result.id) || 'UNVERIFIED';
 
-          if (result.score >= 0.92 && srcFactLabel === 'FACT' && dstFactLabel === 'FACT') {
+          if (
+            result.score >= SUPPORTS_THRESHOLD &&
+            srcFactLabel === 'FACT' &&
+            dstFactLabel === 'FACT'
+          ) {
             linkType = 'supports';
           } else if (
-            result.score >= 0.85 &&
+            result.score >= CONTRADICTS_THRESHOLD &&
             ((srcFactLabel === 'FACT' && dstFactLabel === 'FICTION') ||
               (srcFactLabel === 'FICTION' && dstFactLabel === 'FACT'))
           ) {
