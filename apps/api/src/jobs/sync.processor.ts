@@ -34,7 +34,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private events: EventsService,
     private dbService: DbService,
     private crypto: CryptoService,
-    @InjectQueue('clean') private cleanQueue: Queue,
+    @InjectQueue('memory') private memoryQueue: Queue,
     private settingsService: SettingsService,
     private configService: ConfigService,
     private analytics: AnalyticsService,
@@ -186,10 +186,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           // No ownerUserId — unscoped fallback (orphaned account, should rarely happen)
           await insertFn(this.dbService.db);
         }
-        await this.cleanQueue.add(
-          'clean',
+        await this.memoryQueue.add(
+          'process',
           { rawEventId, _trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId } },
-          { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+          { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
         );
       };
       const writePromise = insertRawEvent().catch((err) =>
@@ -279,15 +279,6 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
       // Wait for all pending DB writes / embed enqueues to finish
       await Promise.allSettled(pendingWrites);
-
-      // Emit dashboard queue stats signal (debounced)
-      this.events.emitDebounced(
-        'dashboard:queue-stats',
-        'dashboard',
-        'dashboard:queue-stats-changed',
-        async () => ({ ts: Date.now() }),
-        2000,
-      );
 
       if (totalProcessed === 0) {
         // Nothing to process through pipeline — mark done immediately
@@ -391,14 +382,5 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
   ) {
     const stage = 'sync';
     this.logsService.add({ jobId, connectorType, accountId, stage, level, message });
-    this.events.emitToChannel('logs', 'log', {
-      jobId,
-      connectorType,
-      accountId,
-      stage,
-      level,
-      message,
-      timestamp: new Date(),
-    });
   }
 }

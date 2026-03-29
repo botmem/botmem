@@ -1,6 +1,6 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -69,6 +69,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private geo: GeoService,
     private quotaService: QuotaService,
     private traceContext: TraceContext,
+    @InjectQueue('memory') private memoryQueue: Queue,
   ) {
     super();
   }
@@ -86,6 +87,39 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
     });
+
+    // Drain old queues: migrate remaining jobs to unified memory queue
+    this.drainOldQueues().catch((err) =>
+      this.logger.warn(`[drain] Failed to migrate old queue jobs: ${err.message}`),
+    );
+  }
+
+  /** Migrate remaining jobs from old clean/embed/enrich queues to the unified memory queue. */
+  private async drainOldQueues() {
+    const redisUrl = this.config.redisUrl;
+    for (const queueName of ['clean', 'embed', 'enrich']) {
+      try {
+        const oldQueue = new Queue(queueName, {
+          connection: { url: redisUrl, maxRetriesPerRequest: null },
+        });
+        const waiting = await oldQueue.getWaiting();
+        const delayed = await oldQueue.getDelayed();
+        const remaining = [...waiting, ...delayed];
+        if (remaining.length > 0) {
+          this.logger.log(`Migrating ${remaining.length} jobs from ${queueName} to memory queue`);
+          for (const job of remaining) {
+            await this.memoryQueue.add('process', job.data, {
+              attempts: 5,
+              backoff: { type: 'exponential', delay: 5000 },
+            });
+            await job.remove();
+          }
+        }
+        await oldQueue.close();
+      } catch {
+        // Queue doesn't exist or is empty, skip
+      }
+    }
   }
 
   private async onJobFailed(job: Job | undefined, err: Error) {
@@ -154,6 +188,19 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
     );
     const connector = this.connectors.get(rawEvent.connectorType);
+
+    // Skip contact/group events — these are handled by PeopleService, not as memories
+    if ((event.sourceType as string) === 'contact' || (event.sourceType as string) === 'group') {
+      this.addLog(
+        rawEvent.connectorType,
+        rawEvent.accountId,
+        'debug',
+        `[memory:skip] ${mid} sourceType=${event.sourceType} — not a memory`,
+        parentJobId,
+      );
+      await this.advanceAndComplete(parentJobId);
+      return;
+    }
 
     // 2. Parse text — use cleaned text from clean stage if available
     const text =
@@ -347,7 +394,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
       // Avatar lookup maps
       const gmailPhotoUrl =
-        rawEvent.connectorType === 'gmail' && event.sourceType === 'contact'
+        rawEvent.connectorType === 'gmail' && (event.sourceType as string) === 'contact'
           ? (metadata.photoUrl as string | undefined)
           : undefined;
 
@@ -646,10 +693,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             eventTime: new Date(event.timestamp),
             ingestTime: now,
             metadata: insertMetadata,
-            entities: enrichEntities.length ? JSON.stringify(enrichEntities) : null,
-            factuality: factualityJson ? this.crypto.encrypt(factualityJson)! : null,
+            entities: enrichEntities.length ? JSON.stringify(enrichEntities) : '[]',
+            factuality: factualityJson
+              ? this.crypto.encrypt(factualityJson)!
+              : '{"label":"UNVERIFIED","confidence":0.5,"rationale":"Pending evaluation"}',
             factualityLabel: enrichFactuality?.label || 'UNVERIFIED',
-            weights: JSON.stringify(weights),
+            weights: weights as Record<string, number>,
             embeddingStatus: 'done',
             pipelineComplete: true,
             createdAt: now,
@@ -677,10 +726,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           eventTime: new Date(event.timestamp),
           ingestTime: now,
           metadata: insertMetadata,
-          entities: enrichEntities.length ? JSON.stringify(enrichEntities) : null,
-          factuality: factualityJson ? this.crypto.encrypt(factualityJson)! : null,
+          entities: enrichEntities.length ? JSON.stringify(enrichEntities) : '[]',
+          factuality: factualityJson
+            ? this.crypto.encrypt(factualityJson)!
+            : '{"label":"UNVERIFIED","confidence":0.5,"rationale":"Pending evaluation"}',
           factualityLabel: enrichFactuality?.label || 'UNVERIFIED',
-          weights: JSON.stringify(weights),
+          weights: weights as Record<string, number>,
           embeddingStatus: 'done',
           pipelineComplete: true,
           createdAt: now,
@@ -784,14 +835,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
     });
-
-    this.events.emitDebounced(
-      'dashboard:queue-stats',
-      'dashboard',
-      'dashboard:queue-stats-changed',
-      async () => ({ ts: Date.now() }),
-      2000,
-    );
 
     // Advance parent job progress
     await this.advanceAndComplete(parentJobId);
@@ -1024,15 +1067,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       stage,
       level,
       message,
-    });
-    this.events.emitToChannel('logs', 'log', {
-      jobId: jobId ?? undefined,
-      connectorType,
-      accountId,
-      stage,
-      level,
-      message,
-      timestamp: new Date(),
     });
   }
 }
