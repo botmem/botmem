@@ -27,6 +27,7 @@ import {
   CONTACT_BOOST_MIXED,
   CONTACT_BOOST_PURE_MULTI,
   RECENCY_DECAY_RATE,
+  DIVERSITY_FACTOR_DEFAULT,
   GRAPH_GROUP_STRENGTH,
   GRAPH_DIRECT_STRENGTH,
   GRAPH_LINK_SCORE,
@@ -475,6 +476,69 @@ export class MemoryService {
     }
   }
 
+  private diversityRerank(
+    candidates: Array<{ id: string; row: any; score: number; weights: any }>,
+    limit: number,
+    diversityFactor = DIVERSITY_FACTOR_DEFAULT,
+  ): Array<{ id: string; row: any; score: number; weights: any }> {
+    if (candidates.length <= 1) return candidates.slice(0, limit);
+
+    const sorted = [...candidates].sort((a, b) => b.score - a.score);
+
+    // Group by connector type
+    const groups = new Map<string, typeof sorted>();
+    for (const c of sorted) {
+      const ct = c.row.memory?.connectorType || c.row.connectorType || 'unknown';
+      if (!groups.has(ct)) groups.set(ct, []);
+      groups.get(ct)!.push(c);
+    }
+
+    const result: typeof sorted = [];
+    const selectedCounts = new Map<string, number>();
+
+    while (result.length < limit) {
+      // Find globally best remaining
+      let bestCandidate: (typeof sorted)[0] | null = null;
+      let bestConnector = '';
+      for (const [ct, list] of groups) {
+        if (list.length && (!bestCandidate || list[0].score > bestCandidate.score)) {
+          bestCandidate = list[0];
+          bestConnector = ct;
+        }
+      }
+      if (!bestCandidate) break;
+
+      const bestScore = bestCandidate.score;
+      const minThreshold = bestScore - diversityFactor;
+
+      // Find least-represented connector with candidate above threshold
+      let diversePick: { connector: string; candidate: (typeof sorted)[0] } | null = null;
+      let minCount = Infinity;
+
+      for (const [ct, list] of groups) {
+        if (!list.length) continue;
+        const count = selectedCounts.get(ct) || 0;
+        if (count < minCount && list[0].score >= minThreshold) {
+          minCount = count;
+          diversePick = { connector: ct, candidate: list[0] };
+        } else if (
+          count === minCount &&
+          diversePick &&
+          list[0].score > diversePick.candidate.score
+        ) {
+          diversePick = { connector: ct, candidate: list[0] };
+        }
+      }
+
+      const pick = diversePick || { connector: bestConnector, candidate: bestCandidate };
+      result.push(pick.candidate);
+      selectedCounts.set(pick.connector, (selectedCounts.get(pick.connector) || 0) + 1);
+      groups.get(pick.connector)!.shift();
+    }
+
+    return result;
+  }
+
   /**
    * Greedy multi-word entity resolution: tries longest spans first against contact names.
    * "assad mansoor car" → contacts: [Assad Mansoor], topicWords: ["car"]
@@ -553,6 +617,7 @@ export class MemoryService {
     userId?: string,
     memoryBankId?: string,
     memoryBankIds?: string[],
+    diversityFactor?: number,
   ): Promise<SearchResponse> {
     if (!query.trim()) return { items: [], fallback: false };
 
@@ -828,7 +893,7 @@ export class MemoryService {
     }
 
     const filtered = scoredCandidates.filter((c) => c.score >= MIN_SCORE);
-    const topCandidates = filtered.sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
+    const topCandidates = this.diversityRerank(filtered, effectiveLimit, diversityFactor);
     const returnItems = topCandidates.map((c) =>
       this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey),
     );

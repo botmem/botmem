@@ -1,0 +1,63 @@
+# Botmem — Unraid Companion Stack
+#
+# This docker-compose is for users who want to run Botmem's dependencies
+# (PostgreSQL, Redis, Typesense) alongside the main container on Unraid.
+#
+# If you already run these services on your Unraid server, skip this file
+# and point the Botmem container's env vars to your existing instances.
+#
+# Usage:
+#   1. Save to /mnt/user/appdata/botmem/docker-compose.unraid.yml
+#   2. Edit the passwords below
+#   3. Run: docker compose -f /mnt/user/appdata/botmem/docker-compose.unraid.yml up -d
+#   4. Install Botmem from Community Applications and configure the URLs
+
+services:
+  botmem-postgres:
+    image: postgres:16-alpine
+    container_name: botmem-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: botmem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: botmem
+    volumes:
+      - /mnt/user/appdata/botmem/postgres:/var/lib/postgresql/data
+    ports:
+      - '5433:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U botmem -d botmem']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  botmem-redis:
+    image: redis:7.4-alpine
+    container_name: botmem-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - /mnt/user/appdata/botmem/redis:/data
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  botmem-typesense:
+    image: typesense/typesense:27.1
+    container_name: botmem-typesense
+    restart: unless-stopped
+    command: '--data-dir /data --api-key=${TYPESENSE_API_KEY:-botmem-ts-key} --enable-cors'
+    volumes:
+      - /mnt/user/appdata/botmem/typesense:/data
+    ports:
+      - '8108:8108'
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'echo > /dev/tcp/localhost/8108']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

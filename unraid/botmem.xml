@@ -1,0 +1,260 @@
+<?xml version="1.0"?>
+<Container version="2">
+    <Name>botmem</Name>
+    <Repository>ghcr.io/botmem/botmem:latest</Repository>
+    <Registry>https://github.com/botmem/botmem/pkgs/container/botmem</Registry>
+    <Network>bridge</Network>
+    <Shell>sh</Shell>
+    <Privileged>false</Privileged>
+    <Support>https://forums.unraid.net/topic/XXXXX-botmem-personal-memory-rag/</Support>
+    <Project>https://github.com/botmem/botmem</Project>
+    <Overview>Personal memory system that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Local-first, privacy-focused — your data stays on your server.[br][br]Requires PostgreSQL, Redis, and Typesense containers (auto-configured via this template's companion docker-compose, or point to existing instances).[br][br][b]Quick start:[/b] Install this container, then configure DATABASE_URL, REDIS_URL, and TYPESENSE_URL to point to your existing services or use the companion stack.</Overview>
+    <Category>Productivity: Tools:Utilities</Category>
+    <WebUI>http://[IP]:[PORT:12412]</WebUI>
+    <TemplateURL>https://raw.githubusercontent.com/botmem/unraid-templates/main/botmem/botmem.xml</TemplateURL>
+    <Icon>https://raw.githubusercontent.com/botmem/unraid-templates/main/botmem/botmem-icon.png</Icon>
+    <ExtraParams>--restart unless-stopped</ExtraParams>
+    <PostArgs/>
+    <DonateText>Support Botmem</DonateText>
+    <DonateLink>https://github.com/sponsors/botmem</DonateLink>
+    <Beta>true</Beta>
+    <ExtraSearchTerms>memory rag personal ai search email messages photos recall knowledge base vector</ExtraSearchTerms>
+    <Requires>PostgreSQL 16+, Redis 7+, Typesense 27+. Install these from Community Applications first, or use the companion docker-compose.</Requires>
+
+    <!-- === Ports === -->
+    <Config
+        Name="WebUI Port"
+        Target="12412"
+        Default="12412"
+        Mode="tcp"
+        Description="Botmem web interface and API port."
+        Type="Port"
+        Display="always"
+        Required="true"
+        Mask="false"/>
+
+    <!-- === Paths === -->
+    <Config
+        Name="Data Directory"
+        Target="/data"
+        Default="/mnt/user/appdata/botmem/data"
+        Mode="rw"
+        Description="Persistent data directory (connector session files, caches)."
+        Type="Path"
+        Display="always"
+        Required="true"
+        Mask="false"/>
+
+    <Config
+        Name="Plugins Directory"
+        Target="/plugins"
+        Default="/mnt/user/appdata/botmem/plugins"
+        Mode="ro"
+        Description="External plugin directory (optional)."
+        Type="Path"
+        Display="advanced"
+        Required="false"
+        Mask="false"/>
+
+    <!-- === Required Variables === -->
+    <Config
+        Name="Database URL"
+        Target="DATABASE_URL"
+        Default="postgresql://botmem:changeme@host.docker.internal:5432/botmem"
+        Mode=""
+        Description="PostgreSQL connection string. Point to your PostgreSQL container or external instance."
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="false"/>
+
+    <Config
+        Name="Redis URL"
+        Target="REDIS_URL"
+        Default="redis://host.docker.internal:6379"
+        Mode=""
+        Description="Redis connection string for BullMQ job queues. Point to your Redis container."
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="false"/>
+
+    <Config
+        Name="Typesense URL"
+        Target="TYPESENSE_URL"
+        Default="http://host.docker.internal:8108"
+        Mode=""
+        Description="Typesense search engine URL. Point to your Typesense container."
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="false"/>
+
+    <Config
+        Name="Typesense API Key"
+        Target="TYPESENSE_API_KEY"
+        Default="botmem-ts-key"
+        Mode=""
+        Description="API key for Typesense. Must match the key configured in your Typesense container."
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="true"/>
+
+    <Config
+        Name="App Secret"
+        Target="APP_SECRET"
+        Default=""
+        Mode=""
+        Description="AES-256-GCM encryption key for credentials at rest. Generate with: openssl rand -base64 48"
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="true"/>
+
+    <Config
+        Name="JWT Access Secret"
+        Target="JWT_ACCESS_SECRET"
+        Default=""
+        Mode=""
+        Description="Secret for signing JWT access tokens. Generate with: openssl rand -base64 48"
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="true"/>
+
+    <Config
+        Name="JWT Refresh Secret"
+        Target="JWT_REFRESH_SECRET"
+        Default=""
+        Mode=""
+        Description="Secret for signing JWT refresh tokens. Generate with: openssl rand -base64 48"
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="true"/>
+
+    <!-- === AI Backend === -->
+    <Config
+        Name="AI Backend"
+        Target="AI_BACKEND"
+        Default="ollama"
+        Mode=""
+        Description="AI inference backend: 'ollama' (local/remote) or 'openrouter' (cloud API)."
+        Type="Variable"
+        Display="always"
+        Required="true"
+        Mask="false"/>
+
+    <Config
+        Name="Ollama Base URL"
+        Target="OLLAMA_BASE_URL"
+        Default="http://host.docker.internal:11434"
+        Mode=""
+        Description="Ollama inference endpoint. Point to your Ollama container or remote host."
+        Type="Variable"
+        Display="always"
+        Required="false"
+        Mask="false"/>
+
+    <Config
+        Name="Ollama Username"
+        Target="OLLAMA_USERNAME"
+        Default=""
+        Mode=""
+        Description="Basic auth username for Ollama (optional, for remote Ollama behind auth proxy)."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="false"/>
+
+    <Config
+        Name="Ollama Password"
+        Target="OLLAMA_PASSWORD"
+        Default=""
+        Mode=""
+        Description="Basic auth password for Ollama (optional)."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="true"/>
+
+    <Config
+        Name="Ollama Embedding Model"
+        Target="OLLAMA_EMBED_MODEL"
+        Default="mxbai-embed-large"
+        Mode=""
+        Description="Ollama model for generating embeddings (1024d). Must be pulled in Ollama first."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="false"/>
+
+    <Config
+        Name="Ollama Text Model"
+        Target="OLLAMA_TEXT_MODEL"
+        Default="qwen3:8b"
+        Mode=""
+        Description="Ollama model for text enrichment (entity extraction, claims, factuality)."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="false"/>
+
+    <Config
+        Name="Ollama Vision Model"
+        Target="OLLAMA_VL_MODEL"
+        Default="qwen3-vl:4b"
+        Mode=""
+        Description="Ollama vision-language model for photo/image analysis."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="false"/>
+
+    <!-- === OpenRouter (alternative backend) === -->
+    <Config
+        Name="OpenRouter API Key"
+        Target="OPENROUTER_API_KEY"
+        Default=""
+        Mode=""
+        Description="API key for OpenRouter (required if AI_BACKEND=openrouter)."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="true"/>
+
+    <!-- === Optional Services === -->
+    <Config
+        Name="OpenAI API Key"
+        Target="OPENAI_API_KEY"
+        Default=""
+        Mode=""
+        Description="Optional. Enables Typesense conversational RAG search (uses gpt-4.1-nano). Leave empty to disable."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="true"/>
+
+    <Config
+        Name="Frontend URL"
+        Target="FRONTEND_URL"
+        Default="http://localhost:12412"
+        Mode=""
+        Description="Public URL for CORS and OAuth redirects. Set to your Unraid IP:port or reverse proxy URL."
+        Type="Variable"
+        Display="advanced"
+        Required="false"
+        Mask="false"/>
+
+    <Config
+        Name="Port"
+        Target="PORT"
+        Default="12412"
+        Mode=""
+        Description="Internal API port (should match WebUI port mapping)."
+        Type="Variable"
+        Display="advanced-hide"
+        Required="false"
+        Mask="false">12412</Config>
+</Container>

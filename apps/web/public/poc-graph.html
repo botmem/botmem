@@ -1,0 +1,1826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Botmem — Entity Graph POC</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #F5F3EF;
+    --bg-surface: #FFFFFF;
+    --bg-elevated: #EDEAE4;
+    --border: #D4D0C8;
+    --border-strong: #B0ADA6;
+    --text: #1A1A1A;
+    --text-dim: #6B6B6B;
+    --text-muted: #8A8A8A;
+    --accent: #5A7A10;
+    --accent-bright: #7BA318;
+    --accent-bg: #E8F0D0;
+    --canvas-bg: #F5F3EF;
+    --edge-default: rgba(0,0,0,0.12);
+    --shadow-offset: 4px 4px 0;
+    --focus-outline: 2px solid var(--accent);
+
+    --gmail: #EA4335;
+    --slack: #611F69;
+    --imessage: #1B8C3A;
+    --whatsapp: #128C7E;
+    --telegram: #0088CC;
+    --photos: #E67E00;
+    --locations: #5856D6;
+    --file: #6B6B6B;
+  }
+
+  [data-theme="dark"] {
+    --bg: #1A1A1A;
+    --bg-surface: #252525;
+    --bg-elevated: #2F2F2F;
+    --border: #404040;
+    --border-strong: #555;
+    --text: #E0E0E0;
+    --text-dim: #999;
+    --text-muted: #777;
+    --accent: #C4F53A;
+    --accent-bright: #D4FF4A;
+    --accent-bg: #1A2800;
+    --canvas-bg: #1A1A1A;
+    --edge-default: rgba(255,255,255,0.10);
+  }
+
+  /* ─── THEME TRANSITION ─── */
+  body, .header, .sidebar, .legend, .poc-nav,
+  .search-input, .theme-toggle, .sidebar-toggle,
+  .tooltip, .sidebar-body .memory-text {
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+
+  /* ─── REDUCED MOTION ─── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+    }
+  }
+
+  body {
+    font-family: 'IBM Plex Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ─── FOCUS STYLES ─── */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  .legend-item:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+  }
+
+  /* ─── NAV ─── */
+  .poc-nav {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0 8px;
+    height: 28px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .poc-nav a {
+    padding: 4px 12px;
+    color: var(--text-dim);
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 150ms ease, color 150ms ease;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+  }
+  .poc-nav a:hover {
+    background: var(--accent-bg);
+    color: var(--text);
+  }
+  .poc-nav a.active {
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-weight: 700;
+    border-color: var(--accent);
+  }
+  .poc-nav .nav-label {
+    color: var(--text-muted);
+    margin-right: 8px;
+    font-size: 9px;
+  }
+
+  /* ─── HEADER ─── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    border-bottom: 2px solid var(--border-strong);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+    z-index: 10;
+    flex-wrap: wrap;
+  }
+  .header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .search-wrap {
+    flex: 1;
+    max-width: 460px;
+    min-width: 160px;
+    position: relative;
+  }
+  .search-input {
+    width: 100%;
+    padding: 6px 32px 6px 28px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    background: var(--bg);
+    border: 2px solid var(--border);
+    color: var(--text);
+    outline: none;
+    min-height: 32px;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--text-muted); }
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .search-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    line-height: 1;
+    display: none;
+    min-width: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+  }
+  .search-clear:hover { color: var(--text); border-color: var(--border); }
+  .search-clear.visible { display: flex; }
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .header-meta .stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border: 2px solid var(--border);
+    background: var(--bg);
+    font-weight: 600;
+  }
+  .header-meta .count {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .parsed-tags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .parsed-tag {
+    padding: 1px 6px;
+    font-size: 10px;
+    background: var(--accent-bg);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .theme-toggle {
+    background: var(--bg);
+    border: 2px solid var(--border);
+    color: var(--text);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1;
+    min-width: 44px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .theme-toggle:hover { border-color: var(--accent); }
+
+  /* ─── MAIN LAYOUT ─── */
+  .main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+  }
+  .canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    cursor: grab;
+  }
+  canvas.dragging { cursor: grabbing; }
+
+  /* ─── SIDEBAR ─── */
+  .sidebar {
+    width: 320px;
+    border-left: 2px solid var(--border-strong);
+    background: var(--bg-surface);
+    overflow-y: auto;
+    flex-shrink: 0;
+    transition: margin-right 200ms ease;
+    font-size: 12px;
+    box-shadow: calc(-1 * var(--shadow-offset));
+  }
+  .sidebar.collapsed {
+    margin-right: -320px;
+  }
+  .sidebar-toggle {
+    position: absolute;
+    right: 322px;
+    top: 8px;
+    z-index: 5;
+    background: var(--bg-surface);
+    border: 2px solid var(--border-strong);
+    color: var(--text);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 4px 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sidebar.collapsed ~ .sidebar-toggle { right: 2px; }
+  .sidebar-toggle:hover { border-color: var(--accent); }
+  .sidebar-header {
+    padding: 12px;
+    border-bottom: 2px solid var(--border);
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sidebar-body {
+    padding: 12px;
+  }
+  .sidebar-body .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+  .sidebar-body .label:first-child { margin-top: 0; }
+  .sidebar-body .value {
+    color: var(--text);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .sidebar-body .memory-text {
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .weight-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+  }
+  .weight-bar .wlabel {
+    width: 72px;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: right;
+  }
+  .weight-bar .wtrack {
+    flex: 1;
+    height: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    position: relative;
+  }
+  .weight-bar .wfill {
+    height: 100%;
+    background: var(--accent);
+  }
+  .weight-bar .wval {
+    width: 32px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .sidebar-list {
+    list-style: none;
+    padding: 0;
+  }
+  .sidebar-list li {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-dim);
+    transition: color 150ms ease;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+  }
+  .sidebar-list li:hover { color: var(--accent); }
+  .sidebar-list li:last-child { border-bottom: none; }
+  .role-badge {
+    display: inline-block;
+    padding: 0 4px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-right: 4px;
+    border: 1px solid;
+  }
+  .role-sender { color: var(--imessage); border-color: var(--imessage); }
+  .role-recipient { color: var(--telegram); border-color: var(--telegram); }
+  .role-participant { color: var(--text-dim); border-color: var(--text-dim); }
+  .role-mentioned { color: var(--photos); border-color: var(--photos); }
+  .fact-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    border: 1px solid;
+  }
+  .fact-FACT { color: var(--imessage); border-color: var(--imessage); }
+  .fact-UNVERIFIED { color: var(--photos); border-color: var(--photos); }
+  .fact-FICTION { color: var(--gmail); border-color: var(--gmail); }
+  .entity-type-badge {
+    display: inline-block;
+    padding: 0 4px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+
+  /* ─── LEGEND ─── */
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    border-top: 2px solid var(--border-strong);
+    background: var(--bg-surface);
+    font-size: 10px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    z-index: 10;
+  }
+  .legend-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-group-title {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    opacity: 1;
+    transition: opacity 150ms ease;
+    padding: 4px;
+    border: 1px solid transparent;
+    min-height: 28px;
+  }
+  .legend-item:hover { border-color: var(--border); }
+  .legend-item.disabled { opacity: 0.3; }
+  .legend-item[aria-pressed="false"] { opacity: 0.3; }
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .legend-swatch.circle { border-radius: 50%; }
+  .legend-swatch.diamond {
+    transform: rotate(45deg);
+    width: 8px;
+    height: 8px;
+  }
+
+  /* ─── TOOLTIP ─── */
+  .tooltip {
+    position: fixed;
+    padding: 4px 8px;
+    background: var(--bg-surface);
+    border: 2px solid var(--border-strong);
+    font-size: 11px;
+    pointer-events: none;
+    z-index: 100;
+    max-width: 280px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: none;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--text);
+    box-shadow: var(--shadow-offset) var(--border);
+  }
+
+  /* ─── LOADING ─── */
+  .loading-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+    z-index: 5;
+  }
+
+  /* ─── DETAIL CARD (inside sidebar) ─── */
+  .detail-card {
+    padding: 8px;
+    border: 2px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow-offset) var(--border);
+    margin-bottom: 12px;
+  }
+
+  .search-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 6px 12px;
+    background: var(--accent-bg);
+    border: 2px solid var(--accent);
+    color: var(--accent);
+    cursor: pointer;
+    font-weight: 600;
+    min-height: 32px;
+    transition: background 150ms ease;
+  }
+  .search-btn:hover { background: var(--accent); color: var(--bg); }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 768px) {
+    .header { gap: 8px; padding: 8px; }
+    .header h1 { font-size: 12px; }
+    .header-meta { font-size: 10px; }
+    .sidebar {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      z-index: 20;
+      width: 300px;
+      box-shadow: -4px 0 0 var(--border-strong);
+    }
+    .sidebar.collapsed { margin-right: -300px; }
+    .sidebar.collapsed ~ .sidebar-toggle { right: 2px; }
+    .sidebar-toggle {
+      right: 302px;
+    }
+    .legend { gap: 8px; padding: 6px 8px; }
+  }
+
+  @media (max-width: 480px) {
+    .header h1 { display: none; }
+    .search-wrap { min-width: 120px; }
+    .sidebar { width: 280px; }
+    .sidebar.collapsed { margin-right: -280px; }
+    .sidebar-toggle { right: 282px; }
+    .sidebar.collapsed ~ .sidebar-toggle { right: 2px; }
+    .legend-group-title { display: none; }
+  }
+</style>
+</head>
+<body>
+<nav class="poc-nav" role="navigation" aria-label="POC navigation">
+  <span class="nav-label">POC:</span>
+  <a href="poc-timeline.html">Timeline</a>
+  <a href="poc-graph.html" class="active" aria-current="page">Graph</a>
+</nav>
+
+<header class="header">
+  <h1>BOTMEM // GRAPH</h1>
+  <div class="search-wrap">
+    <span class="search-icon" aria-hidden="true">&#x2315;</span>
+    <label for="searchInput" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Search memories</label>
+    <input class="search-input" type="text" placeholder="Search memories... ( / )" id="searchInput" autocomplete="off" />
+    <button class="search-clear" id="searchClear" type="button" aria-label="Clear search" title="Clear search">x</button>
+    <button id="engineToggle" type="button" style="padding:2px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;cursor:pointer;border:1px solid var(--border-strong);background:var(--bg-elevated);color:var(--text-dim);margin-left:4px" title="Toggle search engine">API</button>
+  </div>
+  <div class="header-meta">
+    <span class="stat"><span class="count" id="nodeCount">0</span> nodes</span>
+    <span class="stat"><span class="count" id="edgeCount">0</span> edges</span>
+    <div class="parsed-tags" id="parsedTags"></div>
+  </div>
+  <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle dark/light theme">LT</button>
+</header>
+
+<main class="main">
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="graphCanvas" role="img" aria-label="Interactive entity relationship graph visualization. Use mouse to pan and zoom, click nodes for details."></canvas>
+    <div class="loading-overlay" id="loadingOverlay">Type a query to explore the graph</div>
+  </div>
+  <aside class="sidebar" id="sidebar" aria-label="Node details panel">
+    <div class="sidebar-header">
+      <span id="sidebarTitle">Node Detail</span>
+    </div>
+    <div class="sidebar-body" id="sidebarBody">
+      <p style="color:var(--text-muted)">Click a node to see details</p>
+    </div>
+  </aside>
+  <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar panel" aria-expanded="true">[&gt;]</button>
+</main>
+
+<div class="tooltip" id="tooltip" role="tooltip" aria-hidden="true"></div>
+
+<footer class="legend" id="legend" role="group" aria-label="Graph legend and filters">
+  <div class="legend-group">
+    <span class="legend-group-title">Nodes</span>
+    <div class="legend-item" data-toggle="memory" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle memory nodes">
+      <span class="legend-swatch circle" style="background:var(--text-dim)"></span>
+      <span>Memory</span>
+    </div>
+    <div class="legend-item" data-toggle="entity" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle entity nodes">
+      <span class="legend-swatch diamond" style="background:var(--accent)"></span>
+      <span>Entity</span>
+    </div>
+  </div>
+  <div class="legend-group">
+    <span class="legend-group-title">Source</span>
+    <div class="legend-item" data-toggle="gmail" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle Gmail nodes">
+      <span class="legend-swatch circle" style="background:var(--gmail)"></span>
+      <span>Gmail</span>
+    </div>
+    <div class="legend-item" data-toggle="slack" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle Slack nodes">
+      <span class="legend-swatch circle" style="background:var(--slack)"></span>
+      <span>Slack</span>
+    </div>
+    <div class="legend-item" data-toggle="imessage" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle iMessage nodes">
+      <span class="legend-swatch circle" style="background:var(--imessage)"></span>
+      <span>iMessage</span>
+    </div>
+    <div class="legend-item" data-toggle="whatsapp" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle WhatsApp nodes">
+      <span class="legend-swatch circle" style="background:var(--whatsapp)"></span>
+      <span>WhatsApp</span>
+    </div>
+    <div class="legend-item" data-toggle="photos" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle Photos nodes">
+      <span class="legend-swatch circle" style="background:var(--photos)"></span>
+      <span>Photos</span>
+    </div>
+    <div class="legend-item" data-toggle="locations" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle Locations nodes">
+      <span class="legend-swatch circle" style="background:var(--locations)"></span>
+      <span>Locations</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ─── CONFIG ───
+const API_KEY = 'bm_sk_fc16b01404be7079073bd9ab0cf2073c';
+const TS_PROXY = 'http://localhost:8109';
+let useTypesense = false;
+const CONNECTOR_COLORS = {
+  gmail: '#EA4335', slack: '#611F69', imessage: '#1B8C3A',
+  whatsapp: '#128C7E', telegram: '#0088CC', photos: '#E67E00',
+  locations: '#5856D6', file: '#6B6B6B'
+};
+const ENTITY_COLORS = {
+  person: '#C4F53A', organization: '#0088CC', location: '#5856D6',
+  date: '#E67E00', amount: '#EA4335', other: '#888'
+};
+const ROLE_COLORS = {
+  sender: '#1B8C3A', recipient: '#0088CC', participant: '#888', mentioned: '#E67E00'
+};
+
+// Entity type text prefixes (no emoji)
+const ENTITY_PREFIXES = {
+  person: '[person]', organization: '[org]', location: '[loc]',
+  date: '[date]', amount: '[amt]', other: '[other]'
+};
+
+// ─── STATE ───
+let nodes = [];
+let edges = [];
+let selectedNode = null;
+let hoveredNode = null;
+let dragNode = null;
+let dragOffsetX = 0, dragOffsetY = 0;
+let camX = 0, camY = 0, camZoom = 1;
+let isPanning = false, panStartX = 0, panStartY = 0, panCamStartX = 0, panCamStartY = 0;
+let simRunning = false;
+let searchTimer = null;
+let lastResults = [];
+let hiddenTypes = new Set();
+let sidebarCollapsed = false;
+let reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Listen for reduced motion changes
+window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', e => {
+  reducedMotion = e.matches;
+  if (reducedMotion && simRunning) {
+    // Immediately settle the simulation
+    simAlpha = SIM_ALPHA_MIN;
+  }
+});
+
+const canvas = document.getElementById('graphCanvas');
+const ctx = canvas.getContext('2d');
+const canvasWrap = document.getElementById('canvasWrap');
+const tooltip = document.getElementById('tooltip');
+const searchInput = document.getElementById('searchInput');
+const searchClear = document.getElementById('searchClear');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const sidebarTitle = document.getElementById('sidebarTitle');
+const sidebarBody = document.getElementById('sidebarBody');
+const themeToggle = document.getElementById('themeToggle');
+const nodeCountEl = document.getElementById('nodeCount');
+const edgeCountEl = document.getElementById('edgeCount');
+const parsedTagsEl = document.getElementById('parsedTags');
+
+// ─── RETINA ───
+let dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvasWrap.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// Debounced resize handler
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resizeCanvas, 100);
+});
+resizeCanvas();
+
+// ─── SEARCH CLEAR BUTTON ───
+function updateSearchClear() {
+  const hasText = searchInput.value.length > 0;
+  searchClear.classList.toggle('visible', hasText);
+}
+searchInput.addEventListener('input', updateSearchClear);
+searchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  updateSearchClear();
+  searchInput.focus();
+});
+
+// ─── THEME ───
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  themeToggle.textContent = theme === 'dark' ? 'DK' : 'LT';
+  themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+  localStorage.setItem('botmem-theme', theme);
+}
+
+(function initTheme() {
+  const saved = localStorage.getItem('botmem-theme');
+  if (saved) applyTheme(saved);
+  else applyTheme('light');
+})();
+
+themeToggle.addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+});
+
+function getThemeColors() {
+  const s = getComputedStyle(document.documentElement);
+  return {
+    bg: s.getPropertyValue('--canvas-bg').trim() || s.getPropertyValue('--bg').trim(),
+    text: s.getPropertyValue('--text').trim(),
+    textDim: s.getPropertyValue('--text-dim').trim(),
+    textMuted: s.getPropertyValue('--text-muted').trim(),
+    accent: s.getPropertyValue('--accent').trim(),
+    accentBright: s.getPropertyValue('--accent-bright').trim(),
+    border: s.getPropertyValue('--border').trim(),
+    borderStrong: s.getPropertyValue('--border-strong').trim(),
+    surface: s.getPropertyValue('--bg-surface').trim(),
+    edgeDefault: s.getPropertyValue('--edge-default').trim(),
+  };
+}
+
+// ─── SIDEBAR TOGGLE ───
+sidebarToggle.addEventListener('click', () => {
+  sidebarCollapsed = !sidebarCollapsed;
+  sidebar.classList.toggle('collapsed', sidebarCollapsed);
+  sidebarToggle.textContent = sidebarCollapsed ? '[<]' : '[>]';
+  sidebarToggle.setAttribute('aria-expanded', String(!sidebarCollapsed));
+  setTimeout(resizeCanvas, 220);
+});
+
+// ─── LEGEND TOGGLES ───
+document.querySelectorAll('.legend-item[data-toggle]').forEach(el => {
+  function toggleLegendItem() {
+    const t = el.dataset.toggle;
+    if (hiddenTypes.has(t)) {
+      hiddenTypes.delete(t);
+      el.classList.remove('disabled');
+      el.setAttribute('aria-pressed', 'true');
+    } else {
+      hiddenTypes.add(t);
+      el.classList.add('disabled');
+      el.setAttribute('aria-pressed', 'false');
+    }
+  }
+  el.addEventListener('click', toggleLegendItem);
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleLegendItem();
+    }
+  });
+});
+
+// ─── API ───
+async function searchMemories(query) {
+  loadingOverlay.textContent = useTypesense ? 'Searching (Typesense)...' : 'Searching...';
+  loadingOverlay.style.display = 'block';
+  try {
+    let data;
+    if (useTypesense) {
+      const res = await fetch(`${TS_PROXY}/search/botmem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: query, limit: 100, alpha: 0.5 })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    } else {
+      const res = await fetch('/api/memories/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`
+        },
+        body: JSON.stringify({ query, limit: 100 })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    }
+    loadingOverlay.style.display = 'none';
+
+    // Show parsed tags
+    parsedTagsEl.innerHTML = '';
+    if (useTypesense) {
+      const tag = document.createElement('span');
+      tag.className = 'parsed-tag';
+      tag.textContent = `TYPESENSE ${data.embed_time_ms||0}ms+${data.typesense_time_ms||0}ms`;
+      parsedTagsEl.appendChild(tag);
+    }
+    if (data.parsed) {
+      for (const [k, v] of Object.entries(data.parsed)) {
+        if (v && k !== 'query') {
+          const tag = document.createElement('span');
+          tag.className = 'parsed-tag';
+          tag.textContent = `${k}: ${Array.isArray(v) ? v.join(', ') : v}`;
+          parsedTagsEl.appendChild(tag);
+        }
+      }
+    }
+    if (data.fallback) {
+      const tag = document.createElement('span');
+      tag.className = 'parsed-tag';
+      tag.textContent = 'FALLBACK';
+      parsedTagsEl.appendChild(tag);
+    }
+
+    return (data.items || []).map(parseMemory);
+  } catch (e) {
+    loadingOverlay.textContent = 'Error: ' + e.message;
+    return [];
+  }
+}
+
+// ─── ENGINE TOGGLE ───
+document.getElementById('engineToggle').addEventListener('click', () => {
+  useTypesense = !useTypesense;
+  const btn = document.getElementById('engineToggle');
+  btn.textContent = useTypesense ? 'TS' : 'API';
+  btn.style.color = useTypesense ? '#C4F53A' : 'var(--text-dim)';
+  btn.style.borderColor = useTypesense ? '#C4F53A' : 'var(--border-strong)';
+});
+
+function parseMemory(raw) {
+  const safeParse = (v, d) => {
+    if (!v) return d;
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'object') return v;
+    try { return JSON.parse(v); } catch { return d; }
+  };
+  return {
+    ...raw,
+    entities: safeParse(raw.entities, []),
+    claims: safeParse(raw.claims, []),
+    factuality: safeParse(raw.factuality, { label: 'UNVERIFIED', confidence: 0.5 }),
+    weights: safeParse(raw.weights, { semantic:0, rerank:0, recency:0, importance:0.5, trust:0.5, final:0 }),
+    metadata: safeParse(raw.metadata, {}),
+    people: raw.people || [],
+    score: raw.score || 0,
+  };
+}
+
+// ─── GRAPH BUILDING ───
+function buildGraph(memories) {
+  lastResults = memories;
+  nodes = [];
+  edges = [];
+  const personMap = new Map(); // maps person name -> entityMap key
+  const entityMap = new Map();
+
+  // 1. Memory nodes
+  memories.forEach((m, i) => {
+    nodes.push({
+      id: m.id,
+      type: 'memory',
+      label: (m.text || '').substring(0, 60),
+      sourceType: m.sourceType,
+      connectorType: m.connectorType,
+      score: m.score || 0,
+      data: m,
+      x: (Math.random() - 0.5) * 600,
+      y: (Math.random() - 0.5) * 400,
+      vx: 0, vy: 0,
+      radius: 4 + (m.score || 0) * 8,
+      pinned: false
+    });
+  });
+
+  // 2. People as entity nodes (entityType: 'person')
+  memories.forEach((m, mi) => {
+    (m.people || []).forEach(p => {
+      const key = p.displayName || p.personId;
+      if (!key) return;
+      const entityKey = 'person:' + key;
+      if (!entityMap.has(entityKey)) {
+        personMap.set(key, entityKey);
+        entityMap.set(entityKey, nodes.length);
+        nodes.push({
+          id: 'entity:person:' + key,
+          type: 'entity',
+          entityType: 'person',
+          label: key,
+          data: { type: 'person', value: key, name: key, memories: [], connections: new Map() },
+          x: (Math.random() - 0.5) * 600,
+          y: (Math.random() - 0.5) * 400,
+          vx: 0, vy: 0,
+          radius: 10,
+          pinned: false
+        });
+      }
+      const pIdx = entityMap.get(entityKey);
+      const pNode = nodes[pIdx];
+      pNode.data.memories.push({ memoryId: m.id, role: p.role, text: (m.text || '').substring(0, 80) });
+      pNode.radius = Math.min(16, 8 + pNode.data.memories.length * 0.8);
+
+      edges.push({
+        source: mi,
+        target: pIdx,
+        type: 'memory-entity',
+        role: p.role,
+        strength: 0.3
+      });
+    });
+  });
+
+  // 3. Other entity nodes
+  const entityCount = new Map();
+  memories.forEach(m => {
+    (m.entities || []).forEach(e => {
+      const key = (e.type || 'other') + ':' + (e.value || '');
+      entityCount.set(key, (entityCount.get(key) || 0) + 1);
+    });
+  });
+  const minEntityOccurrences = nodes.length > 80 ? 2 : 1;
+
+  memories.forEach((m, mi) => {
+    (m.entities || []).forEach(e => {
+      const key = (e.type || 'other') + ':' + (e.value || '');
+      if (entityCount.get(key) < minEntityOccurrences) return;
+      if (!entityMap.has(key)) {
+        if (nodes.length >= 200) return;
+        entityMap.set(key, nodes.length);
+        nodes.push({
+          id: 'entity:' + key,
+          type: 'entity',
+          entityType: e.type || 'other',
+          label: e.value || key,
+          data: { type: e.type, value: e.value, memories: [] },
+          x: (Math.random() - 0.5) * 600,
+          y: (Math.random() - 0.5) * 400,
+          vx: 0, vy: 0,
+          radius: 5,
+          pinned: false
+        });
+      }
+      const eIdx = entityMap.get(key);
+      if (eIdx === undefined) return;
+      nodes[eIdx].data.memories.push({ memoryId: m.id, text: (m.text || '').substring(0, 80) });
+      nodes[eIdx].radius = Math.min(10, 4 + nodes[eIdx].data.memories.length * 0.6);
+
+      edges.push({
+        source: mi,
+        target: eIdx,
+        type: 'memory-entity',
+        strength: 0.15
+      });
+    });
+  });
+
+  // 4. Person-Person co-occurrence edges (entity-entity between person-type entities)
+  memories.forEach(m => {
+    const people = (m.people || []).map(p => p.displayName || p.personId).filter(Boolean);
+    for (let i = 0; i < people.length; i++) {
+      for (let j = i + 1; j < people.length; j++) {
+        const aKey = personMap.get(people[i]);
+        const bKey = personMap.get(people[j]);
+        if (!aKey || !bKey) continue;
+        const aIdx = entityMap.get(aKey);
+        const bIdx = entityMap.get(bKey);
+        if (aIdx === undefined || bIdx === undefined) continue;
+        const aConns = nodes[aIdx].data.connections;
+        const bConns = nodes[bIdx].data.connections;
+        aConns.set(people[j], (aConns.get(people[j]) || 0) + 1);
+        bConns.set(people[i], (bConns.get(people[i]) || 0) + 1);
+        let existing = edges.find(e =>
+          e.type === 'entity-entity' &&
+          ((e.source === aIdx && e.target === bIdx) || (e.source === bIdx && e.target === aIdx))
+        );
+        if (existing) {
+          existing.weight = (existing.weight || 1) + 1;
+          existing.strength = Math.min(1, 0.3 + existing.weight * 0.1);
+        } else {
+          edges.push({
+            source: aIdx,
+            target: bIdx,
+            type: 'entity-entity',
+            weight: 1,
+            strength: 0.4
+          });
+        }
+      }
+    }
+  });
+
+  // 5. Person-Entity co-occurrence edges (entity-entity between person and other entities)
+  memories.forEach(m => {
+    const people = (m.people || []).map(p => p.displayName || p.personId).filter(Boolean);
+    (m.entities || []).forEach(e => {
+      const eKey = (e.type || 'other') + ':' + (e.value || '');
+      const eIdx = entityMap.get(eKey);
+      if (eIdx === undefined) return;
+      people.forEach(pName => {
+        const pKey = personMap.get(pName);
+        if (!pKey) return;
+        const pIdx = entityMap.get(pKey);
+        if (pIdx === undefined) return;
+        let existing = edges.find(edge =>
+          edge.type === 'entity-entity' &&
+          ((edge.source === pIdx && edge.target === eIdx) || (edge.source === eIdx && edge.target === pIdx))
+        );
+        if (!existing) {
+          edges.push({
+            source: pIdx,
+            target: eIdx,
+            type: 'entity-entity',
+            strength: 0.2
+          });
+        }
+      });
+    });
+  });
+
+  nodeCountEl.textContent = nodes.length;
+  edgeCountEl.textContent = edges.length;
+}
+
+// ─── FORCE SIMULATION ───
+const SIM_ALPHA_MIN = 0.001;
+let simAlpha = 1;
+const REPULSION = 3000;
+const SPRING_K = 0.008;
+const SPRING_LEN = 80;
+const CENTER_GRAVITY = 0.01;
+const DAMPING = 0.85;
+const VELOCITY_MAX = 8;
+
+function simulate() {
+  if (!simRunning || nodes.length === 0) return;
+  if (simAlpha <= SIM_ALPHA_MIN) return;
+
+  // Skip simulation entirely in reduced motion mode
+  if (reducedMotion) {
+    simAlpha = SIM_ALPHA_MIN;
+    return;
+  }
+
+  const N = nodes.length;
+
+  // Repulsion
+  for (let i = 0; i < N; i++) {
+    if (nodes[i].pinned) continue;
+    let fx = 0, fy = 0;
+    for (let j = 0; j < N; j++) {
+      if (i === j) continue;
+      const dx = nodes[i].x - nodes[j].x;
+      const dy = nodes[i].y - nodes[j].y;
+      const dist2 = dx * dx + dy * dy;
+      const dist = Math.sqrt(dist2) || 1;
+      const minDist = nodes[i].radius + nodes[j].radius + 2;
+      const effectiveDist2 = Math.max(dist2, minDist * minDist * 0.25);
+      const force = REPULSION / effectiveDist2;
+      fx += (dx / dist) * force;
+      fy += (dy / dist) * force;
+
+      if (dist < minDist) {
+        const overlap = minDist - dist;
+        fx += (dx / dist) * overlap * 0.5;
+        fy += (dy / dist) * overlap * 0.5;
+      }
+    }
+    nodes[i].vx += fx * simAlpha;
+    nodes[i].vy += fy * simAlpha;
+  }
+
+  // Spring attraction along edges
+  for (const e of edges) {
+    const a = nodes[e.source];
+    const b = nodes[e.target];
+    if (!a || !b) continue;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const targetLen = SPRING_LEN * (e.type === 'entity-entity' ? 0.6 : 1);
+    const force = (dist - targetLen) * SPRING_K * (e.strength || 0.3);
+    const fx = (dx / dist) * force;
+    const fy = (dy / dist) * force;
+    if (!a.pinned) { a.vx += fx * simAlpha; a.vy += fy * simAlpha; }
+    if (!b.pinned) { b.vx -= fx * simAlpha; b.vy -= fy * simAlpha; }
+  }
+
+  // Center gravity
+  for (const n of nodes) {
+    if (n.pinned) continue;
+    n.vx -= n.x * CENTER_GRAVITY * simAlpha;
+    n.vy -= n.y * CENTER_GRAVITY * simAlpha;
+  }
+
+  // Apply velocity with damping
+  let totalMovement = 0;
+  for (const n of nodes) {
+    if (n.pinned) continue;
+    n.vx *= DAMPING;
+    n.vy *= DAMPING;
+    const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+    if (speed > VELOCITY_MAX) {
+      n.vx = (n.vx / speed) * VELOCITY_MAX;
+      n.vy = (n.vy / speed) * VELOCITY_MAX;
+    }
+    n.x += n.vx;
+    n.y += n.vy;
+    totalMovement += Math.abs(n.vx) + Math.abs(n.vy);
+  }
+
+  simAlpha *= 0.995;
+  if (simAlpha < SIM_ALPHA_MIN || totalMovement < 0.1) {
+    simAlpha = SIM_ALPHA_MIN;
+  }
+}
+
+// ─── RENDERING ───
+function isNodeVisible(n) {
+  if (n.type === 'memory') {
+    if (hiddenTypes.has('memory')) return false;
+    if (hiddenTypes.has(n.connectorType)) return false;
+  }
+  if (n.type === 'entity' && hiddenTypes.has('entity')) return false;
+  return true;
+}
+
+function worldToScreen(wx, wy) {
+  const rect = canvasWrap.getBoundingClientRect();
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  return {
+    x: (wx - camX) * camZoom + cx,
+    y: (wy - camY) * camZoom + cy
+  };
+}
+
+function screenToWorld(sx, sy) {
+  const rect = canvasWrap.getBoundingClientRect();
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  return {
+    x: (sx - cx) / camZoom + camX,
+    y: (sy - cy) / camZoom + camY
+  };
+}
+
+// Helper to convert hex to rgba
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function draw() {
+  const rect = canvasWrap.getBoundingClientRect();
+  const W = rect.width;
+  const H = rect.height;
+  const tc = getThemeColors();
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = tc.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  if (nodes.length === 0) {
+    requestAnimationFrame(draw);
+    return;
+  }
+
+  // Draw edges
+  for (const e of edges) {
+    const a = nodes[e.source];
+    const b = nodes[e.target];
+    if (!a || !b) continue;
+    if (!isNodeVisible(a) || !isNodeVisible(b)) continue;
+
+    const pa = worldToScreen(a.x, a.y);
+    const pb = worldToScreen(b.x, b.y);
+
+    ctx.beginPath();
+    let lineWidth = 1;
+    let strokeStyle = tc.edgeDefault;
+    let dash = [];
+
+    if (e.type === 'entity-entity') {
+      lineWidth = Math.min(6, 1 + (e.weight || 1));
+      const alpha = Math.min(0.7, 0.2 + (e.weight || 1) * 0.1);
+      strokeStyle = hexToRgba(tc.accent, alpha);
+    } else if (e.type === 'memory-entity') {
+      if (e.role) {
+        // Person-linked entity edge: use role color
+        lineWidth = 0.8;
+        strokeStyle = ROLE_COLORS[e.role] || tc.edgeDefault;
+        ctx.globalAlpha = 0.3;
+      } else {
+        dash = [3, 3];
+        lineWidth = 0.5;
+      }
+    }
+
+    // Highlight edges connected to selected node
+    if (selectedNode !== null) {
+      if (e.source === selectedNode || e.target === selectedNode) {
+        ctx.globalAlpha = 1;
+        lineWidth = Math.max(lineWidth, 2);
+      } else {
+        ctx.globalAlpha = Math.min(ctx.globalAlpha, 0.06);
+      }
+    }
+
+    ctx.setLineDash(dash);
+    ctx.lineWidth = lineWidth * camZoom;
+    ctx.strokeStyle = strokeStyle;
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+  }
+
+  // Draw nodes
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (!isNodeVisible(n)) continue;
+
+    const p = worldToScreen(n.x, n.y);
+    const r = n.radius * camZoom;
+
+    // Dim non-connected nodes when something is selected
+    let dimmed = false;
+    if (selectedNode !== null && i !== selectedNode) {
+      const connected = edges.some(e =>
+        (e.source === selectedNode && e.target === i) ||
+        (e.target === selectedNode && e.source === i)
+      );
+      if (!connected) dimmed = true;
+    }
+
+    ctx.globalAlpha = dimmed ? 0.15 : 1;
+
+    if (n.type === 'memory') {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = CONNECTOR_COLORS[n.connectorType] || '#888';
+      ctx.fill();
+      if (i === selectedNode) {
+        ctx.lineWidth = 3 * camZoom;
+        ctx.strokeStyle = tc.accent;
+        ctx.stroke();
+        ctx.shadowColor = tc.accent;
+        ctx.shadowBlur = 12 * camZoom;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else if (i === hoveredNode) {
+        ctx.lineWidth = 2 * camZoom;
+        ctx.strokeStyle = tc.borderStrong;
+        ctx.stroke();
+      }
+    } else if (n.type === 'entity') {
+      const color = ENTITY_COLORS[n.entityType] || '#888';
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = color;
+      ctx.fillRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4);
+      if (i === selectedNode) {
+        ctx.lineWidth = 2.5 * camZoom;
+        ctx.strokeStyle = tc.accent;
+        ctx.strokeRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4);
+      }
+      ctx.restore();
+      // Label for entities
+      if (n.entityType === 'person' && camZoom > 0.4) {
+        // Person entities get bold labels like the old person nodes
+        ctx.font = `bold ${Math.max(8, 9 * camZoom)}px 'IBM Plex Mono', monospace`;
+        ctx.fillStyle = tc.textDim;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const elabel = n.label.length > 14 ? n.label.substring(0, 13) + '\u2026' : n.label;
+        ctx.fillText(elabel, p.x, p.y + r + 3 * camZoom);
+      } else if (camZoom > 0.6 && n.radius >= 6) {
+        ctx.font = `${Math.max(7, 8 * camZoom)}px 'IBM Plex Mono', monospace`;
+        ctx.fillStyle = tc.textDim;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const elabel = n.label.length > 16 ? n.label.substring(0, 15) + '\u2026' : n.label;
+        ctx.fillText(elabel, p.x, p.y + r + 3 * camZoom);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
+  simulate();
+  requestAnimationFrame(draw);
+}
+
+// ─── HIT TESTING ───
+function hitTest(sx, sy) {
+  const w = screenToWorld(sx, sy);
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    if (!isNodeVisible(n)) continue;
+    const dx = w.x - n.x;
+    const dy = w.y - n.y;
+    const hitR = n.radius + 4;
+    if (n.type === 'entity') {
+      if (Math.abs(dx) + Math.abs(dy) <= hitR * 1.4) return i;
+    } else {
+      if (dx * dx + dy * dy <= hitR * hitR) return i;
+    }
+  }
+  return -1;
+}
+
+// ─── SIDEBAR DETAIL ───
+function showNodeDetail(idx) {
+  if (idx < 0 || idx >= nodes.length) {
+    sidebarTitle.textContent = 'Node Detail';
+    sidebarBody.innerHTML = '<p style="color:var(--text-muted)">Click a node to see details</p>';
+    return;
+  }
+
+  const n = nodes[idx];
+
+  if (n.type === 'memory') {
+    const m = n.data;
+    sidebarTitle.textContent = 'MEMORY';
+    let html = '<div class="detail-card">';
+    html += `<div class="label">Source</div>`;
+    html += `<div class="value">${escapeHtml(m.connectorType)} / ${escapeHtml(m.sourceType)}</div>`;
+    html += `<div class="label">Time</div>`;
+    html += `<div class="value">${m.eventTime ? new Date(m.eventTime).toLocaleString() : 'N/A'}</div>`;
+    html += `<div class="label">Score</div>`;
+    html += `<div class="value" style="font-size:16px;font-weight:700;color:var(--accent)">${(m.score || 0).toFixed(3)}</div>`;
+    html += '</div>';
+
+    html += `<div class="label">Text</div>`;
+    html += `<div class="memory-text">${escapeHtml((m.text || '').substring(0, 500))}</div>`;
+
+    // Weights
+    if (m.weights) {
+      html += `<div class="label">Weights</div>`;
+      for (const [k, v] of Object.entries(m.weights)) {
+        const pct = Math.round((v || 0) * 100);
+        html += `<div class="weight-bar">
+          <span class="wlabel">${escapeHtml(k)}</span>
+          <div class="wtrack"><div class="wfill" style="width:${pct}%"></div></div>
+          <span class="wval">${(v || 0).toFixed(2)}</span>
+        </div>`;
+      }
+    }
+
+    // Factuality
+    if (m.factuality) {
+      const f = typeof m.factuality === 'string' ? JSON.parse(m.factuality) : m.factuality;
+      html += `<div class="label">Factuality</div>`;
+      html += `<div class="value"><span class="fact-badge fact-${f.label || 'UNVERIFIED'}">${f.label || 'UNVERIFIED'}</span>`;
+      if (f.confidence) html += ` <span>${Math.round(f.confidence * 100)}%</span>`;
+      html += `</div>`;
+      if (f.rationale) html += `<div class="value" style="font-size:10px;color:var(--text-dim);margin-top:4px">${escapeHtml(f.rationale)}</div>`;
+    }
+
+    // People
+    if (m.people && m.people.length) {
+      html += `<div class="label">People (${m.people.length})</div>`;
+      html += `<ul class="sidebar-list">`;
+      m.people.forEach(p => {
+        html += `<li data-goto-person="${escapeHtml(p.displayName || p.personId)}">`;
+        html += `<span class="role-badge role-${p.role || 'participant'}">${p.role || '?'}</span>`;
+        html += `${escapeHtml(p.displayName || p.personId)}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    // Entities
+    if (m.entities && m.entities.length) {
+      html += `<div class="label">Entities (${m.entities.length})</div>`;
+      html += `<ul class="sidebar-list">`;
+      m.entities.forEach(e => {
+        const prefix = ENTITY_PREFIXES[e.type] || '[other]';
+        const color = ENTITY_COLORS[e.type] || '#888';
+        html += `<li><span class="entity-type-badge" style="color:${color}">${prefix}</span>${escapeHtml(e.value)}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    sidebarBody.innerHTML = html;
+
+    // Click-to-navigate handlers for people in memory detail
+    sidebarBody.querySelectorAll('[data-goto-person]').forEach(el => {
+      el.addEventListener('click', () => {
+        const name = el.dataset.gotoPerson;
+        const pIdx = nodes.findIndex(nn => nn.type === 'entity' && nn.entityType === 'person' && nn.label === name);
+        if (pIdx >= 0) { selectedNode = pIdx; showNodeDetail(pIdx); }
+      });
+    });
+
+  } else if (n.type === 'entity') {
+    const color = ENTITY_COLORS[n.entityType] || '#888';
+    const prefix = ENTITY_PREFIXES[n.entityType] || '[other]';
+
+    if (n.entityType === 'person') {
+      // Person-type entity: rich detail with memories, connections, search
+      sidebarTitle.textContent = 'ENTITY — PERSON';
+      let html = '<div class="detail-card">';
+      html += `<div class="label">Type</div>`;
+      html += `<div class="value"><span class="entity-type-badge" style="color:${color};font-size:12px">${prefix} person</span></div>`;
+      html += `<div class="label">Name</div>`;
+      html += `<div class="value" style="font-size:14px;font-weight:700;color:var(--accent)">${escapeHtml(n.label)}</div>`;
+      html += `<div class="label">Memories</div>`;
+      html += `<div class="value" style="font-size:16px;font-weight:700;color:var(--accent)">${n.data.memories.length}</div>`;
+      html += '</div>';
+
+      // Memories list
+      html += `<div class="label">Appears in ${n.data.memories.length} memories</div>`;
+      html += `<ul class="sidebar-list">`;
+      n.data.memories.slice(0, 20).forEach(m => {
+        html += `<li data-goto-memory="${m.memoryId}">`;
+        if (m.role) html += `<span class="role-badge role-${m.role || 'participant'}">${m.role || '?'}</span>`;
+        html += `${escapeHtml(m.text)}</li>`;
+      });
+      if (n.data.memories.length > 20) html += `<li style="color:var(--text-muted);cursor:default">...and ${n.data.memories.length - 20} more</li>`;
+      html += `</ul>`;
+
+      // Connected people
+      if (n.data.connections && n.data.connections.size > 0) {
+        html += `<div class="label">Connected People (${n.data.connections.size})</div>`;
+        html += `<ul class="sidebar-list">`;
+        const sorted = [...n.data.connections.entries()].sort((a, b) => b[1] - a[1]);
+        sorted.forEach(([name, count]) => {
+          html += `<li data-goto-person="${escapeHtml(name)}">${escapeHtml(name)} <span style="color:var(--text-muted)">(${count} shared)</span></li>`;
+        });
+        html += `</ul>`;
+      }
+
+      html += `<div style="margin-top:12px"><button class="search-btn" data-search-person="${escapeHtml(n.label)}">SEARCH: ${escapeHtml(n.label)}</button></div>`;
+
+      sidebarBody.innerHTML = html;
+
+      // Search button handler
+      sidebarBody.querySelectorAll('[data-search-person]').forEach(el => {
+        el.addEventListener('click', () => {
+          doubleClickPerson(el.dataset.searchPerson);
+        });
+      });
+
+      sidebarBody.querySelectorAll('[data-goto-memory]').forEach(el => {
+        el.addEventListener('click', () => {
+          const mid = el.dataset.gotoMemory;
+          const mIdx = nodes.findIndex(nn => nn.type === 'memory' && nn.id === mid);
+          if (mIdx >= 0) { selectedNode = mIdx; showNodeDetail(mIdx); }
+        });
+      });
+      sidebarBody.querySelectorAll('[data-goto-person]').forEach(el => {
+        el.addEventListener('click', () => {
+          const name = el.dataset.gotoPerson;
+          const pIdx = nodes.findIndex(nn => nn.type === 'entity' && nn.entityType === 'person' && nn.label === name);
+          if (pIdx >= 0) { selectedNode = pIdx; showNodeDetail(pIdx); }
+        });
+      });
+
+    } else {
+      // Non-person entity: standard detail
+      sidebarTitle.textContent = 'ENTITY';
+      let html = '<div class="detail-card">';
+      html += `<div class="label">Type</div>`;
+      html += `<div class="value"><span class="entity-type-badge" style="color:${color};font-size:12px">${prefix} ${escapeHtml(n.entityType)}</span></div>`;
+      html += `<div class="label">Value</div>`;
+      html += `<div class="value" style="font-size:13px;font-weight:600">${escapeHtml(n.label)}</div>`;
+      html += `<div class="label">Occurrences</div>`;
+      html += `<div class="value" style="font-size:16px;font-weight:700;color:var(--accent)">${n.data.memories.length}</div>`;
+      html += '</div>';
+
+      html += `<div class="label">Found in ${n.data.memories.length} memories</div>`;
+      html += `<ul class="sidebar-list">`;
+      n.data.memories.slice(0, 20).forEach(m => {
+        html += `<li data-goto-memory="${m.memoryId}">${escapeHtml(m.text)}</li>`;
+      });
+      html += `</ul>`;
+
+      sidebarBody.innerHTML = html;
+
+      sidebarBody.querySelectorAll('[data-goto-memory]').forEach(el => {
+        el.addEventListener('click', () => {
+          const mid = el.dataset.gotoMemory;
+          const mIdx = nodes.findIndex(nn => nn.type === 'memory' && nn.id === mid);
+          if (mIdx >= 0) { selectedNode = mIdx; showNodeDetail(mIdx); }
+        });
+      });
+    }
+  }
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ─── MOUSE / INTERACTION ───
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const hit = hitTest(sx, sy);
+
+  if (hit >= 0) {
+    dragNode = hit;
+    nodes[hit].pinned = true;
+    const w = screenToWorld(sx, sy);
+    dragOffsetX = nodes[hit].x - w.x;
+    dragOffsetY = nodes[hit].y - w.y;
+    canvas.classList.add('dragging');
+  } else {
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panCamStartX = camX;
+    panCamStartY = camY;
+    canvas.classList.add('dragging');
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+
+  if (dragNode !== null) {
+    const w = screenToWorld(sx, sy);
+    nodes[dragNode].x = w.x + dragOffsetX;
+    nodes[dragNode].y = w.y + dragOffsetY;
+    nodes[dragNode].vx = 0;
+    nodes[dragNode].vy = 0;
+    simAlpha = Math.max(simAlpha, 0.05);
+    return;
+  }
+
+  if (isPanning) {
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+    camX = panCamStartX - dx / camZoom;
+    camY = panCamStartY - dy / camZoom;
+    return;
+  }
+
+  // Hover
+  const hit = hitTest(sx, sy);
+  hoveredNode = hit >= 0 ? hit : null;
+  canvas.style.cursor = hit >= 0 ? 'pointer' : 'grab';
+
+  if (hit >= 0) {
+    const n = nodes[hit];
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 12) + 'px';
+    tooltip.style.top = (e.clientY - 8) + 'px';
+    if (n.type === 'memory') {
+      tooltip.textContent = `[${n.connectorType}] ${n.label}`;
+    } else {
+      const prefix = ENTITY_PREFIXES[n.entityType] || '[other]';
+      if (n.entityType === 'person') {
+        tooltip.textContent = `${prefix} ${n.label} (${n.data.memories.length} memories)`;
+      } else {
+        tooltip.textContent = `${prefix} ${n.label}`;
+      }
+    }
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (dragNode !== null) {
+    nodes[dragNode].pinned = false;
+    dragNode = null;
+  }
+  if (!isPanning) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const hit = hitTest(sx, sy);
+    if (hit >= 0) {
+      selectedNode = hit;
+      showNodeDetail(hit);
+    } else {
+      selectedNode = null;
+      showNodeDetail(-1);
+    }
+  }
+  isPanning = false;
+  canvas.classList.remove('dragging');
+});
+
+canvas.addEventListener('mouseleave', () => {
+  tooltip.style.display = 'none';
+  hoveredNode = null;
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+
+  const worldBefore = screenToWorld(sx, sy);
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  camZoom = Math.max(0.1, Math.min(5, camZoom * delta));
+  const worldAfter = screenToWorld(sx, sy);
+
+  camX += worldBefore.x - worldAfter.x;
+  camY += worldBefore.y - worldAfter.y;
+}, { passive: false });
+
+// ─── TOUCH SUPPORT ───
+let lastTouchDist = 0;
+let touchStartX = 0, touchStartY = 0;
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const sx = t.clientX - rect.left;
+    const sy = t.clientY - rect.top;
+    const hit = hitTest(sx, sy);
+    if (hit >= 0) {
+      dragNode = hit;
+      nodes[hit].pinned = true;
+      const w = screenToWorld(sx, sy);
+      dragOffsetX = nodes[hit].x - w.x;
+      dragOffsetY = nodes[hit].y - w.y;
+    } else {
+      isPanning = true;
+      panStartX = t.clientX;
+      panStartY = t.clientY;
+      panCamStartX = camX;
+      panCamStartY = camY;
+    }
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastTouchDist = Math.sqrt(dx * dx + dy * dy);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const sx = t.clientX - rect.left;
+    const sy = t.clientY - rect.top;
+    if (dragNode !== null) {
+      const w = screenToWorld(sx, sy);
+      nodes[dragNode].x = w.x + dragOffsetX;
+      nodes[dragNode].y = w.y + dragOffsetY;
+      nodes[dragNode].vx = 0;
+      nodes[dragNode].vy = 0;
+      simAlpha = Math.max(simAlpha, 0.05);
+    } else if (isPanning) {
+      const dx = t.clientX - panStartX;
+      const dy = t.clientY - panStartY;
+      camX = panCamStartX - dx / camZoom;
+      camY = panCamStartY - dy / camZoom;
+    }
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (lastTouchDist > 0) {
+      const scale = dist / lastTouchDist;
+      camZoom = Math.max(0.1, Math.min(5, camZoom * scale));
+    }
+    lastTouchDist = dist;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (dragNode !== null) {
+    nodes[dragNode].pinned = false;
+    dragNode = null;
+  }
+  if (e.touches.length === 0) {
+    if (!isPanning || (Math.abs(touchStartX - (e.changedTouches[0]?.clientX || 0)) < 10 &&
+        Math.abs(touchStartY - (e.changedTouches[0]?.clientY || 0)) < 10)) {
+      const t = e.changedTouches[0];
+      if (t) {
+        const rect = canvas.getBoundingClientRect();
+        const sx = t.clientX - rect.left;
+        const sy = t.clientY - rect.top;
+        const hit = hitTest(sx, sy);
+        if (hit >= 0) {
+          selectedNode = hit;
+          showNodeDetail(hit);
+        } else {
+          selectedNode = null;
+          showNodeDetail(-1);
+        }
+      }
+    }
+    isPanning = false;
+    lastTouchDist = 0;
+  }
+}, { passive: false });
+
+// Double-click person entity node
+canvas.addEventListener('dblclick', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const hit = hitTest(sx, sy);
+  if (hit >= 0 && nodes[hit].type === 'entity' && nodes[hit].entityType === 'person') {
+    doubleClickPerson(nodes[hit].label);
+  }
+});
+
+function doubleClickPerson(name) {
+  searchInput.value = name;
+  updateSearchClear();
+  triggerSearch(name);
+}
+
+// ─── SEARCH ───
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    const q = searchInput.value.trim();
+    if (q.length > 0) triggerSearch(q);
+  }, 400);
+});
+
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (q.length > 0) triggerSearch(q);
+  }
+});
+
+async function triggerSearch(query) {
+  const results = await searchMemories(query);
+  buildGraph(results);
+  selectedNode = null;
+  showNodeDetail(-1);
+
+  camX = 0;
+  camY = 0;
+  camZoom = 1;
+
+  simAlpha = reducedMotion ? SIM_ALPHA_MIN : 1;
+  simRunning = true;
+}
+
+// ─── BOOT ───
+simRunning = true;
+requestAnimationFrame(draw);
+
+// Focus search on /
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== searchInput) {
+    e.preventDefault();
+    searchInput.focus();
+  }
+  if (e.key === 'Escape') {
+    searchInput.blur();
+    selectedNode = null;
+    showNodeDetail(-1);
+  }
+});
+</script>
+</body>
+</html>

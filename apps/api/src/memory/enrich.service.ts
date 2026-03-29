@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq, and, or, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
@@ -22,6 +22,9 @@ import {
   CONTRADICTS_THRESHOLD,
   DEFAULT_CONFIDENCE,
   PHOTO_PEOPLE_CONFIDENCE,
+  CORROBORATION_SINGLE_CONFIDENCE,
+  CORROBORATION_MULTI_CONFIDENCE,
+  SAME_CONNECTOR_BOOST_CONFIDENCE,
 } from './search.constants';
 
 const SIMILARITY_THRESHOLD = 0.8;
@@ -252,6 +255,7 @@ export class EnrichService {
     // Graph link creation — find similar memories via Qdrant
     const t0 = Date.now();
     await this.createLinks(memoryId);
+    await this.corroborateFactuality(memoryId);
     const linkMs = Date.now() - t0;
 
     // Compute and store base weights
@@ -553,16 +557,11 @@ export class EnrichService {
         if (srcClaims.length > 0) {
           const dstFactLabel = dstFactMap.get(result.id) || 'UNVERIFIED';
 
-          if (
-            result.score >= SUPPORTS_THRESHOLD &&
-            srcFactLabel === 'FACT' &&
-            dstFactLabel === 'FACT'
-          ) {
+          if (result.score >= SUPPORTS_THRESHOLD) {
             linkType = 'supports';
           } else if (
             result.score >= CONTRADICTS_THRESHOLD &&
-            ((srcFactLabel === 'FACT' && dstFactLabel === 'FICTION') ||
-              (srcFactLabel === 'FICTION' && dstFactLabel === 'FACT'))
+            (srcFactLabel === 'FICTION' || dstFactLabel === 'FICTION')
           ) {
             linkType = 'contradicts';
           }
@@ -579,6 +578,89 @@ export class EnrichService {
       }
     } catch {
       // Link creation is best-effort
+    }
+  }
+
+  /**
+   * Rule-based factuality promotion based on cross-connector support links.
+   * No AI calls — pure DB queries + logic.
+   */
+  async corroborateFactuality(memoryId: string, visited = new Set<string>()): Promise<void> {
+    if (visited.has(memoryId)) return;
+    visited.add(memoryId);
+
+    // Get this memory's connector type and factuality label
+    const [memory] = await this.dbService.db
+      .select({
+        connectorType: memories.connectorType,
+        factualityLabel: memories.factualityLabel,
+      })
+      .from(memories)
+      .where(eq(memories.id, memoryId));
+    if (!memory) return;
+
+    // Get distinct connector types from supporting neighbors
+    const supporters = await this.dbService.db
+      .select({
+        connectorType: memories.connectorType,
+        id: memories.id,
+      })
+      .from(memoryLinks)
+      .innerJoin(
+        memories,
+        or(
+          and(
+            eq(memoryLinks.srcMemoryId, sql`${memoryId}`),
+            eq(memories.id, memoryLinks.dstMemoryId),
+          ),
+          and(
+            eq(memoryLinks.dstMemoryId, sql`${memoryId}`),
+            eq(memories.id, memoryLinks.srcMemoryId),
+          ),
+        ),
+      )
+      .where(eq(memoryLinks.linkType, 'supports'));
+
+    const crossConnectorTypes = new Set(
+      supporters
+        .filter((s) => s.connectorType !== memory.connectorType)
+        .map((s) => s.connectorType),
+    );
+
+    let newLabel: string | null = null;
+    let newConfidence: number | null = null;
+
+    if (crossConnectorTypes.size >= 2) {
+      newLabel = 'FACT';
+      newConfidence = CORROBORATION_MULTI_CONFIDENCE;
+    } else if (crossConnectorTypes.size >= 1) {
+      newLabel = 'FACT';
+      newConfidence = CORROBORATION_SINGLE_CONFIDENCE;
+    } else if (supporters.length > 0) {
+      // Same-connector reinforcement
+      newConfidence = SAME_CONNECTOR_BOOST_CONFIDENCE;
+    }
+
+    if (!newLabel && !newConfidence) return;
+
+    // Only promote, never demote
+    const currentLabel = memory.factualityLabel;
+    if (currentLabel === 'FACT' && !newLabel) return;
+
+    // Update factuality label if promoted
+    if (newLabel) {
+      await this.dbService.db
+        .update(memories)
+        .set({ factualityLabel: newLabel })
+        .where(eq(memories.id, memoryId));
+    }
+
+    // Cascade: re-evaluate neighbors (one level deep)
+    if (newLabel === 'FACT') {
+      const neighborIds = supporters.map((s) => s.id);
+      for (const neighborId of neighborIds) {
+        await this.corroborateFactuality(neighborId, visited);
+      }
     }
   }
 

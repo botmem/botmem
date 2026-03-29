@@ -1,0 +1,116 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+    - complementary [ref=e5]:
+        - generic [ref=e6]:
+            - img "Botmem" [ref=e8]
+            - button "Collapse sidebar" [ref=e9] [cursor=pointer]:
+                - img [ref=e10]
+        - generic [ref=e12]:
+            - generic [ref=e13]: BANK
+            - button "BANK BANK" [ref=e14] [cursor=pointer]:
+                - generic [ref=e15]: ALL BANKS
+                - generic [ref=e16]: ▼
+        - navigation [ref=e17]:
+            - link "ME" [ref=e18] [cursor=pointer]:
+                - /url: /me
+                - img [ref=e20]
+                - generic [ref=e23]: ME
+            - link "DASHBOARD" [ref=e24] [cursor=pointer]:
+                - /url: /dashboard
+                - img [ref=e26]
+                - generic [ref=e31]: DASHBOARD
+            - link "CONNECTORS" [ref=e32] [cursor=pointer]:
+                - /url: /connectors
+                - img [ref=e34]
+                - generic [ref=e37]: CONNECTORS
+            - link "PEOPLE" [ref=e38] [cursor=pointer]:
+                - /url: /people
+                - img [ref=e40]
+                - generic [ref=e45]: PEOPLE
+            - link "SETTINGS" [ref=e46] [cursor=pointer]:
+                - /url: /settings
+                - img [ref=e48]
+                - generic [ref=e51]: SETTINGS
+        - generic [ref=e52]:
+            - generic [ref=e53]:
+                - paragraph [ref=e54]: PW Test User
+                - paragraph [ref=e55]: pw-1774515146368-2@test.botmem.xyz
+            - button "Logout" [ref=e56] [cursor=pointer]: LOGOUT
+    - generic [ref=e57]:
+        - banner [ref=e58]:
+            - generic [ref=e59]:
+                - heading "CONNECTORS" [level=1] [ref=e61]
+                - generic [ref=e62]:
+                    - generic "Logged in as PW Test User" [ref=e63]: P
+                    - 'button "Theme: AUTO. Click to switch." [ref=e64] [cursor=pointer]':
+                        - img [ref=e65]
+                    - button [ref=e69] [cursor=pointer]:
+                        - img [ref=e70]
+                    - generic [ref=e72]: Thu, Mar 26
+        - main [ref=e73]:
+            - generic [ref=e74]:
+                - generic [ref=e75]:
+                    - heading "All Connectors" [level=2] [ref=e76]
+                    - button "SYNC ALL" [ref=e77] [cursor=pointer]
+                - generic [ref=e78]:
+                    - button "Expand Photos (Immich) connector" [ref=e80] [cursor=pointer]:
+                        - generic [ref=e81]:
+                            - generic [ref=e82]: Ph
+                            - generic [ref=e83]:
+                                - heading "Photos (Immich)" [level=3] [ref=e85]
+                                - paragraph [ref=e86]: 0 accounts
+                        - generic [ref=e87]: +
+                    - button "Expand Google connector" [ref=e89] [cursor=pointer]:
+                        - generic [ref=e90]:
+                            - generic [ref=e91]: G
+                            - generic [ref=e92]:
+                                - heading "Google" [level=3] [ref=e94]
+                                - paragraph [ref=e95]: 1 accounts
+                        - generic [ref=e96]: +
+                    - button "Expand Slack connector" [ref=e98] [cursor=pointer]:
+                        - generic [ref=e99]:
+                            - generic [ref=e100]: '#'
+                            - generic [ref=e101]:
+                                - heading "Slack" [level=3] [ref=e103]
+                                - paragraph [ref=e104]: 1 accounts
+                        - generic [ref=e105]: +
+                    - button "Expand WhatsApp connector" [ref=e107] [cursor=pointer]:
+                        - generic [ref=e108]:
+                            - generic [ref=e109]: W
+                            - generic [ref=e110]:
+                                - generic [ref=e111]:
+                                    - heading "WhatsApp" [level=3] [ref=e112]
+                                    - generic [ref=e115]: Ready
+                                - paragraph [ref=e116]: 1 accounts
+                        - generic [ref=e117]: +
+                    - button "Expand Telegram connector" [ref=e119] [cursor=pointer]:
+                        - generic [ref=e120]:
+                            - generic [ref=e121]: Tg
+                            - generic [ref=e122]:
+                                - heading "Telegram" [level=3] [ref=e124]
+                                - paragraph [ref=e125]: 0 accounts
+                        - generic [ref=e126]: +
+                    - button "Expand iMessage connector" [ref=e128] [cursor=pointer]:
+                        - generic [ref=e129]:
+                            - generic [ref=e130]: i
+                            - generic [ref=e131]:
+                                - heading "iMessage" [level=3] [ref=e133]
+                                - paragraph [ref=e134]: 1 accounts
+                        - generic [ref=e135]: +
+                    - button "Expand Locations (OwnTracks) connector" [ref=e137] [cursor=pointer]:
+                        - generic [ref=e138]:
+                            - generic [ref=e139]: Lo
+                            - generic [ref=e140]:
+                                - heading "Locations (OwnTracks)" [level=3] [ref=e142]
+                                - paragraph [ref=e143]: 0 accounts
+                        - generic [ref=e144]: +
+                    - button "Expand Outlook connector" [ref=e146] [cursor=pointer]:
+                        - generic [ref=e147]:
+                            - generic [ref=e148]: '?'
+                            - generic [ref=e149]:
+                                - heading "Outlook" [level=3] [ref=e151]
+                                - paragraph [ref=e152]: 0 accounts
+                        - generic [ref=e153]: +
+```
