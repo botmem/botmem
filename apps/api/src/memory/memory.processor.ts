@@ -1,13 +1,16 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
 import { TypesenseService } from './typesense.service';
+import { MemoryService } from './memory.service';
 import { EnrichService } from './enrich.service';
+import { ContentCleaner } from './content-cleaner';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { PeopleService, IdentifierInput } from '../people/people.service';
@@ -15,84 +18,44 @@ import { EventsService } from '../events/events.service';
 import { LogsService } from '../logs/logs.service';
 import { JobsService } from '../jobs/jobs.service';
 import { SettingsService } from '../settings/settings.service';
-import { ConfigService } from '../config/config.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
-import { rawEvents, memories, memoryLinks } from '../db/schema';
-import { photoDescriptionPrompt } from './prompts';
+import { AnalyticsService } from '../analytics/analytics.service';
+import { ConfigService } from '../config/config.service';
+import { GeoService } from '../geo/geo.service';
+import { QuotaService } from '../billing/quota.service';
+import {
+  rawEvents,
+  memories,
+  memoryLinks,
+  settings,
+  accounts,
+  memoryBanks,
+  jobs,
+} from '../db/schema';
+import { normalizeEntities } from './entity-normalizer';
+import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
+import { Traced } from '../tracing/traced.decorator';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
-const MAX_CONTENT_LENGTH = 10_000;
-const TRUNCATION_SUFFIX = '\n\n---\n*[Truncated]*';
-
-/**
- * Strip invisible / non-printable Unicode characters that appear in raw SMS
- * and other sources. Keeps normal whitespace (\n, \r, \t, space) and all
- * visible Unicode (including Arabic, CJK, emoji, etc.).
- */
-function sanitizeText(text: string): string {
-  return (
-    text
-      // Remove U+0000–U+0008, U+000B, U+000C, U+000E–U+001F (C0 controls except \t \n \r)
-      // Remove U+007F (DEL)
-      // Remove U+0080–U+009F (C1 controls)
-      // Remove U+200B–U+200F (zero-width spaces, LTR/RTL marks)
-      // Remove U+202A–U+202E (embedding/override directional)
-      // Remove U+2060–U+2064 (word joiner, invisible operators)
-      // Remove U+FEFF (BOM / zero-width no-break space)
-      // Remove U+FFF9–U+FFFB (interlinear annotation anchors)
-      .replace(
-        // eslint-disable-next-line no-control-regex
-        /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\uFFF9-\uFFFB]/g,
-        '',
-      )
-      .trim()
-  );
+/** Strip PostgreSQL-incompatible null bytes from strings */
+function stripNullBytes(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x00/g, '');
 }
-
-export type PipelineStage = 'clean' | 'embed' | 'enrich';
 
 @Processor('memory')
 export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(MemoryProcessor.name);
-  /** Track how many jobs are in each logical stage right now */
-  private stageCounts: Record<PipelineStage, number> = { clean: 0, embed: 0, enrich: 0 };
-  /** Completed count per stage (reset when all jobs drain) */
-  private stageCompleted: Record<PipelineStage, number> = { clean: 0, embed: 0, enrich: 0 };
-
-  getStageCounts() {
-    return {
-      clean: { ...this.stageCounts, stage: 'clean' as const, completed: this.stageCompleted.clean },
-      embed: { ...this.stageCounts, stage: 'embed' as const, completed: this.stageCompleted.embed },
-      enrich: {
-        ...this.stageCounts,
-        stage: 'enrich' as const,
-        completed: this.stageCompleted.enrich,
-      },
-    };
-  }
-
-  getStageStats() {
-    return {
-      clean: this.stageCounts.clean,
-      embed: this.stageCounts.embed,
-      enrich: this.stageCounts.enrich,
-    };
-  }
-
-  private enterStage(stage: PipelineStage) {
-    this.stageCounts[stage]++;
-  }
-  private leaveStage(stage: PipelineStage) {
-    this.stageCounts[stage] = Math.max(0, this.stageCounts[stage] - 1);
-    this.stageCompleted[stage]++;
-  }
 
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
+    private userKeyService: UserKeyService,
     private ai: AiService,
     private typesense: TypesenseService,
+    private memoryService: MemoryService,
     private enrichService: EnrichService,
+    private contentCleaner: ContentCleaner,
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
     private contactsService: PeopleService,
@@ -101,14 +64,19 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private jobsService: JobsService,
     private settingsService: SettingsService,
     private pluginRegistry: PluginRegistry,
+    private analytics: AnalyticsService,
     private config: ConfigService,
+    private geo: GeoService,
+    private quotaService: QuotaService,
+    private traceContext: TraceContext,
   ) {
     super();
   }
 
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[memory worker] ${err.message}`));
-    const defaultC = this.config.aiConcurrency.memory;
+    this.worker.on('failed', (job, err) => this.onJobFailed(job, err));
+    const defaultC = this.config.aiConcurrency.embed;
     const concurrency =
       parseInt(await this.settingsService.get('memory_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
@@ -120,10 +88,53 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     });
   }
 
-  async process(job: Job<{ rawEventId: string }>) {
+  private async onJobFailed(job: Job | undefined, err: Error) {
+    if (!job) return;
     const { rawEventId } = job.data;
+    const mid = rawEventId?.slice(0, 8) || '?';
+    const isLastAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
+    if (!isLastAttempt) return;
 
-    // 1. Read raw event
+    try {
+      const rows = await this.dbService.db
+        .select({
+          jobId: rawEvents.jobId,
+          connectorType: rawEvents.connectorType,
+          accountId: rawEvents.accountId,
+        })
+        .from(rawEvents)
+        .where(eq(rawEvents.id, rawEventId));
+      const raw = rows[0];
+      if (raw) {
+        this.addLog(
+          raw.connectorType,
+          raw.accountId,
+          'error',
+          `[memory:failed] ${mid} exhausted ${job.attemptsMade} retries: ${err.message}`,
+          raw.jobId,
+        );
+      }
+    } catch {
+      this.logger.warn(`[memory:failed] ${mid}: ${err.message}`);
+    }
+  }
+
+  async process(job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>) {
+    const trace = job.data._trace;
+    const traceId = trace?.traceId || generateTraceId();
+    const spanId = generateSpanId();
+    return this.traceContext.run({ traceId, spanId }, () => this._process(job));
+  }
+
+  @Traced('memory.process')
+  private async _process(
+    job: Job<{ rawEventId: string; _trace?: { traceId: string; spanId: string } }>,
+  ) {
+    const { rawEventId } = job.data;
+    const currentTrace = this.traceContext.current()!;
+    void currentTrace; // used in future trace propagation
+
+    // 1. Load raw event from DB
     const rows = await this.dbService.db
       .select()
       .from(rawEvents)
@@ -134,58 +145,23 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const parentJobId = rawEvent.jobId;
     const mid = rawEventId.slice(0, 8);
 
-    // 2. Parse payload (decrypt if encrypted)
+    this.traceContext.set({
+      jobId: parentJobId ?? undefined,
+      connectorType: rawEvent.connectorType,
+    });
+
     const event: ConnectorDataEvent = JSON.parse(
       this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
     );
     const connector = this.connectors.get(rawEvent.connectorType);
 
-    // 3. Clean
-    this.enterStage('clean');
-    const ctx = await this.buildPipelineContext(rawEvent.accountId, rawEvent.connectorType);
-    const pipelineClean = connector.manifest.pipeline?.clean !== false;
-
-    let text = event.content?.text || '';
-
-    if (pipelineClean) {
-      // Handle file events — call connector.extractFile() first
-      if (event.sourceType === 'file') {
-        const metadata = event.content?.metadata || {};
-        const fileUrl = metadata.fileUrl as string | undefined;
-        const mimetype = metadata.mimetype as string | undefined;
-        if (fileUrl) {
-          try {
-            const extracted = await connector.extractFile(fileUrl, mimetype || '', ctx.auth);
-            if (extracted) {
-              event.content.text =
-                extracted + (event.content.text ? `\n\n${event.content.text}` : '');
-            }
-          } catch (err: unknown) {
-            ctx.logger.warn(
-              `[memory:file-extract] ${mid} failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-      }
-
-      const cleanResult = await connector.clean(event, ctx);
-      text = cleanResult.text?.trim() || '';
-
-      // Store cleaned text on raw event (encrypted)
-      await this.dbService.db
-        .update(rawEvents)
-        .set({ cleanedText: this.crypto.encrypt(text) })
-        .where(eq(rawEvents.id, rawEventId));
-    } else {
-      text =
-        (rawEvent.cleanedText
-          ? this.crypto.decrypt(rawEvent.cleanedText) || rawEvent.cleanedText
-          : '') || text;
-    }
-
-    // Strip invisible control characters (e.g. BOM, zero-width spaces in raw SMS)
-    text = sanitizeText(text);
-    this.leaveStage('clean');
+    // 2. Parse text — use cleaned text from clean stage if available
+    const text =
+      (rawEvent.cleanedText
+        ? this.crypto.decrypt(rawEvent.cleanedText) || rawEvent.cleanedText
+        : '') ||
+      event.content?.text ||
+      '';
 
     if (!text) {
       await this.advanceAndComplete(parentJobId);
@@ -198,51 +174,111 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       metadata.attachments = attachments;
     }
 
-    // 4. Contact-only events
-    if (event.sourceType === 'contact' || metadata.type === 'contact') {
-      this.addLog(
-        rawEvent.connectorType,
-        rawEvent.accountId,
-        'info',
-        `[memory:contact-only] ${mid} — resolving contact without creating memory`,
-      );
+    const ctx = await this.buildPipelineContext(
+      rawEvent.accountId,
+      rawEvent.connectorType,
+      parentJobId,
+    );
+
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[memory:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+      parentJobId,
+    );
+
+    const pipelineStart = Date.now();
+
+    // Call connector.embed() for entity extraction
+    const embedResult = await connector.embed(event, text, ctx);
+    let embedText = embedResult.text || text;
+
+    // Convert embed entities to normalized {type, value} format
+    const embedEntities = normalizeEntities(
+      embedResult.entities.map((e) => {
+        const namePart = e.id.split('|').find((p: string) => p.startsWith('name:'));
+        const value = namePart ? namePart.slice(5) : e.id.split('|')[0].replace(/^\w+:/, '');
+        return { type: e.type, value };
+      }),
+    );
+
+    // Deterministic ID from rawEventId so retries overwrite the same record
+    const memoryId = createHash('sha256')
+      .update(rawEventId)
+      .digest('hex')
+      .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12}).*/, '$1-$2-$3-$4-$5');
+    const now = new Date();
+    const mergedMetadata: Record<string, unknown> = {
+      ...metadata,
+      ...(embedResult.metadata || {}),
+      embedEntities,
+    };
+
+    // Geocode locations
+    const metaLat = metadata.lat as number | undefined;
+    const metaLon = metadata.lon as number | undefined;
+    if (metaLat != null && metaLon != null) {
       try {
-        const embedResult = await connector.embed(event, text, ctx);
-        const buckets: Array<{ entityType: string; identifiers: IdentifierInput[] }> = [];
-        for (const entity of embedResult.entities) {
-          if (entity.type === 'person' || entity.type === 'group') {
-            const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
-            let merged = false;
-            for (const bucket of buckets) {
-              if (bucket.entityType !== entity.type) continue;
-              const bucketValues = new Set(bucket.identifiers.map((i) => i.value));
-              if (identifiers.some((id) => bucketValues.has(id.value))) {
-                bucket.identifiers.push(...identifiers);
-                merged = true;
-                break;
-              }
-            }
-            if (!merged) {
-              buckets.push({ entityType: entity.type, identifiers: [...identifiers] });
-            }
-          }
+        const geoResult = await this.geo.reverseGeocode(metaLat, metaLon);
+        if (geoResult.city) {
+          const addressParts = [geoResult.city, geoResult.state, geoResult.country].filter(Boolean);
+          const addressStr = addressParts.join(', ');
+          embedText = `At ${addressStr} [${metaLat.toFixed(5)}, ${metaLon.toFixed(5)}] — ${embedText}`;
+          mergedMetadata.city = geoResult.city;
+          mergedMetadata.state = geoResult.state;
+          mergedMetadata.country = geoResult.country;
+          mergedMetadata.countryCode = geoResult.countryCode;
         }
-        for (const { entityType, identifiers } of buckets) {
-          await this.contactsService.resolvePerson(
-            identifiers,
-            entityType === 'person'
-              ? undefined
-              : (entityType as 'person' | 'group' | 'organization' | 'device'),
-          );
-        }
-      } catch {
-        // Contact resolution is best-effort
+      } catch (geoErr) {
+        this.logger.debug(
+          `[memory:geo] ${mid} geocode failed: ${geoErr instanceof Error ? geoErr.message : String(geoErr)}`,
+        );
       }
+    }
+
+    // 4. Apply ContentCleaner
+    embedText = this.contentCleaner.cleanText(embedText, event.sourceType, rawEvent.connectorType);
+    if (!embedText) {
       await this.advanceAndComplete(parentJobId);
       return;
     }
 
-    // 5. Dedup
+    // Look up memory bank
+    let memoryBankId: string | null = null;
+    let ownerUserId: string | null = null;
+    try {
+      if (parentJobId) {
+        const [parentJob] = await this.dbService.db
+          .select({ memoryBankId: jobs.memoryBankId })
+          .from(jobs)
+          .where(eq(jobs.id, parentJobId));
+        if (parentJob?.memoryBankId) {
+          memoryBankId = parentJob.memoryBankId;
+        }
+      }
+
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, rawEvent.accountId));
+      ownerUserId = acct?.userId || null;
+
+      if (!memoryBankId && acct?.userId) {
+        const [defaultBank] = await this.dbService.db
+          .select({ id: memoryBanks.id })
+          .from(memoryBanks)
+          .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, true)));
+        memoryBankId = defaultBank?.id || null;
+      }
+    } catch (err) {
+      this.logger.warn(
+        'Memory bank lookup failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    // Dedup check
     const existing = await this.dbService.db
       .select({ id: memories.id })
       .from(memories)
@@ -260,77 +296,34 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         rawEvent.accountId,
         'info',
         `[memory:dedup] ${mid} — skipping duplicate source_id ${event.sourceId.slice(0, 30)}`,
+        parentJobId,
       );
       await this.advanceAndComplete(parentJobId);
       return;
     }
 
-    // 6. Check pipeline.embed flag
-    const pipelineEmbed = connector.manifest.pipeline?.embed !== false;
-    if (!pipelineEmbed) {
-      this.addLog(
-        rawEvent.connectorType,
-        rawEvent.accountId,
-        'info',
-        `[memory:skip] ${mid} — pipeline.embed=false`,
-      );
-      await this.advanceAndComplete(parentJobId);
-      return;
-    }
-
-    this.addLog(
-      rawEvent.connectorType,
-      rawEvent.accountId,
-      'info',
-      `[memory:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
-    );
-
-    const pipelineStart = Date.now();
-    this.enterStage('embed');
-
-    // 7. Call connector.embed() for entity extraction
-    const embedResult = await connector.embed(event, text, ctx);
-    const embedText = embedResult.text || text;
-
-    // 8. Create memory record
-    const memoryId = randomUUID();
-    const now = new Date();
-    const mergedMetadata = { ...metadata, ...(embedResult.metadata || {}) };
-
+    // 5. Resolve contacts
     let t0 = Date.now();
-    await this.dbService.db.insert(memories).values({
-      id: memoryId,
-      accountId: rawEvent.accountId,
-      connectorType: rawEvent.connectorType,
-      sourceType: event.sourceType,
-      sourceId: event.sourceId,
-      text: embedText,
-      eventTime: new Date(event.timestamp),
-      ingestTime: now,
-      metadata: JSON.stringify(mergedMetadata),
-      embeddingStatus: 'pending',
-      createdAt: now,
-    });
-    const dbInsertMs = Date.now() - t0;
-
-    // Fire afterIngest hook (fire-and-forget)
-    void this.pluginRegistry.fireHook('afterIngest', {
-      id: memoryId,
-      text: embedText,
-      sourceType: event.sourceType,
-      connectorType: rawEvent.connectorType,
-      eventTime: new Date(event.timestamp),
-    });
-
-    // 9. Contact resolution + linking
-    t0 = Date.now();
-    let contactCount = 0;
+    let selfContactId: string | null = null;
+    const resolvedContacts: Array<{ contactId: string; role: string; name?: string }> = [];
     try {
+      const selfRow = await this.dbService.db
+        .select({ value: settings.value })
+        .from(settings)
+        .where(eq(settings.key, 'selfContactId'))
+        .limit(1);
+      selfContactId = selfRow[0]?.value || null;
+
       const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> =
         [];
 
       for (const entity of embedResult.entities) {
-        if (entity.type === 'person' || entity.type === 'group' || entity.type === 'device') {
+        if (
+          entity.type === 'person' ||
+          entity.type === 'group' ||
+          entity.type === 'device' ||
+          entity.type === 'organization'
+        ) {
           const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
           let merged = false;
           for (const bucket of buckets) {
@@ -350,20 +343,103 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             });
           }
         }
-        if (entity.type === 'message' && entity.id.startsWith('thread:')) {
-          await this.linkThread(memoryId, entity.id.replace('thread:', ''), rawEvent.connectorType);
-        }
       }
 
+      // Avatar lookup maps
+      const gmailPhotoUrl =
+        rawEvent.connectorType === 'gmail' && event.sourceType === 'contact'
+          ? (metadata.photoUrl as string | undefined)
+          : undefined;
+
+      const slackProfiles =
+        rawEvent.connectorType === 'slack'
+          ? ((metadata.participantProfiles || {}) as Record<
+              string,
+              { avatarUrl?: string; [key: string]: unknown }
+            >)
+          : {};
+
       for (const { entityType, role, identifiers } of buckets) {
-        const resolveType =
-          entityType === 'person'
-            ? undefined
-            : (entityType as 'person' | 'group' | 'organization' | 'device');
-        const contact = await this.contactsService.resolvePerson(identifiers, resolveType);
+        const resolveType = entityType === 'person' ? undefined : entityType;
+        const contact = await Promise.race([
+          this.contactsService.resolvePerson(
+            identifiers,
+            resolveType as 'group' | 'organization' | 'device' | undefined,
+            ownerUserId || undefined,
+          ),
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('Contact resolution timed out after 30s')), 30_000),
+          ),
+        ]).catch((err) => {
+          this.logger.warn(
+            `[memory] Contact resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return null;
+        });
         if (contact) {
-          await this.contactsService.linkMemory(memoryId, contact.id, role);
-          contactCount++;
+          const nameIdent = identifiers.find((i) => i.type === 'name');
+          resolvedContacts.push({ contactId: contact.id, role, name: nameIdent?.value });
+
+          // Gmail avatar
+          if (gmailPhotoUrl) {
+            try {
+              await this.contactsService.updateAvatar(contact.id, {
+                url: gmailPhotoUrl,
+                source: 'gmail',
+              });
+            } catch (err) {
+              this.logger.warn(
+                `[memory] Gmail avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+
+          // Slack avatar
+          if (rawEvent.connectorType === 'slack' && Object.keys(slackProfiles).length > 0) {
+            const slackIdent = identifiers.find((i) => i.type === 'slack_id');
+            if (slackIdent) {
+              const profile = slackProfiles[slackIdent.value];
+              const avatarUrl = profile?.avatarUrl as string | undefined;
+              if (avatarUrl) {
+                try {
+                  await this.contactsService.updateAvatar(contact.id, {
+                    url: avatarUrl,
+                    source: 'slack',
+                  });
+                } catch (err) {
+                  this.logger.warn(
+                    `[memory] Slack avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+                  );
+                }
+              }
+            }
+          }
+
+          // Immich avatar
+          if (rawEvent.connectorType === 'photos') {
+            const immichPeople =
+              (metadata.people as Array<{ name?: string; thumbnailUrl?: string }>) || [];
+            const nameId = identifiers.find((i) => i.type === 'name');
+            const matchedPerson = nameId
+              ? immichPeople.find(
+                  (p) => p.name && p.name.toLowerCase() === nameId.value.toLowerCase(),
+                )
+              : undefined;
+            if (matchedPerson?.thumbnailUrl) {
+              try {
+                const immichHeaders = await this.buildAuthHeaders(rawEvent.accountId, 'photos');
+                await this.contactsService.updateAvatar(
+                  contact.id,
+                  { url: matchedPerson.thumbnailUrl, source: 'immich' },
+                  immichHeaders,
+                );
+              } catch (err) {
+                this.logger.warn(
+                  `[memory] Immich avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }
+          }
         }
       }
     } catch (err) {
@@ -374,277 +450,382 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
     const contactMs = Date.now() - t0;
 
-    // 10. Thread linking from metadata
-    if (mergedMetadata.threadId) {
+    // 3. File processing — parse file content
+    const hasFile = mergedMetadata.fileUrl || mergedMetadata.fileBase64;
+    const fileMime = (mergedMetadata.mimetype as string) || '';
+    let currentText = embedText;
+
+    if (hasFile && !fileMime.startsWith('image/')) {
+      // Non-image files: parse via ContentCleaner
       try {
-        await this.linkThread(memoryId, mergedMetadata.threadId as string, rawEvent.connectorType);
-      } catch {
-        // Thread linking is best-effort
+        const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
+        const fileContent = await this.contentCleaner.parseFile(
+          fileBuffer,
+          fileMime,
+          mergedMetadata.fileName as string | undefined,
+        );
+        if (fileContent) {
+          currentText = fileContent + '\n\n' + currentText;
+        }
+      } catch (err: unknown) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:file] ${mid} file processing failed: ${err instanceof Error ? err.message : String(err)}`,
+          parentJobId,
+        );
       }
     }
 
-    // 11. Generate embedding + store in Qdrant
+    // Image files: store thumbnail, no VL description generation
+    if (hasFile && fileMime.startsWith('image/')) {
+      try {
+        const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
+        if (fileBuffer.length <= 30_000) {
+          mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
+        }
+      } catch (err: unknown) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:thumbnail] ${mid} thumbnail failed: ${err instanceof Error ? err.message : String(err)}`,
+          parentJobId,
+        );
+      }
+    }
+
+    // 7. Generate embedding
     const maxChars = 6000;
-    let currentText = embedText;
     const truncatedText =
       currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
+
+    t0 = Date.now();
+    let vector: number[];
+
+    const isGeminiMultimodal = this.config.embedBackend === 'gemini';
+    const canMultimodal =
+      isGeminiMultimodal &&
+      hasFile &&
+      (fileMime.startsWith('image/') || fileMime === 'application/pdf');
+
+    if (canMultimodal) {
+      try {
+        const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
+
+        // For PDFs on Gemini path, still extract text for display
+        if (fileMime === 'application/pdf') {
+          const pdfText = await this.contentCleaner.parseFile(fileBuffer, fileMime);
+          if (pdfText) {
+            currentText = pdfText + '\n\n' + currentText;
+          }
+        }
+
+        const parts: import('./gemini-embed.service').EmbedPart[] = [
+          {
+            type: fileMime.startsWith('image/') ? 'image' : 'pdf',
+            base64: fileBuffer.toString('base64'),
+            mimeType: fileMime,
+          },
+          { type: 'text', text: currentText },
+        ];
+        vector = await this.ai.embedMultimodal(parts);
+      } catch (err: unknown) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:multimodal] ${mid} Gemini embed failed, falling back to text: ${err instanceof Error ? err.message : String(err)}`,
+          parentJobId,
+        );
+        vector = await this.ai.embed(truncatedText);
+      }
+    } else {
+      vector = await this.ai.embed(truncatedText);
+    }
+    const embedMs = Date.now() - t0;
+
+    // Upsert to Typesense
+    t0 = Date.now();
+    const peopleNames = resolvedContacts.map((c) => c.name).filter(Boolean) as string[];
+    const typesensePayload: Record<string, unknown> = {
+      text: truncatedText,
+      source_type: event.sourceType,
+      connector_type: rawEvent.connectorType,
+      event_time: event.timestamp,
+      account_id: rawEvent.accountId,
+      memory_bank_id: memoryBankId,
+      people: peopleNames,
+    };
+    await this.typesense.upsert(memoryId, vector, typesensePayload);
+    const typesenseMs = Date.now() - t0;
+
+    // 8. Enrich inline (best-effort)
+    let enrichEntities: Array<{ type: string; value: string }> = [];
+    let enrichFactuality: { label: string; confidence: number; rationale: string } | null = null;
     try {
-      t0 = Date.now();
-      let vector = await this.ai.embed(truncatedText);
-      const embedMs = Date.now() - t0;
-
-      t0 = Date.now();
-      await this.typesense.upsert(memoryId, vector, {
-        text: truncatedText,
-        source_type: event.sourceType,
-        connector_type: rawEvent.connectorType,
-        event_time: event.timestamp,
-        account_id: rawEvent.accountId,
-      });
-      const qdrantMs = Date.now() - t0;
-
-      // Fire afterEmbed hook (fire-and-forget)
-      void this.pluginRegistry.fireHook('afterEmbed', {
-        id: memoryId,
-        text: embedText,
+      const enrichResult = await this.enrichService.enrichInline({
+        text: currentText,
         sourceType: event.sourceType,
         connectorType: rawEvent.connectorType,
-        eventTime: new Date(event.timestamp),
+        metadata: mergedMetadata,
       });
-
+      enrichEntities = enrichResult.entities;
+      enrichFactuality = enrichResult.factuality;
+    } catch (err: unknown) {
       this.addLog(
         rawEvent.connectorType,
         rawEvent.accountId,
-        'info',
-        `[memory:embedded] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) ollama=${embedMs}ms(${vector.length}d) qdrant=${qdrantMs}ms`,
+        'warn',
+        `[memory:enrich] ${mid} inline enrichment failed: ${err instanceof Error ? err.message : String(err)}`,
+        parentJobId,
       );
+    }
 
-      // 12. File processing (image → VL model description → re-embed)
-      if (mergedMetadata.fileUrl && (mergedMetadata.mimetype as string)?.startsWith('image/')) {
+    // Compute weights
+    const ageDays = (Date.now() - new Date(event.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+    const recency = Math.exp(-0.015 * ageDays);
+    const importance = 0.5 + Math.min(enrichEntities.length * 0.1, 0.4);
+    const trust = this.getTrustScore(rawEvent.connectorType);
+    const weights = { semantic: 0, rerank: 0, recency, importance, trust, final: 0 };
+
+    // 9. Encrypt all fields (single pass)
+    currentText = stripNullBytes(currentText);
+    const metadataStr = stripNullBytes(JSON.stringify(mergedMetadata));
+
+    // Quota check
+    if (ownerUserId) {
+      const quota = await this.quotaService.canCreateMemory(ownerUserId);
+      if (!quota.allowed) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:quota] Skipped — reached ${quota.limit} memory limit (free plan).`,
+          parentJobId,
+        );
+        await this.advanceAndComplete(parentJobId);
+        return;
+      }
+    }
+
+    let insertText = currentText;
+    let insertMetadata = metadataStr;
+
+    if (ownerUserId) {
+      const userKey = await this.userKeyService.getDek(ownerUserId);
+      if (!userKey) {
+        throw new Error('User key not available. Submit recovery key to unlock encryption.');
+      }
+
+      const enc = this.crypto.encryptMemoryFieldsWithKey(
+        { text: currentText, entities: '', claims: '', metadata: metadataStr },
+        userKey,
+      );
+      insertText = enc.text;
+      insertMetadata = enc.metadata;
+    }
+
+    // 6. Create memory record with pipelineComplete=true
+    t0 = Date.now();
+    const factualityJson = enrichFactuality ? JSON.stringify(enrichFactuality) : null;
+
+    if (ownerUserId) {
+      await this.dbService.withUserId(ownerUserId, (db) =>
+        db
+          .insert(memories)
+          .values({
+            id: memoryId,
+            accountId: rawEvent.accountId,
+            memoryBankId,
+            connectorType: rawEvent.connectorType,
+            sourceType: event.sourceType,
+            sourceId: event.sourceId,
+            text: insertText,
+            eventTime: new Date(event.timestamp),
+            ingestTime: now,
+            metadata: insertMetadata,
+            entities: enrichEntities.length ? JSON.stringify(enrichEntities) : null,
+            factuality: factualityJson ? this.crypto.encrypt(factualityJson)! : null,
+            factualityLabel: enrichFactuality?.label || 'UNVERIFIED',
+            weights: JSON.stringify(weights),
+            embeddingStatus: 'done',
+            pipelineComplete: true,
+            createdAt: now,
+          })
+          .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] }),
+      );
+      // 10. Compute search_tokens from plaintext
+      await this.dbService.withUserId(ownerUserId, (db) =>
+        db
+          .update(memories)
+          .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
+          .where(eq(memories.id, memoryId)),
+      );
+    } else {
+      await this.dbService.db
+        .insert(memories)
+        .values({
+          id: memoryId,
+          accountId: rawEvent.accountId,
+          memoryBankId,
+          connectorType: rawEvent.connectorType,
+          sourceType: event.sourceType,
+          sourceId: event.sourceId,
+          text: insertText,
+          eventTime: new Date(event.timestamp),
+          ingestTime: now,
+          metadata: insertMetadata,
+          entities: enrichEntities.length ? JSON.stringify(enrichEntities) : null,
+          factuality: factualityJson ? this.crypto.encrypt(factualityJson)! : null,
+          factualityLabel: enrichFactuality?.label || 'UNVERIFIED',
+          weights: JSON.stringify(weights),
+          embeddingStatus: 'done',
+          pipelineComplete: true,
+          createdAt: now,
+        })
+        .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] });
+      await this.dbService.db
+        .update(memories)
+        .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
+        .where(eq(memories.id, memoryId));
+    }
+    const dbInsertMs = Date.now() - t0;
+
+    // Bump quota cache
+    if (ownerUserId) {
+      this.quotaService.incrementCachedCount(ownerUserId);
+    }
+
+    // Link contacts + threads
+    let contactCount = 0;
+    if (selfContactId) {
+      await this.contactsService.linkMemory(memoryId, selfContactId, 'participant');
+      contactCount++;
+    }
+    for (const { contactId, role } of resolvedContacts) {
+      await this.contactsService.linkMemory(memoryId, contactId, role);
+      contactCount++;
+    }
+
+    // Thread linking
+    for (const entity of embedResult.entities) {
+      if (entity.type === 'message' && entity.id.startsWith('thread:')) {
         try {
-          const fileContent = await this.processFile(memoryId, mergedMetadata, rawEvent);
-          if (fileContent) {
-            currentText = fileContent + '\n\n' + currentText;
-            await this.dbService.db
-              .update(memories)
-              .set({ text: currentText })
-              .where(eq(memories.id, memoryId));
-
-            // Re-embed with enriched text
-            const reEmbedText =
-              currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
-            vector = await this.ai.embed(reEmbedText);
-            await this.typesense.upsert(memoryId, vector, {
-              text: reEmbedText,
-              source_type: event.sourceType,
-              connector_type: rawEvent.connectorType,
-              event_time: event.timestamp,
-              account_id: rawEvent.accountId,
-            });
-          }
-        } catch (err: unknown) {
-          this.addLog(
+          await this.linkThread(
+            memoryId,
+            entity.id.replace('thread:', ''),
             rawEvent.connectorType,
-            rawEvent.accountId,
-            'warn',
-            `[memory:file] ${mid} file processing failed: ${err instanceof Error ? err.message : String(err)}`,
+            ownerUserId ?? undefined,
+          );
+        } catch (err) {
+          this.logger.debug(
+            `Thread linking skipped: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
-
-      // 13. Enrich (entities, factuality, links, weights)
-      this.leaveStage('embed');
-      this.enterStage('enrich');
-      const pipelineEnrich = connector.manifest.pipeline?.enrich !== false;
-      if (pipelineEnrich) {
-        await this.enrichService.enrich(memoryId);
-
-        // Fire afterEnrich hook (fire-and-forget)
-        const [enrichedMem] = await this.dbService.db
-          .select({ entities: memories.entities, factuality: memories.factuality })
-          .from(memories)
-          .where(eq(memories.id, memoryId));
-        void this.pluginRegistry.fireHook('afterEnrich', {
-          id: memoryId,
-          text: currentText,
-          sourceType: event.sourceType,
-          connectorType: rawEvent.connectorType,
-          eventTime: new Date(event.timestamp),
-          entities: enrichedMem?.entities,
-          factuality: enrichedMem?.factuality,
-        });
+    }
+    if (mergedMetadata.threadId) {
+      try {
+        await this.linkThread(
+          memoryId,
+          mergedMetadata.threadId as string,
+          rawEvent.connectorType,
+          ownerUserId ?? undefined,
+        );
+      } catch (err) {
+        this.logger.warn('Thread linking failed', err instanceof Error ? err.message : String(err));
       }
+    }
 
-      // 14. Mark done
-      await this.dbService.db
-        .update(memories)
-        .set({ embeddingStatus: 'done' })
-        .where(eq(memories.id, memoryId));
+    // 12. Create links (best-effort)
+    try {
+      await this.createLinks(memoryId);
+    } catch {
+      // Link creation is best-effort
+    }
 
-      this.events.emitToChannel('memories', 'memory:updated', {
-        memoryId,
-        sourceType: event.sourceType,
-        connectorType: rawEvent.connectorType,
-        text: currentText.slice(0, 100),
-      });
+    // Fire hooks
+    void this.pluginRegistry.fireHook('afterIngest', {
+      id: memoryId,
+      text: embedText,
+      sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType,
+      eventTime: new Date(event.timestamp),
+    });
+    void this.pluginRegistry.fireHook('afterEmbed', {
+      id: memoryId,
+      text: embedText,
+      sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType,
+      eventTime: new Date(event.timestamp),
+    });
 
-      this.leaveStage('enrich');
+    // Emit memory updated event
+    this.events.emitToChannel('memories', 'memory:updated', {
+      memoryId,
+      sourceType: event.sourceType,
+      connectorType: rawEvent.connectorType,
+      text: currentText.slice(0, 100),
+    });
+    this.emitGraphDelta(memoryId);
 
-      // 15. Advance progress + try complete
-      await this.advanceAndComplete(parentJobId);
-    } catch (err: unknown) {
-      const totalMs = Date.now() - pipelineStart;
-      await this.dbService.db
-        .update(memories)
-        .set({ embeddingStatus: 'failed' })
-        .where(eq(memories.id, memoryId));
-      this.addLog(
-        rawEvent.connectorType,
-        rawEvent.accountId,
-        'error',
-        `[memory:fail] ${event.sourceType} after ${totalMs}ms: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      throw err;
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[memory:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) embed=${embedMs}ms(${vector.length}d) typesense=${typesenseMs}ms entities=${enrichEntities.length} fact=${enrichFactuality?.label || 'UNVERIFIED'}`,
+      parentJobId,
+    );
+
+    this.analytics.capture('memory_complete', {
+      memory_id: memoryId,
+      source_type: event.sourceType,
+      connector_type: rawEvent.connectorType,
+    });
+
+    this.events.emitDebounced(
+      'dashboard:queue-stats',
+      'dashboard',
+      'dashboard:queue-stats-changed',
+      async () => ({ ts: Date.now() }),
+      2000,
+    );
+
+    // Advance parent job progress
+    await this.advanceAndComplete(parentJobId);
+  }
+
+  private getTrustScore(connectorType: string): number {
+    try {
+      return this.connectors.get(connectorType).manifest.trustScore;
+    } catch {
+      return 0.7;
     }
   }
 
-  private async processFile(
-    memoryId: string,
+  private async getFileBuffer(
     metadata: Record<string, unknown>,
-    rawEvent: Record<string, unknown>,
-  ): Promise<string | null> {
-    const fileUrl = metadata.fileUrl as string;
+    rawEvent: { accountId: string; connectorType: string },
+  ): Promise<Buffer> {
+    const fileBase64 = (metadata.fileBase64 as string) || '';
+    if (fileBase64) return Buffer.from(fileBase64, 'base64');
+
+    const fileUrl = (metadata.fileUrl as string) || '';
     const mimetype = (metadata.mimetype as string) || '';
-    const fileName = (metadata.fileName as string) || '';
-    const mid = memoryId.slice(0, 8);
-
-    this.addLog(
-      rawEvent.connectorType as string,
-      rawEvent.accountId as string,
-      'info',
-      `[memory:file] ${mid} "${fileName || 'unknown'}" (${mimetype || 'unknown'})`,
-    );
-
-    const headers = await this.buildAuthHeaders(
-      rawEvent.accountId as string,
-      rawEvent.connectorType as string,
-    );
-
-    const res = await fetch(fileUrl, {
+    const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
+    const fetchUrl = mimetype.startsWith('image/')
+      ? fileUrl.replace('size=preview', 'size=thumbnail').replace('size=original', 'size=thumbnail')
+      : fileUrl;
+    const res = await fetch(fetchUrl, {
       headers,
       signal: AbortSignal.timeout(120_000),
     });
     if (!res.ok) {
       throw new Error(`File download failed: ${res.status} ${res.statusText}`);
     }
-
-    const mime = mimetype.toLowerCase();
-    const ext = fileName.toLowerCase().split('.').pop() || '';
-    const header = fileName ? `# ${fileName}` : '';
-
-    // Image → Ollama VL model
-    if (mime.startsWith('image/')) {
-      const [memory] = await this.dbService.db
-        .select({ text: memories.text })
-        .from(memories)
-        .where(eq(memories.id, memoryId));
-      const buffer = await res.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      const description = await this.ai.generate(photoDescriptionPrompt(memory?.text || ''), [
-        base64,
-      ]);
-      return description.trim() || null;
-    }
-
-    // PDF
-    if (mime === 'application/pdf' || ext === 'pdf') {
-      const pdfParseModule = await import('pdf-parse');
-      const pdfParse = pdfParseModule.default || pdfParseModule;
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const data = await (pdfParse as unknown as (buf: Buffer) => Promise<{ text?: string }>)(
-        buffer,
-      );
-      const text = data.text?.trim();
-      if (!text) return null;
-      let content = header ? `${header}\n\n${text}` : text;
-      if (content.length > MAX_CONTENT_LENGTH) {
-        content =
-          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
-      }
-      return content;
-    }
-
-    // DOCX
-    if (
-      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      ext === 'docx'
-    ) {
-      const mammoth = await import('mammoth');
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const result = await mammoth.extractRawText({ buffer });
-      const text = result.value?.trim();
-      if (!text) return null;
-      let content = header ? `${header}\n\n${text}` : text;
-      if (content.length > MAX_CONTENT_LENGTH) {
-        content =
-          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
-      }
-      return content;
-    }
-
-    // Spreadsheets
-    if (
-      mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-      mime === 'application/vnd.ms-excel' ||
-      mime === 'text/csv' ||
-      ext === 'xlsx' ||
-      ext === 'xls' ||
-      ext === 'csv'
-    ) {
-      const XLSX = await import('xlsx');
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const sections: string[] = [];
-
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        const csv = XLSX.utils.sheet_to_csv(sheet);
-        if (!csv.trim()) continue;
-        const lines = csv.split('\n').filter((l: string) => l.trim());
-        if (!lines.length) continue;
-        const mdLines: string[] = [`## ${sheetName}`];
-        const headerCols = lines[0].split(',');
-        mdLines.push(`| ${headerCols.join(' | ')} |`);
-        mdLines.push(`| ${headerCols.map(() => '---').join(' | ')} |`);
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',');
-          mdLines.push(`| ${cols.join(' | ')} |`);
-        }
-        sections.push(mdLines.join('\n'));
-      }
-
-      if (!sections.length) return null;
-      let content = header ? `${header}\n\n${sections.join('\n\n')}` : sections.join('\n\n');
-      if (content.length > MAX_CONTENT_LENGTH) {
-        content =
-          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
-      }
-      return content;
-    }
-
-    // Plain text
-    if (mime.startsWith('text/') && ext !== 'csv') {
-      const text = await res.text();
-      if (!text.trim()) return null;
-      let content = header ? `${header}\n\n${text.trim()}` : text.trim();
-      if (content.length > MAX_CONTENT_LENGTH) {
-        content =
-          content.slice(0, MAX_CONTENT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
-      }
-      return content;
-    }
-
-    return null;
+    return Buffer.from(await res.arrayBuffer());
   }
 
   private parseEntityIdentifiers(
@@ -668,8 +849,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     return identifiers;
   }
 
-  private async linkThread(memoryId: string, threadId: string, connectorType: string) {
-    const threadSiblings = await this.dbService.db
+  private async linkThread(
+    memoryId: string,
+    threadId: string,
+    connectorType: string,
+    _ownerUserId?: string,
+  ) {
+    const db = this.dbService.db;
+    const threadSiblings = await db
       .select({ id: memories.id })
       .from(memories)
       .where(
@@ -680,26 +867,78 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       )
       .limit(20);
     const siblings = threadSiblings.filter((s) => s.id !== memoryId);
-    if (siblings.length) {
-      const now = new Date();
-      for (const sib of siblings) {
-        const existingLink = await this.dbService.db
-          .select({ id: memoryLinks.id })
-          .from(memoryLinks)
-          .where(and(eq(memoryLinks.srcMemoryId, sib.id), eq(memoryLinks.dstMemoryId, memoryId)))
-          .limit(1);
-        if (!existingLink.length) {
-          await this.dbService.db.insert(memoryLinks).values({
+    if (!siblings.length) return;
+    const now = new Date();
+    for (const sib of siblings) {
+      try {
+        await db
+          .insert(memoryLinks)
+          .values({
             id: randomUUID(),
             srcMemoryId: sib.id,
             dstMemoryId: memoryId,
             linkType: 'related',
             strength: 0.8,
             createdAt: now,
-          });
-        }
+          })
+          .onConflictDoNothing();
+      } catch {
+        // FK violation — sibling not yet committed; skip
       }
     }
+  }
+
+  private async createLinks(memoryId: string): Promise<void> {
+    const SIMILARITY_THRESHOLD = 0.8;
+    const SIMILAR_MEMORY_LIMIT = 5;
+
+    const results = await this.typesense.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
+    const candidates = results.filter((r) => r.score >= SIMILARITY_THRESHOLD && r.id !== memoryId);
+    if (!candidates.length) return;
+
+    const candidateIds = candidates.map((c) => c.id);
+    const existingLinks = await this.dbService.db
+      .select({ srcMemoryId: memoryLinks.srcMemoryId, dstMemoryId: memoryLinks.dstMemoryId })
+      .from(memoryLinks)
+      .where(
+        sql`(${memoryLinks.srcMemoryId} = ${memoryId} AND ${memoryLinks.dstMemoryId} IN (${sql.join(
+          candidateIds.map((id) => sql`${id}`),
+          sql`, `,
+        )}))
+         OR (${memoryLinks.dstMemoryId} = ${memoryId} AND ${memoryLinks.srcMemoryId} IN (${sql.join(
+           candidateIds.map((id) => sql`${id}`),
+           sql`, `,
+         )}))`,
+      );
+
+    const linkedPairs = new Set(existingLinks.map((l) => `${l.srcMemoryId}::${l.dstMemoryId}`));
+
+    for (const result of candidates) {
+      if (
+        linkedPairs.has(`${memoryId}::${result.id}`) ||
+        linkedPairs.has(`${result.id}::${memoryId}`)
+      ) {
+        continue;
+      }
+
+      await this.dbService.db.insert(memoryLinks).values({
+        id: randomUUID(),
+        srcMemoryId: memoryId,
+        dstMemoryId: result.id,
+        linkType: 'related',
+        strength: result.score,
+        createdAt: new Date(),
+      });
+    }
+  }
+
+  private emitGraphDelta(memoryId: string) {
+    this.memoryService
+      .buildGraphDelta(memoryId)
+      .then((delta) => {
+        if (delta) this.events.emitToChannel('memories', 'graph:delta', delta);
+      })
+      .catch(() => {});
   }
 
   private async advanceAndComplete(jobId: string | null | undefined) {
@@ -711,32 +950,38 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         processed: result.progress,
         total: result.total,
       });
-
       const done = await this.jobsService.tryCompleteJob(jobId);
       if (done) {
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'done' });
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.logger.warn(
+        'Job progress advance failed',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
   private async buildPipelineContext(
     accountId: string,
     connectorType: string,
+    jobId?: string | null,
   ): Promise<PipelineContext> {
     let auth: Record<string, unknown> = {};
     try {
       const account = await this.accountsService.getById(accountId);
       if (account.authContext) auth = JSON.parse(account.authContext) as Record<string, unknown>;
-    } catch {
-      /* empty */
+    } catch (err) {
+      this.logger.warn(
+        'Auth context parse failed',
+        err instanceof Error ? err.message : String(err),
+      );
     }
     const logger: ConnectorLogger = {
-      info: (msg) => this.addLog(connectorType, accountId, 'info', msg),
-      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg),
-      error: (msg) => this.addLog(connectorType, accountId, 'error', msg),
-      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg),
+      info: (msg) => this.addLog(connectorType, accountId, 'info', msg, jobId),
+      warn: (msg) => this.addLog(connectorType, accountId, 'warn', msg, jobId),
+      error: (msg) => this.addLog(connectorType, accountId, 'error', msg, jobId),
+      debug: (msg) => this.addLog(connectorType, accountId, 'debug', msg, jobId),
     };
     return { accountId, auth, logger };
   }
@@ -764,9 +1009,16 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
-  private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
+  private addLog(
+    connectorType: string,
+    accountId: string | null,
+    level: string,
+    message: string,
+    jobId?: string | null,
+  ) {
     const stage = 'memory';
     this.logsService.add({
+      jobId: jobId ?? undefined,
       connectorType,
       accountId: accountId ?? undefined,
       stage,
@@ -774,6 +1026,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       message,
     });
     this.events.emitToChannel('logs', 'log', {
+      jobId: jobId ?? undefined,
       connectorType,
       accountId,
       stage,

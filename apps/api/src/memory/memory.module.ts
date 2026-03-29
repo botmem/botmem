@@ -18,10 +18,12 @@ import { GeminiEmbedService } from './gemini-embed.service';
 import { RerankService } from './rerank.service';
 import { TypesenseService } from './typesense.service';
 import { EnrichService } from './enrich.service';
+import { ContentCleaner } from './content-cleaner';
 import { CleanProcessor } from './clean.processor';
 import { EmbedProcessor } from './embed.processor';
 import { EnrichProcessor } from './enrich.processor';
 import { DecayProcessor } from './decay.processor';
+import { MemoryProcessor } from './memory.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
 
@@ -46,6 +48,7 @@ import { MemoryController } from './memory.controller';
         backoff: { type: 'exponential', delay: 30000 },
       },
     }),
+    BullModule.registerQueue({ name: 'memory' }),
     BullModule.registerQueue({ name: 'maintenance' }),
   ],
   controllers: [MemoryController],
@@ -58,10 +61,12 @@ import { MemoryController } from './memory.controller';
     AiService,
     TypesenseService,
     EnrichService,
+    ContentCleaner,
     CleanProcessor,
     EmbedProcessor,
     EnrichProcessor,
     DecayProcessor,
+    MemoryProcessor,
     MemoryService,
   ],
   exports: [
