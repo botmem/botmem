@@ -24,49 +24,25 @@ botmem/
 
 ## Data Flow
 
-The entire system is a multi-stage pipeline driven by BullMQ queues:
+The system uses a 2-stage pipeline driven by BullMQ queues:
 
 ```
-+------------------+     +------------------+     +------------------+
-|   Connector      |     |   Sync Queue     |     |   Clean Queue    |
-|   .sync()        +---->+   SyncProcessor  +---->+   CleanProcessor |
-|                  |     |   concurrency: 2 |     |                  |
-+------------------+     +------------------+     +--------+---------+
-                                                           |
-                                                  +--------v---------+
-                                                  |   Embed Queue    |
-                                                  |   EmbedProcessor |
-                                                  |   concurrency: 4 |
-                                                  +--------+---------+
-                                                           |
-                                              +------------+------------+
-                                              |                         |
-                                    +---------v--------+     +----------v--------+
-                                    |   File Queue     |     |   Enrich Queue    |
-                                    |   FileProcessor  |     |   EnrichProcessor |
-                                    |   (photos, docs) |     |   concurrency: 2  |
-                                    +------------------+     +-------------------+
++------------------+     +------------------+     +--------------------+
+|   Connector      |     |   Sync Queue     |     |   Memory Queue     |
+|   .sync()        +---->+   SyncProcessor  +---->+   MemoryProcessor  |
+|                  |     |   concurrency: 2 |     |   concurrency: 4   |
++------------------+     +------------------+     +--------------------+
 ```
 
 ### Stage 1: Sync
 
-The connector pulls data from the external service and emits `ConnectorDataEvent` objects. The `SyncProcessor` writes each event to the `rawEvents` table (immutable payload store) and enqueues a clean job.
+The connector pulls data from the external service and emits `ConnectorDataEvent` objects. The `SyncProcessor` writes each event to the `rawEvents` table (immutable payload store) and enqueues a memory job.
 
-### Stage 2: Clean
+### Stage 2: Memory Processing
 
-The `CleanProcessor` normalizes raw event text — stripping HTML, collapsing whitespace, and validating payload structure before enqueuing the embed job.
+The `MemoryProcessor` handles the entire lifecycle in a single pass: parses the raw event, cleans content (email signature/reply stripping via `email-reply-parser`, Slack/WA formatting cleanup, file parsing via `liteparse`), resolves contacts, creates a Memory record, generates a vector embedding, runs inline enrichment (entity extraction, factuality classification, weight computation), encrypts sensitive fields in a single pass, upserts to Typesense, and creates relationship graph links with factuality corroboration.
 
-### Stage 3: Embed
-
-The `EmbedProcessor` reads the raw event, creates a Memory record in PostgreSQL, generates a vector embedding via the AI backend (`mxbai-embed-large` 1024d or Gemini 3072d), upserts the document into Typesense, and resolves participants into contacts. For file-type events (photos, documents), it routes to the File queue instead.
-
-### Stage 4: File (optional)
-
-The `FileProcessor` downloads the file, extracts text content (using the VL model for images, `pdf-parse` for PDFs, `mammoth` for DOCX, `xlsx` for spreadsheets), updates the memory text, re-embeds, and then enqueues an enrich job.
-
-### Stage 5: Enrich
-
-The `EnrichProcessor` extracts entities and claims via the text model, classifies factuality (`FACT` / `UNVERIFIED` / `FICTION`), computes importance weights, and creates relationship graph links by finding similar memories in Typesense.
+See [Pipeline Architecture](/architecture/pipeline) for the full 13-step breakdown.
 
 ## Storage Architecture
 
@@ -77,11 +53,11 @@ The `EnrichProcessor` extracts entities and claims via the text model, classifie
 |                   |     |                   |     |                   |
 |  - users          |     |  Collection:      |     |  Queues:          |
 |  - accounts       |     |    memories       |     |    sync           |
-|  - jobs           |     |                   |     |    clean          |
-|  - logs           |     |  Fields:          |     |    embed          |
-|  - rawEvents      |     |    text           |     |    file           |
-|  - memories       |     |    source_type    |     |    enrich         |
-|  - memoryLinks    |     |    connector_type |     |    backfill       |
+|  - jobs           |     |                   |     |    memory         |
+|  - logs           |     |  Fields:          |     |    backfill       |
+|  - rawEvents      |     |    text           |     |                   |
+|  - memories       |     |    source_type    |     |                   |
+|  - memoryLinks    |     |    connector_type |     |                   |
 |  - contacts       |     |    event_time     |     |                   |
 |  - contactIds     |     |    account_id     |     |  Recovery key     |
 |  - memoryContacts |     |    user_id        |     |    cache (AES)    |
@@ -100,7 +76,7 @@ Typesense hosts a `memories` collection with hybrid BM25 + vector search (cosine
 
 ### Redis
 
-BullMQ uses Redis as its backing store. Six queues process work asynchronously: `sync`, `clean`, `embed`, `file`, `enrich`, and `backfill`. Redis also caches recovery keys (encrypted with APP_SECRET) for credential decryption.
+BullMQ uses Redis as its backing store. Two primary queues process work asynchronously: `sync` and `memory`, plus a `backfill` queue for maintenance tasks. Redis also caches recovery keys (encrypted with APP_SECRET) for credential decryption.
 
 ## API Architecture
 

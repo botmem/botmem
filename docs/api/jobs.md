@@ -52,60 +52,6 @@ GET /api/jobs
 
 ---
 
-## Get Queue Statistics
-
-Returns the current state of all BullMQ processing queues.
-
-```
-GET /api/jobs/queues
-```
-
-### Response
-
-```json
-{
-  "sync": {
-    "waiting": 0,
-    "active": 1,
-    "completed": 15,
-    "failed": 0,
-    "delayed": 0
-  },
-  "clean": {
-    "waiting": 0,
-    "active": 0,
-    "completed": 8500,
-    "failed": 0,
-    "delayed": 0
-  },
-  "embed": {
-    "waiting": 120,
-    "active": 4,
-    "completed": 8500,
-    "failed": 3,
-    "delayed": 0
-  },
-  "enrich": {
-    "waiting": 50,
-    "active": 2,
-    "completed": 8400,
-    "failed": 5,
-    "delayed": 0
-  },
-  "backfill": {
-    "waiting": 0,
-    "active": 0,
-    "completed": 200,
-    "failed": 0,
-    "delayed": 0
-  }
-}
-```
-
-This endpoint is useful for monitoring pipeline throughput and identifying bottlenecks.
-
----
-
 ## Get Job
 
 ```
@@ -148,24 +94,6 @@ POST /api/jobs/sync/:accountId
 
 ---
 
-## Cancel Job
-
-Cancel a running or queued job.
-
-```
-DELETE /api/jobs/:id
-```
-
-### Response
-
-```json
-{
-  "ok": true
-}
-```
-
----
-
 ## Query Logs
 
 Retrieve log entries for jobs, accounts, or specific log levels.
@@ -202,9 +130,7 @@ GET /api/logs
 
 ### Log Stages
 
-| Stage    | Description                          |
-| -------- | ------------------------------------ |
-| `sync`   | Connector sync operations            |
-| `embed`  | Embedding and contact resolution     |
-| `file`   | File download and content extraction |
-| `enrich` | Entity extraction and factuality     |
+| Stage    | Description                                          |
+| -------- | ---------------------------------------------------- |
+| `sync`   | Connector sync operations                            |
+| `memory` | Memory processing (parsing, embedding, enrichment)   |
