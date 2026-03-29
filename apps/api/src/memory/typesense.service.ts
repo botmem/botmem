@@ -3,6 +3,7 @@ import Typesense from 'typesense';
 import type { Client as TypesenseClient } from 'typesense';
 import { ConfigService } from '../config/config.service';
 import { Traced } from '../tracing/traced.decorator';
+import { HYBRID_ALPHA, QUERY_BY_WEIGHTS } from './search.constants';
 
 export interface ScoredPoint {
   id: string;
@@ -327,7 +328,7 @@ export class TypesenseService implements OnModuleInit {
         {
           collection: COLLECTION_NAME,
           query_by: 'text',
-          vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:0.3)`,
+          vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:${HYBRID_ALPHA})`,
           per_page: limit,
           ...(filterStr ? { filter_by: filterStr } : {}),
         },
@@ -396,8 +397,8 @@ export class TypesenseService implements OnModuleInit {
             collection: COLLECTION_NAME,
             q: query || '*',
             query_by: 'text,entities_text,people',
-            query_by_weights: '3,1,1',
-            vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:0.3)`,
+            query_by_weights: QUERY_BY_WEIGHTS,
+            vector_query: `embedding:([${vector.join(',')}], k:${limit}, alpha:${HYBRID_ALPHA})`,
             per_page: limit,
             highlight_full_fields: 'text',
             highlight_start_tag: '<mark>',

@@ -19,6 +19,21 @@ import {
   settings,
 } from '../db/schema';
 import { parseNlq } from './nlq-parser';
+import {
+  MIN_SCORE,
+  HYBRID_K_MULTIPLIER,
+  HYBRID_K_CAP,
+  INJECTED_CONTACT_BASELINE,
+  CONTACT_BOOST_MIXED,
+  CONTACT_BOOST_PURE_MULTI,
+  RECENCY_DECAY_RATE,
+  GRAPH_GROUP_STRENGTH,
+  GRAPH_DIRECT_STRENGTH,
+  GRAPH_LINK_SCORE,
+  GRAPH_VECTOR_WEIGHT,
+  GRAPH_BASE_SCORE,
+  SCORING_PROFILES,
+} from './search.constants';
 
 /** Escape LIKE metacharacters so user input is treated as literal text. */
 function escapeLike(str: string): string {
@@ -618,7 +633,7 @@ export class MemoryService {
     // --- Single Typesense hybrid search call with facets ---
     const vector = await this.ai.embedQuery(embeddingQuery);
     // Cap k to avoid Typesense hybrid search failure at high k values (k>250 with filters can return 0)
-    const hybridK = Math.min(effectiveLimit * 3, 250);
+    const hybridK = Math.min(effectiveLimit * HYBRID_K_MULTIPLIER, HYBRID_K_CAP);
     const hybridResult = await this.typesense.hybridSearch(
       embeddingQuery,
       vector,
@@ -717,7 +732,7 @@ export class MemoryService {
       for (const id of inject) {
         allCandidateIds.add(id);
         // Give injected contact memories a baseline semantic score
-        if (!semanticScores.has(id)) semanticScores.set(id, 0.4);
+        if (!semanticScores.has(id)) semanticScores.set(id, INJECTED_CONTACT_BASELINE);
       }
     }
 
@@ -790,12 +805,12 @@ export class MemoryService {
       const contactMultiplier =
         memContactCount >= contactIds.length
           ? softBoost
-            ? 1.2
+            ? CONTACT_BOOST_MIXED
             : 1.6 // soft boost for mixed queries, full boost for pure contact queries
           : memContactCount > 0
             ? softBoost
               ? 1.1
-              : 1.3
+              : CONTACT_BOOST_PURE_MULTI
             : isPureContactQuery
               ? 0.5 // pure contact query but memory isn't linked to any — demote
               : 1.0;
@@ -812,7 +827,6 @@ export class MemoryService {
       scoredCandidates.push({ id, row, score: boostedScore, weights: boostedWeights });
     }
 
-    const MIN_SCORE = 0.35;
     const filtered = scoredCandidates.filter((c) => c.score >= MIN_SCORE);
     const topCandidates = filtered.sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
     const returnItems = topCandidates.map((c) =>
@@ -1499,7 +1513,7 @@ export class MemoryService {
       source: `contact-${mc.personId}`,
       target: mc.memoryId,
       type: mc.role || 'involves',
-      strength: mc.role === 'group' ? 0.9 : 0.7,
+      strength: mc.role === 'group' ? GRAPH_GROUP_STRENGTH : GRAPH_DIRECT_STRENGTH,
     }));
 
     // Build file/attachment nodes from memories in the current graph slice.
@@ -1693,7 +1707,7 @@ export class MemoryService {
       source: `contact-${mc.personId}`,
       target: memoryId,
       type: mc.role || 'involves',
-      strength: mc.role === 'group' ? 0.9 : 0.7,
+      strength: mc.role === 'group' ? GRAPH_GROUP_STRENGTH : GRAPH_DIRECT_STRENGTH,
     }));
 
     if (contactIds.length) {
@@ -1769,7 +1783,7 @@ export class MemoryService {
 
     const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
     // Pinned memories are exempt from recency decay
-    const recency = isPinned ? 1.0 : Math.exp(-0.005 * ageDays);
+    const recency = isPinned ? 1.0 : Math.exp(-RECENCY_DECAY_RATE * ageDays);
 
     let entityCount = 0;
     try {
@@ -1798,29 +1812,31 @@ export class MemoryService {
     // Browse intent boosts recency weight significantly.
     let final: number;
     if (intent === 'browse') {
+      const p = SCORING_PROFILES.browse;
       final =
         rerankScore > 0
-          ? Math.min(0.25 * semScale, 0.5) * semanticScore +
+          ? Math.min(p.semantic * semScale, p.semanticCap) * semanticScore +
             0.2 * rerankScore +
-            Math.min(0.4 * recScale, 0.6) * recency +
-            0.1 * importance +
-            0.05 * trust
-          : Math.min(0.4 * semScale, 0.6) * semanticScore +
-            Math.min(0.4 * recScale, 0.6) * recency +
+            Math.min(p.recency * recScale, p.recencyCap) * recency +
+            p.importance * importance +
+            p.trust * trust
+          : Math.min(
+              SCORING_PROFILES.recall.semantic * semScale,
+              SCORING_PROFILES.recall.semanticCap,
+            ) *
+              semanticScore +
+            Math.min(p.recency * recScale, p.recencyCap) * recency +
             0.15 * importance +
-            0.05 * trust;
+            p.trust * trust;
     } else {
+      const p =
+        rerankScore > 0 ? SCORING_PROFILES.recallRerank : SCORING_PROFILES.recallRerankNoSemantic;
       final =
-        rerankScore > 0
-          ? Math.min(0.4 * semScale, 0.7) * semanticScore +
-            0.3 * rerankScore +
-            Math.min(0.15 * recScale, 0.4) * recency +
-            0.1 * importance +
-            0.05 * trust
-          : Math.min(0.7 * semScale, 0.85) * semanticScore +
-            Math.min(0.15 * recScale, 0.4) * recency +
-            0.1 * importance +
-            0.05 * trust;
+        Math.min(p.semantic * semScale, p.semanticCap) * semanticScore +
+        p.rerank * rerankScore +
+        Math.min(p.recency * recScale, p.recencyCap) * recency +
+        p.importance * importance +
+        p.trust * trust;
     }
 
     // Scorer plugin bonus (clamped to +/-0.05, averaged across plugins)
@@ -1983,7 +1999,8 @@ export class MemoryService {
       const graphLink =
         outLinks.some((l) => l.dstMemoryId === id) || inLinks.some((l) => l.srcMemoryId === id);
       const vectorScore = recommended.find((r) => r.id === id)?.score ?? 0;
-      const score = (graphLink ? 0.5 : 0) + vectorScore * 0.3 + 0.2;
+      const score =
+        (graphLink ? GRAPH_LINK_SCORE : 0) + vectorScore * GRAPH_VECTOR_WEIGHT + GRAPH_BASE_SCORE;
 
       items.push({
         id: mem.id,

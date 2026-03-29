@@ -35,6 +35,12 @@ import { normalizeEntities } from './entity-normalizer';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
+import {
+  MAX_EMBED_CHARS,
+  THUMBNAIL_MAX_BYTES,
+  FILE_FETCH_TIMEOUT_MS,
+  CONTACT_RESOLVE_TIMEOUT_MS,
+} from './search.constants';
 
 const MAX_CONTENT_LENGTH = 10_000;
 
@@ -337,7 +343,10 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             ownerUserId || undefined,
           ),
           new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error('Contact resolution timed out after 30s')), 30_000),
+            setTimeout(
+              () => reject(new Error('Contact resolution timed out after 30s')),
+              CONTACT_RESOLVE_TIMEOUT_MS,
+            ),
           ),
         ]).catch((err) => {
           this.logger.warn(
@@ -424,7 +433,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
     const contactMs = Date.now() - t0;
 
     // --- Generate embedding + store in Qdrant (before DB insert) ---
-    const maxChars = 6000;
+    const maxChars = MAX_EMBED_CHARS;
     let currentText = embedText;
     const truncatedText =
       currentText.length > maxChars ? currentText.slice(0, maxChars) : currentText;
@@ -467,7 +476,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
           const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
 
           // Store thumbnail for images
-          if (fileMime.startsWith('image/') && fileBuffer.length <= 30_000) {
+          if (fileMime.startsWith('image/') && fileBuffer.length <= THUMBNAIL_MAX_BYTES) {
             mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
           }
 
@@ -794,7 +803,7 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       : fileUrl;
     const res = await fetch(fetchUrl, {
       headers,
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       throw new Error(`File download failed: ${res.status} ${res.statusText}`);
@@ -837,13 +846,13 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
       let thumbnailBuffer: Buffer;
       if (fileBase64) {
         // For inline images (WhatsApp), use the image directly if small enough
-        thumbnailBuffer = fileBuffer.length <= 30_000 ? fileBuffer : fileBuffer;
+        thumbnailBuffer = fileBuffer.length <= THUMBNAIL_MAX_BYTES ? fileBuffer : fileBuffer;
       } else {
         // For Immich, the fetched URL already uses ?size=thumbnail (~250px)
         thumbnailBuffer = fileBuffer;
       }
       // Cap at ~30KB — if larger, skip (the thumbnail endpoint is still available as fallback)
-      if (thumbnailBuffer.length <= 30_000) {
+      if (thumbnailBuffer.length <= THUMBNAIL_MAX_BYTES) {
         metadata.thumbnailBase64 = thumbnailBuffer.toString('base64');
       }
 
