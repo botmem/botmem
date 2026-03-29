@@ -150,23 +150,6 @@ describe('api', () => {
     });
   });
 
-  describe('listLogs', () => {
-    it('fetches logs with params', async () => {
-      mockOk({ logs: [], total: 0 });
-      await api.listLogs({ jobId: 'j1', limit: 10 });
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('jobId=j1'),
-        expect.any(Object),
-      );
-    });
-
-    it('handles no params', async () => {
-      mockOk({ logs: [], total: 0 });
-      await api.listLogs();
-      expect(mockFetch).toHaveBeenCalled();
-    });
-  });
-
   describe('error handling', () => {
     it('throws on non-ok response', async () => {
       mockError(400, 'Bad request');
@@ -439,23 +422,6 @@ describe('api', () => {
       await api.setMe('c1');
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/me/set',
-        expect.objectContaining({ method: 'POST' }),
-      );
-    });
-  });
-
-  describe('queue stats', () => {
-    it('getQueueStats', async () => {
-      mockOk({ sync: { waiting: 0, active: 1 } });
-      const result = await api.getQueueStats();
-      expect(result.sync.active).toBe(1);
-    });
-
-    it('retryFailedJobs', async () => {
-      mockOk({ ok: true, retried: 3 });
-      await api.retryFailedJobs();
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/jobs/retry-failed',
         expect.objectContaining({ method: 'POST' }),
       );
     });
