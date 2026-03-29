@@ -5,16 +5,12 @@ import { AnimatedNumber } from '../components/ui/AnimatedNumber';
 import { Tabs } from '../components/ui/Tabs';
 import { SearchInput } from '../components/ui/SearchInput';
 import { ReauthModal } from '../components/ui/ReauthModal';
-import { ConnectorLogFeed } from '../components/dashboard/ConnectorLogFeed';
-import { JobTable } from '../components/dashboard/JobTable';
-import { PipelineView } from '../components/dashboard/PipelineView';
 const MemoryGraph = lazy(() =>
   import('../components/memory/MemoryGraph').then((m) => ({ default: m.MemoryGraph })),
 );
 const TimelineView = lazy(() =>
   import('../components/memory/TimelineView').then((m) => ({ default: m.TimelineView })),
 );
-import { useJobs } from '../hooks/useJobs';
 import { useConnectors } from '../hooks/useConnectors';
 import { useMemories } from '../hooks/useMemories';
 import { useSearch } from '../hooks/useSearch';
@@ -28,21 +24,9 @@ import { Button } from '../components/ui/Button';
 const dashTabs = [
   { id: 'overview', label: 'OVERVIEW' },
   { id: 'timeline', label: 'TIMELINE' },
-  { id: 'logs', label: 'LOGS' },
 ];
 
 export function DashboardPage() {
-  const {
-    jobs,
-    logs,
-    queueStats,
-    cancelJob,
-    reprioritize,
-    clearLogs,
-    hasMoreLogs,
-    loadingMoreLogs,
-    fetchMoreLogs,
-  } = useJobs();
   const { accounts } = useConnectors();
   const {
     graphData,
@@ -53,12 +37,16 @@ export function DashboardPage() {
     graphLoading,
     memoryStats,
   } = useMemories();
-  const { retrying, retryAllFailed } = useJobStore();
   const timelineMemories = useMemoryStore((s) => s.memories);
   const timelineLoading = useMemoryStore((s) => s.loading);
   const loadMemories = useMemoryStore((s) => s.loadMemories);
   const [activeTab, setActiveTab] = useState('overview');
   const [reauthOpen, setReauthOpen] = useState(false);
+
+  // Connect WebSocket for notifications
+  useEffect(() => {
+    useJobStore.getState().connectWs();
+  }, []);
 
   // Auto-open ReauthModal when server detects stale/missing DEK
   useEffect(() => {
@@ -88,7 +76,6 @@ export function DashboardPage() {
       // Refresh all dashboard data after demo cleanup
       loadGraph();
       loadMemories();
-      useJobStore.getState().fetchQueueStats();
       // Re-fetch memory stats (total memories, connectors count, etc.)
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
       api
@@ -153,25 +140,10 @@ export function DashboardPage() {
   const activeConnectors = accounts.filter(
     (a) => a.status === 'connected' || a.status === 'syncing',
   ).length;
-  // Pending = items waiting/active in the processing pipeline (clean/embed/enrich)
-  // Delayed sync jobs (retrying) are shown here too so nothing is invisible
-  const pipelinePending = queueStats
-    ? Object.values(queueStats).reduce(
-        (sum, s) => sum + (s.waiting ?? 0) + (s.active ?? 0) + (s.delayed ?? 0),
-        0,
-      )
-    : 0;
-
-  // Failed = BullMQ permanently-failed jobs across all queues — single source of truth
-  const failedJobs = queueStats
-    ? Object.values(queueStats).reduce((sum, s) => sum + (s.failed ?? 0), 0)
-    : 0;
 
   const stats = [
     { label: 'TOTAL MEMORIES', value: totalMemories, color: 'var(--color-nb-lime)' },
-    { label: 'PENDING', value: pipelinePending, color: 'var(--color-nb-pink)' },
     { label: 'CONNECTORS', value: activeConnectors, color: 'var(--color-nb-blue)' },
-    { label: 'FAILED JOBS', value: failedJobs, color: 'var(--color-nb-red)' },
   ];
 
   return (
@@ -180,17 +152,15 @@ export function DashboardPage() {
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
 
       {/* Persistent search — visible on overview + timeline tabs */}
-      {activeTab !== 'logs' && (
-        <div className="mt-4" data-tour="search-bar">
-          <SearchInput
-            value={graphSearch.term}
-            onChange={graphSearch.setTerm}
-            pending={graphSearch.pending}
-            placeholder="SEARCH MEMORIES..."
-            inputRef={searchInputRef}
-          />
-        </div>
-      )}
+      <div className="mt-4" data-tour="search-bar">
+        <SearchInput
+          value={graphSearch.term}
+          onChange={graphSearch.setTerm}
+          pending={graphSearch.pending}
+          placeholder="SEARCH MEMORIES..."
+          inputRef={searchInputRef}
+        />
+      </div>
 
       {hasDemoData && !demoBannerDismissed && (
         <div className="mt-4 border-3 border-nb-border bg-amber-100 dark:bg-yellow-950/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -268,7 +238,7 @@ export function DashboardPage() {
             </div>
 
             {/* Metrics cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
               {stats.map((s) => (
                 <Card key={s.label} className="p-0 overflow-hidden">
                   <div
@@ -282,26 +252,10 @@ export function DashboardPage() {
                       value={s.value}
                       className="font-display text-4xl font-bold text-nb-text"
                     />
-                    {s.label === 'FAILED JOBS' && failedJobs > 0 && (
-                      <button
-                        onClick={retryAllFailed}
-                        disabled={retrying}
-                        className="font-mono text-[11px] font-bold uppercase px-2 py-1 border-2 border-nb-red text-nb-red cursor-pointer hover:bg-nb-red hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {retrying ? 'RETRYING...' : 'RETRY ALL'}
-                      </button>
-                    )}
                   </div>
                 </Card>
               ))}
             </div>
-
-            {/* Pipeline view */}
-            {queueStats && (
-              <div className="mb-6" data-tour="pipeline-view">
-                <PipelineView queueStats={queueStats} />
-              </div>
-            )}
           </>
         )}
 
@@ -318,21 +272,6 @@ export function DashboardPage() {
               loading={graphSearch.pending || (!searchTimelineMemories && timelineLoading)}
             />
           </Suspense>
-        )}
-
-        {activeTab === 'logs' && (
-          <div className="flex flex-col gap-6">
-            <div className="overflow-x-auto">
-              <JobTable jobs={jobs} onCancel={cancelJob} onMove={reprioritize} />
-            </div>
-            <ConnectorLogFeed
-              logs={logs}
-              onClear={clearLogs}
-              hasMore={hasMoreLogs}
-              loadingMore={loadingMoreLogs}
-              onLoadMore={fetchMoreLogs}
-            />
-          </div>
         )}
       </div>
     </PageContainer>

@@ -22,27 +22,6 @@ export interface ApiAccount {
   [key: string]: unknown;
 }
 
-export interface ApiJob {
-  id: string;
-  accountId: string;
-  status: string;
-  progress?: number;
-  total?: number;
-  error?: string;
-  [key: string]: unknown;
-}
-
-export interface ApiLogEntry {
-  id: string;
-  timestamp: string;
-  level: string;
-  connectorType?: string;
-  connector?: string;
-  stage?: string;
-  message: string;
-  [key: string]: unknown;
-}
-
 export interface ApiMemoryItem {
   id: string;
   sourceType?: string;
@@ -331,25 +310,6 @@ export const api = {
       body: JSON.stringify({ memoryBankId: memoryBankId || undefined }),
     }),
   cancelJob: (id: string) => request<{ ok: boolean }>(`/jobs/${id}`, { method: 'DELETE' }),
-  retryFailedJobs: () =>
-    request<{ ok: boolean; retried: number }>('/jobs/retry-failed', { method: 'POST' }),
-  getQueueStats: () =>
-    request<
-      Record<
-        string,
-        { waiting: number; active: number; completed: number; failed: number; delayed: number }
-      >
-    >('/jobs/queues'),
-
-  // Logs
-  listLogs: (params?: { jobId?: string; accountId?: string; limit?: number; offset?: number }) => {
-    const query = new URLSearchParams();
-    if (params?.jobId) query.set('jobId', params.jobId);
-    if (params?.accountId) query.set('accountId', params.accountId);
-    if (params?.limit) query.set('limit', String(params.limit));
-    if (params?.offset) query.set('offset', String(params.offset));
-    return request<{ logs: ApiLogEntry[]; total: number }>(`/logs?${query}`);
-  },
 
   // Memories
   searchMemories: (
