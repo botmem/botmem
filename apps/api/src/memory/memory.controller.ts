@@ -372,6 +372,7 @@ export class MemoryController {
       user.id,
       dto.memoryBankId,
       user.memoryBankIds,
+      dto.diversityFactor,
     );
     this.analytics.capture(
       'server_search',

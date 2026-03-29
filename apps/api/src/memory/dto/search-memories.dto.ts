@@ -3,6 +3,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsInt,
+  IsNumber,
   Min,
   Max,
   IsBoolean,
@@ -68,4 +69,10 @@ export class SearchMemoriesDto {
   @IsOptional()
   @IsString()
   memoryBankId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  diversityFactor?: number;
 }
