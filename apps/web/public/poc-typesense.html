@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Botmem — Typesense Search POC</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0D0D0D;
+    --bg-surface: #1A1A1A;
+    --bg-elevated: #252525;
+    --border: #333;
+    --border-strong: #444;
+    --text: #E0E0E0;
+    --text-dim: #888;
+    --text-muted: #555;
+    --accent: #C4F53A;
+    --accent-bright: #D4FF4A;
+    --accent-bg: #1A2800;
+    --fact-color: #4ADE80;
+    --error: #EF4444;
+    --pin-gold: #F59E0B;
+
+    --gmail: #EA4335;
+    --slack: #611F69;
+    --imessage: #1B8C3A;
+    --whatsapp: #128C7E;
+    --photos: #E67E00;
+    --locations: #5856D6;
+    --file: #6B6B6B;
+  }
+
+  body {
+    font-family: 'IBM Plex Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ── Header ── */
+  .header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--border-strong);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 15px; font-weight: 700;
+    color: var(--accent); letter-spacing: -0.5px;
+  }
+  .header .badge {
+    font-size: 10px; padding: 2px 6px;
+    background: var(--accent-bg); color: var(--accent);
+    border: 1px solid var(--accent); font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  /* ── Tabs ── */
+  .tab-bar {
+    display: flex; gap: 0;
+    border-bottom: 2px solid var(--border-strong);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    padding: 10px 24px;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px; font-weight: 700;
+    text-transform: uppercase;
+    background: transparent; color: var(--text-dim);
+    border: none; border-bottom: 3px solid transparent;
+    cursor: pointer; letter-spacing: 0.5px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    color: #000; background: var(--accent);
+    border-bottom-color: var(--accent-bright);
+  }
+
+  /* ── Presets ── */
+  .presets-bar {
+    display: flex; gap: 6px; padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg); flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .preset-btn {
+    padding: 4px 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; font-weight: 600;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-strong);
+    cursor: pointer; text-transform: uppercase;
+  }
+  .preset-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .preset-btn.active { color: #000; background: var(--accent); border-color: var(--accent); }
+
+  /* ── Search bar ── */
+  .search-bar {
+    display: flex; gap: 8px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    position: relative; flex-shrink: 0;
+  }
+  .search-input-wrap {
+    flex: 1; position: relative;
+  }
+  .search-bar input[type="text"] {
+    width: 100%; padding: 10px 14px;
+    background: var(--bg-elevated); color: var(--text);
+    border: 2px solid var(--border-strong);
+    font-family: 'IBM Plex Mono', monospace; font-size: 14px;
+  }
+  .search-bar input::placeholder { color: var(--text-muted); }
+  .search-bar input:focus { border-color: var(--accent); }
+
+  .search-bar button, .icon-btn {
+    padding: 10px 14px; background: var(--bg-elevated); color: var(--text-dim);
+    border: 2px solid var(--border-strong); font-family: 'Space Mono', monospace;
+    font-weight: 700; font-size: 13px; cursor: pointer;
+    text-transform: uppercase; display: flex; align-items: center; justify-content: center;
+  }
+  .search-bar button:hover, .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-primary {
+    background: var(--accent) !important; color: #000 !important;
+    border-color: var(--accent) !important;
+  }
+  .btn-primary:hover { background: var(--accent-bright) !important; }
+  .icon-btn { min-width: 42px; font-size: 16px; padding: 10px; }
+  .icon-btn.recording { background: var(--error); border-color: var(--error); color: #fff; }
+
+  /* ── Autocomplete ── */
+  .autocomplete-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: var(--bg-elevated); border: 2px solid var(--border-strong);
+    border-top: none; z-index: 100; max-height: 200px; overflow-y: auto;
+    display: none;
+  }
+  .autocomplete-dropdown.visible { display: block; }
+  .autocomplete-item {
+    padding: 8px 14px; font-size: 13px; cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+  .autocomplete-item:hover { background: var(--accent-bg); color: var(--accent); }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex; gap: 16px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg); align-items: center; flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .control-group { display: flex; align-items: center; gap: 6px; }
+  .control-group label {
+    font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase; font-weight: 600;
+  }
+  .control-group input[type="range"] {
+    width: 120px; accent-color: var(--accent);
+  }
+  .control-group .val {
+    font-size: 12px; color: var(--accent); font-weight: 700;
+    min-width: 32px; text-align: center;
+  }
+  .control-group select, .control-group input[type="number"] {
+    padding: 4px 8px; background: var(--bg-elevated); color: var(--text);
+    border: 1px solid var(--border-strong);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  }
+  .control-group input[type="number"] { width: 80px; }
+  .control-group input[type="checkbox"] { accent-color: var(--accent); }
+
+  .geo-toggle {
+    padding: 4px 10px; font-size: 11px; font-weight: 600;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-strong); cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; text-transform: uppercase;
+  }
+  .geo-toggle:hover, .geo-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+  .geo-filter-row {
+    display: none; gap: 12px; padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg); align-items: center;
+    flex-shrink: 0;
+  }
+  .geo-filter-row.visible { display: flex; }
+  .geo-filter-row label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; }
+  .geo-filter-row input {
+    width: 100px; padding: 4px 8px;
+    background: var(--bg-elevated); color: var(--text);
+    border: 1px solid var(--border-strong);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  }
+
+  /* ── Layout ── */
+  .main-layout {
+    display: flex; flex: 1; overflow: hidden;
+  }
+  .tab-content { display: none; flex: 1; overflow: hidden; }
+  .tab-content.active { display: flex; }
+
+  /* ── Facets sidebar ── */
+  .facets {
+    width: 220px; padding: 12px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-surface);
+    overflow-y: auto; flex-shrink: 0;
+  }
+  .facet-group { margin-bottom: 16px; }
+  .facet-group h3 {
+    font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase; font-weight: 700;
+    margin-bottom: 6px; letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+  .facet-group h3:hover { color: var(--accent); }
+  .facet-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 0; cursor: pointer; font-size: 12px;
+  }
+  .facet-item:hover { color: var(--accent); }
+  .facet-item .dot {
+    width: 8px; height: 8px; flex-shrink: 0;
+  }
+  .facet-item .count {
+    margin-left: auto; color: var(--text-muted); font-size: 11px;
+  }
+  .facet-item.active { color: var(--accent); font-weight: 600; }
+
+  /* Synonyms section */
+  .synonyms-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .synonyms-section h3 {
+    font-size: 11px; color: var(--text-dim); text-transform: uppercase;
+    font-weight: 700; margin-bottom: 8px; cursor: pointer;
+  }
+  .synonym-tag {
+    display: inline-block; padding: 2px 6px; margin: 2px;
+    font-size: 10px; background: var(--bg-elevated);
+    border: 1px solid var(--border); color: var(--text-dim);
+    cursor: pointer;
+  }
+  .synonym-tag:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Results ── */
+  .results-area {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+  }
+  .results-meta {
+    font-size: 12px; color: var(--text-dim); margin-bottom: 12px;
+    display: flex; gap: 16px; align-items: center;
+  }
+  .results-meta .search-time { color: var(--accent); font-weight: 600; }
+
+  .result-card {
+    padding: 12px 14px; margin-bottom: 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    transition: border-color 100ms ease;
+    position: relative; cursor: pointer;
+  }
+  .result-card:hover { border-color: var(--accent); }
+  .result-card.pinned { border-left: 3px solid var(--pin-gold); }
+
+  .result-actions {
+    position: absolute; top: 8px; right: 8px;
+    display: flex; gap: 4px; opacity: 0;
+    transition: opacity 100ms ease;
+  }
+  .result-card:hover .result-actions { opacity: 1; }
+  .result-action-btn {
+    width: 24px; height: 24px; font-size: 12px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text-dim); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+  }
+  .result-action-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  .trending-badge {
+    font-size: 9px; padding: 1px 5px; font-weight: 700;
+    background: var(--error); color: #fff; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .result-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .result-connector {
+    font-size: 10px; padding: 1px 6px;
+    font-weight: 700; text-transform: uppercase;
+    border: 1px solid;
+  }
+  .result-source {
+    font-size: 10px; color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .result-time {
+    font-size: 11px; color: var(--text-dim); margin-left: auto;
+  }
+
+  .result-text {
+    font-size: 13px; line-height: 1.5;
+    max-height: 80px; overflow: hidden;
+    color: var(--text);
+  }
+  .result-text mark {
+    background: var(--accent-bg); color: var(--accent);
+    padding: 0 2px;
+  }
+
+  .result-meta {
+    display: flex; gap: 12px; margin-top: 8px;
+    font-size: 11px; color: var(--text-muted);
+  }
+  .result-meta .score { color: var(--accent); font-weight: 600; }
+  .result-meta .people-tag { color: var(--text-dim); }
+
+  .result-scores {
+    display: flex; gap: 8px; margin-top: 6px;
+  }
+  .score-bar {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; color: var(--text-muted);
+  }
+  .score-bar .bar {
+    width: 60px; height: 4px;
+    background: var(--bg-elevated);
+  }
+  .score-bar .bar-fill {
+    height: 100%; background: var(--accent);
+  }
+
+  /* ── Group headers ── */
+  .group-header {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px; font-weight: 700;
+    color: var(--accent); padding: 10px 0 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px; margin-top: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .group-header:first-child { margin-top: 0; }
+  .group-header .group-count {
+    font-size: 11px; color: var(--text-dim); font-weight: 400;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ── Load more ── */
+  .load-more-wrap {
+    text-align: center; padding: 16px;
+  }
+  .load-more-btn {
+    padding: 10px 32px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px; font-weight: 700;
+    background: transparent; color: var(--text-dim);
+    border: 2px solid var(--border-strong);
+    cursor: pointer; text-transform: uppercase;
+  }
+  .load-more-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Chat ── */
+  .chat-container {
+    display: flex; flex-direction: column;
+    flex: 1; overflow: hidden;
+  }
+  .chat-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .chat-header-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px; color: var(--text-dim);
+    flex: 1;
+  }
+  .new-chat-btn {
+    padding: 6px 14px; font-size: 11px; font-weight: 700;
+    font-family: 'Space Mono', monospace;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border-strong);
+    cursor: pointer; text-transform: uppercase;
+  }
+  .new-chat-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  .chat-thread {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .chat-msg {
+    max-width: 85%;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+  }
+  .chat-msg.assistant {
+    align-self: flex-start;
+  }
+  .chat-msg-label {
+    font-size: 10px; text-transform: uppercase; font-weight: 700;
+    color: var(--text-muted); margin-bottom: 4px;
+  }
+  .chat-msg.user .chat-msg-label { text-align: right; }
+  .chat-msg-body {
+    padding: 10px 14px;
+    font-size: 13px; line-height: 1.6;
+    border: 1px solid var(--border);
+  }
+  .chat-msg.user .chat-msg-body {
+    background: var(--accent-bg); border-color: var(--accent);
+    color: var(--text);
+  }
+  .chat-msg.assistant .chat-msg-body {
+    background: var(--bg-surface);
+  }
+  .chat-sources {
+    margin-top: 8px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .chat-source-card {
+    padding: 6px 10px; font-size: 11px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .chat-source-card:hover { border-color: var(--accent); }
+  .chat-source-card .src-head {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 2px;
+  }
+  .chat-source-card .src-text {
+    color: var(--text-dim); max-height: 40px; overflow: hidden;
+    display: none;
+  }
+  .chat-source-card.expanded .src-text { display: block; }
+  .chat-typing {
+    align-self: flex-start; padding: 10px 14px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    font-size: 13px; color: var(--text-dim);
+  }
+  .chat-typing::after {
+    content: '...'; animation: typing 1s infinite;
+  }
+  @keyframes typing {
+    0%, 33% { content: '.'; }
+    34%, 66% { content: '..'; }
+    67%, 100% { content: '...'; }
+  }
+
+  .chat-input-bar {
+    display: flex; gap: 8px; padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .chat-input-bar input {
+    flex: 1; padding: 10px 14px;
+    background: var(--bg-elevated); color: var(--text);
+    border: 2px solid var(--border-strong);
+    font-family: 'IBM Plex Mono', monospace; font-size: 14px;
+  }
+  .chat-input-bar input::placeholder { color: var(--text-muted); }
+  .chat-input-bar input:focus { border-color: var(--accent); }
+  .chat-input-bar button {
+    padding: 10px 20px; background: var(--accent); color: #000;
+    border: 2px solid var(--accent); font-family: 'Space Mono', monospace;
+    font-weight: 700; font-size: 13px; cursor: pointer;
+    text-transform: uppercase;
+  }
+  .chat-input-bar button:hover { background: var(--accent-bright); }
+
+  /* ── Empty / Loading ── */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; height: 100%;
+    color: var(--text-muted);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state p { font-size: 14px; }
+
+  .loading {
+    text-align: center; padding: 40px;
+    color: var(--text-dim); font-size: 13px;
+  }
+
+  /* ── Connector colors ── */
+  .conn-gmail { color: var(--gmail); border-color: var(--gmail); }
+  .conn-slack { color: var(--slack); border-color: var(--slack); }
+  .conn-imessage { color: var(--imessage); border-color: var(--imessage); }
+  .conn-whatsapp { color: var(--whatsapp); border-color: var(--whatsapp); }
+  .conn-photos { color: var(--photos); border-color: var(--photos); }
+  .conn-locations { color: var(--locations); border-color: var(--locations); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
+  /* Hidden file input */
+  #image-file-input { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>BOTMEM</h1>
+  <span class="badge">Typesense POC</span>
+  <span style="margin-left:auto;font-size:11px;color:var(--text-muted)" id="collection-info">&mdash;</span>
+</div>
+
+<!-- Tabs -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('search')" id="tab-search">Search</button>
+  <button class="tab-btn" onclick="switchTab('chat')" id="tab-chat">Chat</button>
+</div>
+
+<!-- ═══════════ SEARCH TAB ═══════════ -->
+<div class="tab-content active" id="content-search" style="display:flex;flex-direction:column;overflow:hidden">
+
+  <!-- Presets -->
+  <div class="presets-bar">
+    <button class="preset-btn" onclick="loadPreset('recent_emails')">Recent Emails</button>
+    <button class="preset-btn" onclick="loadPreset('recent_photos')">Recent Photos</button>
+    <button class="preset-btn" onclick="loadPreset('whatsapp_recent')">WhatsApp</button>
+    <button class="preset-btn" onclick="loadPreset('pinned_memories')">Pinned</button>
+    <button class="preset-btn" onclick="loadPreset('facts_only')">Facts Only</button>
+  </div>
+
+  <!-- Search -->
+  <div class="search-bar">
+    <div class="search-input-wrap">
+      <input type="text" id="query" placeholder="Search your memories..." autofocus
+             aria-label="Search query" autocomplete="off">
+      <div class="autocomplete-dropdown" id="autocomplete"></div>
+    </div>
+    <button class="btn-primary" id="search-btn">Search</button>
+    <button class="icon-btn" id="mic-btn" title="Voice search" aria-label="Voice search">&#127908;</button>
+    <button class="icon-btn" id="img-btn" title="Image search" aria-label="Image search">&#128247;</button>
+    <input type="file" id="image-file-input" accept="image/*">
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control-group">
+      <label for="alpha">Alpha</label>
+      <input type="range" id="alpha" min="0" max="1" step="0.05" value="0.5">
+      <span class="val" id="alpha-val">0.50</span>
+    </div>
+    <div class="control-group">
+      <label for="limit">Limit</label>
+      <select id="limit">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="rerank">Rerank</label>
+      <input type="checkbox" id="rerank" checked>
+    </div>
+    <div class="control-group">
+      <label for="sort-mode">Sort</label>
+      <select id="sort-mode">
+        <option value="hybrid">Hybrid</option>
+        <option value="recency">Recent</option>
+        <option value="importance">Important</option>
+        <option value="text_first">Text first</option>
+        <option value="vector_first">Semantic first</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="typos">Typos</label>
+      <select id="typos">
+        <option value="0">Off</option>
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="group-by">Group</label>
+      <select id="group-by">
+        <option value="">None</option>
+        <option value="connector_type">Connector</option>
+        <option value="source_type">Source</option>
+        <option value="people">Person</option>
+      </select>
+    </div>
+    <button class="geo-toggle" id="geo-toggle" onclick="toggleGeoFilter()">Geo</button>
+  </div>
+
+  <!-- Geo Filter Row (hidden by default) -->
+  <div class="geo-filter-row" id="geo-row">
+    <label>Lat</label>
+    <input type="number" id="geo-lat" step="any" placeholder="0.0">
+    <label>Lon</label>
+    <input type="number" id="geo-lon" step="any" placeholder="0.0">
+    <label>Radius (km)</label>
+    <input type="number" id="geo-radius" value="10" min="1">
+  </div>
+
+  <!-- Main Layout -->
+  <div class="main-layout">
+    <!-- Facets sidebar -->
+    <div class="facets" id="facets">
+      <div class="facet-group">
+        <h3>Connector</h3>
+        <div id="facet-connector"></div>
+      </div>
+      <div class="facet-group">
+        <h3>Source Type</h3>
+        <div id="facet-source"></div>
+      </div>
+      <div class="facet-group">
+        <h3>Factuality</h3>
+        <div id="facet-factuality"></div>
+      </div>
+      <div class="facet-group">
+        <h3>People</h3>
+        <div id="facet-people"></div>
+      </div>
+      <div class="synonyms-section" id="synonyms-section">
+        <h3 onclick="toggleSynonymsExpand()">Synonyms</h3>
+        <div id="synonyms-list"></div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-area" id="results-area">
+      <div class="empty-state">
+        <div class="icon">&#9889;</div>
+        <p>Type a query and hit Search</p>
+        <p style="font-size:12px;margin-top:8px;color:var(--text-muted)">
+          Hybrid search: keyword + semantic via Typesense
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ CHAT TAB ═══════════ -->
+<div class="tab-content" id="content-chat">
+  <div class="chat-container">
+    <div class="chat-header">
+      <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
+      <span class="chat-header-title" id="chat-title">New conversation</span>
+    </div>
+    <div class="chat-thread" id="chat-thread">
+      <div class="empty-state">
+        <div class="icon">&#128172;</div>
+        <p>Ask questions about your memories</p>
+        <p style="font-size:12px;margin-top:8px;color:var(--text-muted)">
+          Conversational search with cited sources
+        </p>
+      </div>
+    </div>
+    <div class="chat-input-bar">
+      <input type="text" id="chat-input" placeholder="Ask about your memories..."
+             aria-label="Chat message">
+      <button onclick="sendChat()" id="chat-send-btn">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PROXY_URL = 'http://localhost:8109';
+const TS_URL = 'http://localhost:8108';
+const TS_KEY = 'botmem-ts-key';
+
+// ── State ──
+let activeTab = 'search';
+let activeFilters = { connector_type: [], source_type: [], factuality_label: [], people: [] };
+let currentPage = 1;
+let currentQuery = '';
+let currentPreset = null;
+let totalFound = 0;
+let chatMessages = [];
+let conversationId = null;
+let suggestTimer = null;
+let isRecording = false;
+let mediaRecorder = null;
+let audioChunks = [];
+let synonymsExpanded = false;
+
+// ── Init ──
+let indexReady = false;
+
+async function init() {
+  const infoEl = document.getElementById('collection-info');
+  const searchBtn = document.getElementById('search-btn');
+  const queryInput = document.getElementById('query');
+
+  // Check if index alias exists (means indexing is complete)
+  try {
+    let res = await fetch(`${TS_URL}/aliases/memories`, {
+      headers: { 'X-TYPESENSE-API-KEY': TS_KEY },
+    });
+    if (res.ok) {
+      const alias = await res.json();
+      res = await fetch(`${TS_URL}/collections/${alias.collection_name}`, {
+        headers: { 'X-TYPESENSE-API-KEY': TS_KEY },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        infoEl.textContent = `${data.num_documents.toLocaleString()} documents indexed`;
+        indexReady = true;
+      }
+    }
+    if (!indexReady) {
+      infoEl.textContent = 'Indexing in progress — search disabled';
+      searchBtn.disabled = true;
+      searchBtn.style.opacity = '0.4';
+      queryInput.placeholder = 'Indexing in progress — please wait...';
+      queryInput.disabled = true;
+      // Poll every 10s
+      setTimeout(init, 10000);
+    } else {
+      searchBtn.disabled = false;
+      searchBtn.style.opacity = '1';
+      queryInput.disabled = false;
+      queryInput.placeholder = 'Search your memories...';
+    }
+  } catch (e) {
+    infoEl.textContent = 'Typesense not connected';
+    searchBtn.disabled = true;
+    searchBtn.style.opacity = '0.4';
+    setTimeout(init, 10000);
+  }
+  try {
+    const res = await fetch(`${PROXY_URL}/health`);
+    const data = await res.json();
+    if (data.ok) {
+      infoEl.textContent += ` | proxy: ${data.embed_backend}`;
+    }
+  } catch {
+    infoEl.textContent += ' | proxy: offline';
+  }
+  if (indexReady) fetchSynonyms();
+}
+
+// ── Tab switching ──
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.remove('active');
+    c.style.display = 'none';
+  });
+  const el = document.getElementById(`content-${tab}`);
+  el.classList.add('active');
+  el.style.display = tab === 'search' ? 'flex' : 'block';
+}
+
+// ── Presets ──
+const PRESETS = {
+  recent_emails: { q: '*', filter_by: 'connector_type:=gmail', sort_by: 'event_time:desc', limit: 20 },
+  recent_photos: { q: '*', filter_by: 'source_type:=photo', sort_by: 'event_time:desc', limit: 20 },
+  whatsapp_recent: { q: '*', filter_by: 'connector_type:=whatsapp', sort_by: 'event_time:desc', limit: 20 },
+  pinned_memories: { q: '*', filter_by: 'pinned:=true', sort_by: 'importance:desc', limit: 20 },
+  facts_only: { q: '*', filter_by: 'factuality_label:=FACT', sort_by: 'importance:desc', limit: 20 },
+};
+
+async function loadPreset(name) {
+  if (!indexReady) return;
+  currentPreset = name;
+  currentPage = 1;
+  // Highlight active preset
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+
+  document.getElementById('results-area').innerHTML = '<div class="loading">Loading...</div>';
+
+  const params = { ...PRESETS[name], facet_by: 'connector_type,source_type,factuality_label,people' };
+
+  try {
+    const t0 = performance.now();
+    const res = await fetch(`${PROXY_URL}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const result = await res.json();
+    const elapsed = ((performance.now() - t0)).toFixed(0);
+    if (result.error) throw new Error(result.error);
+    currentQuery = params.q;
+    totalFound = result.found || 0;
+    renderFacets(result.facet_counts || []);
+    renderResults(result, elapsed, params.q, false);
+  } catch (err) {
+    document.getElementById('results-area').innerHTML =
+      `<div class="empty-state"><p style="color:var(--error)">Error: ${err.message}</p></div>`;
+  }
+}
+
+// ── Search ──
+async function doSearch(append = false) {
+  if (!indexReady) return;
+  const q = document.getElementById('query').value.trim();
+  if (!q) return;
+
+  if (!append) {
+    currentPage = 1;
+    currentPreset = null;
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  }
+
+  currentQuery = q;
+
+  const alpha = parseFloat(document.getElementById('alpha').value);
+  const limit = parseInt(document.getElementById('limit').value);
+  const rerank = document.getElementById('rerank').checked;
+  const sortMode = document.getElementById('sort-mode').value;
+  const typos = parseInt(document.getElementById('typos').value);
+  const groupBy = document.getElementById('group-by').value;
+
+  if (!append) {
+    document.getElementById('results-area').innerHTML = '<div class="loading">Searching...</div>';
+  }
+
+  // Build filter_by
+  const filters = [];
+  for (const [field, values] of Object.entries(activeFilters)) {
+    if (values.length > 0) {
+      if (field === 'people') {
+        filters.push(`${field}:=[${values.map(v => '`' + v + '`').join(',')}]`);
+      } else {
+        filters.push(`${field}:=[${values.join(',')}]`);
+      }
+    }
+  }
+
+  // Geo filter
+  const geoRow = document.getElementById('geo-row');
+  if (geoRow.classList.contains('visible')) {
+    const lat = parseFloat(document.getElementById('geo-lat').value);
+    const lon = parseFloat(document.getElementById('geo-lon').value);
+    const radius = parseFloat(document.getElementById('geo-radius').value);
+    if (!isNaN(lat) && !isNaN(lon) && !isNaN(radius)) {
+      filters.push(`location:(${lat}, ${lon}, ${radius} km)`);
+    }
+  }
+
+  let sortBy = '';
+  if (sortMode === 'recency') sortBy = 'event_time:desc';
+  else if (sortMode === 'importance') sortBy = 'importance:desc,event_time:desc';
+  else if (sortMode === 'text_first') sortBy = '_text_match:desc,event_time:desc';
+
+  const proxyParams = {
+    q,
+    alpha,
+    limit,
+    rerank,
+    page: currentPage,
+    num_typos: typos,
+    facet_by: 'connector_type,source_type,factuality_label,people',
+  };
+
+  if (groupBy) proxyParams.group_by = groupBy;
+  if (filters.length > 0) proxyParams.filter_by = filters.join(' && ');
+  if (sortBy) proxyParams.sort_by = sortBy;
+
+  try {
+    const t0 = performance.now();
+    let result;
+    try {
+      // Try proxy first (has embedding support for hybrid search)
+      const res = await fetch(`${PROXY_URL}/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(proxyParams),
+      });
+      result = await res.json();
+      if (result.error) throw new Error(result.error);
+    } catch (proxyErr) {
+      // Fallback: keyword-only search directly against Typesense
+      console.warn('Proxy unavailable, falling back to direct Typesense:', proxyErr.message);
+      const tsParams = {
+        collection: 'memories',
+        q,
+        query_by: 'text,entities_text,people',
+        per_page: proxyParams.limit || 20,
+        page: proxyParams.page || 1,
+        num_typos: proxyParams.num_typos ?? 2,
+        facet_by: proxyParams.facet_by || '',
+        max_facet_values: 20,
+        highlight_full_fields: 'text',
+        highlight_start_tag: '<mark>',
+        highlight_end_tag: '</mark>',
+        exclude_fields: 'embedding',
+      };
+      if (proxyParams.filter_by) tsParams.filter_by = proxyParams.filter_by;
+      if (proxyParams.sort_by) tsParams.sort_by = proxyParams.sort_by;
+      if (proxyParams.group_by) { tsParams.group_by = proxyParams.group_by; tsParams.group_limit = 3; }
+      const res = await fetch(`${TS_URL}/multi_search`, {
+        method: 'POST',
+        headers: { 'X-TYPESENSE-API-KEY': TS_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ searches: [tsParams] }),
+      });
+      const data = await res.json();
+      result = { ...data.results[0], has_vector: false, embed_time_ms: 0, typesense_time_ms: 0 };
+      if (result.error) throw new Error(result.error);
+    }
+    const elapsed = ((performance.now() - t0)).toFixed(0);
+
+    totalFound = result.found || 0;
+
+    if (!append) {
+      renderFacets(result.facet_counts || []);
+    }
+
+    if (groupBy && result.grouped_hits) {
+      renderGroupedResults(result, elapsed, q);
+    } else {
+      renderResults(result, elapsed, q, append);
+    }
+  } catch (err) {
+    document.getElementById('results-area').innerHTML =
+      `<div class="empty-state"><p style="color:var(--error)">Error: ${err.message}</p></div>`;
+  }
+}
+
+// ── Render facets ──
+function renderFacets(facetCounts) {
+  const connectorColors = {
+    gmail: 'var(--gmail)', slack: 'var(--slack)',
+    imessage: 'var(--imessage)', whatsapp: 'var(--whatsapp)',
+    photos: 'var(--photos)', locations: 'var(--locations)',
+  };
+
+  const facetMap = {};
+  for (const fc of facetCounts) {
+    facetMap[fc.field_name] = fc.counts;
+  }
+
+  renderFacetGroup('facet-connector', 'connector_type', facetMap.connector_type || [], connectorColors);
+  renderFacetGroup('facet-source', 'source_type', facetMap.source_type || []);
+  renderFacetGroup('facet-factuality', 'factuality_label', facetMap.factuality_label || []);
+  renderFacetGroup('facet-people', 'people', (facetMap.people || []).slice(0, 15));
+}
+
+function renderFacetGroup(containerId, field, counts, colorMap) {
+  const container = document.getElementById(containerId);
+  if (counts.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-muted)">&mdash;</div>';
+    return;
+  }
+
+  container.innerHTML = counts.map(c => {
+    const isActive = activeFilters[field]?.includes(c.value);
+    const color = colorMap?.[c.value] || 'var(--text-dim)';
+    return `<div class="facet-item ${isActive ? 'active' : ''}"
+                 onclick="toggleFacet('${field}', '${c.value.replace(/'/g, "\\'")}')">
+      <div class="dot" style="background:${color}"></div>
+      <span>${c.value}</span>
+      <span class="count">${c.count}</span>
+    </div>`;
+  }).join('');
+}
+
+function toggleFacet(field, value) {
+  const idx = activeFilters[field].indexOf(value);
+  if (idx >= 0) activeFilters[field].splice(idx, 1);
+  else activeFilters[field].push(value);
+  currentPage = 1;
+  doSearch();
+}
+
+// ── Render results ──
+function renderResults(result, elapsed, query, append) {
+  const area = document.getElementById('results-area');
+  const hits = result.hits || [];
+  const found = result.found || 0;
+  const limit = parseInt(document.getElementById('limit').value);
+
+  const embedTime = result.embed_time_ms != null ? `embed: ${result.embed_time_ms}ms` : '';
+  const tsTime = result.typesense_time_ms != null ? `ts: ${result.typesense_time_ms}ms` : '';
+  const hasVec = result.has_vector ? 'hybrid' : 'keyword-only';
+
+  let html = '';
+  if (!append) {
+    html += `<div class="results-meta">
+      <span>${found.toLocaleString()} results</span>
+      <span class="search-time">${elapsed}ms total</span>
+      <span>${embedTime} ${tsTime} (${hasVec})</span>
+    </div>`;
+  }
+
+  if (hits.length === 0 && !append) {
+    html += '<div class="empty-state" style="height:auto;padding:60px"><p>No results found</p></div>';
+    area.innerHTML = html;
+    return;
+  }
+
+  for (let i = 0; i < hits.length; i++) {
+    const hit = hits[i];
+    const doc = hit.document;
+    const position = (currentPage - 1) * limit + i;
+    html += renderResultCard(hit, doc, query, position);
+  }
+
+  // Load more button
+  const totalShown = currentPage * limit;
+  if (totalShown < found) {
+    html += `<div class="load-more-wrap">
+      <button class="load-more-btn" onclick="loadMore()">Load more (${totalShown}/${found.toLocaleString()})</button>
+    </div>`;
+  }
+
+  if (append) {
+    // Remove old load-more button and append
+    const existingLoadMore = area.querySelector('.load-more-wrap');
+    if (existingLoadMore) existingLoadMore.remove();
+    area.insertAdjacentHTML('beforeend', html);
+  } else {
+    area.innerHTML = html;
+  }
+  area.scrollTop = append ? area.scrollHeight : 0;
+}
+
+function renderResultCard(hit, doc, query, position) {
+  const hl = hit.highlight || {};
+  const connClass = `conn-${doc.connector_type}`;
+  const displayText = hl.text?.snippet || doc.text?.slice(0, 300) || '';
+  const isPinned = doc.pinned;
+  const isTrending = (doc.recall_count || 0) > 5;
+
+  const eventDate = doc.event_time_str
+    ? new Date(doc.event_time_str).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : '&mdash;';
+
+  const textMatch = hit.text_match || 0;
+  const vectorDist = hit.vector_distance != null ? hit.vector_distance : null;
+  const hybridScore = hit.hybrid_search_info?.rank_fusion_score || 0;
+  const semanticSim = vectorDist != null ? (1 - vectorDist).toFixed(3) : '&mdash;';
+
+  const people = doc.people || [];
+  const peopleHtml = people.length > 0
+    ? `<span class="people-tag">${people.slice(0, 3).join(', ')}${people.length > 3 ? ` +${people.length - 3}` : ''}</span>`
+    : '';
+
+  const docId = doc.id || doc.memory_id || '';
+  const escapedQuery = (query || '').replace(/'/g, "\\'");
+
+  return `<div class="result-card ${isPinned ? 'pinned' : ''}" onclick="trackClick('${docId}', ${position})">
+    <div class="result-actions">
+      <button class="result-action-btn" onclick="event.stopPropagation();pinResult('${docId}')" title="Pin">&#128204;</button>
+      <button class="result-action-btn" onclick="event.stopPropagation();hideResult('${docId}')" title="Hide">&#10005;</button>
+    </div>
+    <div class="result-header">
+      <span class="result-connector ${connClass}">${doc.connector_type}</span>
+      <span class="result-source">${doc.source_type}</span>
+      ${isPinned ? '<span style="color:var(--pin-gold);font-size:11px;font-weight:700">PINNED</span>' : ''}
+      ${doc.factuality_label === 'FACT' ? '<span style="color:var(--fact-color);font-size:10px">FACT</span>' : ''}
+      ${isTrending ? '<span class="trending-badge">TRENDING</span>' : ''}
+      <span class="result-time">${eventDate}</span>
+    </div>
+    ${doc.source_type === 'photo' && (doc.thumbnail || doc.file_url)
+      ? `<div style="display:flex;gap:10px;align-items:flex-start">
+          <img src="${doc.thumbnail ? 'data:image/webp;base64,' + doc.thumbnail : doc.file_url}" alt="" loading="lazy" style="width:80px;height:80px;object-fit:cover;border:1px solid var(--border);flex-shrink:0" onerror="this.style.display='none'">
+          <div class="result-text">${displayText}</div>
+        </div>`
+      : `<div class="result-text">${displayText}</div>`}
+    <div class="result-meta">
+      <span class="score">hybrid: ${hybridScore.toFixed(3)}</span>
+      <span>semantic: ${semanticSim}</span>
+      <span>importance: ${(doc.importance || 0).toFixed(2)}</span>
+      ${doc.geo_distance_km != null ? `<span>dist: ${doc.geo_distance_km.toFixed(1)}km</span>` : ''}
+      ${peopleHtml}
+    </div>
+    <div class="result-scores">
+      <div class="score-bar">
+        <span>HYB</span>
+        <div class="bar"><div class="bar-fill" style="width:${hybridScore * 100}%"></div></div>
+      </div>
+      ${vectorDist != null ? `<div class="score-bar">
+        <span>SEM</span>
+        <div class="bar"><div class="bar-fill" style="width:${(1 - vectorDist) * 100}%"></div></div>
+      </div>` : ''}
+      <div class="score-bar">
+        <span>IMP</span>
+        <div class="bar"><div class="bar-fill" style="width:${(doc.importance || 0) * 100}%"></div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Grouped Results ──
+function renderGroupedResults(result, elapsed, query) {
+  const area = document.getElementById('results-area');
+  const groups = result.grouped_hits || [];
+  const found = result.found || 0;
+
+  let html = `<div class="results-meta">
+    <span>${found.toLocaleString()} results in ${groups.length} groups</span>
+    <span class="search-time">${elapsed}ms total</span>
+  </div>`;
+
+  if (groups.length === 0) {
+    html += '<div class="empty-state" style="height:auto;padding:60px"><p>No results found</p></div>';
+    area.innerHTML = html;
+    return;
+  }
+
+  for (const group of groups) {
+    const groupValue = group.group_key?.[0] || 'Unknown';
+    const groupHits = group.hits || [];
+    const groupFound = group.found || groupHits.length;
+
+    html += `<div class="group-header">
+      <span>${groupValue}</span>
+      <span class="group-count">${groupFound} results</span>
+    </div>`;
+
+    for (let i = 0; i < groupHits.length; i++) {
+      const hit = groupHits[i];
+      const doc = hit.document;
+      html += renderResultCard(hit, doc, query, i);
+    }
+  }
+
+  area.innerHTML = html;
+}
+
+// ── Load More ──
+function loadMore() {
+  currentPage++;
+  doSearch(true);
+}
+
+// ── Geo Filter Toggle ──
+function toggleGeoFilter() {
+  const row = document.getElementById('geo-row');
+  const btn = document.getElementById('geo-toggle');
+  row.classList.toggle('visible');
+  btn.classList.toggle('active');
+}
+
+// ── Autocomplete / Suggestions ──
+async function fetchSuggestions(prefix) {
+  try {
+    const res = await fetch(`${PROXY_URL}/suggestions?q=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    renderSuggestions(data.suggestions || data || []);
+  } catch {
+    renderSuggestions([]);
+  }
+}
+
+function renderSuggestions(suggestions) {
+  const dropdown = document.getElementById('autocomplete');
+  if (!suggestions || suggestions.length === 0) {
+    dropdown.classList.remove('visible');
+    dropdown.innerHTML = '';
+    return;
+  }
+  dropdown.innerHTML = suggestions.map(s => {
+    const text = typeof s === 'string' ? s : s.q || s.suggestion || '';
+    return `<div class="autocomplete-item" onmousedown="selectSuggestion('${text.replace(/'/g, "\\'")}')">${text}</div>`;
+  }).join('');
+  dropdown.classList.add('visible');
+}
+
+function selectSuggestion(text) {
+  document.getElementById('query').value = text;
+  document.getElementById('autocomplete').classList.remove('visible');
+  doSearch();
+}
+
+// ── Voice Search ──
+async function voiceSearch() {
+  const micBtn = document.getElementById('mic-btn');
+
+  if (isRecording) {
+    // Stop recording
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micBtn.innerHTML = '&#127908;';
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    return;
+  }
+
+  // Start recording
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    isRecording = true;
+    audioChunks = [];
+    micBtn.classList.add('recording');
+    micBtn.innerHTML = '&#9209;';
+
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunks.push(e.data);
+    };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+
+      // Convert to base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result.split(',')[1];
+        try {
+          document.getElementById('results-area').innerHTML = '<div class="loading">Transcribing audio...</div>';
+          const res = await fetch(`${PROXY_URL}/voice-search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio: base64, format: 'webm' }),
+          });
+          const data = await res.json();
+          if (data.transcription) {
+            document.getElementById('query').value = data.transcription;
+          }
+          if (data.hits) {
+            const elapsed = data.search_time_ms || 0;
+            currentQuery = data.transcription || '';
+            renderFacets(data.facet_counts || []);
+            renderResults(data, elapsed, currentQuery, false);
+          } else if (data.transcription) {
+            doSearch();
+          }
+        } catch (err) {
+          document.getElementById('results-area').innerHTML =
+            `<div class="empty-state"><p style="color:var(--error)">Voice search error: ${err.message}</p></div>`;
+        }
+      };
+      reader.readAsDataURL(blob);
+    };
+    mediaRecorder.start();
+  } catch (err) {
+    alert('Microphone access denied or not available.');
+  }
+}
+
+// ── Image Search ──
+async function imageSearch(file) {
+  const reader = new FileReader();
+  reader.onloadend = async () => {
+    const base64 = reader.result.split(',')[1];
+    document.getElementById('results-area').innerHTML = '<div class="loading">Searching by image...</div>';
+    try {
+      const res = await fetch(`${PROXY_URL}/image-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64, filename: file.name }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      currentQuery = '[image search]';
+      renderFacets(data.facet_counts || []);
+      renderResults(data, data.search_time_ms || 0, currentQuery, false);
+    } catch (err) {
+      document.getElementById('results-area').innerHTML =
+        `<div class="empty-state"><p style="color:var(--error)">Image search error: ${err.message}</p></div>`;
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Pin / Hide ──
+async function pinResult(docId) {
+  try {
+    await fetch(`${PROXY_URL}/curations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: currentQuery, pinned_ids: [docId] }),
+    });
+    doSearch();
+  } catch (err) {
+    console.error('Pin failed:', err);
+  }
+}
+
+async function hideResult(docId) {
+  try {
+    await fetch(`${PROXY_URL}/curations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: currentQuery, hidden_ids: [docId] }),
+    });
+    doSearch();
+  } catch (err) {
+    console.error('Hide failed:', err);
+  }
+}
+
+// ── Click Tracking ──
+async function trackClick(docId, position) {
+  if (!docId) return;
+  try {
+    await fetch(`${PROXY_URL}/analytics/click`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: currentQuery, doc_id: docId, position }),
+    });
+  } catch {
+    // silent
+  }
+}
+
+// ── Synonyms ──
+async function fetchSynonyms() {
+  try {
+    const res = await fetch(`${PROXY_URL}/synonyms`);
+    const data = await res.json();
+    const synonyms = data.synonyms || data || [];
+    const container = document.getElementById('synonyms-list');
+    if (!synonyms.length) {
+      container.innerHTML = '<div style="font-size:11px;color:var(--text-muted)">&mdash;</div>';
+      return;
+    }
+    container.innerHTML = synonyms.map(s => {
+      const words = s.synonyms || s.words || [s.root, ...(s.synonyms_with || [])];
+      return `<div style="margin-bottom:4px">${words.map(w =>
+        `<span class="synonym-tag">${w}</span>`
+      ).join('')}</div>`;
+    }).join('');
+  } catch {
+    document.getElementById('synonyms-list').innerHTML =
+      '<div style="font-size:11px;color:var(--text-muted)">&mdash;</div>';
+  }
+}
+
+function toggleSynonymsExpand() {
+  synonymsExpanded = !synonymsExpanded;
+  const list = document.getElementById('synonyms-list');
+  list.style.display = synonymsExpanded ? 'block' : 'none';
+}
+
+// ── Chat ──
+function newChat() {
+  chatMessages = [];
+  conversationId = null;
+  document.getElementById('chat-title').textContent = 'New conversation';
+  document.getElementById('chat-thread').innerHTML = `
+    <div class="empty-state">
+      <div class="icon">&#128172;</div>
+      <p>Ask questions about your memories</p>
+      <p style="font-size:12px;margin-top:8px;color:var(--text-muted)">
+        Conversational search with cited sources
+      </p>
+    </div>`;
+}
+
+async function sendChat() {
+  if (!indexReady) {
+    alert('Index not ready yet — please wait for indexing to complete.');
+    return;
+  }
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+
+  // Add user message
+  chatMessages.push({ role: 'user', content: q });
+  renderChatThread();
+
+  // Show typing indicator
+  const thread = document.getElementById('chat-thread');
+  const typingEl = document.createElement('div');
+  typingEl.className = 'chat-typing';
+  typingEl.textContent = 'Thinking';
+  thread.appendChild(typingEl);
+  thread.scrollTop = thread.scrollHeight;
+
+  try {
+    const res = await fetch(`${PROXY_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q, conversation_id: conversationId }),
+    });
+    const data = await res.json();
+
+    if (data.conversation_id) conversationId = data.conversation_id;
+    if (!document.getElementById('chat-title').textContent || document.getElementById('chat-title').textContent === 'New conversation') {
+      document.getElementById('chat-title').textContent = q.slice(0, 50) + (q.length > 50 ? '...' : '');
+    }
+
+    chatMessages.push({
+      role: 'assistant',
+      content: data.answer || data.response || 'No response',
+      sources: data.sources || [],
+    });
+  } catch (err) {
+    chatMessages.push({
+      role: 'assistant',
+      content: `Error: ${err.message}`,
+      sources: [],
+    });
+  }
+
+  typingEl.remove();
+  renderChatThread();
+}
+
+function renderChatThread() {
+  const thread = document.getElementById('chat-thread');
+  if (chatMessages.length === 0) {
+    newChat();
+    return;
+  }
+
+  thread.innerHTML = chatMessages.map((msg, idx) => {
+    if (msg.role === 'user') {
+      return `<div class="chat-msg user">
+        <div class="chat-msg-label">You</div>
+        <div class="chat-msg-body">${escapeHtml(msg.content)}</div>
+      </div>`;
+    } else {
+      let sourcesHtml = '';
+      if (msg.sources && msg.sources.length > 0) {
+        sourcesHtml = `<div class="chat-sources">
+          ${msg.sources.map((s, si) => {
+            const connClass = `conn-${s.connector_type || ''}`;
+            const date = s.event_time_str
+              ? new Date(s.event_time_str).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              : '';
+            return `<div class="chat-source-card" onclick="this.classList.toggle('expanded')">
+              <div class="src-head">
+                <span class="result-connector ${connClass}" style="font-size:9px;padding:0 4px">${s.connector_type || ''}</span>
+                <span style="font-size:10px;color:var(--text-dim)">${s.source_type || ''}</span>
+                <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${date}</span>
+              </div>
+              <div class="src-text">${escapeHtml((s.text || '').slice(0, 200))}</div>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }
+      return `<div class="chat-msg assistant">
+        <div class="chat-msg-label">Botmem</div>
+        <div class="chat-msg-body">${escapeHtml(msg.content)}</div>
+        ${sourcesHtml}
+      </div>`;
+    }
+  }).join('');
+
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ── Events ──
+document.getElementById('query').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('autocomplete').classList.remove('visible');
+    doSearch();
+  }
+});
+
+document.getElementById('query').addEventListener('input', (e) => {
+  const q = e.target.value.trim();
+  clearTimeout(suggestTimer);
+  if (q.length >= 2) {
+    suggestTimer = setTimeout(() => fetchSuggestions(q), 300);
+  } else {
+    document.getElementById('autocomplete').classList.remove('visible');
+  }
+});
+
+document.getElementById('query').addEventListener('blur', () => {
+  setTimeout(() => {
+    document.getElementById('autocomplete').classList.remove('visible');
+  }, 200);
+});
+
+document.getElementById('search-btn').addEventListener('click', () => {
+  document.getElementById('autocomplete').classList.remove('visible');
+  doSearch();
+});
+
+document.getElementById('alpha').addEventListener('input', (e) => {
+  document.getElementById('alpha-val').textContent = parseFloat(e.target.value).toFixed(2);
+});
+
+document.getElementById('mic-btn').addEventListener('click', voiceSearch);
+
+document.getElementById('img-btn').addEventListener('click', () => {
+  document.getElementById('image-file-input').click();
+});
+
+document.getElementById('image-file-input').addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) {
+    imageSearch(e.target.files[0]);
+    e.target.value = '';
+  }
+});
+
+document.getElementById('chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChat();
+});
+
+init();
+</script>
+</body>
+</html>
