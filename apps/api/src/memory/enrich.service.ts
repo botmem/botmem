@@ -367,6 +367,85 @@ export class EnrichService {
     }
   }
 
+  /**
+   * Inline enrichment for the unified MemoryProcessor — extracts entities and
+   * classifies factuality on plaintext directly (no DB load/decrypt needed).
+   * For messages/photos/locations, returns defaults without calling the LLM.
+   */
+  async enrichInline(opts: {
+    text: string;
+    sourceType: string;
+    connectorType: string;
+    metadata: Record<string, unknown>;
+  }): Promise<{
+    entities: Array<{ type: string; value: string }>;
+    factuality: { label: string; confidence: number; rationale: string } | null;
+  }> {
+    const { text, sourceType, connectorType, metadata } = opts;
+
+    // Trivial message check
+    if (text.length <= TRIVIAL_MESSAGE_MAX_CHARS && !/https?:\/\/\S+/.test(text)) {
+      return {
+        entities: [],
+        factuality: {
+          label: 'UNVERIFIED',
+          confidence: 0.5,
+          rationale: 'trivial message — skipped enrichment',
+        },
+      };
+    }
+
+    const shouldClassifyFactuality = FACTUALITY_SOURCE_TYPES.has(sourceType);
+
+    // eslint-disable-next-line no-useless-assignment -- defaults needed for catch paths
+    let entities: Array<{ type: string; value: string }> = [];
+    // eslint-disable-next-line no-useless-assignment
+    let factuality: { label: string; confidence: number; rationale: string } | null = null;
+
+    if (shouldClassifyFactuality) {
+      // Combined entity extraction + factuality for emails/documents
+      const result = await this.extractEntitiesAndFactuality(text, sourceType, connectorType);
+      entities = result.entities;
+      factuality = result.factuality;
+    } else {
+      // Entity extraction only
+      entities = await this.extractEntities(text, sourceType, connectorType);
+
+      // Photos with detected people are FACT
+      const hasPeople = this.metadataHasPeople(metadata);
+      if ((sourceType === 'photo' || sourceType === 'file') && hasPeople) {
+        factuality = {
+          label: 'FACT',
+          confidence: 0.9,
+          rationale: 'photo with identified people — visual evidence',
+        };
+      } else {
+        factuality = {
+          label: 'UNVERIFIED',
+          confidence: 0.5,
+          rationale: `default for ${sourceType} — factuality classification skipped`,
+        };
+      }
+    }
+
+    // Deduplicate entities
+    const seenEntityKeys = new Set<string>();
+    entities = entities.filter((e) => {
+      const key = `${e.type}::${((e as Record<string, unknown>).name || (e as Record<string, unknown>).value || '').toString().toLowerCase().trim()}`;
+      if (seenEntityKeys.has(key)) return false;
+      seenEntityKeys.add(key);
+      return true;
+    });
+
+    return { entities, factuality };
+  }
+
+  private metadataHasPeople(metadata: Record<string, unknown>): boolean {
+    const people = metadata.people as Array<{ name?: string }> | undefined;
+    if (!people || !Array.isArray(people)) return false;
+    return people.some((p) => p.name && p.name.trim().length > 0);
+  }
+
   private async createLinks(memoryId: string): Promise<void> {
     try {
       const results = await this.typesense.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
