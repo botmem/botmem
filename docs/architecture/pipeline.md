@@ -1,6 +1,6 @@
 # Ingestion Pipeline
 
-The pipeline transforms raw data from external services into searchable, enriched memories. It operates as a multi-stage process driven by BullMQ queues.
+The pipeline transforms raw data from external services into searchable, enriched memories. It operates as a 2-stage process driven by BullMQ queues.
 
 ## Pipeline Overview
 
@@ -12,44 +12,26 @@ Connector.sync()
   |
   v
 [sync queue] SyncProcessor (concurrency: 2)
+  |  Orchestrates connector, writes raw events, enqueues memory jobs
   |
   v
-[clean queue] CleanProcessor
-  |-- Normalize text (strip HTML, collapse whitespace)
-  |-- Validate payload structure
-  |
-  v
-[embed queue] EmbedProcessor (concurrency: 4)
-  |-- Parse raw event payload
-  |-- Create Memory record in PostgreSQL
-  |-- Resolve participants -> Contacts (dedup by email/phone/handle)
-  |-- Generate embedding via AI backend (mxbai-embed-large 1024d / Gemini 3072d)
-  |-- Upsert document into Typesense
-  |-- Route file events to file queue
-  |-- Enqueue enrich job
-  |
-  +-- [file queue] FileProcessor (for photo/document events)
-  |     |-- Download file from source (using account auth)
-  |     |-- Extract content by MIME type:
-  |     |     Images  -> VL model description
-  |     |     PDF     -> pdf-parse text extraction
-  |     |     DOCX    -> mammoth text extraction
-  |     |     XLSX    -> xlsx to markdown tables
-  |     |     Text    -> direct content
-  |     |-- Update memory text with extracted content
-  |     |-- Re-embed with new text
-  |     |-- Enqueue enrich job
-  |
-  v
-[enrich queue] EnrichProcessor (concurrency: 2)
-  |-- Extract entities via text model (qwen3:8b / mistral-nemo)
-  |     Returns: [{type, value, confidence}]
-  |-- Classify factuality
-  |     Returns: {label, confidence, rationale}
-  |-- Compute importance weights
-  |-- Find similar memories via Typesense (threshold: 0.8)
-  |-- Create graph links (memory_links table)
-  |-- Store final weights in memory record
+[memory queue] MemoryProcessor (concurrency: 4)
+  |-- 1.  Load raw event (one DB query)
+  |-- 2.  Parse: extract text + metadata per sourceType
+  |-- 3.  File parse: ContentCleaner.parseFile() via liteparse
+  |-- 4.  Clean: ContentCleaner.cleanText() per sourceType
+  |-- 5.  Resolve contacts: PeopleService.resolveParticipants()
+  |-- 6.  Create Memory record (embeddingStatus: 'pending')
+  |-- 7.  Embed: generate vector via AiService
+  |-- 8.  Enrich inline (best-effort):
+  |       - Entity extraction (emails/documents only)
+  |       - Factuality classification
+  |       - Compute weights
+  |-- 9.  Encrypt: single AES-256-GCM pass
+  |-- 10. Compute search_tokens from plaintext (before encryption)
+  |-- 11. Update memory: one DB write, pipelineComplete=true
+  |-- 12. Upsert document into Typesense
+  |-- 13. Create links + corroborate factuality
 ```
 
 ## Stage Details
@@ -62,110 +44,122 @@ The `SyncProcessor` orchestrates the connector's `sync()` method:
 2. Creates a job record for tracking
 3. Calls `connector.sync(ctx)` with a `SyncContext`
 4. Listens for `data`, `progress`, and `log` events
-5. Each `data` event is written to the `rawEvents` table and a clean job is enqueued
+5. Each `data` event is written to the `rawEvents` table and a memory job is enqueued
 6. Updates the account's cursor and sync timestamp on completion
 
 The sync queue has a concurrency of 2, meaning two connectors can sync simultaneously.
 
-### Stage 2: Clean
+### Stage 2: Memory Processing
 
-The `CleanProcessor` normalizes raw event payloads:
-
-1. Strips HTML tags, styles, and scripts
-2. Collapses excessive whitespace
-3. Validates the payload structure
-4. Enqueues the cleaned event for embedding
-
-### Stage 3: Embed
-
-The `EmbedProcessor` is the core of the pipeline:
+The `MemoryProcessor` handles the entire lifecycle from raw event to queryable memory in a single pass. This replaces the previous multi-stage pipeline (clean, embed, enrich) with one unified processor.
 
 **Input:** `{ rawEventId: string }`
 
-1. **Read raw event** — fetches the immutable payload from `rawEvents`
-2. **Parse payload** — extracts the `ConnectorDataEvent` from JSON
-3. **Skip empty** — events with no text content are discarded
-4. **Create memory** — inserts a new record in the `memories` table with status `pending`
-5. **Route files** — if `sourceType === 'file'`, routes to the file queue instead of embedding directly
-6. **Resolve contacts** — connector-specific logic to extract and merge participants:
-   - **Gmail:** parses From/To/CC headers; for Google Contacts, stores full metadata and avatars
-   - **Slack:** looks up profiles from `participantProfiles` metadata
-   - **WhatsApp:** resolves sender phone number and push name
-   - **iMessage:** handles email and phone identifiers
-   - **Photos:** resolves Immich face tags and downloads thumbnails
-7. **Generate embedding** — calls the AI backend with the text (truncated to 8000 chars)
-8. **Upsert into Typesense** — upserts the document with embedding and metadata
-9. **Update status** — sets `embeddingStatus` to `done`
-10. **Enqueue enrichment** — adds an enrich job to the queue
+#### Step 1: Load Raw Event
 
-The embed queue has configurable concurrency (default 4, adjustable via settings API).
+Fetches the immutable payload from `rawEvents` in a single DB query.
 
-### Stage 4: File Processing
+#### Step 2: Parse Payload
 
-The `FileProcessor` handles photo and document events:
+Extracts the `ConnectorDataEvent` from JSON. Events with no text content are discarded.
 
-**Input:** `{ memoryId: string }`
+#### Step 3: File Parsing (ContentCleaner)
 
-1. **Read memory** — fetches the memory record for file URL and MIME type
-2. **Build auth headers** — constructs authentication headers based on connector type
-3. **Download file** — fetches the file from the source service
-4. **Extract content** — routes by MIME type:
-   - **Images** (`image/*`): converts to base64, sends to VL model for description
-   - **PDFs** (`application/pdf`): uses `pdf-parse` for text extraction
-   - **DOCX**: uses `mammoth` for raw text extraction
-   - **Spreadsheets** (XLSX, XLS, CSV): uses `xlsx` to convert to markdown tables
-   - **Plain text** (`text/*`): reads directly
-5. **Truncate** — content is capped at 10,000 characters
-6. **Update memory** — appends extracted content to the memory text
-7. **Re-embed** — generates a new embedding for the updated text
-8. **Enqueue enrichment** — sends to the enrich queue
+If the event has a file attachment, `ContentCleaner.parseFile()` extracts text content using `liteparse`:
 
-### Stage 5: Enrichment
+| Format | Library | Notes |
+| ------ | ------- | ----- |
+| PDF | liteparse | Replaces pdf-parse |
+| DOCX | liteparse | Replaces mammoth |
+| XLSX, XLS | liteparse | Spreadsheet to text |
+| PPTX | liteparse | Presentation slides |
+| ODS | liteparse | OpenDocument spreadsheets |
+| CSV, TSV | liteparse | Tabular data |
+| RTF | liteparse | Rich text |
+| Images | VL model / multimodal embedding | Description or direct embedding |
+| Plain text | Direct read | No conversion needed |
 
-The `EnrichProcessor` adds intelligence to memories:
+#### Step 4: Content Cleaning (ContentCleaner)
 
-**Input:** `{ memoryId: string }`
+`ContentCleaner.cleanText()` applies source-type-specific cleaning rules:
 
-1. **Entity extraction** — sends the memory text to the text model with a structured prompt. Extracts entities like:
+**Email cleaning** (`sourceType: 'email'`):
+- HTML to plain text conversion via `html-to-text`
+- Signature stripping (`-- \n`, `Sent from my iPhone`, etc.) via `email-reply-parser`
+- Quoted reply chain removal (`> On Mar 15, John wrote:`)
+- Forwarded message header stripping
 
-   ```json
-   [
-     { "type": "person", "value": "John Smith", "confidence": 0.95 },
-     { "type": "organization", "value": "Acme Corp", "confidence": 0.88 },
-     { "type": "topic", "value": "Q3 budget", "confidence": 0.82 }
-   ]
-   ```
+**Message cleaning** (`sourceType: 'message'`):
+- Slack formatting: `<@U123456>` to `@user`, `<#C123|channel>` to `#channel`
+- WhatsApp formatting: `*bold*` to `bold`, `_italic_` to `italic`, `~strike~` to `strike`
+- System message filtering (joined, left, changed topic)
+- "shared contact:" noise removal
 
-2. **Factuality classification** — classifies the memory as FACT, UNVERIFIED, or FICTION:
+**All source types**:
+- Sanitize control characters
+- Normalize whitespace
+- Collapse excessive line breaks
 
-   ```json
-   {
-     "label": "FACT",
-     "confidence": 0.9,
-     "rationale": "Direct email from verified sender with specific details"
-   }
-   ```
+#### Step 5: Contact Resolution
 
-3. **Graph link creation** — queries Typesense for the top 5 similar memories (by vector similarity). Creates `related` links for any with similarity >= 0.8.
+Connector-specific logic to extract and merge participants:
+- **Gmail:** parses From/To/CC headers; for Google Contacts, stores full metadata and avatars
+- **Slack:** looks up profiles from `participantProfiles` metadata
+- **WhatsApp:** resolves sender phone number and push name
+- **iMessage:** handles email and phone identifiers
+- **Photos:** resolves Immich face tags and downloads thumbnails
 
-4. **Weight computation** — calculates and stores base weights:
-   ```typescript
-   const recency = Math.exp(-0.015 * ageDays);
-   const importance = 0.5 + Math.min(entityCount * 0.1, 0.4);
-   const trust = TRUST_SCORES[connectorType] || 0.7;
-   ```
+#### Step 6: Create Memory
+
+Inserts a new record in the `memories` table with status `pending`.
+
+#### Step 7: Generate Embedding
+
+Calls the AI backend with the cleaned text (truncated to 6,000 chars). Supports `mxbai-embed-large` (1024d), Gemini multimodal (3072d), or OpenRouter models.
+
+#### Step 8: Inline Enrichment
+
+Best-effort enrichment via `enrichInline()` (wrapped in try/catch so failures do not block the memory):
+
+1. **Entity extraction** — sends the memory text to the text model with a structured prompt. Extracts entities like persons, organizations, topics, dates, amounts, locations.
+
+2. **Factuality classification** — classifies the memory as FACT, UNVERIFIED, or FICTION based on source reliability, specificity, language cues, and connector trust.
+
+3. **Weight computation** — calculates base weights for importance and trust.
+
+This runs inline rather than in a separate queue, eliminating a round-trip DB load/decrypt cycle.
+
+#### Step 9: Encryption
+
+A single AES-256-GCM encryption pass encrypts sensitive fields (text, entities, metadata, factuality). The previous pipeline performed double encryption across separate processors.
+
+#### Step 10: Search Tokens
+
+Computes `search_tokens` from the plaintext (before encryption) for fast filtered lookups.
+
+#### Step 11: Database Update
+
+A single DB write updates the memory with all enriched fields and sets `pipelineComplete=true`.
+
+#### Step 12: Typesense Upsert
+
+Upserts the document into the Typesense `memories` collection with embedding, metadata, and search fields.
+
+#### Step 13: Link Creation + Factuality Corroboration
+
+1. **`createLinks()`** — queries Typesense for the top 5 similar memories by vector similarity. Creates `supports` links (similarity >= 0.92) and `contradicts` links (similarity >= 0.85 when one side is FICTION). Creates `related` links for any with similarity >= 0.8.
+
+2. **`corroborateFactuality()`** — rule-based promotion from UNVERIFIED to FACT when cross-connector `supports` links exist. See [Memory Model: Factuality Corroboration](/architecture/memory-model#factuality-corroboration) for thresholds.
 
 ## Error Handling
 
-Each stage uses exponential backoff for retries:
+The memory queue uses exponential backoff for retries:
 
 | Queue  | Attempts | Initial Delay |
 | ------ | -------- | ------------- |
-| embed  | 2        | 2,000 ms      |
-| file   | 2        | 2,000 ms      |
-| enrich | 2        | 1,000 ms      |
+| memory | 2        | 2,000 ms      |
 
-Failed embed jobs set the memory's `embeddingStatus` to `failed`. These can be retried via:
+Failed jobs set the memory's `embeddingStatus` to `failed`. These can be retried via:
 
 ```bash
 curl -X POST http://localhost:12412/api/memories/retry-failed \
@@ -174,16 +168,14 @@ curl -X POST http://localhost:12412/api/memories/retry-failed \
 
 ## Performance Characteristics
 
-- **Embed latency**: ~200-500ms per memory (depending on text length and AI backend response time)
-- **File processing**: ~5-15 seconds for images (VL model), ~1-3 seconds for documents
-- **Enrichment**: ~2-5 seconds per memory (two AI calls + Typesense search)
-- **Throughput**: with Ollama concurrency 4, ~500-1000 memories/minute; with OpenRouter concurrency 64, significantly higher
+- **Memory processing latency**: ~2-8 seconds per memory (parsing + embedding + enrichment combined)
+- **File processing**: ~5-15 seconds for images, ~1-3 seconds for documents (included in memory processing)
+- **Throughput**: with Ollama concurrency 4, ~500-1000 memories/minute; with OpenRouter/Gemini, significantly higher
 
 ## Monitoring
 
 Pipeline progress is visible through:
 
-1. **WebSocket events** — real-time updates on `/events` channel `logs`
-2. **Queue statistics** — `GET /api/jobs/queues` returns counts for each queue
-3. **Job logs** — `GET /api/logs?accountId=...` returns per-job log entries
-4. **Memory stats** — `GET /api/memories/stats` shows totals by source and connector
+1. **WebSocket events** — real-time `job:progress` updates on `/events`
+2. **Job list** — `GET /api/jobs` returns job records with progress/total
+3. **Memory stats** — `GET /api/memories/stats` shows totals by source and connector

@@ -18,7 +18,6 @@ interface Memory {
   factuality: string; // JSON: {label, confidence, rationale}
   weights: string; // JSON: {semantic, recency, importance, trust, final}
   entities: string; // JSON array: [{type, value, confidence}]
-  claims: string; // JSON array: extracted factual claims
   metadata: string; // JSON: connector-specific data
   embeddingStatus: string; // pending, done, or failed
   createdAt: string; // Record creation time (ISO 8601)
@@ -33,10 +32,13 @@ When you search for memories, each result receives a **final score** computed fr
 
 ### Weights
 
-Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments.
+Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments. All scoring constants are defined in `apps/api/src/memory/search.constants.ts`.
 
 ```
-# Recall intent (default):
+# With reranker (recall intent):
+final = 0.40 * semantic + 0.30 * rerank + 0.15 * recency + 0.10 * importance + 0.05 * trust
+
+# Without reranker (recall intent):
 final = 0.40 * semantic + 0.25 * recency + 0.20 * importance + 0.15 * trust
 
 # Browse intent:
@@ -48,6 +50,7 @@ final = 0.40 * semantic + 0.40 * recency + 0.15 * importance + 0.05 * trust
 | Weight | Factor       | Range     | Description                                                            |
 | ------ | ------------ | --------- | ---------------------------------------------------------------------- |
 | 0.40   | `semantic`   | 0.0 - 1.0 | Typesense vector similarity between query and memory embeddings        |
+| 0.30   | `rerank`     | 0.0 - 1.0 | Optional second-pass reranker score (TEI, Ollama, or Jina backends)    |
 | 0.25   | `recency`    | 0.0 - 1.0 | Exponential decay from event time: `exp(-0.005 * age_days)` in search  |
 | 0.20   | `importance` | 0.0 - 1.0 | Base 0.5, boosted by entity count: `0.5 + min(entityCount * 0.1, 0.4)` |
 | 0.15   | `trust`      | 0.0 - 1.0 | Connector-specific base trust score                                    |
@@ -212,6 +215,85 @@ Each document in Typesense carries metadata for filtered search:
 ```
 
 This enables queries like "search only Gmail emails" or "search photos from last month."
+
+## Factuality Corroboration
+
+After link creation, `corroborateFactuality()` runs a rule-based promotion from UNVERIFIED to FACT based on cross-connector `supports` links. This is pure SQL + logic with no AI calls.
+
+### Promotion Rules
+
+1. Query all `supports` links for the memory
+2. Count distinct `connectorType` values among supporting neighbors
+3. Promote (never demote):
+
+| Condition | New Label | Confidence |
+| --------- | --------- | ---------- |
+| 2+ cross-connector supports | FACT | 0.90 |
+| 1 cross-connector support | FACT | 0.80 |
+| Same-connector supports only | UNVERIFIED (unchanged) | 0.65 |
+
+4. One-level cascade: when a memory is promoted, its immediate neighbors are re-evaluated
+
+Cross-connector corroboration means the same information appears in different data sources (e.g., an email and a Slack message both reference the same meeting), providing independent verification.
+
+## Search Diversity
+
+Search results use greedy interleaved reranking to prevent a single connector from dominating results.
+
+### Algorithm
+
+1. Sort all candidates by score descending
+2. Group candidates by `connectorType`
+3. For each slot: pick the highest-scored candidate from the **least-represented** connector, if its score is within `diversityFactor` of the globally best remaining candidate
+4. If no diverse candidate is within the threshold, pick the globally best candidate
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `diversityFactor` | number (0-1) | 0.15 | Maximum score sacrifice for diversity. 0 = no diversity, 1 = full round-robin |
+
+Pass `diversityFactor` in the `POST /memories/search` request body.
+
+## Scoring Constants
+
+All magic numbers for scoring, linking, and search are centralized in `apps/api/src/memory/search.constants.ts`. Key values:
+
+| Constant | Value | Purpose |
+| -------- | ----- | ------- |
+| `MIN_SCORE` | 0.35 | Minimum score to include in results |
+| `HYBRID_K_MULTIPLIER` | 3 | Overfetch factor for Typesense |
+| `HYBRID_K_CAP` | 250 | Max k for Typesense queries |
+| `RECENCY_DECAY_RATE` | 0.005 | Search recency decay |
+| `DIVERSITY_FACTOR_DEFAULT` | 0.15 | Default diversity threshold |
+| `SUPPORTS_THRESHOLD` | 0.92 | Min similarity for `supports` link |
+| `CONTRADICTS_THRESHOLD` | 0.85 | Min similarity for `contradicts` link |
+| `MAX_EMBED_CHARS` | 6000 | Truncate text before embedding |
+
+Scoring profiles (browse, recall, recall+rerank, recall+rerank-no-semantic) are also defined in this file as `SCORING_PROFILES`.
+
+## Content Cleaning
+
+Text stored in memories is cleaned before embedding and indexing. The `ContentCleaner` service applies per-sourceType rules:
+
+### Email (`sourceType: 'email'`)
+- HTML converted to plain text via `html-to-text`
+- Signatures stripped (`-- \n`, `Sent from my iPhone`, corporate disclaimers)
+- Quoted reply chains removed (`> On Mar 15, John wrote:`)
+- Forwarded message headers stripped
+
+### Message (`sourceType: 'message'`)
+- Slack formatting normalized: `<@U123>` to `@user`, `<#C123|channel>` to `#channel`
+- WhatsApp formatting stripped: `*bold*` to `bold`, `_italic_` to `italic`
+- System messages filtered (joined, left, changed topic)
+- "shared contact:" low-value messages removed
+
+### All Source Types
+- Control characters sanitized
+- Whitespace normalized and collapsed
+- Excessive line breaks removed
+
+This means search queries match against cleaned text, not raw HTML or formatting markup.
 
 ## Quota Enforcement
 

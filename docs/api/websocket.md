@@ -22,14 +22,6 @@ ws.onmessage = (event) => {
 After connecting, subscribe to channels to receive events. Send a JSON message with the `subscribe` event:
 
 ```javascript
-// Subscribe to log events
-ws.send(
-  JSON.stringify({
-    event: 'subscribe',
-    data: { channel: 'logs' },
-  }),
-);
-
 // Subscribe to memory events
 ws.send(
   JSON.stringify({
@@ -38,37 +30,24 @@ ws.send(
   }),
 );
 
+// Subscribe to job events
+ws.send(
+  JSON.stringify({
+    event: 'subscribe',
+    data: { channel: 'jobs' },
+  }),
+);
+
 // Unsubscribe
 ws.send(
   JSON.stringify({
     event: 'unsubscribe',
-    data: { channel: 'logs' },
+    data: { channel: 'memories' },
   }),
 );
 ```
 
 ## Channels
-
-### `logs`
-
-Receives real-time log entries from all pipeline stages.
-
-**Event: `log`**
-
-```json
-{
-  "channel": "logs",
-  "event": "log",
-  "data": {
-    "connectorType": "gmail",
-    "accountId": "account-uuid",
-    "stage": "embed",
-    "level": "info",
-    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(1024d) typesense=45ms",
-    "timestamp": "2026-02-15T10:15:30Z"
-  }
-}
-```
 
 ### `memories`
 
@@ -136,9 +115,8 @@ The WebSocket gateway is implemented using NestJS's `@WebSocketGateway` decorato
 const ws = new WebSocket('ws://localhost:12412/events');
 
 ws.onopen = () => {
-  // Subscribe to all relevant channels
+  // Subscribe to job progress
   ws.send(JSON.stringify({ event: 'subscribe', data: { channel: 'jobs' } }));
-  ws.send(JSON.stringify({ event: 'subscribe', data: { channel: 'logs' } }));
 };
 
 ws.onmessage = (event) => {
@@ -154,10 +132,8 @@ ws.onmessage = (event) => {
       console.log(`Sync ${msg.data.status}`);
       break;
 
-    case 'log':
-      if (msg.data.level === 'error') {
-        console.error(`[${msg.data.stage}] ${msg.data.message}`);
-      }
+    case 'notification':
+      console.log(`Notification: ${msg.data.message}`);
       break;
   }
 };
