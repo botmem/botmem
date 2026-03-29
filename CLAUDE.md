@@ -37,6 +37,7 @@ packages/
 - **Search**: Typesense (hybrid BM25 + vector search, conversational RAG)
 - **AI**: Ollama (remote, default) or OpenRouter — swappable via `AI_BACKEND` env var
 - **Frontend**: React 19, Vite 6, Zustand 5, Tailwind 4, react-force-graph-2d
+- **Content Processing**: liteparse (PDF, DOCX, XLSX, PPTX), email-reply-parser, html-to-text
 - **Tooling**: pnpm 9.15 workspaces, Turbo 2.4, Vitest 3
 
 ## Environment Variables
@@ -98,11 +99,10 @@ Connectors are EventEmitters. During sync they emit `data`, `progress`, and `log
 
 BullMQ queues process work asynchronously through Redis:
 
-| Queue    | Worker            | Purpose                                                                                    |
-| -------- | ----------------- | ------------------------------------------------------------------------------------------ |
-| `sync`   | `SyncProcessor`   | Orchestrates `connector.sync()`, writes to `rawEvents`                                     |
-| `embed`  | `EmbedProcessor`  | Parses raw event, creates Memory, generates embedding, resolves contacts                   |
-| `enrich` | `EnrichProcessor` | Extracts entities/claims, classifies factuality, computes importance, upserts to Typesense |
+| Queue    | Worker             | Purpose                                                                                              |
+| -------- | ------------------ | ---------------------------------------------------------------------------------------------------- |
+| `sync`   | `SyncProcessor`    | Orchestrates `connector.sync()`, writes to `rawEvents`, enqueues memory jobs                         |
+| `memory` | `MemoryProcessor`  | Parses raw event, cleans content, creates Memory, embeds, enriches inline, encrypts, upserts to Typesense |
 
 Job statuses: `queued → running → done | failed | cancelled`
 
@@ -114,19 +114,17 @@ Jobs table tracks progress (`progress`/`total` fields) and errors. The `EventsGa
 Connector.sync()
   → rawEvents table (immutable payload store)
   → [sync queue] SyncProcessor
-  → [embed queue] EmbedProcessor
+  → [memory queue] MemoryProcessor
       ├ Parse raw event payload
-      ├ Create Memory record in PostgreSQL
-      ├ Generate embedding via Ollama
+      ├ File parsing (liteparse: PDF, DOCX, XLSX, PPTX, ODS, CSV)
+      ├ Content cleaning (email-reply-parser, html-to-text, Slack/WA formatting)
       ├ Resolve participants → Contacts (dedup by email/phone/handle)
-      └ Enqueue enrich job
-  → [enrich queue] EnrichProcessor
-      ├ Extract entities (via Ollama VL + prompts)
-      ├ Extract claims
-      ├ Classify factuality (FACT / UNVERIFIED / FICTION)
-      ├ Compute importance baseline
-      ├ Update Memory with metadata
-      └ Upsert document → Typesense collection
+      ├ Create Memory record in PostgreSQL
+      ├ Generate embedding via AI backend
+      ├ Enrich inline (entities, factuality, weights)
+      ├ Single-pass AES-256-GCM encryption
+      ├ Upsert document → Typesense collection
+      └ Create links + corroborate factuality
 ```
 
 ## Memory Model
@@ -146,7 +144,7 @@ final = 0.40×semantic + 0.25×recency + 0.20×importance + 0.15×trust
 # Decay processor:   exp(-0.015 × age_days)  — steeper, ~46-day half-life
 ```
 
-Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments.
+Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments. All scoring constants are centralized in `apps/api/src/memory/search.constants.ts`.
 
 - `semantic` — Typesense vector similarity score (or `rank_fusion_score` from hybrid BM25+vector search)
 - `rerank` — optional second-pass reranker score (TEI, Ollama, or Jina backends)
@@ -154,11 +152,13 @@ Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling a
 - `importance` — boosted by repeated recall, direct mention, user pinning
 - `trust` — connector base trust + factuality confidence
 
+Search results use **diversity reranking** (greedy interleaved selection) to prevent a single connector from dominating. Controlled by `diversityFactor` parameter (0-1, default 0.15).
+
 ### Factuality labels
 
 Every memory carries `{label, confidence, rationale}`:
 
-- `FACT` — corroborated by multiple sources or high-trust connectors
+- `FACT` — corroborated by multiple sources or high-trust connectors. Rule-based promotion via `corroborateFactuality()`: cross-connector `supports` links promote UNVERIFIED to FACT (single cross-connector: 0.80 confidence, multi: 0.90, same-connector: 0.65).
 - `UNVERIFIED` — default; single-source, no contradiction
 - `FICTION` — contradicted by evidence or flagged by model
 
@@ -171,7 +171,7 @@ PostgreSQL tables defined in `apps/api/src/db/schema.ts` (Drizzle ORM):
 - `logs` — per-job log entries (info/warn/error/debug)
 - `connectorCredentials` — OAuth credentials cache per connector type
 - `rawEvents` — immutable ingested payloads (before normalization)
-- `memories` — normalized events with text, weights, entities, claims, factuality
+- `memories` — normalized events with text, weights, entities, factuality
 - `memoryLinks` — relationship graph (related / supports / contradicts)
 - `contacts` — deduplicated people
 - `contactIdentifiers` — email/phone/name/slack_id mappings to contact
@@ -204,7 +204,7 @@ All under `apps/api/src/`:
 | `mcp/`          | MCP (Model Context Protocol) server integration                                 |
 | `me/`           | Current user profile endpoint                                                   |
 | `memory-banks/` | Memory bank grouping + organization                                             |
-| `memory/`       | Search, ranking, embedding (OllamaService, TypesenseService), BullMQ processors |
+| `memory/`       | Search, ranking, embedding, ContentCleaner, MemoryProcessor, BullMQ processors  |
 | `oauth/`        | OAuth client credentials + token management                                     |
 | `people/`       | Contact dedup, identifier merging (domain concept: "contacts")                  |
 | `plugins/`      | Plugin/extension system                                                         |
