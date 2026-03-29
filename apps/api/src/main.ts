@@ -112,37 +112,10 @@ async function bootstrap() {
   // Security headers (CASA 3.4.x, 14.3.2, 14.5.2)
   app.use(
     helmet({
-      contentSecurityPolicy: isDev
-        ? false
-        : {
-            directives: {
-              defaultSrc: ["'self'"],
-              scriptSrc: [
-                "'self'",
-                "'unsafe-inline'",
-                'https://apis.google.com',
-                'https://*.firebaseio.com',
-                'https://*.googleapis.com',
-                'https://static.cloudflareinsights.com',
-              ],
-              styleSrc: ["'self'", "'unsafe-inline'"],
-              imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-              fontSrc: ["'self'"],
-              connectSrc: [
-                "'self'",
-                'https://*.googleapis.com',
-                'https://*.firebaseio.com',
-                'https://firebaseinstallations.googleapis.com',
-                'https://identitytoolkit.googleapis.com',
-                'https://securetoken.googleapis.com',
-                'https://cloudflareinsights.com',
-                'wss://botmem.xyz',
-              ],
-              frameSrc: ["'self'", 'https://accounts.google.com', 'https://*.firebaseapp.com'],
-              objectSrc: ["'none'"],
-              baseUri: ["'self'"],
-            },
-          },
+      // CSP disabled: Cloudflare proxy strips single quotes from CSP values,
+      // turning 'self' → self which blocks all resources. TODO: re-enable once
+      // Cloudflare Transform Rule or DNS-only mode is configured.
+      contentSecurityPolicy: false,
       hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
     }),
   );
