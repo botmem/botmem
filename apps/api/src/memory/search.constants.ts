@@ -67,9 +67,3 @@ export const SAME_CONNECTOR_BOOST_CONFIDENCE = 0.65;
 // ============ Typesense ============
 export const HYBRID_ALPHA = 0.3;
 export const QUERY_BY_WEIGHTS = '3,1,1';
-
-// ============ Embedding ============
-export const MAX_EMBED_CHARS = 6000;
-export const THUMBNAIL_MAX_BYTES = 30_000;
-export const FILE_FETCH_TIMEOUT_MS = 120_000;
-export const CONTACT_RESOLVE_TIMEOUT_MS = 30_000;
