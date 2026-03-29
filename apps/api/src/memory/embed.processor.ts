@@ -471,33 +471,6 @@ export class EmbedProcessor extends WorkerHost implements OnModuleInit {
             mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
           }
 
-          // For images, still generate a VL text description for display in memories.text
-          if (fileMime.startsWith('image/')) {
-            try {
-              const people = (mergedMetadata.people as Array<{ name?: string }>) || [];
-              const peopleNames = people.map((p) => p.name).filter(Boolean);
-              let promptContext = currentText;
-              if (peopleNames.length > 0) {
-                promptContext = `People in this photo: ${peopleNames.join(', ')}. ${promptContext}`;
-              }
-              const base64 = fileBuffer.toString('base64');
-              const description = await this.ai.generate(photoDescriptionPrompt(promptContext), [
-                base64,
-              ]);
-              if (description.trim()) {
-                currentText = description.trim() + '\n\n' + currentText;
-              }
-            } catch (vlErr: unknown) {
-              this.addLog(
-                rawEvent.connectorType,
-                rawEvent.accountId,
-                'warn',
-                `[embed:vl] ${mid} VL description failed: ${vlErr instanceof Error ? vlErr.message : String(vlErr)}`,
-                parentJobId,
-              );
-            }
-          }
-
           // For PDFs, still extract text for display in memories.text
           if (fileMime === 'application/pdf') {
             const pdfParseModule = await import('pdf-parse');
