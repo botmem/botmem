@@ -21,7 +21,7 @@
     "@nestjs/platform-express": "^11.1.16",
     "@playwright/test": "^1.52.0",
     "supertest": "^7.1.0",
-    "@types/supertest": "^6.0.3",
+    "@types/supertest": "^7.2.0",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "unplugin-swc": "^1.5.9",
