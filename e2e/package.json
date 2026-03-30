@@ -15,17 +15,17 @@
   },
   "devDependencies": {
     "@botmem/shared": "workspace:*",
-    "@nestjs/common": "^11.1.16",
-    "@nestjs/core": "^11.1.16",
-    "@nestjs/testing": "^11.1.16",
-    "@nestjs/platform-express": "^11.1.16",
+    "@nestjs/common": "^11.1.17",
+    "@nestjs/core": "^11.1.17",
+    "@nestjs/testing": "^11.1.17",
+    "@nestjs/platform-express": "^11.1.17",
     "@playwright/test": "^1.52.0",
     "supertest": "^7.1.0",
     "@types/supertest": "^6.0.3",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "unplugin-swc": "^1.5.9",
-    "@swc/core": "^1.15.18",
+    "@swc/core": "^1.15.21",
     "jsonwebtoken": "^9.0.2",
     "@types/jsonwebtoken": "^9.0.9"
   }
