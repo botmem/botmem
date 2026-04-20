@@ -11,6 +11,6 @@
     "vitepress": "^1.6.4"
   },
   "dependencies": {
-    "posthog-js": "^1.360.0"
+    "posthog-js": "^1.369.3"
   }
 }
