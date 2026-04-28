@@ -21,7 +21,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@scure/bip39": "^2.0.1",
+    "@scure/bip39": "^2.2.0",
     "clsx": "^2.1.1",
     "tailwind-merge": "^3.5.0"
   },
