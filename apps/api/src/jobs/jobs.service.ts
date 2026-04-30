@@ -26,6 +26,21 @@ export class JobsService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
+    if (process.env.NODE_ENV === 'test' || process.env.BOTMEM_SYNC_STARTUP_MAINTENANCE === '1') {
+      await this.runStartupMaintenance();
+      return;
+    }
+
+    setTimeout(() => {
+      this.runStartupMaintenance().catch((err) => {
+        this.logger.warn(
+          `[startup] Maintenance failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }, 0);
+  }
+
+  private async runStartupMaintenance() {
     await this.reconcileCompletedBullJobs();
     if (process.env.BOTMEM_SKIP_JOB_RECOVERY !== '1') {
       await this.recoverStaleState();
