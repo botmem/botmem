@@ -238,12 +238,4 @@ describe('OpenRouterService', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
   });
-
-  describe('rerank', () => {
-    it('returns array of zeros (not supported)', async () => {
-      const result = await service.rerank('query', ['doc1', 'doc2', 'doc3']);
-
-      expect(result).toEqual([0, 0, 0]);
-    });
-  });
 });

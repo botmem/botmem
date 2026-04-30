@@ -4,14 +4,13 @@ import { describe, it, expect } from 'vitest';
  * Tests for computeWeights scoring logic with pinning and recall boost.
  *
  * We test the pure scoring function by extracting its logic.
- * The function signature: computeWeights(semanticScore, rerankScore, mem) =>
- *   { score, weights: { semantic, rerank, recency, importance, trust, final } }
+ * The function signature: computeWeights(semanticScore, mem) =>
+ *   { score, weights: { semantic, recency, importance, trust, final } }
  */
 
 // Replicate the scoring logic as a pure function for unit testing
 function computeWeights(
   semanticScore: number,
-  rerankScore: number,
   mem: {
     eventTime: string | Date;
     entities: string;
@@ -24,7 +23,6 @@ function computeWeights(
   score: number;
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;
@@ -47,17 +45,13 @@ function computeWeights(
   const baseImportance = 0.5 + Math.min(entityCount * 0.1, 0.4);
   const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
   const trust = getTrustScore(mem.connectorType);
-
-  let final =
-    rerankScore > 0
-      ? 0.4 * semanticScore + 0.3 * rerankScore + 0.15 * recency + 0.1 * importance + 0.05 * trust
-      : 0.7 * semanticScore + 0.15 * recency + 0.1 * importance + 0.05 * trust;
+  let final = 0.7 * semanticScore + 0.15 * recency + 0.1 * importance + 0.05 * trust;
 
   if (isPinned) final = Math.max(final, 0.75);
 
   return {
     score: final,
-    weights: { semantic: semanticScore, rerank: rerankScore, recency, importance, trust, final },
+    weights: { semantic: semanticScore, recency, importance, trust, final },
   };
 }
 
@@ -71,32 +65,32 @@ describe('computeWeights with pinning and recall', () => {
   };
 
   it('Test 1: pinned=true returns score >= 0.75 (score floor)', () => {
-    const result = computeWeights(0.3, 0, { ...baseMem, pinned: true });
+    const result = computeWeights(0.3, { ...baseMem, pinned: true });
     expect(result.score).toBeGreaterThanOrEqual(0.75);
     expect(result.weights.final).toBeGreaterThanOrEqual(0.75);
   });
 
   it('Test 2: pinned=true uses recency=1.0 regardless of age', () => {
-    const result = computeWeights(0.5, 0, { ...baseMem, pinned: true });
+    const result = computeWeights(0.5, { ...baseMem, pinned: true });
     expect(result.weights.recency).toBe(1.0);
   });
 
   it('Test 3: recallCount=5 boosts importance by 0.10 (5 * 0.02)', () => {
-    const withRecall = computeWeights(0.5, 0, { ...baseMem, recallCount: 5 });
-    const without = computeWeights(0.5, 0, { ...baseMem, recallCount: 0 });
+    const withRecall = computeWeights(0.5, { ...baseMem, recallCount: 5 });
+    const without = computeWeights(0.5, { ...baseMem, recallCount: 0 });
     const importanceDiff = withRecall.weights.importance - without.weights.importance;
     expect(importanceDiff).toBeCloseTo(0.1, 5);
   });
 
   it('Test 4: recallCount=15 caps importance boost at 0.20 (not 0.30)', () => {
-    const withRecall = computeWeights(0.5, 0, { ...baseMem, recallCount: 15 });
-    const without = computeWeights(0.5, 0, { ...baseMem, recallCount: 0 });
+    const withRecall = computeWeights(0.5, { ...baseMem, recallCount: 15 });
+    const without = computeWeights(0.5, { ...baseMem, recallCount: 0 });
     const importanceDiff = withRecall.weights.importance - without.weights.importance;
     expect(importanceDiff).toBeCloseTo(0.2, 5);
   });
 
   it('Test 5: pinned=false and recallCount=0 behaves same as before (no floor, normal recency)', () => {
-    const result = computeWeights(0.5, 0, baseMem);
+    const result = computeWeights(0.5, baseMem);
     // 90-day-old memory should have recency < 1.0
     expect(result.weights.recency).toBeLessThan(1.0);
     expect(result.weights.recency).toBeGreaterThan(0);

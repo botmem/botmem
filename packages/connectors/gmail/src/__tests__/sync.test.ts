@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SyncContext, ConnectorDataEvent, ProgressEvent } from '@botmem/connector-sdk';
 
-const { mockList, mockGet, mockGetProfile } = vi.hoisted(() => ({
+const { mockList, mockGet, mockGetProfile, mockHistoryList } = vi.hoisted(() => ({
   mockList: vi.fn(),
   mockGet: vi.fn(),
   mockGetProfile: vi.fn(),
+  mockHistoryList: vi.fn(),
 }));
 
 vi.mock('googleapis', () => ({
@@ -19,6 +20,9 @@ vi.mock('googleapis', () => ({
         messages: {
           list: mockList,
           get: mockGet,
+        },
+        history: {
+          list: mockHistoryList,
         },
         getProfile: mockGetProfile,
       },
@@ -43,7 +47,7 @@ function makeCtx(overrides: Record<string, unknown> = {}): SyncContext {
 describe('syncGmail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetProfile.mockResolvedValue({ data: { messagesTotal: 100 } });
+    mockGetProfile.mockResolvedValue({ data: { messagesTotal: 100, historyId: 'hist-100' } });
   });
 
   it('syncs messages and emits events', async () => {
@@ -82,7 +86,13 @@ describe('syncGmail', () => {
 
     expect(result.processed).toBe(2);
     expect(result.hasMore).toBe(true);
-    expect(result.cursor).toBe('page2');
+    expect(JSON.parse(result.cursor!)).toEqual({
+      kind: 'gmail',
+      version: 1,
+      mode: 'backfill',
+      pageToken: 'page2',
+      targetHistoryId: 'hist-100',
+    });
     expect(events).toHaveLength(2);
     expect(events[0].sourceType).toBe('email');
     expect(events[0].content.text).toContain('Email msg-1');
@@ -97,16 +107,102 @@ describe('syncGmail', () => {
     const result = await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
     expect(result.processed).toBe(0);
     expect(result.hasMore).toBe(false);
+    expect(JSON.parse(result.cursor!)).toEqual({
+      kind: 'gmail',
+      version: 1,
+      mode: 'history',
+      historyId: 'hist-100',
+    });
     expect(events).toHaveLength(0);
   });
 
-  it('passes cursor as pageToken', async () => {
+  it('resumes backfill cursors as pageToken', async () => {
     mockList.mockResolvedValue({ data: { messages: [], nextPageToken: null } });
 
-    await syncGmail(makeCtx({ cursor: 'existing-cursor' }), vi.fn(), vi.fn());
+    await syncGmail(
+      makeCtx({
+        cursor: JSON.stringify({
+          kind: 'gmail',
+          version: 1,
+          mode: 'backfill',
+          pageToken: 'existing-cursor',
+          targetHistoryId: 'hist-100',
+        }),
+      }),
+      vi.fn(),
+      vi.fn(),
+    );
     expect(mockList).toHaveBeenCalledWith(
       expect.objectContaining({ pageToken: 'existing-cursor' }),
     );
+  });
+
+  it('ignores legacy raw page-token cursors and starts backfill from the first page', async () => {
+    mockList.mockResolvedValue({ data: { messages: [], nextPageToken: null } });
+    const ctx = makeCtx({ cursor: 'legacy-page-token' });
+
+    await syncGmail(ctx, vi.fn(), vi.fn());
+
+    expect(mockList).toHaveBeenCalledWith(expect.objectContaining({ pageToken: undefined }));
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Ignoring legacy Gmail page cursor'),
+    );
+  });
+
+  it('uses Gmail history for established cursors', async () => {
+    mockHistoryList.mockResolvedValue({
+      data: {
+        history: [
+          {
+            messagesAdded: [{ message: { id: 'msg-1' } }, { message: { id: 'msg-1' } }],
+          },
+          {
+            messagesAdded: [{ message: { id: 'msg-2' } }],
+          },
+        ],
+        historyId: 'hist-200',
+      },
+    });
+    mockGet.mockImplementation(async (opts: { id: string }) => ({
+      data: {
+        id: opts.id,
+        payload: {
+          headers: [
+            { name: 'Subject', value: `Email ${opts.id}` },
+            { name: 'From', value: 'sender@test.com' },
+            { name: 'To', value: 'receiver@test.com' },
+          ],
+        },
+        labelIds: ['INBOX'],
+      },
+    }));
+
+    const events: ConnectorDataEvent[] = [];
+    const result = await syncGmail(
+      makeCtx({
+        cursor: JSON.stringify({
+          kind: 'gmail',
+          version: 1,
+          mode: 'history',
+          historyId: 'hist-100',
+        }),
+      }),
+      (e) => events.push(e),
+      vi.fn(),
+    );
+
+    expect(mockHistoryList).toHaveBeenCalledWith(
+      expect.objectContaining({ startHistoryId: 'hist-100' }),
+    );
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(events).toHaveLength(2);
+    expect(result.hasMore).toBe(false);
+    expect(JSON.parse(result.cursor!)).toEqual({
+      kind: 'gmail',
+      version: 1,
+      mode: 'history',
+      historyId: 'hist-200',
+    });
   });
 
   it('fetches messages in parallel', async () => {

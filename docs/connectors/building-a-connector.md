@@ -615,7 +615,7 @@ ctx.logger.error('API returned 500');
 ctx.logger.debug('Fetched 50 notes');
 ```
 
-Logs are stored in the database and visible in the web UI.
+Logs are emitted as NDJSON to stdout and appended to `data/logs.ndjson`; `/api/logs` reads that file.
 
 ### NestJS Watch Mode Caveat
 

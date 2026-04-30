@@ -8,7 +8,6 @@ export class OllamaService {
   private embedModel: string;
   private textModel: string;
   private vlModel: string;
-  private rerankerModel: string;
   private authHeaders: Record<string, string>;
 
   constructor(config: ConfigService) {
@@ -16,7 +15,6 @@ export class OllamaService {
     this.embedModel = config.ollamaEmbedModel;
     this.textModel = config.ollamaTextModel;
     this.vlModel = config.ollamaVlModel;
-    this.rerankerModel = config.ollamaRerankerModel;
     const username = config.ollamaUsername;
     const password = config.ollamaPassword;
     this.authHeaders =
@@ -132,62 +130,5 @@ export class OllamaService {
       }
     }
     throw new Error('Unreachable');
-  }
-
-  /**
-   * Rerank documents against a query using Qwen3-Reranker via Ollama generate API.
-   * Returns an array of relevance scores (0-1) in the same order as the input documents.
-   * Gracefully degrades: returns 0 for any document that fails (timeout, model unavailable, etc.).
-   */
-  async rerank(query: string, documents: string[]): Promise<number[]> {
-    const results = await Promise.allSettled(documents.map((doc) => this.rerankOne(query, doc)));
-    return results.map((r) => (r.status === 'fulfilled' ? r.value : 0));
-  }
-
-  private async rerankOne(query: string, doc: string): Promise<number> {
-    const prompt = `<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".\n<|im_end|>\n<|im_start|>user\n<Instruct>: Given a personal memory search query, retrieve relevant memories that answer the query\n<Query>: ${query}\n<Document>: ${doc}\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
-
-    try {
-      const res = await fetch(`${this.baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...this.authHeaders },
-        body: JSON.stringify({
-          model: this.rerankerModel,
-          prompt,
-          raw: true,
-          stream: false,
-          options: {
-            temperature: 0,
-            num_predict: 1,
-            logprobs: true,
-            top_logprobs: 5,
-          },
-        }),
-        signal: AbortSignal.timeout(5_000),
-      });
-
-      if (!res.ok) return 0;
-
-      const data = await res.json();
-
-      if (data.logprobs?.[0]?.top_logprobs) {
-        const topLogprobs: Array<{ token: string; logprob: number }> =
-          data.logprobs[0].top_logprobs;
-        let yesProb = 0;
-        let noProb = 0;
-        for (const entry of topLogprobs) {
-          const token = entry.token.toLowerCase().trim();
-          if (token === 'yes') yesProb += Math.exp(entry.logprob);
-          if (token === 'no') noProb += Math.exp(entry.logprob);
-        }
-        const total = yesProb + noProb;
-        return total > 0 ? yesProb / total : 0;
-      }
-
-      const response = (data.response || '').toLowerCase().trim();
-      return response.startsWith('yes') ? 0.8 : 0.2;
-    } catch {
-      return 0;
-    }
   }
 }

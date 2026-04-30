@@ -17,6 +17,18 @@ const DEFAULT_SERVER = 'wss://botmem.xyz/imsg-tunnel';
 
 const program = new Command();
 
+function timestamp(): string {
+  return new Date().toISOString();
+}
+
+function log(message = ''): void {
+  console.log(message ? `  ${timestamp()} ${message}` : '');
+}
+
+function error(message = ''): void {
+  console.error(message ? `  ${timestamp()} ${message}` : '');
+}
+
 program
   .name('imsg-bridge')
   .description('Botmem iMessage Bridge — syncs your iMessages securely')
@@ -27,26 +39,29 @@ program
     console.log('\n  BOTMEM iMESSAGE BRIDGE\n');
 
     // ── Preflight ─────────────────────────────────────────────────────────
-    console.log('  Checking prerequisites...');
+    log('Checking prerequisites...');
     const preflight = runPreflight(opts.db);
 
     if (!preflight.ok) {
-      console.error('\n  PREFLIGHT FAILED:\n');
+      error('PREFLIGHT FAILED:');
       for (const err of preflight.errors) {
-        console.error(`  ${err.split('\n').join('\n  ')}\n`);
+        for (const line of err.split('\n')) {
+          error(line);
+        }
       }
       process.exit(1);
     }
 
-    console.log(`  iMessage database: ${preflight.dbPath}`);
-    console.log(`  Chats found: ${preflight.chatCount ?? 'unknown'}`);
+    log(`iMessage database: ${preflight.dbPath}`);
+    log(`Chats found: ${preflight.chatCount ?? 'unknown'}`);
 
     // ── Open database ─────────────────────────────────────────────────────
     const db = new ImsgDatabase(opts.db);
     const rpcHandler = new RpcHandler(db);
 
     // ── Connect tunnel ────────────────────────────────────────────────────
-    console.log(`\n  Connecting to ${opts.server}...`);
+    console.log('');
+    log(`Connecting to ${opts.server}...`);
 
     const tunnel = new TunnelClient({
       serverUrl: opts.server,
@@ -63,15 +78,17 @@ program
           disconnected: '--',
           error: '!!',
         }[status] || '??';
-      console.log(`  [${icon}] ${status}`);
+      log(`[${icon}] ${status}`);
     });
 
     tunnel.on('log', (msg: string) => {
-      console.log(`  ${msg}`);
+      log(msg);
     });
 
     tunnel.on('fatal', (msg: string) => {
-      console.error(`\n  FATAL: ${msg}\n`);
+      console.error('');
+      error(`FATAL: ${msg}`);
+      console.error('');
       db.close();
       process.exit(1);
     });
@@ -80,7 +97,8 @@ program
 
     // ── Graceful shutdown ─────────────────────────────────────────────────
     const shutdown = () => {
-      console.log('\n  Shutting down...');
+      console.log('');
+      log('Shutting down...');
       tunnel.destroy();
       db.close();
       process.exit(0);

@@ -27,16 +27,16 @@ POST /api/memories/search
 }
 ```
 
-| Field                     | Type   | Required | Description                               |
-| ------------------------- | ------ | -------- | ----------------------------------------- |
-| `query`                   | string | Yes      | Natural language search query             |
-| `filters`                 | object | No       | Optional filters                          |
-| `filters.connectorType`   | string | No       | Filter by connector type                  |
-| `filters.sourceType`      | string | No       | Filter by source type                     |
-| `filters.contactId`       | string | No       | Filter to memories involving this contact |
-| `filters.factualityLabel` | string | No       | Filter by factuality label                |
-| `diversityFactor`         | number | No       | Connector diversity threshold (0-1, default: 0.15). Higher values sacrifice more score for diversity across connector types. 0 disables diversity reranking. |
-| `limit`                   | number | No       | Max results (default: 20)                 |
+| Field                     | Type   | Required | Description                                                                                                                                                 |
+| ------------------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `query`                   | string | Yes      | Natural language search query                                                                                                                               |
+| `filters`                 | object | No       | Optional filters                                                                                                                                            |
+| `filters.connectorType`   | string | No       | Filter by connector type                                                                                                                                    |
+| `filters.sourceType`      | string | No       | Filter by source type                                                                                                                                       |
+| `filters.contactId`       | string | No       | Filter to memories involving this contact                                                                                                                   |
+| `filters.factualityLabel` | string | No       | Filter by factuality label                                                                                                                                  |
+| `diversityFactor`         | number | No       | Connector diversity threshold (0-1, default: 0.15). Higher values sacrifice more score for diversity across connector types. 0 disables diversity ordering. |
+| `limit`                   | number | No       | Max results (default: 20)                                                                                                                                   |
 
 ### Response
 
@@ -52,7 +52,6 @@ POST /api/memories/search
     "score": 0.87,
     "weights": {
       "semantic": 0.92,
-      "rerank": 0,
       "recency": 0.78,
       "importance": 0.7,
       "trust": 0.95,
@@ -68,14 +67,14 @@ POST /api/memories/search
 Results are sorted by the `final` score (descending). The scoring formula is:
 
 ```
-final = 0.40 * semantic + 0.30 * rerank + 0.15 * recency + 0.10 * importance + 0.05 * trust
+final = 0.70 * semantic + 0.15 * recency + 0.10 * importance + 0.05 * trust
 ```
 
 **Content cleaning:** Stored text is cleaned before indexing -- HTML tags, email signatures, reply chains, and messaging formatting are stripped. Search queries match against cleaned text.
 
 **Factuality corroboration:** Memories with `supports` links from different connector types are automatically promoted from UNVERIFIED to FACT. See [Memory Model: Factuality Corroboration](/architecture/memory-model#factuality-corroboration).
 
-**Diversity reranking:** When `diversityFactor` > 0, results are reranked to prevent a single connector type from dominating. The algorithm picks from underrepresented connectors when their score is within `diversityFactor` of the best available.
+**Diversity diversity ordering:** When `diversityFactor` > 0, results are diversified to prevent a single connector type from dominating. The algorithm picks from underrepresented connectors when their score is within `diversityFactor` of the best available.
 
 ---
 

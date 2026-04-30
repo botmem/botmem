@@ -35,7 +35,6 @@ export interface SearchResult {
   score: number;
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;
@@ -104,7 +103,31 @@ export interface QueueStats {
     completed: number;
     failed: number;
     delayed: number;
+    contradictions?: Array<{ jobId: string; dbStatus?: string; bullState: string; action: string }>;
   };
+}
+
+export interface RawEventDebt {
+  total: number;
+  groups: Array<{
+    connectorType: string;
+    sourceType: string;
+    processingState: string;
+    count: number;
+  }>;
+}
+
+export interface MemoryRaw {
+  memory: Record<string, unknown>;
+  rawEvent: Record<string, unknown> | null;
+  connectorRaw: Record<string, unknown> | null;
+  asset: { originalUrl: string; thumbnailUrl: string } | null;
+}
+
+export interface MemoryRawFile {
+  buffer: Buffer;
+  contentType: string;
+  fileName: string | null;
 }
 
 export class BotmemApiError extends Error {
@@ -166,6 +189,46 @@ export class BotmemClient {
     return response.json() as Promise<T>;
   }
 
+  private async requestFile(path: string): Promise<MemoryRawFile> {
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(url, { headers });
+    } catch (err) {
+      throw new BotmemApiError(
+        `Failed to connect to Botmem API at ${url}: ${err instanceof Error ? err.message : String(err)}`,
+        0,
+      );
+    }
+
+    if (!response.ok) {
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch {
+        body = await response.text().catch(() => null);
+      }
+      throw new BotmemApiError(
+        `Botmem API returned ${response.status} ${response.statusText} for GET ${path}`,
+        response.status,
+        body,
+      );
+    }
+
+    const disposition = response.headers.get('content-disposition') || '';
+    const fileNameMatch = disposition.match(/filename="([^"]+)"/);
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type') || 'application/octet-stream',
+      fileName: fileNameMatch?.[1] ?? null,
+    };
+  }
+
   // --- Memory ---
 
   async searchMemories(
@@ -173,18 +236,27 @@ export class BotmemClient {
     filters?: Record<string, string>,
     limit?: number,
     memoryBankId?: string,
+    debug?: boolean,
   ): Promise<{
     items: SearchResult[];
     fallback: boolean;
     resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+    diagnostics?: unknown;
   }> {
+    const body: Record<string, unknown> = { query, limit, memoryBankId, debug };
+    if (filters && Object.keys(filters).length > 0) {
+      Object.assign(body, filters);
+      body.filters = filters;
+    }
+
     return this.request<{
       items: SearchResult[];
       fallback: boolean;
       resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+      diagnostics?: unknown;
     }>('/memories/search', {
       method: 'POST',
-      body: JSON.stringify({ query, filters, limit, memoryBankId }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -205,6 +277,19 @@ export class BotmemClient {
 
   async getMemory(id: string): Promise<Memory> {
     return this.request<Memory>(`/memories/${encodeURIComponent(id)}`);
+  }
+
+  async getMemoryRaw(id: string): Promise<MemoryRaw> {
+    return this.request<MemoryRaw>(`/memories/${encodeURIComponent(id)}/raw`);
+  }
+
+  async getMemoryRawFile(
+    id: string,
+    variant: 'original' | 'thumbnail' = 'original',
+  ): Promise<MemoryRawFile> {
+    return this.requestFile(
+      `/memories/${encodeURIComponent(id)}/raw/file?variant=${encodeURIComponent(variant)}`,
+    );
   }
 
   async deleteMemory(id: string): Promise<{ ok: boolean }> {
@@ -251,6 +336,12 @@ export class BotmemClient {
     return this.request<{ accounts: ConnectorAccount[] }>('/accounts');
   }
 
+  async archiveAccount(id: string): Promise<ConnectorAccount> {
+    return this.request<ConnectorAccount>(`/accounts/${encodeURIComponent(id)}/archive`, {
+      method: 'POST',
+    });
+  }
+
   // --- Jobs ---
 
   async listJobs(accountId?: string): Promise<{ jobs: Job[] }> {
@@ -284,6 +375,41 @@ export class BotmemClient {
 
   async getQueueStats(): Promise<QueueStats> {
     return this.request<QueueStats>('/jobs/queues');
+  }
+
+  async getRawEventDebt(params?: {
+    connectorType?: string;
+    sourceType?: string;
+  }): Promise<RawEventDebt> {
+    const qs = new URLSearchParams();
+    if (params?.connectorType) qs.set('connectorType', params.connectorType);
+    if (params?.sourceType) qs.set('sourceType', params.sourceType);
+    const query = qs.toString();
+    return this.request<RawEventDebt>(`/memories/raw-events/debt${query ? '?' + query : ''}`);
+  }
+
+  async repairRawEventDebt(params?: {
+    limit?: number;
+    connectorType?: string;
+    sourceType?: string;
+  }): Promise<{
+    enqueued: number;
+    limit: number;
+    connectorType: string | null;
+    sourceType: string | null;
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.connectorType) qs.set('connectorType', params.connectorType);
+    if (params?.sourceType) qs.set('sourceType', params.sourceType);
+    const query = qs.toString();
+    return this.request(`/memories/raw-events/repair${query ? '?' + query : ''}`, {
+      method: 'POST',
+    });
+  }
+
+  async getLogSummary(): Promise<Record<string, unknown>> {
+    return this.request('/logs/summary');
   }
 
   async getVersion(): Promise<{ buildTime: string; gitHash: string; uptime: number }> {

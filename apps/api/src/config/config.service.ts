@@ -58,6 +58,10 @@ export class ConfigService implements OnModuleInit {
     return process.env.DATABASE_URL!;
   }
 
+  get databasePoolMax(): number {
+    return Number.parseInt(process.env.DB_POOL_MAX || '20', 10);
+  }
+
   get pluginsDir(): string {
     return process.env.PLUGINS_DIR || './plugins';
   }
@@ -80,23 +84,6 @@ export class ConfigService implements OnModuleInit {
 
   get ollamaVlModel(): string {
     return process.env.OLLAMA_VL_MODEL || 'qwen3-vl:4b';
-  }
-
-  get ollamaRerankerModel(): string {
-    return process.env.OLLAMA_RERANKER_MODEL || 'sam860/qwen3-reranker:0.6b-Q8_0';
-  }
-
-  /** URL of a HuggingFace TEI /rerank endpoint (e.g. http://192.168.10.250:8081).
-   *  When set, reranking is active. When empty, reranking is skipped (scores = 0). */
-  get rerankerUrl(): string {
-    return process.env.RERANKER_URL || '';
-  }
-
-  /** Reranker backend: tei (auto if RERANKER_URL set) | ollama | jina | none */
-  get rerankerBackend(): 'ollama' | 'jina' | 'tei' | 'none' {
-    const val = process.env.RERANKER_BACKEND || (this.rerankerUrl ? 'tei' : 'ollama');
-    if (val === 'jina' || val === 'none' || val === 'tei') return val;
-    return 'ollama';
   }
 
   get jinaApiKey(): string {
@@ -380,12 +367,21 @@ export class ConfigService implements OnModuleInit {
   get aiConcurrency(): { embed: number; enrich: number; memory: number } {
     // Embed concurrency follows embedBackend (cloud APIs can handle high concurrency)
     const embedConcurrency =
-      this.embedBackend === 'gemini' || this.embedBackend === 'openrouter' ? 64 : 8;
+      parseInt(process.env.EMBED_CONCURRENCY || '', 10) ||
+      (this.embedBackend === 'gemini' || this.embedBackend === 'openrouter' ? 16 : 4);
 
     if (this.aiBackend === 'openrouter') {
-      return { embed: embedConcurrency, enrich: 1000, memory: 1000 };
+      return {
+        embed: embedConcurrency,
+        enrich: parseInt(process.env.ENRICH_CONCURRENCY || '', 10) || 8,
+        memory: parseInt(process.env.MEMORY_CONCURRENCY || '', 10) || 4,
+      };
     }
     // Ollama: conservative — single GPU, one inference at a time is fastest
-    return { embed: embedConcurrency, enrich: 8, memory: 16 };
+    return {
+      embed: embedConcurrency,
+      enrich: parseInt(process.env.ENRICH_CONCURRENCY || '', 10) || 4,
+      memory: parseInt(process.env.MEMORY_CONCURRENCY || '', 10) || 4,
+    };
   }
 }

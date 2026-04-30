@@ -8,7 +8,6 @@ function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService
     ollamaEmbedModel: 'qwen3-embedding:8b',
     ollamaTextModel: 'qwen3:0.6b',
     ollamaVlModel: 'qwen3-vl:8b',
-    ollamaRerankerModel: '',
     ...overrides,
   } as ConfigService;
 }

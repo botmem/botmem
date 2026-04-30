@@ -8,6 +8,7 @@ import type {
   ConnectorDataEvent,
   EmbedResult,
   PipelineContext,
+  ConnectorRawAsset,
 } from '@botmem/connector-sdk';
 
 /** Strip trailing slashes and any accidental /api suffix so calls like `${host}/api/...` are correct. */
@@ -100,7 +101,17 @@ interface ImmichAsset {
 
 interface CursorState {
   takenAfter?: string;
+  highWater?: string;
   page: number;
+}
+
+function maxIsoTimestamp(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
 export class ImmichConnector extends BaseConnector {
@@ -218,6 +229,53 @@ export class ImmichConnector extends BaseConnector {
     // API keys can't be revoked remotely
   }
 
+  async getRaw(sourceId: string, auth: AuthContext): Promise<Record<string, unknown> | null> {
+    const { host, apiKey } = this.resolveImmichAuth(auth);
+    const res = await fetch(`${host}/api/assets/${encodeURIComponent(sourceId)}`, {
+      headers: { 'x-api-key': apiKey },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Immich asset metadata returned ${res.status}`);
+    return (await res.json()) as Record<string, unknown>;
+  }
+
+  async getRawAsset(
+    sourceId: string,
+    auth: AuthContext,
+    variant: string,
+  ): Promise<ConnectorRawAsset | null> {
+    const { host, apiKey } = this.resolveImmichAuth(auth);
+    const endpoint =
+      variant === 'thumbnail'
+        ? `${host}/api/assets/${encodeURIComponent(sourceId)}/thumbnail?size=preview`
+        : `${host}/api/assets/${encodeURIComponent(sourceId)}/original`;
+    const res = await fetch(endpoint, {
+      headers: { 'x-api-key': apiKey },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) throw new Error(`Immich asset download returned ${res.status}`);
+    const metadata = await this.getRaw(sourceId, auth).catch(() => null);
+    const fileName =
+      variant === 'thumbnail'
+        ? `${String(metadata?.originalFileName || sourceId)}.preview`
+        : String(metadata?.originalFileName || sourceId);
+    return {
+      contentType: res.headers.get('content-type') || 'application/octet-stream',
+      contentLength: res.headers.get('content-length')
+        ? Number(res.headers.get('content-length'))
+        : null,
+      fileName,
+      buffer: Buffer.from(await res.arrayBuffer()),
+    };
+  }
+
+  private resolveImmichAuth(auth: AuthContext): { host: string; apiKey: string } {
+    const host = normalizeHost(String(auth.raw?.host || ''));
+    const apiKey = auth.accessToken;
+    if (!host || !apiKey) throw new Error('Immich credentials are unavailable');
+    return { host, apiKey };
+  }
+
   async sync(ctx: SyncContext): Promise<SyncResult> {
     const host = ctx.auth.raw?.host as string;
     const apiKey = ctx.auth.accessToken!;
@@ -270,6 +328,9 @@ export class ImmichConnector extends BaseConnector {
     });
 
     if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error('Immich authentication failed with 401 — reconnect required');
+      }
       const hint =
         res.status === 404
           ? ` — check that the host URL does not include /api (use http://host:port, not http://host:port/api)`
@@ -281,7 +342,7 @@ export class ImmichConnector extends BaseConnector {
     const assets: ImmichAsset[] = searchResponse.assets?.items ?? [];
     const nextPage: string | null = searchResponse.assets?.nextPage ?? null;
 
-    let lastTimestamp: string | null = null;
+    let highWater = cursor.highWater ?? null;
 
     for (const asset of assets) {
       if (ctx.signal.aborted) break;
@@ -341,7 +402,7 @@ export class ImmichConnector extends BaseConnector {
       });
 
       processed++;
-      lastTimestamp = timestamp;
+      highWater = maxIsoTimestamp(highWater, timestamp);
     }
 
     this.emitProgress({ processed });
@@ -355,12 +416,13 @@ export class ImmichConnector extends BaseConnector {
       // More pages in current sweep — advance page
       nextCursor = JSON.stringify({
         takenAfter: cursor.takenAfter,
+        highWater: highWater ?? undefined,
         page: cursor.page + 1,
       } satisfies CursorState);
-    } else if (lastTimestamp) {
-      // Sweep complete — store final timestamp for next incremental sync
+    } else if (highWater) {
+      // Sweep complete — store newest seen timestamp for next incremental sync
       nextCursor = JSON.stringify({
-        takenAfter: lastTimestamp,
+        takenAfter: highWater,
         page: 1,
       } satisfies CursorState);
     } else {

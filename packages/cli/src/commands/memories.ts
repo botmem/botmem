@@ -1,5 +1,6 @@
 import type { BotmemClient } from '../client.js';
 import { formatMemoryList, formatMemory, formatStats } from '../format.js';
+import { writeFileSync } from 'fs';
 
 export async function runMemories(client: BotmemClient, args: string[], json: boolean) {
   let limit: number | undefined;
@@ -37,6 +38,48 @@ export async function runMemory(client: BotmemClient, args: string[], json: bool
       console.log(JSON.stringify(result));
     } else {
       console.log('Memory deleted.');
+    }
+    return;
+  }
+
+  if (args[1] === 'raw') {
+    let out: string | undefined;
+    let metadataOut: string | undefined;
+    let variant: 'original' | 'thumbnail' = 'original';
+
+    for (let i = 2; i < args.length; i++) {
+      const a = args[i];
+      if (a === '--out') out = args[++i];
+      else if (a === '--metadata-out') metadataOut = args[++i];
+      else if (a === '--variant') {
+        const next = args[++i];
+        if (next !== 'original' && next !== 'thumbnail') {
+          console.error('Error: --variant must be original or thumbnail');
+          process.exit(1);
+        }
+        variant = next;
+      }
+    }
+
+    const raw = await client.getMemoryRaw(id);
+    if (out) {
+      const file = await client.getMemoryRawFile(id, variant);
+      writeFileSync(out, file.buffer);
+      if (metadataOut) writeFileSync(metadataOut, JSON.stringify(raw, null, 2));
+      const result = {
+        ok: true,
+        out,
+        bytes: file.buffer.length,
+        contentType: file.contentType,
+        fileName: file.fileName,
+        metadataOut: metadataOut ?? null,
+      };
+      if (json) console.log(JSON.stringify(result, null, 2));
+      else console.log(`Raw ${variant} written to ${out} (${file.buffer.length} bytes).`);
+    } else if (json) {
+      console.log(JSON.stringify(raw, null, 2));
+    } else {
+      console.log(JSON.stringify(raw, null, 2));
     }
     return;
   }

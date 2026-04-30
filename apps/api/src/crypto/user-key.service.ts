@@ -78,6 +78,13 @@ export class UserKeyService implements OnModuleDestroy {
   /** Remove key from memory, zeroing the buffer. */
   removeKey(userId: string): void {
     this.evict(userId);
+    void this.dekCache.removeDek(userId);
+  }
+
+  /** Remove key from both cache tiers. */
+  async clearDek(userId: string): Promise<void> {
+    this.evict(userId);
+    await this.dekCache.removeDek(userId);
   }
 
   // --- internal helpers ---

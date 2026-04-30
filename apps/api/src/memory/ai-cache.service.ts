@@ -30,20 +30,33 @@ export class AiCacheService implements OnModuleInit {
     );
   }
 
-  private computeId(model: string, inputText: string): string {
+  private inputHash(inputText: string): string {
+    return createHash('sha256').update(inputText).digest('hex');
+  }
+
+  private computeLegacyId(model: string, inputText: string): string {
     const inputHash = createHash('sha256').update(inputText).digest('hex');
     return createHash('sha256').update(`${model}:${inputHash}`).digest('hex');
+  }
+
+  private computeId(backend: string, operation: string, model: string, inputText: string): string {
+    const inputHash = this.inputHash(inputText);
+    return createHash('sha256')
+      .update(`${backend}:${operation}:${model}:${inputHash}`)
+      .digest('hex');
   }
 
   async get(
     model: string,
     inputText: string,
-    _operation: string,
+    operation: string,
+    backend = 'legacy',
   ): Promise<{ output: string; hit: true } | { hit: false }> {
     try {
-      const id = this.computeId(model, inputText);
+      const id = this.computeId(backend, operation, model, inputText);
+      const legacyId = this.computeLegacyId(model, inputText);
       const rows = await this.db.db.execute(
-        sql`SELECT output FROM llm_cache WHERE id = ${id} LIMIT 1`,
+        sql`SELECT output FROM llm_cache WHERE id IN (${id}, ${legacyId}) ORDER BY CASE WHEN id = ${id} THEN 0 ELSE 1 END LIMIT 1`,
       );
 
       if (!rows.rows?.length) return { hit: false };
@@ -68,8 +81,8 @@ export class AiCacheService implements OnModuleInit {
     meta?: { inputTokens?: number; outputTokens?: number; latencyMs?: number },
   ): Promise<void> {
     try {
-      const id = this.computeId(model, inputText);
-      const inputHash = createHash('sha256').update(inputText).digest('hex');
+      const id = this.computeId(backend, operation, model, inputText);
+      const inputHash = this.inputHash(inputText);
       // eslint-disable-next-line no-control-regex
       const encryptedInput = this.crypto.encrypt(inputText.replace(/\x00/g, ''));
       // eslint-disable-next-line no-control-regex

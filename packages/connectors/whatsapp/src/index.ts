@@ -9,10 +9,14 @@ import type {
   ConnectorDataEvent,
   EmbedResult,
   PipelineContext,
+  ConnectorRealtimeContext,
+  ConnectorRealtimeHandle,
 } from '@botmem/connector-sdk';
 import type { makeWASocket } from '@whiskeysockets/baileys';
 import { startQrAuth, type QrAuthCallbacks } from './qr-auth.js';
-import { syncWhatsApp, setDecryptFailureCallback } from './sync.js';
+import { syncWhatsApp, setDecryptFailureCallback, startWhatsAppRealtime } from './sync.js';
+export { startWhatsAppRealtime } from './sync.js';
+export type { WhatsAppRealtimeCallbacks, WhatsAppRealtimeHandle } from './sync.js';
 
 interface WarmSession {
   sessionId: string;
@@ -23,6 +27,7 @@ interface WarmSession {
 }
 
 const WHATSAPP_DATA_DIR = path.resolve('./data/whatsapp');
+const RECONNECTABLE_CODES = new Set([408, 428, 440, 515]);
 
 function assertSafeSessionDir(sessionDir: string): string {
   const resolved = path.resolve(sessionDir);
@@ -265,6 +270,28 @@ export class WhatsAppConnector extends BaseConnector {
     } catch (err) {
       console.debug(`[WhatsApp] Failed to delete session ${safeDir}:`, err);
     }
+  }
+
+  supportsRealtime(): boolean {
+    return true;
+  }
+
+  async startRealtime(ctx: ConnectorRealtimeContext): Promise<ConnectorRealtimeHandle> {
+    const sessionDir = ctx.auth.raw?.sessionDir as string | undefined;
+    if (!sessionDir) throw new Error('No WhatsApp session found');
+
+    return startWhatsAppRealtime(sessionDir, {
+      onConnected: (info) => ctx.onConnected?.(info),
+      onEvent: (event) => ctx.emitData(event),
+      onDisconnect: (reason, code) =>
+        ctx.onDisconnect?.({
+          reason,
+          code,
+          reconnectable: RECONNECTABLE_CODES.has(code) && !reason.toLowerCase().includes('re-scan'),
+        }),
+      onLog: (level, message) => ctx.logger[level](message),
+      signal: ctx.signal,
+    });
   }
 
   embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {

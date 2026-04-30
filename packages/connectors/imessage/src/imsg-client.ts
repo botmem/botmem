@@ -1,7 +1,7 @@
 /**
  * JSON-RPC client for the iMessage bridge.
  *
- * Transport-agnostic: works with either TcpTransport (local socat bridge)
+ * Transport-agnostic: works with either TcpTransport (legacy local bridge)
  * or WsTunnelTransport (remote bridge via encrypted WebSocket tunnel).
  */
 

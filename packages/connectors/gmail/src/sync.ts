@@ -6,6 +6,65 @@ import { createOAuth2Client } from './oauth.js';
 const BATCH_SIZE = 500; // Gmail API max for messages.list
 const CONCURRENCY = 20; // Parallel message fetches
 
+type GmailResponse<T> = { data: T };
+
+type GmailCursor =
+  | {
+      kind: 'gmail';
+      version: 1;
+      mode: 'backfill';
+      pageToken: string;
+      targetHistoryId: string | null;
+    }
+  | {
+      kind: 'gmail';
+      version: 1;
+      mode: 'history';
+      historyId: string;
+      pageToken?: string;
+      targetHistoryId?: string | null;
+    };
+
+function encodeCursor(cursor: GmailCursor): string {
+  return JSON.stringify(cursor);
+}
+
+function decodeCursor(cursor: string | null): GmailCursor | null {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(cursor) as Partial<GmailCursor>;
+    if (parsed.kind !== 'gmail' || parsed.version !== 1) return null;
+    if (parsed.mode === 'backfill' && typeof parsed.pageToken === 'string') {
+      return {
+        kind: 'gmail',
+        version: 1,
+        mode: 'backfill',
+        pageToken: parsed.pageToken,
+        targetHistoryId: typeof parsed.targetHistoryId === 'string' ? parsed.targetHistoryId : null,
+      };
+    }
+    if (parsed.mode === 'history' && typeof parsed.historyId === 'string') {
+      return {
+        kind: 'gmail',
+        version: 1,
+        mode: 'history',
+        historyId: parsed.historyId,
+        pageToken: typeof parsed.pageToken === 'string' ? parsed.pageToken : undefined,
+        targetHistoryId:
+          typeof parsed.targetHistoryId === 'string' ? parsed.targetHistoryId : undefined,
+      };
+    }
+  } catch {
+    // Legacy cursors were Gmail page tokens. They are not durable across scheduled syncs.
+  }
+  return null;
+}
+
+export function isGmailContinuationCursor(cursor: string | null): boolean {
+  const decoded = decodeCursor(cursor);
+  return !!decoded?.pageToken;
+}
+
 export async function syncGmail(
   ctx: SyncContext,
   emit: (event: ConnectorDataEvent) => void,
@@ -28,37 +87,40 @@ export async function syncGmail(
   const gmail = google.gmail({ version: 'v1', auth });
   let processed = 0;
 
-  ctx.logger.info(`Starting Gmail sync, cursor: ${ctx.cursor || 'none'}`);
+  const cursor = decodeCursor(ctx.cursor);
+  if (ctx.cursor && !cursor) {
+    ctx.logger.warn('Ignoring legacy Gmail page cursor; starting a full backfill');
+  }
+  ctx.logger.info(`Starting Gmail sync, mode: ${cursor?.mode || 'backfill'}`);
 
   // Get total message count for progress tracking
   const profile = await gmail.users.getProfile({ userId: 'me' });
   const totalMessages = profile.data.messagesTotal || 0;
+  const profileHistoryId = profile.data.historyId || null;
   ctx.logger.info(`Total messages in mailbox: ${totalMessages}`);
+
+  if (cursor?.mode === 'history') {
+    return syncGmailHistory({
+      gmail,
+      cursor,
+      emit,
+      emitProgress,
+      logger: ctx.logger,
+      signal: ctx.signal,
+      fallbackHistoryId: profileHistoryId,
+    });
+  }
 
   const res = await gmail.users.messages.list({
     userId: 'me',
     maxResults: BATCH_SIZE,
-    pageToken: ctx.cursor || undefined,
+    pageToken: cursor?.mode === 'backfill' ? cursor.pageToken : undefined,
   });
 
   const messages = res.data.messages || [];
   const total = totalMessages;
 
   let filteredCount = 0;
-
-  /** Labels that indicate promotional/social noise — skip these */
-  const NOISE_LABELS = new Set(['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL']);
-
-  /** Labels that indicate personal/important mail — always keep */
-  const KEEP_LABELS = new Set([
-    'INBOX',
-    'SENT',
-    'IMPORTANT',
-    'STARRED',
-    'CATEGORY_UPDATES',
-    'CATEGORY_PERSONAL',
-    'CATEGORY_FORUMS',
-  ]);
 
   ctx.logger.info(`Fetched ${messages.length} message IDs, estimated total: ${total}`);
   emitProgress({ processed: 0, total });
@@ -82,84 +144,12 @@ export async function syncGmail(
     for (const detail of details) {
       if (ctx.signal?.aborted) break;
 
-      const headers = detail.data.payload?.headers || [];
-      const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-      const from = headers.find((h) => h.name === 'From')?.value || '';
-      const to = headers.find((h) => h.name === 'To')?.value || '';
-      const cc = headers.find((h) => h.name === 'Cc')?.value || '';
-      const date = headers.find((h) => h.name === 'Date')?.value || '';
-      const messageId = headers.find((h) => h.name === 'Message-ID')?.value || '';
-      const inReplyTo = headers.find((h) => h.name === 'In-Reply-To')?.value || '';
-      const listUnsubscribe = headers.find((h) => h.name === 'List-Unsubscribe')?.value || '';
-
-      const labels = detail.data.labelIds || [];
-
-      // Filter by Gmail label: skip CATEGORY_PROMOTIONS and CATEGORY_SOCIAL
-      // unless the message also has a KEEP label (e.g. STARRED, IMPORTANT)
-      const hasNoiseLabel = labels.some((l) => NOISE_LABELS.has(l));
-      const hasKeepLabel = labels.some((l) => KEEP_LABELS.has(l));
-      if (hasNoiseLabel && !hasKeepLabel) {
+      const event = buildEmailEvent(detail.data);
+      if (!event) {
         filteredCount++;
         continue;
       }
-
-      // Filter by List-Unsubscribe header (marketing/newsletter)
-      // but keep if it has a keep label (user explicitly cares about it)
-      if (listUnsubscribe && !hasKeepLabel) {
-        filteredCount++;
-        continue;
-      }
-
-      // Filter by automated sender patterns
-      if (isAutomatedSender({ from })) {
-        filteredCount++;
-        continue;
-      }
-
-      const body = extractBody(detail.data.payload);
-      const attachments = extractAttachments(detail.data.payload);
-
-      const fullText = `${subject}\n\n${body}`;
-
-      // Apply shared noise filter on subject + body
-      if (isNoise(fullText, { from, labels })) {
-        filteredCount++;
-        continue;
-      }
-
-      // Prefer Gmail internalDate (epoch ms, always reliable) over parsed Date header
-      let timestamp: string;
-      if (detail.data.internalDate) {
-        timestamp = new Date(Number(detail.data.internalDate)).toISOString();
-      } else if (date) {
-        const parsed = new Date(date);
-        timestamp = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
-      } else {
-        timestamp = new Date().toISOString();
-      }
-
-      emit({
-        sourceType: 'email',
-        sourceId: detail.data.id!,
-        timestamp,
-        content: {
-          text: fullText,
-          participants: [from, to, cc].filter(Boolean),
-          attachments: attachments.length > 0 ? attachments : undefined,
-          metadata: {
-            subject,
-            from,
-            to,
-            cc: cc || undefined,
-            messageId: messageId || undefined,
-            inReplyTo: inReplyTo || undefined,
-            labels,
-            threadId: detail.data.threadId,
-            snippet: detail.data.snippet,
-            sizeEstimate: detail.data.sizeEstimate,
-          },
-        },
-      });
+      emit(event);
 
       processed++;
     }
@@ -170,9 +160,217 @@ export async function syncGmail(
   ctx.logger.info(`Synced ${processed} emails (${filteredCount} noise filtered)`);
 
   return {
-    cursor: res.data.nextPageToken || null,
+    cursor: res.data.nextPageToken
+      ? encodeCursor({
+          kind: 'gmail',
+          version: 1,
+          mode: 'backfill',
+          pageToken: res.data.nextPageToken,
+          targetHistoryId: profileHistoryId,
+        })
+      : profileHistoryId
+        ? encodeCursor({
+            kind: 'gmail',
+            version: 1,
+            mode: 'history',
+            historyId: profileHistoryId,
+          })
+        : null,
     hasMore: !!res.data.nextPageToken,
     processed,
+  };
+}
+
+async function syncGmailHistory({
+  gmail,
+  cursor,
+  emit,
+  emitProgress,
+  logger,
+  signal,
+  fallbackHistoryId,
+}: {
+  gmail: gmail_v1.Gmail;
+  cursor: Extract<GmailCursor, { mode: 'history' }>;
+  emit: (event: ConnectorDataEvent) => void;
+  emitProgress: (event: ProgressEvent) => void;
+  logger: SyncContext['logger'];
+  signal: AbortSignal;
+  fallbackHistoryId: string | null;
+}): Promise<{ cursor: string | null; hasMore: boolean; processed: number }> {
+  let historyRes: GmailResponse<gmail_v1.Schema$ListHistoryResponse>;
+  try {
+    historyRes = (await gmail.users.history.list({
+      userId: 'me',
+      startHistoryId: cursor.historyId,
+      pageToken: cursor.pageToken,
+      historyTypes: ['messageAdded'],
+      maxResults: BATCH_SIZE,
+    })) as GmailResponse<gmail_v1.Schema$ListHistoryResponse>;
+  } catch (err) {
+    if (isExpiredHistoryError(err)) {
+      logger.warn('Gmail history cursor expired; starting a full backfill');
+      return {
+        cursor: null,
+        hasMore: true,
+        processed: 0,
+      };
+    }
+    throw err;
+  }
+
+  const messageIds = new Set<string>();
+  for (const record of historyRes.data.history || []) {
+    for (const added of record.messagesAdded || []) {
+      if (added.message?.id) messageIds.add(added.message.id);
+    }
+  }
+
+  const ids = [...messageIds];
+  logger.info(`Fetched ${ids.length} Gmail history message ID(s)`);
+  emitProgress({ processed: 0, total: ids.length });
+
+  let processed = 0;
+  let filteredCount = 0;
+  for (let i = 0; i < ids.length; i += CONCURRENCY) {
+    if (signal.aborted) break;
+    const batch = ids.slice(i, i + CONCURRENCY);
+    const details = await Promise.all(
+      batch.map((id) =>
+        gmail.users.messages.get({
+          userId: 'me',
+          id,
+          format: 'full',
+        }),
+      ),
+    );
+
+    for (const detail of details) {
+      if (signal.aborted) break;
+      const event = buildEmailEvent(detail.data);
+      if (!event) {
+        filteredCount++;
+        continue;
+      }
+      emit(event);
+      processed++;
+    }
+    emitProgress({ processed, total: ids.length });
+  }
+
+  logger.info(
+    `Synced ${processed} new emails from Gmail history (${filteredCount} noise filtered)`,
+  );
+
+  const targetHistoryId =
+    historyRes.data.historyId || cursor.targetHistoryId || fallbackHistoryId || cursor.historyId;
+  return {
+    cursor: historyRes.data.nextPageToken
+      ? encodeCursor({
+          kind: 'gmail',
+          version: 1,
+          mode: 'history',
+          historyId: cursor.historyId,
+          pageToken: historyRes.data.nextPageToken,
+          targetHistoryId,
+        })
+      : encodeCursor({
+          kind: 'gmail',
+          version: 1,
+          mode: 'history',
+          historyId: targetHistoryId,
+        }),
+    hasMore: !!historyRes.data.nextPageToken,
+    processed,
+  };
+}
+
+function isExpiredHistoryError(err: unknown): boolean {
+  const maybe = err as { code?: number; response?: { status?: number }; message?: string };
+  const code = maybe.code ?? maybe.response?.status;
+  return code === 404 || (code === 400 && /history/i.test(maybe.message || ''));
+}
+
+/** Labels that indicate promotional/social noise — skip these */
+const NOISE_LABELS = new Set(['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL']);
+
+/** Labels that indicate personal/important mail — always keep */
+const KEEP_LABELS = new Set([
+  'INBOX',
+  'SENT',
+  'IMPORTANT',
+  'STARRED',
+  'CATEGORY_UPDATES',
+  'CATEGORY_PERSONAL',
+  'CATEGORY_FORUMS',
+]);
+
+function buildEmailEvent(message: gmail_v1.Schema$Message): ConnectorDataEvent | null {
+  const headers = message.payload?.headers || [];
+  const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+  const from = headers.find((h) => h.name === 'From')?.value || '';
+  const to = headers.find((h) => h.name === 'To')?.value || '';
+  const cc = headers.find((h) => h.name === 'Cc')?.value || '';
+  const date = headers.find((h) => h.name === 'Date')?.value || '';
+  const messageId = headers.find((h) => h.name === 'Message-ID')?.value || '';
+  const inReplyTo = headers.find((h) => h.name === 'In-Reply-To')?.value || '';
+  const listUnsubscribe = headers.find((h) => h.name === 'List-Unsubscribe')?.value || '';
+
+  const labels = message.labelIds || [];
+
+  // Filter by Gmail label: skip CATEGORY_PROMOTIONS and CATEGORY_SOCIAL
+  // unless the message also has a KEEP label (e.g. STARRED, IMPORTANT)
+  const hasNoiseLabel = labels.some((l) => NOISE_LABELS.has(l));
+  const hasKeepLabel = labels.some((l) => KEEP_LABELS.has(l));
+  if (hasNoiseLabel && !hasKeepLabel) return null;
+
+  // Filter by List-Unsubscribe header (marketing/newsletter)
+  // but keep if it has a keep label (user explicitly cares about it)
+  if (listUnsubscribe && !hasKeepLabel) return null;
+
+  // Filter by automated sender patterns
+  if (isAutomatedSender({ from })) return null;
+
+  const body = extractBody(message.payload);
+  const attachments = extractAttachments(message.payload);
+
+  const fullText = `${subject}\n\n${body}`;
+
+  // Apply shared noise filter on subject + body
+  if (isNoise(fullText, { from, labels })) return null;
+
+  // Prefer Gmail internalDate (epoch ms, always reliable) over parsed Date header
+  let timestamp: string;
+  if (message.internalDate) {
+    timestamp = new Date(Number(message.internalDate)).toISOString();
+  } else if (date) {
+    const parsed = new Date(date);
+    timestamp = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+  } else {
+    timestamp = new Date().toISOString();
+  }
+
+  return {
+    sourceType: 'email',
+    sourceId: message.id!,
+    timestamp,
+    content: {
+      text: fullText,
+      participants: [from, to, cc].filter(Boolean),
+      attachments: attachments.length > 0 ? attachments : undefined,
+      metadata: {
+        subject,
+        from,
+        to,
+        cc: cc || undefined,
+        messageId: messageId || undefined,
+        inReplyTo: inReplyTo || undefined,
+        labels,
+        threadId: message.threadId,
+        snippet: message.snippet,
+        sizeEstimate: message.sizeEstimate,
+      },
+    },
   };
 }
 

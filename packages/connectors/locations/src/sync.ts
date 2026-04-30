@@ -8,6 +8,12 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function addDays(d: Date, days: number): Date {
+  const next = new Date(d);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
 function locationText(loc: OwnTracksLocation): string {
   const dt = new Date(loc.tst * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   const coords = `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}`;
@@ -77,11 +83,9 @@ export async function syncLocations(
     return { cursor: null, hasMore: false, processed: 0 };
   }
 
-  // Process one pair per sync call for manageable batches
-  const idx = state.pairIndex;
-  if (idx >= allPairs.length) {
-    return { cursor: JSON.stringify({ ...state, pairIndex: 0 }), hasMore: false, processed: 0 };
-  }
+  // Process one pair per sync call for manageable batches. If the previous run
+  // finished the list, wrap immediately instead of spending a sync on reset.
+  const idx = state.pairIndex >= allPairs.length ? 0 : state.pairIndex;
 
   const pair = allPairs[idx];
   const pairKey = `${pair.user}/${pair.device}`;
@@ -90,7 +94,9 @@ export async function syncLocations(
 
   const lastTst = state.pairs[pairKey];
   const from = lastTst ? formatDate(new Date((lastTst + 1) * 1000)) : '2000-01-01';
-  const to = formatDate(new Date());
+  // OwnTracks Recorder treats `to` as an exclusive date boundary. Asking for
+  // from=today&to=today returns an empty range, so include tomorrow.
+  const to = formatDate(addDays(new Date(), 1));
 
   const locations = await client.getLocations(pair.user, pair.device, from, to, ctx.signal);
   const newLocations = locations.filter((loc) => !lastTst || loc.tst > lastTst).reverse();

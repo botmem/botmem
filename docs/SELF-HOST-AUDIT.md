@@ -57,7 +57,6 @@
 
 ### 8. No `docker compose` profile docs for optional services
 
-**Where:** `docker-compose.yml` has `ollama` and `reranker` under `profiles:`
 **Impact:** The quickstart never mentions `docker compose --profile ollama up -d` for users who want Ollama bundled. A user without a separate Ollama install has no idea they can spin one up via compose.
 **Fix:** Add a tip in quickstart: "Don't have Ollama installed? Run `docker compose --profile ollama up -d` to include a bundled Ollama container."
 

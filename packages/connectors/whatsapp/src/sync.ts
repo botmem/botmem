@@ -4,6 +4,9 @@ import {
   fetchLatestBaileysVersion,
   downloadContentFromMessage,
   DisconnectReason,
+  Browsers,
+  USyncQuery,
+  USyncUser,
   proto,
   type WAMessage,
   type WAMessageKey,
@@ -16,8 +19,8 @@ import type { LogFn } from 'pino';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { promisify } from 'util';
 import { inflate } from 'zlib';
-import { join } from 'path';
-import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+import { isAbsolute, join, resolve } from 'path';
+import type { SyncContext, ConnectorDataEvent, ConnectorLogger } from '@botmem/connector-sdk';
 import { isNoise } from '@botmem/connector-sdk';
 import { useAtomicMultiFileAuthState, flushPendingWrites } from './atomic-auth-state.js';
 
@@ -217,6 +220,67 @@ function isLid(jid: string): boolean {
   return jid.endsWith('@lid');
 }
 
+function normalizePhoneForLookup(phone: string): string {
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  if (!cleaned) return '';
+  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+}
+
+function rememberPhoneLidMapping(
+  phone: string,
+  lidJid: string,
+  lidToPhone: Map<string, string>,
+  phoneToLid: Map<string, string>,
+) {
+  const phoneKey = phoneFromJid(phone).replace(/[^\d]/g, '');
+  const lidKey = phoneFromJid(lidJid);
+  if (!phoneKey || !lidKey || !isLid(lidJid)) return;
+  phoneToLid.set(phoneKey, lidKey);
+  lidToPhone.set(lidKey, phoneKey);
+}
+
+async function resolveKnownPhonesToLids(
+  sock: WaSock,
+  phones: Iterable<string>,
+  lidToPhone: Map<string, string>,
+  phoneToLid: Map<string, string>,
+  log: (level: 'info' | 'warn' | 'error' | 'debug', message: string) => void,
+) {
+  if (typeof sock.executeUSyncQuery !== 'function') return;
+  const phoneList = [...new Set([...phones].map(normalizePhoneForLookup).filter(Boolean))].filter(
+    (phone) => !phoneToLid.has(phoneFromJid(phone).replace(/[^\d]/g, '')),
+  );
+  if (!phoneList.length) return;
+
+  let resolved = 0;
+  for (let i = 0; i < phoneList.length; i += PHONE_LOOKUP_BATCH_SIZE) {
+    const batch = phoneList.slice(i, i + PHONE_LOOKUP_BATCH_SIZE);
+    const query = new USyncQuery().withContactProtocol();
+    for (const phone of batch) {
+      query.withUser(new USyncUser().withPhone(phone));
+    }
+    try {
+      const result = await sock.executeUSyncQuery(query);
+      for (let idx = 0; idx < (result?.list?.length || 0); idx++) {
+        const entry = result!.list[idx];
+        const lidJid = entry?.id || '';
+        if (!isLid(lidJid)) continue;
+        rememberPhoneLidMapping(batch[idx], lidJid, lidToPhone, phoneToLid);
+        resolved++;
+      }
+      await jitter(100, 400);
+    } catch (err) {
+      log(
+        'debug',
+        `WhatsApp phone→LID lookup failed for batch ${i / PHONE_LOOKUP_BATCH_SIZE + 1}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+  if (resolved > 0) log('info', `Resolved ${resolved} WhatsApp phone number(s) to LIDs`);
+}
+
 /** Parse phone numbers from a vCard string */
 function phonesFromVcard(vcard: string): string[] {
   const phones: string[] = [];
@@ -301,6 +365,7 @@ function saveIdentityMaps(
   sessionDir: string,
   maps: {
     lidToPhone: Map<string, string>;
+    phoneToLid: Map<string, string>;
     phoneToName: Map<string, string>;
     lidToName: Map<string, string>;
   },
@@ -308,6 +373,7 @@ function saveIdentityMaps(
   try {
     const data = {
       lidToPhone: Object.fromEntries(maps.lidToPhone),
+      phoneToLid: Object.fromEntries(maps.phoneToLid),
       phoneToName: Object.fromEntries(maps.phoneToName),
       lidToName: Object.fromEntries(maps.lidToName),
     };
@@ -320,6 +386,7 @@ function saveIdentityMaps(
 /** Load previously saved identity maps */
 function loadIdentityMaps(sessionDir: string): {
   lidToPhone: Map<string, string>;
+  phoneToLid: Map<string, string>;
   phoneToName: Map<string, string>;
   lidToName: Map<string, string>;
 } | null {
@@ -329,6 +396,7 @@ function loadIdentityMaps(sessionDir: string): {
     const data = JSON.parse(readFileSync(path, 'utf-8'));
     return {
       lidToPhone: new Map(Object.entries(data.lidToPhone || {})),
+      phoneToLid: new Map(Object.entries(data.phoneToLid || {})),
       phoneToName: new Map(Object.entries(data.phoneToName || {})),
       lidToName: new Map(Object.entries(data.lidToName || {})),
     };
@@ -344,18 +412,114 @@ function jitter(minMs: number, maxMs: number): Promise<void> {
 }
 
 // Emit data as it arrives — don't block waiting for more history
-const MAX_SYNC_MS = 10 * 60_000; // 10 minutes hard deadline
+const MAX_SYNC_MS = 60 * 60_000; // 60 minutes hard deadline for expansive first history sync
 const IDLE_TIMEOUT_FIRST_MS = 30_000; // 30 seconds — process what we have, don't wait forever
 const IDLE_TIMEOUT_RESYNC_MS = 15_000; // 15 seconds for re-syncs
 
 // On-demand per-chat history fetching
-const ON_DEMAND_ROUNDS_PER_CHAT = 5; // max fetch rounds per chat
-const ON_DEMAND_MSGS_PER_FETCH = 50; // messages per fetch request
-const ON_DEMAND_WAIT_MS = 3000; // wait for messages to arrive after fetch
+const ON_DEMAND_ROUNDS_PER_CHAT = 40; // max fetch rounds per chat
+const ON_DEMAND_MSGS_PER_FETCH = 100; // messages per fetch request
+const ON_DEMAND_WAIT_MS = 2500; // wait for messages to arrive after fetch
+const ON_DEMAND_FETCH_TIMEOUT_MS = 15_000;
+const PHONE_LOOKUP_BATCH_SIZE = 50;
+const WHATSAPP_HISTORY_CURSOR = 'whatsapp-history-v1';
 
 type WaSock = ReturnType<typeof makeWASocket>;
 
 const inflatePromise = promisify(inflate);
+
+type SocketEventBatch = Record<string, unknown>;
+type SocketEventLogger =
+  | Pick<ConnectorLogger, 'info'>
+  | ((level: 'info', message: string) => void)
+  | undefined;
+
+function socketLog(logger: SocketEventLogger, message: string) {
+  if (process.env.WHATSAPP_DEBUG_SOCKET !== '1') return;
+  if (!logger) return;
+  if (typeof logger === 'function') logger('info', message);
+  else logger.info(message);
+}
+
+function summarizeArray(value: unknown, label = 'items'): string {
+  return `${Array.isArray(value) ? value.length : 0} ${label}`;
+}
+
+function summarizeSocketEvent(key: string, value: unknown): string {
+  const data = (value || {}) as Record<string, unknown>;
+  switch (key) {
+    case 'connection.update': {
+      const lastDisconnect = data.lastDisconnect as
+        | { error?: { output?: { statusCode?: number } } }
+        | undefined;
+      const code = lastDisconnect?.error?.output?.statusCode;
+      return `connection=${String(data.connection ?? '') || '-'} qr=${data.qr ? 'yes' : 'no'} isNewLogin=${data.isNewLogin ? 'yes' : 'no'} receivedPending=${data.receivedPendingNotifications ? 'yes' : 'no'}${code ? ` code=${code}` : ''}`;
+    }
+    case 'messaging-history.set':
+      return `${summarizeArray(data.messages, 'msgs')} ${summarizeArray(data.chats, 'chats')} ${summarizeArray(data.contacts, 'contacts')} syncType=${String(data.syncType ?? '-')} progress=${String(data.progress ?? '-')}`;
+    case 'messages.upsert':
+      return `${summarizeArray(data.messages, 'msgs')} type=${String(data.type ?? '-')}`;
+    case 'messages.update':
+    case 'messages.delete':
+    case 'messages.reaction':
+    case 'message-receipt.update':
+    case 'chats.upsert':
+    case 'chats.update':
+    case 'chats.delete':
+    case 'contacts.upsert':
+    case 'contacts.update':
+    case 'groups.upsert':
+    case 'groups.update':
+    case 'group-participants.update':
+    case 'blocklist.set':
+    case 'blocklist.update':
+    case 'call':
+    case 'lid-mapping.update':
+      return Array.isArray(value) ? summarizeArray(value) : 'event received';
+    default:
+      return Array.isArray(value) ? summarizeArray(value) : typeof value;
+  }
+}
+
+function logSocketEventBatch(logger: SocketEventLogger, scope: string, events: SocketEventBatch) {
+  const keys = Object.keys(events);
+  socketLog(logger, `[wa:socket:${scope}] events=${keys.join(',') || 'none'}`);
+  for (const key of keys) {
+    socketLog(logger, `[wa:socket:${scope}] ${key}: ${summarizeSocketEvent(key, events[key])}`);
+  }
+}
+
+function summarizeMessageForLog(msg: WAMessage): string {
+  const message = (msg.message || {}) as Record<string, unknown>;
+  const messageTypes = Object.keys(message).join('|') || '-';
+  return [
+    `fromMe=${String(msg.key?.fromMe ?? '-')}`,
+    `ts=${String(msg.messageTimestamp || '-')}`,
+    `types=${messageTypes}`,
+  ].join(' ');
+}
+
+function resolveSessionDir(sessionDir: string): string {
+  if (isAbsolute(sessionDir)) return sessionDir;
+  const candidates = [
+    resolve(sessionDir),
+    resolve(process.cwd(), '..', '..', sessionDir),
+    resolve(process.cwd(), '..', sessionDir),
+  ];
+  return candidates.find((dir) => existsSync(join(dir, 'creds.json'))) ?? candidates[0];
+}
+
+export interface WhatsAppRealtimeHandle {
+  stop(): Promise<void>;
+}
+
+export interface WhatsAppRealtimeCallbacks {
+  onEvent(event: ConnectorDataEvent): void | Promise<void>;
+  onConnected?(info: { selfPhone: string }): void | Promise<void>;
+  onDisconnect?(reason: string, code: number): void | Promise<void>;
+  onLog?(level: 'info' | 'warn' | 'error' | 'debug', message: string): void;
+  signal?: AbortSignal;
+}
 
 /**
  * Process INITIAL_BOOTSTRAP inline payload that Baileys can't handle.
@@ -373,14 +537,15 @@ async function processInlineHistoryPayload(
     buffer = await inflatePromise(buffer);
     const syncData = proto.HistorySync.decode(buffer);
 
-    const messages: proto.IWebMessageInfo[] = [];
+    const messages: WAMessage[] = [];
     const contacts: Array<{ id: string; name?: string; lid?: string }> = [];
     const chats: Array<{ id: string; name?: string | null }> = [];
 
     for (const chat of syncData.conversations || []) {
-      contacts.push({ id: chat.id!, name: chat.name || undefined, lid: chat.lidJid || undefined });
+      if (!chat.id) continue;
+      contacts.push({ id: chat.id, name: chat.name || undefined, lid: chat.lidJid || undefined });
       for (const item of chat.messages || []) {
-        if (item.message) messages.push(item.message as proto.IWebMessageInfo);
+        if (item.message?.key) messages.push(item.message as WAMessage);
       }
       chats.push({ id: chat.id, name: chat.name });
     }
@@ -397,12 +562,18 @@ async function processInlineHistoryPayload(
   }
 }
 
-async function createSyncSocket(sessionDir: string): Promise<WaSock> {
+async function createSyncSocket(
+  sessionDir: string,
+  options: { syncFullHistory?: boolean; logger?: Pick<ConnectorLogger, 'info'> } = {},
+): Promise<WaSock> {
   mkdirSync(sessionDir, { recursive: true });
   const { state, saveCreds } = await useAtomicMultiFileAuthState(sessionDir);
 
   // Clear processedHistoryMessages so WhatsApp re-delivers history on reconnect
   if (state.creds.processedHistoryMessages?.length) {
+    options.logger?.info(
+      `WhatsApp createSyncSocket clearing processedHistoryMessages count=${state.creds.processedHistoryMessages.length}`,
+    );
     state.creds.processedHistoryMessages = [];
   }
 
@@ -411,11 +582,13 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
   let sockRef: WaSock | null = null;
   let inlineProcessed = false;
 
-  // Only request full history on first pairing.
-  // On reconnections with existing creds, syncFullHistory: true causes a 20s
-  // AwaitingInitialSync timeout that leads to 408 disconnects.
-  // Note: Baileys v6 doesn't reliably set creds.registered — check for me.id instead.
+  // Realtime sockets stay lightweight; explicit sync jobs request history so they
+  // can repair messages missed while the realtime connection was down or stale.
   const isFirstPairing = !state.creds.me?.id;
+  const syncFullHistory = options.syncFullHistory ?? isFirstPairing;
+  options.logger?.info(
+    `WhatsApp createSyncSocket session=${sessionDir} version=${version.join('.')} syncFullHistory=${syncFullHistory} hasMe=${state.creds.me?.id ? 'yes' : 'no'} processedHistory=${state.creds.processedHistoryMessages?.length || 0} browser=${syncFullHistory ? 'Desktop' : 'Chrome'}`,
+  );
 
   const sock = makeWASocket({
     auth: {
@@ -423,16 +596,20 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
     version,
-    browser: ['Mac OS', 'Chrome', '10.15.7'],
+    browser: syncFullHistory ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
     printQRInTerminal: false,
     logger,
-    syncFullHistory: isFirstPairing,
+    syncFullHistory,
     markOnlineOnConnect: false,
     getMessage,
     msgRetryCounterCache: makeCacheStore(),
     shouldSyncHistoryMessage: (msg: proto.Message.IHistorySyncNotification) => {
+      options.logger?.info(
+        `WhatsApp shouldSyncHistoryMessage type=${msg.syncType ?? '-'} progress=${msg.progress ?? '-'} inline=${msg.initialHistBootstrapInlinePayload?.length || 0}`,
+      );
       if (!inlineProcessed && msg.initialHistBootstrapInlinePayload?.length && sockRef) {
         inlineProcessed = true;
+        options.logger?.info('WhatsApp processing inline history payload');
         processInlineHistoryPayload(msg, sockRef.ev);
       }
       return true;
@@ -444,8 +621,406 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
     sock.ws.on('error', () => {});
   }
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', () => void saveCreds());
   return sock;
+}
+
+function buildMessageEvent(
+  msg: WAMessage,
+  source: string,
+  selfPhone: string,
+  lidToPhone: Map<string, string>,
+  phoneToLid: Map<string, string>,
+  phoneToName: Map<string, string>,
+  lidToName: Map<string, string>,
+  chatNames: Map<string, string>,
+  groupParticipants: Map<string, Set<string>>,
+  log?: (level: 'info' | 'warn' | 'error' | 'debug', message: string) => void,
+): ConnectorDataEvent | null {
+  if (!msg.message) return null;
+
+  const m = msg.message;
+  const msgType = detectMessageType(msg);
+  if (msgType.type === 'protocol' || msgType.type === 'reaction') return null;
+  if (
+    m.ephemeralMessage ||
+    m.viewOnceMessage ||
+    m.viewOnceMessageV2 ||
+    m.viewOnceMessageV2Extension
+  ) {
+    log?.('debug', `Noise filtered (ephemeral/view-once): msg ${msg.key?.id}`);
+    return null;
+  }
+  if (m.groupInviteMessage || m.bcallMessage || m.callLogMesssage) return null;
+
+  const remoteJid = msg.key?.remoteJid || '';
+  if (!remoteJid || remoteJid === 'status@broadcast') return null;
+
+  const text = extractText(msg);
+  const contactCards = extractContactCards(msg);
+  const location = extractLocation(msg);
+  if (!text && contactCards.length === 0 && !location && msgType.type === 'unknown') return null;
+  if (text && isNoise(text, {})) return null;
+
+  const participantJid = msg.key?.participant || msg.participant || '';
+  const isGroup = remoteJid.endsWith('@g.us');
+  const fromMe = msg.key?.fromMe ?? false;
+
+  if (isGroup && participantJid) {
+    if (!groupParticipants.has(remoteJid)) groupParticipants.set(remoteJid, new Set());
+    groupParticipants.get(remoteJid)!.add(participantJid);
+  }
+
+  let senderPhone = '';
+  let senderName: string;
+  let senderLid = '';
+  if (fromMe) {
+    senderPhone = selfPhone;
+    senderName = phoneToName.get(selfPhone) || 'Me';
+  } else if (participantJid) {
+    const identity = resolveIdentity(
+      participantJid,
+      lidToPhone,
+      phoneToLid,
+      phoneToName,
+      lidToName,
+    );
+    senderPhone = identity.phone;
+    senderName = identity.name || msg.pushName || msg.verifiedBizName || '';
+    if (isLid(participantJid)) senderLid = phoneFromJid(participantJid);
+  } else if (!isGroup) {
+    const identity = resolveIdentity(remoteJid, lidToPhone, phoneToLid, phoneToName, lidToName);
+    senderPhone = identity.phone;
+    senderName = identity.name || msg.pushName || msg.verifiedBizName || '';
+    if (isLid(remoteJid)) senderLid = phoneFromJid(remoteJid);
+  } else {
+    senderName = msg.pushName || msg.verifiedBizName || '';
+  }
+
+  if (msg.pushName) {
+    if (senderPhone) phoneToName.set(senderPhone, msg.pushName);
+    if (senderLid) lidToName.set(senderLid, msg.pushName);
+  }
+
+  const mentionJids = extractMentions(msg);
+  const mentions: Array<{ phone: string; name: string }> = [];
+  for (const mJid of mentionJids) {
+    const mention = resolveIdentity(mJid, lidToPhone, phoneToLid, phoneToName, lidToName);
+    if (mention.phone || mention.name) mentions.push(mention);
+  }
+
+  let contextualText = text || '';
+  if (msgType.type === 'image' && !text) contextualText = 'sent an image';
+  else if (msgType.type === 'video' && !text) contextualText = 'sent a video';
+  else if (msgType.type === 'audio') contextualText = 'sent a voice message';
+  else if (msgType.type === 'document') {
+    const fname = msgType.fileName || 'a document';
+    contextualText = text ? `${fname}: ${text}` : `sent ${fname}`;
+  } else if (msgType.type === 'sticker' && !text) contextualText = 'sent a sticker';
+  else if (msgType.type === 'contact_card') {
+    const names = contactCards
+      .map((c) => c.displayName)
+      .filter(Boolean)
+      .join(', ');
+    contextualText = `shared contact${contactCards.length > 1 ? 's' : ''}: ${names}`;
+  } else if (location) {
+    const locLabel = location.name || location.address || `${location.lat},${location.lng}`;
+    contextualText = `shared location: ${locLabel}`;
+  }
+  if (!contextualText) return null;
+
+  for (const mention of mentions) {
+    const label = mention.name ? `${mention.name} (+${mention.phone})` : `+${mention.phone}`;
+    if (mention.phone)
+      contextualText = contextualText.replace(new RegExp(`@${mention.phone}\\b`, 'g'), `@${label}`);
+  }
+
+  const participants: string[] = [];
+  if (senderPhone) participants.push(senderPhone);
+  if (!isGroup) {
+    const otherJid = fromMe ? remoteJid : '';
+    if (otherJid) {
+      const other = resolveIdentity(otherJid, lidToPhone, phoneToLid, phoneToName, lidToName);
+      if (other.phone && other.phone !== senderPhone) participants.push(other.phone);
+    } else if (!fromMe && selfPhone && selfPhone !== senderPhone) {
+      participants.push(selfPhone);
+    }
+  }
+  for (const mention of mentions) {
+    if (mention.phone && !participants.includes(mention.phone)) participants.push(mention.phone);
+  }
+
+  const sharedContacts: Array<{ name: string; phones: string[] }> = [];
+  for (const card of contactCards) {
+    const phones = phonesFromVcard(card.vcard);
+    const name = card.displayName || nameFromVcard(card.vcard);
+    if (name || phones.length) {
+      sharedContacts.push({ name, phones });
+      for (const p of phones) if (!participants.includes(p)) participants.push(p);
+    }
+  }
+
+  const attachments: Array<{ mimeType: string; type: string; fileName?: string }> = [];
+  if (
+    msgType.type !== 'text' &&
+    msgType.type !== 'contact_card' &&
+    msgType.type !== 'location' &&
+    msgType.mimeType
+  ) {
+    attachments.push({
+      type: msgType.type,
+      mimeType: msgType.mimeType,
+      ...(msgType.fileName && { fileName: msgType.fileName }),
+    });
+  }
+
+  const msgTs = Number(msg.messageTimestamp || 0);
+  const messageId = msg.key?.id || `${Date.now()}`;
+  return {
+    sourceType: 'message',
+    sourceId: `wa-msg:${messageId}`,
+    timestamp: msgTs ? new Date(msgTs * 1000).toISOString() : new Date().toISOString(),
+    content: {
+      text: contextualText,
+      participants,
+      metadata: {
+        chatId: remoteJid,
+        chatName: chatNames.get(remoteJid) || '',
+        senderPhone,
+        senderName,
+        senderLid: senderLid || undefined,
+        pushName: msg.pushName || '',
+        fromMe,
+        isGroup,
+        source,
+        selfPhone,
+        messageType: msgType.type,
+        mentions: mentions.length > 0 ? mentions : undefined,
+        sharedContacts: sharedContacts.length > 0 ? sharedContacts : undefined,
+        location: location || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      },
+    },
+  };
+}
+
+export async function startWhatsAppRealtime(
+  sessionDir: string,
+  callbacks: WhatsAppRealtimeCallbacks,
+): Promise<WhatsAppRealtimeHandle> {
+  const resolvedSessionDir = resolveSessionDir(sessionDir);
+  const credsPath = join(resolvedSessionDir, 'creds.json');
+  if (!existsSync(resolvedSessionDir) || !existsSync(credsPath)) {
+    throw new Error('WhatsApp session files missing — please reconnect (re-scan QR)');
+  }
+
+  const sock = await createSyncSocket(resolvedSessionDir, { syncFullHistory: false });
+  let stopped = false;
+  const saved = loadIdentityMaps(resolvedSessionDir);
+  const lidToPhone = saved?.lidToPhone ?? new Map<string, string>();
+  const phoneToLid = saved?.phoneToLid ?? new Map<string, string>();
+  const phoneToName = saved?.phoneToName ?? new Map<string, string>();
+  const lidToName = saved?.lidToName ?? new Map<string, string>();
+  const chatNames = new Map<string, string>();
+  const groupParticipants = new Map<string, Set<string>>();
+  const log = callbacks.onLog;
+  const emittedSourceIds = new Set<string>();
+  const rememberEmitted = (sourceId: string) => {
+    emittedSourceIds.add(sourceId);
+    if (emittedSourceIds.size > MESSAGE_STORE_MAX) {
+      const first = emittedSourceIds.values().next().value;
+      if (first) emittedSourceIds.delete(first);
+    }
+  };
+  const emitRealtimeEvent = async (event: ConnectorDataEvent | null) => {
+    if (!event) return;
+    if (emittedSourceIds.has(event.sourceId)) return;
+    rememberEmitted(event.sourceId);
+    await callbacks.onEvent(event);
+  };
+  const handleUpsert = async (
+    upsert: { messages?: WAMessage[]; type?: string },
+    sourceOverride?: string,
+  ) => {
+    const source = sourceOverride ?? (upsert.type === 'notify' ? 'realtime' : 'append');
+    log?.(
+      'info',
+      `WhatsApp realtime messages.upsert: ${upsert.messages?.length || 0} msgs, type=${upsert.type}`,
+    );
+    for (const msg of upsert.messages || []) {
+      storeMessage(msg.key, msg.message);
+      await emitRealtimeEvent(
+        buildMessageEvent(
+          msg,
+          source,
+          phoneFromJid(sock.user?.id || ''),
+          lidToPhone,
+          phoneToLid,
+          phoneToName,
+          lidToName,
+          chatNames,
+          groupParticipants,
+          log,
+        ),
+      );
+    }
+    saveIdentityMaps(resolvedSessionDir, { lidToPhone, phoneToLid, phoneToName, lidToName });
+  };
+  const stopFromSignal = () => {
+    stopped = true;
+    try {
+      sock.ws?.close();
+    } catch {
+      /* ignore */
+    }
+  };
+  callbacks.signal?.addEventListener('abort', stopFromSignal, { once: true });
+
+  const waitForOpen = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('WhatsApp connection timeout')), 30_000);
+    sock.ev.on('connection.update', (update) => {
+      logSocketEventBatch(log, 'realtime:on', { 'connection.update': update });
+      if (stopped) return;
+      if (update.connection === 'open') {
+        clearTimeout(timeout);
+        resolve();
+      }
+      if (update.connection === 'close') {
+        clearTimeout(timeout);
+        const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
+        const statusCode =
+          disconnectError && 'output' in disconnectError
+            ? (disconnectError as Boom).output.statusCode
+            : 0;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+        const isBadSession = statusCode === DisconnectReason.badSession;
+        const isMultidevice = statusCode === DisconnectReason.multideviceMismatch;
+        const isReplaced = statusCode === DisconnectReason.connectionReplaced;
+        const reason = isLoggedOut
+          ? 'Session logged out from phone — please reconnect (re-scan QR)'
+          : isBadSession
+            ? 'Session expired or corrupted — please reconnect (re-scan QR)'
+            : isMultidevice
+              ? 'Multi-device mismatch — please reconnect (re-scan QR)'
+              : isReplaced
+                ? 'Another WhatsApp Web session is active — close it and retry sync'
+                : 'Connection lost during realtime sync';
+        void callbacks.onDisconnect?.(reason, statusCode);
+        reject(new Error(reason));
+      }
+    });
+  });
+
+  sock.ev.process(async (events) => {
+    logSocketEventBatch(log, 'realtime:process', events);
+    if (stopped) return;
+    if (events['messaging-history.set']) {
+      const data = events['messaging-history.set'];
+      for (const contact of data.contacts || []) {
+        const contactId = contact.id || '';
+        const contactLid = contact.lid || '';
+        const name = contact.notify || contact.name || contact.verifiedName || '';
+        if (!isLid(contactId)) {
+          const phone = phoneFromJid(contactId);
+          if (phone && name) phoneToName.set(phone, name);
+          if (phone && contactLid)
+            rememberPhoneLidMapping(phone, contactLid, lidToPhone, phoneToLid);
+        }
+      }
+      for (const chat of data.chats || [])
+        if (chat.id && chat.name) chatNames.set(chat.id, chat.name);
+      for (const msg of data.messages || []) {
+        storeMessage(msg.key, msg.message);
+        const event = buildMessageEvent(
+          msg,
+          'history',
+          phoneFromJid(sock.user?.id || ''),
+          lidToPhone,
+          phoneToLid,
+          phoneToName,
+          lidToName,
+          chatNames,
+          groupParticipants,
+          log,
+        );
+        await emitRealtimeEvent(event);
+      }
+      saveIdentityMaps(resolvedSessionDir, { lidToPhone, phoneToLid, phoneToName, lidToName });
+    }
+
+    if (events['messages.upsert']) {
+      await handleUpsert(events['messages.upsert']);
+    }
+  });
+
+  sock.ev.on('messages.upsert', (upsert) => {
+    logSocketEventBatch(log, 'realtime:on', { 'messages.upsert': upsert });
+    if (stopped) return;
+    void handleUpsert(upsert).catch((err) =>
+      log?.(
+        'error',
+        `WhatsApp realtime upsert handler failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+  });
+
+  await waitForOpen;
+  const selfPhone = phoneFromJid(sock.user?.id || '');
+  await callbacks.onConnected?.({ selfPhone });
+
+  try {
+    const groups: Record<string, GroupMetadata> = await sock.groupFetchAllParticipating();
+    for (const [groupJid, meta] of Object.entries(groups)) {
+      if (meta.subject) chatNames.set(groupJid, meta.subject);
+      const participants = meta.participants || [];
+      if (!groupParticipants.has(groupJid)) groupParticipants.set(groupJid, new Set());
+      const memberSet = groupParticipants.get(groupJid)!;
+      for (const p of participants) if (p.id) memberSet.add(p.id);
+    }
+    await resolveKnownPhonesToLids(
+      sock,
+      [selfPhone, ...phoneToName.keys()],
+      lidToPhone,
+      phoneToLid,
+      (level, message) => log?.(level, message),
+    );
+    emitContactEvents(
+      {
+        logger: {
+          info: (m) => log?.('info', m),
+          warn: (m) => log?.('warn', m),
+          error: (m) => log?.('error', m),
+          debug: (m) => log?.('debug', m),
+        },
+      } as SyncContext,
+      callbacks.onEvent,
+      selfPhone,
+      phoneToName,
+      lidToPhone,
+      phoneToLid,
+      lidToName,
+      chatNames,
+      groupParticipants,
+    );
+  } catch (err) {
+    log?.(
+      'warn',
+      `WhatsApp realtime group metadata failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return {
+    async stop() {
+      stopped = true;
+      callbacks.signal?.removeEventListener('abort', stopFromSignal);
+      await flushPendingWrites();
+      try {
+        sock.ws?.close();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
 }
 
 /**
@@ -454,6 +1029,7 @@ async function createSyncSocket(sessionDir: string): Promise<WaSock> {
 function resolveIdentity(
   jid: string,
   lidToPhone: Map<string, string>,
+  phoneToLid: Map<string, string>,
   phoneToName: Map<string, string>,
   lidToName: Map<string, string>,
 ): { phone: string; name: string } {
@@ -462,7 +1038,7 @@ function resolveIdentity(
   const lidKey = phoneFromJid(jid); // strip @lid or @s.whatsapp.net
 
   if (isLid(jid)) {
-    // LID — try to map to phone number
+    // LID — only resolvable if we already learned phone→LID for a known phone.
     const phone = lidToPhone.get(lidKey) || '';
     const name = lidToName.get(lidKey) || (phone ? phoneToName.get(phone) || '' : '');
     return { phone, name };
@@ -471,6 +1047,8 @@ function resolveIdentity(
   // Phone-based JID
   const phone = lidKey;
   const name = phoneToName.get(phone) || '';
+  const lid = phoneToLid.get(phone);
+  if (lid && name) lidToName.set(lid, name);
   return { phone, name };
 }
 
@@ -488,8 +1066,13 @@ export async function syncWhatsApp(
   existingSock?: WaSock,
   onDisconnect?: (reason: string, code: number) => void,
 ): Promise<{ cursor: string | null; hasMore: boolean; processed: number }> {
-  const sessionDir = ctx.auth.raw?.sessionDir as string;
-  if (!sessionDir) throw new Error('No WhatsApp session found');
+  const rawSessionDir = ctx.auth.raw?.sessionDir as string;
+  if (!rawSessionDir) throw new Error('No WhatsApp session found');
+  const sessionDir = resolveSessionDir(rawSessionDir);
+  if (ctx.cursor === WHATSAPP_HISTORY_CURSOR && !existingSock) {
+    ctx.logger.info('WhatsApp history already synced; realtime connector handles new messages');
+    return { cursor: WHATSAPP_HISTORY_CURSOR, hasMore: false, processed: 0 };
+  }
 
   // Check for missing/deleted session files before attempting connection
   if (!existingSock) {
@@ -506,13 +1089,13 @@ export async function syncWhatsApp(
 
   if (existingSock) {
     sock = existingSock;
-    ctx.logger.info('Reusing auth socket for first sync (history capture)');
+    ctx.logger.info('Reusing auth socket for first sync (history capture) buffered=yes');
   } else {
-    sock = await createSyncSocket(sessionDir);
+    sock = await createSyncSocket(sessionDir, { syncFullHistory: true, logger: ctx.logger });
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('WhatsApp connection timeout')), 30_000);
       sock.ev.on('connection.update', (update) => {
-        ctx.logger.info(`connection.update: ${JSON.stringify(update)}`);
+        logSocketEventBatch(ctx.logger, 'sync:connect', { 'connection.update': update });
         if (update.connection === 'open') {
           clearTimeout(timeout);
           resolve();
@@ -546,7 +1129,7 @@ export async function syncWhatsApp(
   const isFirstSync = !!existingSock;
   const IDLE_TIMEOUT_MS = isFirstSync ? IDLE_TIMEOUT_FIRST_MS : IDLE_TIMEOUT_RESYNC_MS;
   ctx.logger.info(
-    `WhatsApp connected as ${selfPhone}, ${isFirstSync ? 'first sync — waiting for history' : 're-sync — short idle timeout'}...`,
+    `WhatsApp connected as ${selfPhone}, ${isFirstSync ? 'first sync — waiting for history' : 're-sync — short idle timeout'}; idle=${IDLE_TIMEOUT_MS}ms session=${sessionDir}`,
   );
 
   let processed = 0;
@@ -555,6 +1138,7 @@ export async function syncWhatsApp(
   // Identity resolution maps — seed from previously saved data if available
   const saved = loadIdentityMaps(sessionDir);
   const lidToPhone = saved?.lidToPhone ?? new Map<string, string>();
+  const phoneToLid = saved?.phoneToLid ?? new Map<string, string>();
   const phoneToName = saved?.phoneToName ?? new Map<string, string>();
   const lidToName = saved?.lidToName ?? new Map<string, string>();
   const chatNames = new Map<string, string>();
@@ -562,22 +1146,24 @@ export async function syncWhatsApp(
 
   if (saved) {
     ctx.logger.info(
-      `Loaded saved identity maps: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
+      `Loaded saved identity maps: ${lidToPhone.size} lid→phone, ${phoneToLid.size} phone→lid, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
     );
   }
 
   // Track history message count (no longer buffered — emitted immediately)
   let historyMsgCount = 0;
+  const emittedSourceIds = new Set<string>();
 
   // Use sock.ev.process() for identity/contact/group events — Baileys buffers events
   // during history sync and flushes them as a consolidated map. Individual .on()
   // listeners may miss buffered payloads.
-  sock.ev.process(async (events) => {
+  const handleSocketEvents = async (events: Record<string, any>) => {
+    logSocketEventBatch(ctx.logger, 'sync:identity', events);
     // LID → phone mappings
     if (events['chats.phoneNumberShare']) {
       const data = events['chats.phoneNumberShare'];
       if (data.lid && data.jid) {
-        lidToPhone.set(phoneFromJid(data.lid), phoneFromJid(data.jid));
+        rememberPhoneLidMapping(data.jid, data.lid, lidToPhone, phoneToLid);
       }
     }
 
@@ -593,7 +1179,7 @@ export async function syncWhatsApp(
           const phone = phoneFromJid(id);
           if (phone && name) phoneToName.set(phone, name);
           if (phone && lid) {
-            lidToPhone.set(phoneFromJid(lid), phone);
+            rememberPhoneLidMapping(phone, lid, lidToPhone, phoneToLid);
             if (name) lidToName.set(phoneFromJid(lid), name);
           }
         } else {
@@ -602,7 +1188,7 @@ export async function syncWhatsApp(
           if (lid && !isLid(lid)) {
             const phone = phoneFromJid(lid);
             if (phone) {
-              lidToPhone.set(lidNum, phone);
+              rememberPhoneLidMapping(phone, id, lidToPhone, phoneToLid);
               if (name) phoneToName.set(phone, name);
             }
           }
@@ -642,7 +1228,17 @@ export async function syncWhatsApp(
         }
       }
     }
+  };
+
+  sock.ev.process(handleSocketEvents);
+  ctx.logger.info('WhatsApp registered early identity event processor');
+  sock.ev.on('messaging-history.set', (data) => {
+    void handleSocketEvents({ 'messaging-history.set': data });
   });
+  sock.ev.on('messages.upsert', (upsert) => {
+    void handleSocketEvents({ 'messages.upsert': upsert });
+  });
+  ctx.logger.info('WhatsApp registered direct history/message listeners');
 
   // Per-chat oldest message tracking for on-demand fetching
   const chatOldest = new Map<string, { key: WAMessageKey; ts: number }>();
@@ -689,20 +1285,25 @@ export async function syncWhatsApp(
     const location = extractLocation(msg);
 
     // Skip if there's no meaningful content at all
-    if (!text && contactCards.length === 0 && !location && msgType.type === 'unknown') return;
+    if (!text && contactCards.length === 0 && !location && msgType.type === 'unknown') {
+      filteredCount++;
+      ctx.logger.debug(`Message filtered unknown-empty: ${summarizeMessageForLog(msg)}`);
+      return;
+    }
 
     const remoteJid = msg.key?.remoteJid || '';
 
     // Skip WhatsApp Status/Story posts — ephemeral broadcasts, not conversations
     if (remoteJid === 'status@broadcast') {
       filteredCount++;
+      ctx.logger.debug(`Message filtered status: ${summarizeMessageForLog(msg)}`);
       return;
     }
 
     // Apply shared noise filter on extracted text
     if (text && isNoise(text, {})) {
       filteredCount++;
-      ctx.logger.debug(`Noise filtered (shared): ${text.slice(0, 80)}...`);
+      ctx.logger.debug(`Noise filtered (shared): textLen=${text.length}`);
       return;
     }
 
@@ -728,13 +1329,19 @@ export async function syncWhatsApp(
       senderPhone = selfPhone;
       senderName = phoneToName.get(selfPhone) || 'Me';
     } else if (participantJid) {
-      const identity = resolveIdentity(participantJid, lidToPhone, phoneToName, lidToName);
+      const identity = resolveIdentity(
+        participantJid,
+        lidToPhone,
+        phoneToLid,
+        phoneToName,
+        lidToName,
+      );
       senderPhone = identity.phone;
       senderName = identity.name || msg.pushName || msg.verifiedBizName || '';
       if (isLid(participantJid)) senderLid = phoneFromJid(participantJid);
     } else if (!isGroup) {
       // DM — the other person is the remoteJid
-      const identity = resolveIdentity(remoteJid, lidToPhone, phoneToName, lidToName);
+      const identity = resolveIdentity(remoteJid, lidToPhone, phoneToLid, phoneToName, lidToName);
       senderPhone = identity.phone;
       senderName = identity.name || msg.pushName || msg.verifiedBizName || '';
       if (isLid(remoteJid)) senderLid = phoneFromJid(remoteJid);
@@ -753,7 +1360,7 @@ export async function syncWhatsApp(
     const mentionJids = extractMentions(msg);
     const mentions: Array<{ phone: string; name: string }> = [];
     for (const mJid of mentionJids) {
-      const m = resolveIdentity(mJid, lidToPhone, phoneToName, lidToName);
+      const m = resolveIdentity(mJid, lidToPhone, phoneToLid, phoneToName, lidToName);
       if (m.phone || m.name) mentions.push(m);
     }
 
@@ -789,7 +1396,11 @@ export async function syncWhatsApp(
       contextualText = `shared location: ${locLabel}`;
     }
 
-    if (!contextualText) return;
+    if (!contextualText) {
+      filteredCount++;
+      ctx.logger.debug(`Message filtered no-contextual-text: ${summarizeMessageForLog(msg)}`);
+      return;
+    }
 
     // Replace @mentions in text with resolved names
     for (const m of mentions) {
@@ -807,7 +1418,7 @@ export async function syncWhatsApp(
     if (!isGroup) {
       const otherJid = fromMe ? remoteJid : '';
       if (otherJid) {
-        const other = resolveIdentity(otherJid, lidToPhone, phoneToName, lidToName);
+        const other = resolveIdentity(otherJid, lidToPhone, phoneToLid, phoneToName, lidToName);
         if (other.phone && other.phone !== senderPhone) {
           participants.push(other.phone);
         }
@@ -854,6 +1465,16 @@ export async function syncWhatsApp(
     }
 
     const msgTs = Number(msg.messageTimestamp || 0);
+    const sourceId = `wa-msg:${msg.key?.id || `${Date.now()}:${processed}`}`;
+    if (emittedSourceIds.has(sourceId)) {
+      ctx.logger.info(`Message filtered duplicate-in-run sourceId=${sourceId}`);
+      return;
+    }
+    emittedSourceIds.add(sourceId);
+    if (emittedSourceIds.size > MESSAGE_STORE_MAX) {
+      const first = emittedSourceIds.values().next().value;
+      if (first) emittedSourceIds.delete(first);
+    }
 
     // Download image/document media if available
     let fileBase64: string | undefined;
@@ -868,9 +1489,9 @@ export async function syncWhatsApp(
       }
     }
 
-    emit({
+    const event: ConnectorDataEvent = {
       sourceType: 'message',
-      sourceId: msg.key?.id || `wa:${Date.now()}:${processed}`,
+      sourceId,
       timestamp: msg.messageTimestamp
         ? new Date(msgTs * 1000).toISOString()
         : new Date().toISOString(),
@@ -898,7 +1519,11 @@ export async function syncWhatsApp(
           fileName: fileFileName,
         },
       },
-    });
+    };
+    ctx.logger.info(
+      `Emitting WhatsApp event source=${source} sourceId=${sourceId} type=${msgType.type} textLen=${contextualText.length} participants=${participants.length}`,
+    );
+    emit(event);
     processed++;
   };
 
@@ -943,6 +1568,7 @@ export async function syncWhatsApp(
     // Detect mid-sync disconnection — keep as .on() since it must fire immediately
     // regardless of event buffering (disconnect is time-critical)
     sock.ev.on('connection.update', (update) => {
+      logSocketEventBatch(ctx.logger, 'sync:on', { 'connection.update': update });
       if (update.connection === 'close') {
         const disconnectError = update.lastDisconnect?.error as Boom | Error | undefined;
         const statusCode =
@@ -975,7 +1601,9 @@ export async function syncWhatsApp(
     // Use sock.ev.process() for history and message handlers — Baileys buffers events
     // during history sync and flushes them as a consolidated map. Individual .on()
     // listeners may miss buffered history payloads.
+    ctx.logger.info('WhatsApp passive history phase registering sync event processor');
     sock.ev.process(async (events) => {
+      logSocketEventBatch(ctx.logger, 'sync:process', events);
       // History sync — index contacts, process messages immediately
       if (events['messaging-history.set']) {
         const data = events['messaging-history.set'];
@@ -995,7 +1623,7 @@ export async function syncWhatsApp(
             const phone = phoneFromJid(contactId);
             if (phone && name) phoneToName.set(phone, name);
             if (phone && contactLid) {
-              lidToPhone.set(phoneFromJid(contactLid), phone);
+              rememberPhoneLidMapping(phone, contactLid, lidToPhone, phoneToLid);
               if (name) lidToName.set(phoneFromJid(contactLid), name);
             }
           } else {
@@ -1004,7 +1632,7 @@ export async function syncWhatsApp(
             if (contactLid && !isLid(contactLid)) {
               const phone = phoneFromJid(contactLid);
               if (phone) {
-                lidToPhone.set(lidNum, phone);
+                rememberPhoneLidMapping(phone, contactId, lidToPhone, phoneToLid);
                 if (name) phoneToName.set(phone, name);
               }
             }
@@ -1045,7 +1673,7 @@ export async function syncWhatsApp(
             }
           }
           historyMsgCount++;
-          processMessage(msg, 'history');
+          await processMessage(msg, 'history');
         }
         const emittedThisBatch = processed - beforeProcessed;
         if (messages.length > 0) {
@@ -1076,7 +1704,7 @@ export async function syncWhatsApp(
               chatOldest.set(chatJid, { key: msg.key, ts: msgTs });
             }
           }
-          processMessage(msg, type);
+          await processMessage(msg, type);
         }
         resetIdle();
       }
@@ -1094,8 +1722,33 @@ export async function syncWhatsApp(
   // If disconnected during sync, throw so the job gets marked as failed
   if (disconnectedDuringSync) {
     // Save whatever identity maps we collected before dying
-    saveIdentityMaps(sessionDir, { lidToPhone, phoneToName, lidToName });
+    saveIdentityMaps(sessionDir, { lidToPhone, phoneToLid, phoneToName, lidToName });
     throw new Error(`WhatsApp session disconnected: ${disconnectReason}`);
+  }
+
+  // Load group chat IDs before on-demand fetching so a quiet passive history
+  // phase still has chats to scroll backwards through.
+  try {
+    ctx.logger.info('Fetching group metadata before on-demand history...');
+    const groups: Record<string, GroupMetadata> = await sock.groupFetchAllParticipating();
+    let totalParticipants = 0;
+    for (const [groupJid, meta] of Object.entries(groups)) {
+      if (meta.subject) chatNames.set(groupJid, meta.subject);
+      const participants = meta.participants || [];
+      totalParticipants += participants.length;
+      if (!groupParticipants.has(groupJid)) groupParticipants.set(groupJid, new Set());
+      const memberSet = groupParticipants.get(groupJid)!;
+      for (const p of participants) {
+        if (p.id) memberSet.add(p.id);
+      }
+    }
+    ctx.logger.info(
+      `Preloaded ${Object.keys(groups).length} WhatsApp groups for on-demand history (${totalParticipants} participants)`,
+    );
+  } catch (err: unknown) {
+    ctx.logger.info(
+      `pre-fetch group metadata failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // --- Phase 2: On-demand per-chat history fetching ---
@@ -1146,7 +1799,15 @@ export async function syncWhatsApp(
 
         const beforeCount = processed;
         try {
-          await sock.fetchMessageHistory(ON_DEMAND_MSGS_PER_FETCH, currentKey, currentTs);
+          await Promise.race([
+            sock.fetchMessageHistory(ON_DEMAND_MSGS_PER_FETCH, currentKey, currentTs),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error('fetchMessageHistory timed out')),
+                ON_DEMAND_FETCH_TIMEOUT_MS,
+              ),
+            ),
+          ]);
         } catch (err: unknown) {
           ctx.logger.info(
             `fetchMessageHistory failed for ${chatJid}: ${err instanceof Error ? err.message : String(err)}`,
@@ -1214,11 +1875,17 @@ export async function syncWhatsApp(
     );
   }
 
+  await resolveKnownPhonesToLids(
+    sock,
+    [selfPhone, ...phoneToName.keys(), ...lidToPhone.values()],
+    lidToPhone,
+    phoneToLid,
+    (level, message) => ctx.logger[level](message),
+  );
+
   // LID identity resolution status
-  // NOTE: Baileys v6 does NOT support LID→phone resolution through any API.
-  // WhatsApp uses LIDs for privacy in group participants. The only mapping source
-  // is the `chats.phoneNumberShare` event which fires during real-time messages.
-  // Real-time messages also carry `pushName` which populates lidToName.
+  // WhatsApp does not expose LID→phone lookup. We resolve known phone numbers to
+  // LIDs, then use that local reverse map to attach phone identities to group LIDs.
   {
     let unresolvedCount = 0;
     for (const [, members] of groupParticipants) {
@@ -1234,9 +1901,9 @@ export async function syncWhatsApp(
   }
 
   // Save identity maps for future re-syncs
-  saveIdentityMaps(sessionDir, { lidToPhone, phoneToName, lidToName });
+  saveIdentityMaps(sessionDir, { lidToPhone, phoneToLid, phoneToName, lidToName });
   ctx.logger.info(
-    `Identity maps before processing: ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
+    `Identity maps before processing: ${lidToPhone.size} lid→phone, ${phoneToLid.size} phone→lid, ${phoneToName.size} phone→name, ${lidToName.size} lid→name`,
   );
 
   // Emit contact events for all resolved identities
@@ -1246,6 +1913,7 @@ export async function syncWhatsApp(
     selfPhone,
     phoneToName,
     lidToPhone,
+    phoneToLid,
     lidToName,
     chatNames,
     groupParticipants,
@@ -1261,9 +1929,9 @@ export async function syncWhatsApp(
   }
 
   ctx.logger.info(
-    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${skippedNullMsg} undecrypted, ${filteredCount} noise filtered, ${lidToPhone.size} lid→phone, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
+    `Synced ${processed} WhatsApp messages from ${historyBatches} history batches (${skippedNullMsg} undecrypted, ${filteredCount} noise filtered, ${lidToPhone.size} lid→phone, ${phoneToLid.size} phone→lid, ${phoneToName.size} phone→name, ${chatNames.size} chats)`,
   );
-  return { cursor: null, hasMore: false, processed };
+  return { cursor: WHATSAPP_HISTORY_CURSOR, hasMore: false, processed };
 }
 
 /**
@@ -1276,6 +1944,7 @@ function emitContactEvents(
   selfPhone: string,
   phoneToName: Map<string, string>,
   lidToPhone: Map<string, string>,
+  phoneToLid: Map<string, string>,
   lidToName: Map<string, string>,
   chatNames: Map<string, string>,
   groupParticipants: Map<string, Set<string>>,
@@ -1288,7 +1957,7 @@ function emitContactEvents(
     emittedPhones.add(phone);
 
     emit({
-      sourceType: 'message',
+      sourceType: 'contact',
       sourceId: `wa-contact:${phone}`,
       timestamp: new Date().toISOString(),
       content: {
@@ -1313,7 +1982,7 @@ function emitContactEvents(
 
     const name = lidToName.get(lid) || phoneToName.get(phone) || '';
     emit({
-      sourceType: 'message',
+      sourceType: 'contact',
       sourceId: `wa-contact:${phone}`,
       timestamp: new Date().toISOString(),
       content: {
@@ -1339,13 +2008,13 @@ function emitContactEvents(
     const memberPhones: string[] = [];
     if (members) {
       for (const jid of members) {
-        const identity = resolveIdentity(jid, lidToPhone, phoneToName, lidToName);
+        const identity = resolveIdentity(jid, lidToPhone, phoneToLid, phoneToName, lidToName);
         if (identity.phone) memberPhones.push(identity.phone);
       }
     }
 
     emit({
-      sourceType: 'message',
+      sourceType: 'contact',
       sourceId: `wa-group:${groupJid}`,
       timestamp: new Date().toISOString(),
       content: {

@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS "memories" (
 	"event_time" timestamp with time zone NOT NULL,
 	"ingest_time" timestamp with time zone NOT NULL,
 	"factuality" jsonb DEFAULT '{"label":"UNVERIFIED","confidence":0.5,"rationale":"Pending evaluation"}'::jsonb NOT NULL,
-	"weights" jsonb DEFAULT '{"semantic":0,"rerank":0,"recency":0,"importance":0.5,"trust":0.5,"final":0}'::jsonb NOT NULL,
+	"weights" jsonb DEFAULT '{"semantic":0,"recency":0,"importance":0.5,"trust":0.5,"final":0}'::jsonb NOT NULL,
 	"entities" text DEFAULT '[]' NOT NULL,
 	"claims" text DEFAULT '[]' NOT NULL,
 	"metadata" text DEFAULT '{}' NOT NULL,

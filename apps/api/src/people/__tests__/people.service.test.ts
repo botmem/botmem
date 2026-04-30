@@ -5,6 +5,14 @@ import {
   looksLikeIdentifier,
   isMultiWordName,
   GENERIC_NAMES,
+  scoreNameOnlyMerge,
+  normalizeNameForMerge,
+  isMergeSuggestionEligibleEntity,
+  looksLikeGroupName,
+  isExactIdentifierAutoMergeEligible,
+  looksLikeIdentifierLabel,
+  looksLikeCombinedPersonName,
+  isDirectNameAutoMergeEligible,
 } from '../people.service';
 
 describe('normalizePhone', () => {
@@ -46,6 +54,15 @@ describe('normalizeIdentifier', () => {
     expect(result!.value).toBe('amroessams@gmail.com');
   });
 
+  it('extracts embedded email from display-name labels', () => {
+    const result = normalizeIdentifier({
+      type: 'name',
+      value: 'Commander Andrey Parker <christinwendervcb24@gmail.com>',
+    });
+    expect(result!.type).toBe('email');
+    expect(result!.value).toBe('christinwendervcb24@gmail.com');
+  });
+
   it('lowercases emails', () => {
     const result = normalizeIdentifier({ type: 'email', value: 'Amr@Ghanem.SA' });
     expect(result!.value).toBe('amr@ghanem.sa');
@@ -73,6 +90,16 @@ describe('normalizeIdentifier', () => {
   it('normalizes phone numbers', () => {
     const result = normalizeIdentifier({ type: 'phone', value: '00 201 027 755 722' });
     expect(result!.value).toBe('+201027755722');
+  });
+
+  it('drops likely combined multi-person name labels', () => {
+    expect(
+      normalizeIdentifier({
+        type: 'name',
+        value: 'Mohammad Hussien Meshal Alsaleem',
+        connectorType: 'gmail',
+      }),
+    ).toBeNull();
   });
 });
 
@@ -131,6 +158,30 @@ describe('looksLikeIdentifier', () => {
 
   it('rejects very short digit strings (< 5 chars)', () => {
     expect(looksLikeIdentifier('123')).toBe(false);
+  });
+});
+
+describe('looksLikeIdentifierLabel', () => {
+  it('detects labels that are exact emails or contain embedded emails', () => {
+    expect(looksLikeIdentifierLabel('a.alrahama@gmail.com')).toBe(true);
+    expect(
+      looksLikeIdentifierLabel('Commander Andrey Parker <christinwendervcb24@gmail.com>'),
+    ).toBe(true);
+  });
+
+  it('does not classify regular person names as identifier labels', () => {
+    expect(looksLikeIdentifierLabel('Amelie Complainville')).toBe(false);
+  });
+});
+
+describe('looksLikeCombinedPersonName', () => {
+  it('detects two two-token person names glued into one label', () => {
+    expect(looksLikeCombinedPersonName('Mohammad Hussien Meshal Alsaleem')).toBe(true);
+    expect(looksLikeCombinedPersonName('Mohammad Hussien Abdulrahman Alhathloul')).toBe(true);
+  });
+
+  it('does not reject known single-person long-name patterns by default', () => {
+    expect(looksLikeCombinedPersonName('MOHAMMED THABET ABDULMOHSEN SAMMAN')).toBe(false);
   });
 });
 
@@ -209,8 +260,8 @@ describe('auto-merge decision logic', () => {
     });
   });
 
-  describe('should auto-merge (multi-word names)', () => {
-    it('full names with first + last auto-merge', () => {
+  describe('name-only merge scoring', () => {
+    it('full names with first + last are suggestions, not auto-merge evidence', () => {
       const name = 'balqees h. alneami';
       expect(isMultiWordName(name)).toBe(true);
     });
@@ -254,6 +305,161 @@ describe('auto-merge decision logic', () => {
     it('me is in GENERIC_NAMES', () => {
       expect(GENERIC_NAMES.has('me')).toBe(true);
     });
+  });
+});
+
+describe('isExactIdentifierAutoMergeEligible', () => {
+  it('allows exact name identifiers, including single-token names', () => {
+    expect(isExactIdentifierAutoMergeEligible('name', 'Amelie')).toBe(true);
+    expect(isExactIdentifierAutoMergeEligible('name', 'Mohamed')).toBe(true);
+    expect(isExactIdentifierAutoMergeEligible('name', 'DM WITH AMELIE')).toBe(true);
+  });
+
+  it('allows exact structured identifiers', () => {
+    expect(isExactIdentifierAutoMergeEligible('email', 'amelie@example.com')).toBe(true);
+    expect(isExactIdentifierAutoMergeEligible('phone', '+971501234567')).toBe(true);
+    expect(isExactIdentifierAutoMergeEligible('whatsapp_id', '971501234567@c.us')).toBe(true);
+  });
+
+  it('rejects empty identifiers only', () => {
+    expect(isExactIdentifierAutoMergeEligible('name', '   ')).toBe(false);
+    expect(isExactIdentifierAutoMergeEligible('email', '')).toBe(false);
+  });
+});
+
+describe('isDirectNameAutoMergeEligible', () => {
+  it('auto-merges exact normalized names, including single-token direct duplicates', () => {
+    expect(isDirectNameAutoMergeEligible('JACK', 'jack')).toBe(true);
+    expect(isDirectNameAutoMergeEligible('Noman', 'NOMAN')).toBe(true);
+  });
+
+  it('auto-merges direct first/surname typo variants', () => {
+    expect(isDirectNameAutoMergeEligible('Eugenie Gerard', 'Eugenie Gerrard')).toBe(true);
+    expect(isDirectNameAutoMergeEligible('Hisham Issa', 'Hisham Isa')).toBe(true);
+  });
+
+  it('auto-merges direct middle-name expansions with the same first and surname', () => {
+    expect(isDirectNameAutoMergeEligible('Oana Fayyad', 'OANA AMIRA FAYYAD')).toBe(true);
+    expect(isDirectNameAutoMergeEligible('Reem bin Amer', 'Reem H. Bin Amer')).toBe(true);
+    expect(isDirectNameAutoMergeEligible('Nasser Resheed Asslimy', 'Nasser R. Asslimy')).toBe(true);
+    expect(isDirectNameAutoMergeEligible('Captain Rana Irfan', 'Rana Irfan')).toBe(true);
+  });
+
+  it('does not auto-merge prefix-only or combined-person names', () => {
+    expect(
+      isDirectNameAutoMergeEligible('Mohammad Hussien', 'Mohammad Hussien Meshal Alsaleem'),
+    ).toBe(false);
+  });
+
+  it('does not auto-merge identifier-like labels or groups by name shape', () => {
+    expect(isDirectNameAutoMergeEligible('a@example.com', 'b@example.com')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('DM WITH AMELIE', 'Amelie')).toBe(false);
+  });
+
+  it('does not auto-merge repeated-token labels against real names', () => {
+    expect(isDirectNameAutoMergeEligible('Aly Aly', 'Aly Hossein')).toBe(false);
+  });
+});
+
+describe('scoreNameOnlyMerge', () => {
+  it('scores reordered Amelie names as a strong suggestion', () => {
+    const score = scoreNameOnlyMerge('COMPLAINVILLE AMELIE', 'Amelie Complainville');
+    expect(score.confidence).toBeGreaterThanOrEqual(0.55);
+    expect(score.positiveEvidence.join(' ')).toContain('same tokens');
+  });
+
+  it('scores truncated long-token surname variants as compatible', () => {
+    const score = scoreNameOnlyMerge('Amelie COMPLAINVILL', 'Amelie COMPLAINVILLE');
+    expect(score.confidence).toBeGreaterThanOrEqual(0.55);
+  });
+
+  it('penalizes common first-name-only matches', () => {
+    const score = scoreNameOnlyMerge('Mohamed', 'Mohammed');
+    expect(score.confidence).toBeLessThan(0.55);
+    expect(score.negativeEvidence.join(' ')).toContain('single-token');
+  });
+
+  it('does not score email domains as person-name similarity', () => {
+    const score = scoreNameOnlyMerge('alozadafgaryqyq@gmail.com', 'a.alrahama@gmail.com');
+    expect(score.confidence).toBe(0);
+    expect(score.negativeEvidence.join(' ')).toContain('identifier-like label');
+  });
+
+  it('does not score display names that combine a name and an email address', () => {
+    const score = scoreNameOnlyMerge(
+      'a.alrahama@gmail.com',
+      'Commander Andrey Parker <christinwendervcb24@gmail.com>',
+    );
+    expect(score.confidence).toBe(0);
+    expect(score.negativeEvidence.join(' ')).toContain('identifier-like label');
+  });
+
+  it('does not treat common first-name prefixes as enough evidence', () => {
+    const score = scoreNameOnlyMerge('Mohammad Hussien', 'Mohammad Hussien Meshal Alsaleem');
+    expect(score.confidence).toBe(0);
+    expect(score.negativeEvidence.join(' ')).toContain('combined multi-person');
+  });
+
+  it('scores compatible middle-name expansion', () => {
+    const score = scoreNameOnlyMerge(
+      'MOHAMMED THABET A SAMMAN',
+      'MOHAMMED THABET ABDULMOHSEN SAMMAN',
+    );
+    expect(score.confidence).toBeGreaterThanOrEqual(0.55);
+  });
+
+  it('does not treat short different surnames as compatible typos', () => {
+    expect(scoreNameOnlyMerge('Reem Naji', 'Reem Zaki').confidence).toBeLessThan(0.55);
+  });
+
+  it('penalizes containment when first names differ', () => {
+    expect(scoreNameOnlyMerge('Ali Ahmed', 'Dr. Syed Ali Ahmed').confidence).toBeLessThan(0.55);
+    expect(scoreNameOnlyMerge('Mahmoud Ahmed Hassan', 'Hassan Hassan').confidence).toBeLessThan(
+      0.55,
+    );
+  });
+
+  it('does not treat repeated shared surname tokens as containment', () => {
+    expect(scoreNameOnlyMerge('Saud Al Saud', 'Khaled Al Saud').confidence).toBeLessThan(0.55);
+  });
+
+  it('does not score embedded person-name fragments as enough evidence', () => {
+    expect(scoreNameOnlyMerge('AMR ESSAM', 'HALA AMR ESSAM').confidence).toBeLessThan(0.55);
+    expect(
+      scoreNameOnlyMerge('FARAJ, AMR ESSAM MOHAMED', 'AMR ESSAM MOHAMED').confidence,
+    ).toBeLessThan(0.55);
+    expect(
+      scoreNameOnlyMerge('Saleh Al-Ghamdi', 'Mostafa Mohamed Saleh Al-Ghamdi').confidence,
+    ).toBeLessThan(0.55);
+  });
+
+  it('normalizes punctuation to shared tokens for candidate pairing', () => {
+    expect(normalizeNameForMerge('FARAJ, AMR ESSAM MOHAMED')).toEqual([
+      'faraj',
+      'amr',
+      'essam',
+      'mohamed',
+    ]);
+  });
+
+  it('normalizes exact display-name casing for direct duplicate merges', () => {
+    expect(normalizeNameForMerge('JACK').join(' ')).toBe(normalizeNameForMerge('jack').join(' '));
+    expect(normalizeNameForMerge('  Noman  ').join(' ')).toBe(
+      normalizeNameForMerge('NOMAN').join(' '),
+    );
+  });
+
+  it('keeps comma-separated person aliases eligible while detecting group names', () => {
+    expect(looksLikeGroupName('FARAJ, AMR ESSAM MOHAMED')).toBe(false);
+    expect(looksLikeGroupName('DM WITH AMR ESSAM')).toBe(true);
+    expect(looksLikeGroupName('Family / Dubai')).toBe(true);
+  });
+
+  it('only allows person entities into merge suggestions', () => {
+    expect(isMergeSuggestionEligibleEntity('person')).toBe(true);
+    expect(isMergeSuggestionEligibleEntity(null)).toBe(true);
+    expect(isMergeSuggestionEligibleEntity('group')).toBe(false);
+    expect(isMergeSuggestionEligibleEntity('organization')).toBe(false);
   });
 });
 

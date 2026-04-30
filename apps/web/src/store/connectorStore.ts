@@ -110,21 +110,50 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
       accounts: state.accounts.map((a) => (a.id === id ? { ...a, status: 'syncing' as const } : a)),
     }));
     try {
-      await api.triggerSync(id, memoryBankId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Sync failed';
+      const { job } = await api.triggerSync(id, memoryBankId);
       set((state) => ({
-        error: `Sync failed for ${account?.identifier || id}: ${message}`,
         accounts: state.accounts.map((a) =>
-          a.id === id ? { ...a, status: 'connected' as const } : a,
+          a.id === id
+            ? {
+                ...a,
+                status: job.status === 'queued' ? ('queued' as const) : ('syncing' as const),
+                syncHealth: {
+                  ...(a.syncHealth || {
+                    activeJobId: null,
+                    queuedJobId: null,
+                    lastActivityAt: null,
+                    progress: null,
+                    total: null,
+                    recoveryAction: null,
+                    recoveryReason: null,
+                  }),
+                  phase: job.status === 'queued' ? 'Queued for sync' : 'Syncing connector data',
+                  activeJobId: job.status === 'running' ? job.id : null,
+                  queuedJobId: job.status === 'queued' ? job.id : null,
+                  progress: job.progress ?? null,
+                  total: job.total ?? null,
+                  lastActivityAt: job.startedAt,
+                },
+              }
+            : a,
         ),
       }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sync failed';
+      set({ error: `Sync failed for ${account?.identifier || id}: ${message}` });
+      await _get().fetchAccounts();
     }
   },
 
   syncAll: async (memoryBankId?) => {
     const syncable = _get().accounts.filter(
-      (a) => a.status === 'connected' || a.status === 'error' || a.status === 'disconnected',
+      (a) =>
+        a.status === 'connected' ||
+        a.status === 'degraded' ||
+        a.status === 'failed' ||
+        a.status === 'error' ||
+        a.status === 'disconnected' ||
+        a.status === 'reconnect_required',
     );
     if (syncable.length === 0) return;
 
@@ -139,6 +168,7 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
     await Promise.allSettled(
       syncable.map((a) => api.triggerSync(a.id, memoryBankId).catch(() => {})),
     );
+    await _get().fetchAccounts();
     set({ syncingAll: false });
   },
 }));

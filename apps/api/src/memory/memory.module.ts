@@ -15,7 +15,6 @@ import { OpenRouterService } from './openrouter.service';
 import { AiCacheService } from './ai-cache.service';
 import { AiService } from './ai.service';
 import { GeminiEmbedService } from './gemini-embed.service';
-import { RerankService } from './rerank.service';
 import { TypesenseService } from './typesense.service';
 import { EnrichService } from './enrich.service';
 import { ContentCleaner } from './content-cleaner';
@@ -46,7 +45,6 @@ import { MemoryController } from './memory.controller';
     OpenRouterService,
     GeminiEmbedService,
     AiCacheService,
-    RerankService,
     AiService,
     TypesenseService,
     EnrichService,
@@ -56,13 +54,6 @@ import { MemoryController } from './memory.controller';
     MigrationService,
     MemoryService,
   ],
-  exports: [
-    OllamaService,
-    AiService,
-    RerankService,
-    TypesenseService,
-    EnrichService,
-    MemoryService,
-  ],
+  exports: [OllamaService, AiService, TypesenseService, EnrichService, MemoryService],
 })
 export class MemoryModule {}

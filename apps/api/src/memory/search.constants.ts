@@ -1,6 +1,6 @@
 // ============ Scoring ============
 export const MIN_SCORE = 0.35;
-export const HYBRID_K_MULTIPLIER = 3;
+export const HYBRID_K_MULTIPLIER = 10;
 export const HYBRID_K_CAP = 250;
 export const INJECTED_CONTACT_BASELINE = 0.4;
 export const CONTACT_BOOST_MIXED = 1.2;
@@ -12,7 +12,6 @@ export const DIVERSITY_FACTOR_DEFAULT = 0.25;
 export const SCORING_PROFILES = {
   browse: {
     semantic: 0.25,
-    rerank: 0,
     recency: 0.4,
     importance: 0.1,
     trust: 0.05,
@@ -21,25 +20,14 @@ export const SCORING_PROFILES = {
   },
   recall: {
     semantic: 0.4,
-    rerank: 0,
     recency: 0.4,
     importance: 0.1,
     trust: 0.05,
     semanticCap: 0.6,
     recencyCap: 0.6,
   },
-  recallRerank: {
-    semantic: 0.4,
-    rerank: 0.3,
-    recency: 0.15,
-    importance: 0.1,
-    trust: 0.05,
-    semanticCap: 0.7,
-    recencyCap: 0.4,
-  },
-  recallRerankNoSemantic: {
+  recallHybrid: {
     semantic: 0.7,
-    rerank: 0,
     recency: 0.15,
     importance: 0.1,
     trust: 0.05,
@@ -65,5 +53,5 @@ export const CORROBORATION_MULTI_CONFIDENCE = 0.9;
 export const SAME_CONNECTOR_BOOST_CONFIDENCE = 0.65;
 
 // ============ Typesense ============
-export const HYBRID_ALPHA = 0.3;
+export const HYBRID_ALPHA = 0.5;
 export const QUERY_BY_WEIGHTS = '3,1,1';

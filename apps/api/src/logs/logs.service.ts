@@ -50,6 +50,8 @@ export class LogsService {
     const line = JSON.stringify(entry) + '\n';
     const path = this.logsPath;
 
+    process.stdout.write(line);
+
     fs.mkdir(dirname(path), { recursive: true })
       .then(() => fs.appendFile(path, line, 'utf-8'))
       .catch((err) =>

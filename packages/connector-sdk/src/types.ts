@@ -73,10 +73,37 @@ export interface ConnectorDataEvent {
   };
 }
 
+export interface ConnectorRawAsset {
+  contentType: string;
+  fileName: string;
+  contentLength: number | null;
+  buffer: Buffer;
+}
+
 export interface SyncResult {
   cursor: string | null;
   hasMore: boolean;
   processed: number;
+}
+
+export interface ConnectorRealtimeHandle {
+  stop(): Promise<void>;
+}
+
+export interface ConnectorRealtimeDisconnect {
+  reason: string;
+  code?: number;
+  reconnectable: boolean;
+}
+
+export interface ConnectorRealtimeContext {
+  accountId: string;
+  auth: AuthContext;
+  logger: ConnectorLogger;
+  signal: AbortSignal;
+  emitData(event: ConnectorDataEvent): void | Promise<void>;
+  onConnected?(info?: Record<string, unknown>): void | Promise<void>;
+  onDisconnect?(info: ConnectorRealtimeDisconnect): void | Promise<void>;
 }
 
 export interface ProgressEvent {

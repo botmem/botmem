@@ -169,9 +169,9 @@ Free plan: 500 memories total across all connectors. Pro plan: unlimited. Self-h
 
 ### Logs
 
-| Method | Path        | Description |
-| ------ | ----------- | ----------- |
-| `GET`  | `/api/logs` | Query logs  |
+| Method | Path        | Description                               |
+| ------ | ----------- | ----------------------------------------- |
+| `GET`  | `/api/logs` | Query NDJSON logs from `data/logs.ndjson` |
 
 ### WebSocket
 

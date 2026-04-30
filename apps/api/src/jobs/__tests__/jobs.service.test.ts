@@ -253,65 +253,76 @@ describe('JobsService', () => {
   });
 
   describe('onApplicationBootstrap', () => {
-    it('resets stale syncing accounts to connected', async () => {
-      mockDb.returning = vi.fn().mockResolvedValueOnce([{ id: 'acc-1' }]);
-      mockDb.where.mockReturnValueOnce(mockDb); // syncing accounts update
-      mockDb.set.mockReturnValueOnce(mockDb); // chain
-
-      // Mock remaining calls for jobs reset (running + queued) + orphan cleanup
-      mockDb.returning
-        .mockResolvedValueOnce([]) // running jobs
-        .mockResolvedValueOnce([]); // queued jobs
-      mockDb.where
-        .mockReturnValueOnce(mockDb) // running jobs update
-        .mockReturnValueOnce(mockDb); // queued jobs update
-      mockDb.set
-        .mockReturnValueOnce(mockDb) // running jobs
-        .mockReturnValueOnce(mockDb); // queued jobs
-
+    it('requeues restart-interrupted jobs instead of failing them', async () => {
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          id: 'job-restart',
+          accountId: 'acc-1',
+          connectorType: 'photos',
+          memoryBankId: 'bank-1',
+          status: 'running',
+          error: null,
+        },
+      ]);
       syncQueue.getRepeatableJobs.mockResolvedValueOnce([]);
 
       await service.onApplicationBootstrap();
-      expect(mockDb.update).toHaveBeenCalled();
-      expect(mockDb.set).toHaveBeenCalled();
+      expect(mockDb.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'queued',
+          error: null,
+          completedAt: null,
+        }),
+      );
+      expect(mockDb.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'connected',
+          lastError: null,
+        }),
+      );
+      expect(syncQueue.add).toHaveBeenCalledWith(
+        'sync',
+        {
+          accountId: 'acc-1',
+          connectorType: 'photos',
+          jobId: 'job-restart',
+          memoryBankId: 'bank-1',
+        },
+        { jobId: 'job-restart' },
+      );
     });
 
-    it('resets stale running jobs to failed', async () => {
-      mockDb.returning = vi
-        .fn()
-        .mockResolvedValueOnce([]) // syncing accounts
-        .mockResolvedValueOnce([{ id: 'job-1' }]) // running jobs
-        .mockResolvedValueOnce([]); // queued jobs
-      mockDb.where
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb);
-      mockDb.set
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb);
-
+    it('recovers only the latest previously failed restart job per account', async () => {
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          id: 'job-new',
+          accountId: 'acc-1',
+          connectorType: 'photos',
+          memoryBankId: null,
+          status: 'failed',
+          error: 'Server restarted',
+        },
+        {
+          id: 'job-old',
+          accountId: 'acc-1',
+          connectorType: 'photos',
+          memoryBankId: null,
+          status: 'failed',
+          error: 'Server restarted',
+        },
+      ]);
       syncQueue.getRepeatableJobs.mockResolvedValueOnce([]);
 
       await service.onApplicationBootstrap();
-      expect(mockDb.update).toHaveBeenCalled();
+      expect(syncQueue.add).toHaveBeenCalledTimes(1);
+      expect(syncQueue.add).toHaveBeenCalledWith(
+        'sync',
+        expect.objectContaining({ jobId: 'job-new' }),
+        { jobId: 'job-new' },
+      );
     });
 
     it('removes orphaned repeat jobs for deleted accounts', async () => {
-      mockDb.returning = vi
-        .fn()
-        .mockResolvedValueOnce([]) // syncing accounts
-        .mockResolvedValueOnce([]) // running jobs
-        .mockResolvedValueOnce([]); // queued jobs
-      mockDb.where
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb);
-      mockDb.set
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb)
-        .mockReturnValueOnce(mockDb);
-
       const removeByKey = vi.fn().mockResolvedValue(undefined);
       syncQueue.getRepeatableJobs.mockResolvedValueOnce([
         { name: 'scheduled:deleted-acc', key: 'repeat:abc' },
@@ -319,11 +330,12 @@ describe('JobsService', () => {
       ]);
       (syncQueue as Record<string, unknown>).removeRepeatableByKey = removeByKey;
 
-      // Account lookup: deleted-acc not found, existing-acc found
       mockDb.limit
+        .mockResolvedValueOnce([]) // restart-interrupted jobs
         .mockResolvedValueOnce([]) // deleted-acc → not found
         .mockResolvedValueOnce([{ id: 'existing-acc' }]); // existing-acc → found
 
+      // Account lookup: deleted-acc not found, existing-acc found
       await service.onApplicationBootstrap();
       expect(removeByKey).toHaveBeenCalledWith('repeat:abc');
       expect(removeByKey).not.toHaveBeenCalledWith('repeat:def');

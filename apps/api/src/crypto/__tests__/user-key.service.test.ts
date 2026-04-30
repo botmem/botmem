@@ -10,6 +10,9 @@ function mockDekCache(): DekCacheService {
       store.set(userId, dek);
     }),
     getCachedDek: vi.fn(async (userId: string) => store.get(userId) || null),
+    removeDek: vi.fn(async (userId: string) => {
+      store.delete(userId);
+    }),
   } as unknown as DekCacheService;
 }
 

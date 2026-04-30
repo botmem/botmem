@@ -168,11 +168,4 @@ export class OpenRouterService implements OnModuleInit {
     }
     throw new Error('Unreachable');
   }
-
-  /**
-   * Rerank is not supported via OpenRouter — graceful degradation returns zeros.
-   */
-  async rerank(_query: string, documents: string[]): Promise<number[]> {
-    return new Array(documents.length).fill(0);
-  }
 }

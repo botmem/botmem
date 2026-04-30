@@ -5,7 +5,6 @@ import { OllamaService } from '../ollama.service';
 import { OpenRouterService } from '../openrouter.service';
 import { GeminiEmbedService } from '../gemini-embed.service';
 import { AiCacheService } from '../ai-cache.service';
-import { RerankService } from '../rerank.service';
 
 function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService {
   return {
@@ -54,12 +53,6 @@ function createMockCache(): AiCacheService {
   } as unknown as AiCacheService;
 }
 
-function createMockReranker(): RerankService {
-  return {
-    rerank: vi.fn().mockResolvedValue([0.9, 0.5]),
-  } as unknown as RerankService;
-}
-
 describe('AiService', () => {
   let service: AiService;
   let config: ConfigService;
@@ -67,7 +60,6 @@ describe('AiService', () => {
   let openrouter: OpenRouterService;
   let gemini: GeminiEmbedService;
   let cache: AiCacheService;
-  let reranker: RerankService;
 
   beforeEach(() => {
     config = createMockConfig();
@@ -75,8 +67,7 @@ describe('AiService', () => {
     openrouter = createMockOpenRouter();
     gemini = createMockGemini();
     cache = createMockCache();
-    reranker = createMockReranker();
-    service = new AiService(config, ollama, openrouter, gemini, cache, reranker);
+    service = new AiService(config, ollama, openrouter, gemini, cache);
   });
 
   describe('embed', () => {
@@ -89,7 +80,7 @@ describe('AiService', () => {
 
     it('routes to openrouter when embedBackend is openrouter', async () => {
       (config as Record<string, unknown>).embedBackend = 'openrouter';
-      service = new AiService(config, ollama, openrouter, gemini, cache, reranker);
+      service = new AiService(config, ollama, openrouter, gemini, cache);
 
       const result = await service.embed('hello');
 
@@ -99,7 +90,7 @@ describe('AiService', () => {
 
     it('routes to gemini when embedBackend is gemini', async () => {
       (config as Record<string, unknown>).embedBackend = 'gemini';
-      service = new AiService(config, ollama, openrouter, gemini, cache, reranker);
+      service = new AiService(config, ollama, openrouter, gemini, cache);
 
       const result = await service.embed('hello');
 
@@ -176,7 +167,7 @@ describe('AiService', () => {
   describe('embedMultimodal', () => {
     it('delegates to gemini when embedBackend is gemini', async () => {
       (config as Record<string, unknown>).embedBackend = 'gemini';
-      service = new AiService(config, ollama, openrouter, gemini, cache, reranker);
+      service = new AiService(config, ollama, openrouter, gemini, cache);
 
       const parts = [{ type: 'text' as const, text: 'hello' }];
       const result = await service.embedMultimodal(parts);
@@ -204,7 +195,7 @@ describe('AiService', () => {
 
     it('routes to openrouter when aiBackend is openrouter', async () => {
       (config as Record<string, unknown>).aiBackend = 'openrouter';
-      service = new AiService(config, ollama, openrouter, gemini, cache, reranker);
+      service = new AiService(config, ollama, openrouter, gemini, cache);
 
       const result = await service.generate('prompt');
 
@@ -231,13 +222,14 @@ describe('AiService', () => {
         'qwen3-vl:4b',
         expect.stringContaining('::img::'),
         'generate_vl',
+        'ollama',
       );
     });
 
     it('uses text model name when no images', async () => {
       await service.generate('explain this');
 
-      expect(cache.get).toHaveBeenCalledWith('qwen3:8b', 'explain this', 'generate');
+      expect(cache.get).toHaveBeenCalledWith('qwen3:8b', 'explain this', 'generate', 'ollama');
     });
 
     it('stores result in cache after generation', async () => {
@@ -263,15 +255,6 @@ describe('AiService', () => {
       );
 
       await expect(service.generate('prompt')).rejects.toThrow('generation failed');
-    });
-  });
-
-  describe('rerank', () => {
-    it('delegates to reranker service', async () => {
-      const result = await service.rerank('query', ['doc1', 'doc2']);
-
-      expect(reranker.rerank).toHaveBeenCalledWith('query', ['doc1', 'doc2']);
-      expect(result).toEqual([0.9, 0.5]);
     });
   });
 });

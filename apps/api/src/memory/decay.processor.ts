@@ -56,19 +56,15 @@ export class DecayProcessor extends WorkerHost implements OnModuleInit {
         const importance = baseImportance + Math.min(recallCount * 0.02, 0.2);
         const trust = this.getTrustScore(mem.connectorType);
 
-        // Preserve existing semantic/rerank scores
+        // Preserve existing semantic score
         const parsedWeights = (mem.weights as Record<string, number> | null) || {};
         const semantic = parsedWeights.semantic ?? 0;
-        const rerank = parsedWeights.rerank ?? 0;
 
-        let final =
-          rerank > 0
-            ? 0.4 * semantic + 0.3 * rerank + 0.15 * recency + 0.1 * importance + 0.05 * trust
-            : 0.7 * semantic + 0.15 * recency + 0.1 * importance + 0.05 * trust;
+        let final = 0.7 * semantic + 0.15 * recency + 0.1 * importance + 0.05 * trust;
 
         if (isPinned) final = Math.max(final, 0.75);
 
-        const newWeights = JSON.stringify({ semantic, rerank, recency, importance, trust, final });
+        const newWeights = JSON.stringify({ semantic, recency, importance, trust, final });
 
         await db.update(memories).set({ weights: newWeights }).where(eq(memories.id, mem.id));
 

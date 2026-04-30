@@ -24,7 +24,13 @@ const rawContact = (id: string, name: string) => ({
   entityType: 'person',
   avatars: [],
   identifiers: [
-    { id: `id-${id}`, identifierType: 'email', identifierValue: `${name.toLowerCase()}@test.com`, isPrimary: true, connectorType: 'gmail' },
+    {
+      id: `id-${id}`,
+      identifierType: 'email',
+      identifierValue: `${name.toLowerCase()}@test.com`,
+      isPrimary: true,
+      connectorType: 'gmail',
+    },
   ],
   memoryCount: 5,
   createdAt: '2026-01-01',
@@ -63,16 +69,23 @@ describe('contactStore', () => {
     });
 
     it('handles API error', async () => {
-      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().loadContacts();
       expect(useContactStore.getState().contacts).toEqual([]);
       expect(useContactStore.getState().loading).toBe(false);
     });
 
     it('passes entityType parameter', async () => {
-      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0 });
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [],
+        total: 0,
+      });
       await useContactStore.getState().loadContacts('organization');
-      expect(api.listContacts).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'organization' }));
+      expect(api.listContacts).toHaveBeenCalledWith(
+        expect.objectContaining({ entityType: 'organization' }),
+      );
     });
 
     it('parses identifiers correctly', async () => {
@@ -100,7 +113,19 @@ describe('contactStore', () => {
   describe('loadMoreContacts', () => {
     it('appends more contacts', async () => {
       useContactStore.setState({
-        contacts: [{ id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' }],
+        contacts: [
+          {
+            id: 'c1',
+            displayName: 'Alice',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
         total: 2,
         hasMore: true,
       });
@@ -133,7 +158,9 @@ describe('contactStore', () => {
 
     it('handles API error', async () => {
       useContactStore.setState({ hasMore: true, contacts: [] });
-      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().loadMoreContacts();
       expect(useContactStore.getState().loadingMore).toBe(false);
     });
@@ -141,7 +168,9 @@ describe('contactStore', () => {
 
   describe('searchContacts', () => {
     it('searches and sets results', async () => {
-      (api.searchContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([rawContact('c1', 'Alice')]);
+      (api.searchContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+        rawContact('c1', 'Alice'),
+      ]);
       await useContactStore.getState().searchContacts('alice');
       const state = useContactStore.getState();
       expect(state.contacts).toHaveLength(1);
@@ -150,7 +179,9 @@ describe('contactStore', () => {
     });
 
     it('handles search error', async () => {
-      (api.searchContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.searchContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().searchContacts('alice');
       expect(useContactStore.getState().loading).toBe(false);
     });
@@ -171,7 +202,10 @@ describe('contactStore', () => {
 
   describe('setEntityFilter', () => {
     it('sets filter and triggers load', async () => {
-      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0 });
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [],
+        total: 0,
+      });
       useContactStore.getState().setEntityFilter('organization');
       expect(useContactStore.getState().entityFilter).toBe('organization');
       expect(useContactStore.getState().selectedId).toBeNull();
@@ -181,9 +215,27 @@ describe('contactStore', () => {
   describe('updateContact', () => {
     it('updates contact in list', async () => {
       useContactStore.setState({
-        contacts: [{ id: 'c1', displayName: 'Old Name', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' }],
+        contacts: [
+          {
+            id: 'c1',
+            displayName: 'Old Name',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
       });
-      (api.updateContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'c1', displayName: 'New Name', entityType: 'person', avatars: [], identifiers: [] });
+      (api.updateContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'c1',
+        displayName: 'New Name',
+        entityType: 'person',
+        avatars: [],
+        identifiers: [],
+      });
       await useContactStore.getState().updateContact('c1', { displayName: 'New Name' });
       expect(useContactStore.getState().contacts[0].displayName).toBe('New Name');
     });
@@ -193,8 +245,28 @@ describe('contactStore', () => {
     it('removes contact from list', async () => {
       useContactStore.setState({
         contacts: [
-          { id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' },
-          { id: 'c2', displayName: 'Bob', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' },
+          {
+            id: 'c1',
+            displayName: 'Alice',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+          {
+            id: 'c2',
+            displayName: 'Bob',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
         ],
         total: 2,
         selectedId: 'c1',
@@ -210,8 +282,28 @@ describe('contactStore', () => {
     it('preserves selectedId if different contact deleted', async () => {
       useContactStore.setState({
         contacts: [
-          { id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' },
-          { id: 'c2', displayName: 'Bob', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' },
+          {
+            id: 'c1',
+            displayName: 'Alice',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+          {
+            id: 'c2',
+            displayName: 'Bob',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
         ],
         total: 2,
         selectedId: 'c2',
@@ -225,11 +317,28 @@ describe('contactStore', () => {
   describe('loadSuggestions', () => {
     it('loads merge suggestions', async () => {
       (api.getMergeSuggestions as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { contact1: rawContact('c1', 'Alice'), contact2: rawContact('c2', 'Alice K'), reason: 'Similar names' },
+        {
+          contact1: rawContact('c1', 'Alice'),
+          contact2: rawContact('c2', 'Alice K'),
+          reason: 'Similar names',
+        },
       ]);
       await useContactStore.getState().loadSuggestions();
       expect(useContactStore.getState().suggestions).toHaveLength(1);
       expect(useContactStore.getState().suggestions[0].reason).toBe('Similar names');
+    });
+
+    it('does not drop suggestions when an avatar string is not JSON', async () => {
+      (api.getMergeSuggestions as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          contact1: { ...rawContact('c1', 'Alice'), avatars: 'encrypted-avatar-payload' },
+          contact2: rawContact('c2', 'Alice K'),
+          reason: 'Similar names',
+        },
+      ]);
+      await useContactStore.getState().loadSuggestions();
+      expect(useContactStore.getState().suggestions).toHaveLength(1);
+      expect(useContactStore.getState().suggestions[0].contact1.avatars).toEqual([]);
     });
   });
 
@@ -237,7 +346,31 @@ describe('contactStore', () => {
     it('removes suggestion from list', async () => {
       useContactStore.setState({
         suggestions: [
-          { contact1: { id: 'c1', displayName: 'A', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 0, createdAt: '', updatedAt: '' }, contact2: { id: 'c2', displayName: 'B', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 0, createdAt: '', updatedAt: '' }, reason: 'test' },
+          {
+            contact1: {
+              id: 'c1',
+              displayName: 'A',
+              entityType: 'person',
+              avatars: [],
+              identifiers: [],
+              connectorSources: [],
+              memoryCount: 0,
+              createdAt: '',
+              updatedAt: '',
+            },
+            contact2: {
+              id: 'c2',
+              displayName: 'B',
+              entityType: 'person',
+              avatars: [],
+              identifiers: [],
+              connectorSources: [],
+              memoryCount: 0,
+              createdAt: '',
+              updatedAt: '',
+            },
+            reason: 'test',
+          },
         ],
       });
       (api.dismissSuggestion as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -248,7 +381,31 @@ describe('contactStore', () => {
 
   describe('reinsertSuggestion', () => {
     it('prepends suggestion', () => {
-      const suggestion = { contact1: { id: 'c1', displayName: 'A', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 0, createdAt: '', updatedAt: '' }, contact2: { id: 'c2', displayName: 'B', entityType: 'person', avatars: [], identifiers: [], connectorSources: [], memoryCount: 0, createdAt: '', updatedAt: '' }, reason: 'test' };
+      const suggestion = {
+        contact1: {
+          id: 'c1',
+          displayName: 'A',
+          entityType: 'person',
+          avatars: [],
+          identifiers: [],
+          connectorSources: [],
+          memoryCount: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+        contact2: {
+          id: 'c2',
+          displayName: 'B',
+          entityType: 'person',
+          avatars: [],
+          identifiers: [],
+          connectorSources: [],
+          memoryCount: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+        reason: 'test',
+      };
       useContactStore.getState().reinsertSuggestion(suggestion);
       expect(useContactStore.getState().suggestions).toHaveLength(1);
     });
@@ -262,7 +419,9 @@ describe('contactStore', () => {
     });
 
     it('handles error gracefully', async () => {
-      (api.undismissSuggestion as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.undismissSuggestion as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().undismissSuggestion('c1', 'c2');
     });
   });
@@ -271,14 +430,19 @@ describe('contactStore', () => {
     it('merges contacts and reloads', async () => {
       useContactStore.setState({ selectedId: 'c2' });
       (api.mergeContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [rawContact('c1', 'Alice')], total: 1 });
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [rawContact('c1', 'Alice')],
+        total: 1,
+      });
       (api.getMergeSuggestions as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       await useContactStore.getState().mergeContacts('c1', 'c2');
       expect(useContactStore.getState().selectedId).toBe('c1');
     });
 
     it('handles merge error', async () => {
-      (api.mergeContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.mergeContacts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().mergeContacts('c1', 'c2');
     });
   });
@@ -286,15 +450,35 @@ describe('contactStore', () => {
   describe('removeIdentifier', () => {
     it('removes identifier and updates contact', async () => {
       useContactStore.setState({
-        contacts: [{ id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [{ id: 'id-1', type: 'email', value: 'a@test.com', isPrimary: true }], connectorSources: [], memoryCount: 1, createdAt: '', updatedAt: '' }],
+        contacts: [
+          {
+            id: 'c1',
+            displayName: 'Alice',
+            entityType: 'person',
+            avatars: [],
+            identifiers: [{ id: 'id-1', type: 'email', value: 'a@test.com', isPrimary: true }],
+            connectorSources: [],
+            memoryCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
       });
-      (api.removeIdentifier as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'c1', displayName: 'Alice', entityType: 'person', avatars: [], identifiers: [] });
+      (api.removeIdentifier as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'c1',
+        displayName: 'Alice',
+        entityType: 'person',
+        avatars: [],
+        identifiers: [],
+      });
       await useContactStore.getState().removeIdentifier('c1', 'id-1');
       expect(useContactStore.getState().contacts[0].identifiers).toEqual([]);
     });
 
     it('handles error gracefully', async () => {
-      (api.removeIdentifier as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.removeIdentifier as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().removeIdentifier('c1', 'id-1');
     });
   });
@@ -302,13 +486,18 @@ describe('contactStore', () => {
   describe('splitContact', () => {
     it('splits contact and reloads', async () => {
       (api.splitContact as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0 });
+      (api.listContacts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [],
+        total: 0,
+      });
       await useContactStore.getState().splitContact('c1', ['id-1']);
       expect(api.splitContact).toHaveBeenCalledWith('c1', ['id-1']);
     });
 
     it('handles error gracefully', async () => {
-      (api.splitContact as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.splitContact as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useContactStore.getState().splitContact('c1', ['id-1']);
     });
   });

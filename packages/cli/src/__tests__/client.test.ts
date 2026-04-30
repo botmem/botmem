@@ -141,6 +141,7 @@ describe('BotmemClient', () => {
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.filters).toEqual({ sourceType: 'email' });
+      expect(body.sourceType).toBe('email');
       expect(body.limit).toBe(10);
       expect(body.memoryBankId).toBe('bank-1');
     });

@@ -12,6 +12,9 @@ import type {
   EmbedResult,
   EnrichResult,
   PipelineContext,
+  ConnectorRealtimeContext,
+  ConnectorRealtimeHandle,
+  ConnectorRawAsset,
 } from './types.js';
 import { detectNoiseReason } from './noise-filter.js';
 
@@ -30,6 +33,14 @@ export abstract class BaseConnector extends EventEmitter {
   abstract validateAuth(auth: AuthContext): Promise<boolean>;
   abstract revokeAuth(auth: AuthContext): Promise<void>;
   abstract sync(ctx: SyncContext): Promise<SyncResult>;
+
+  supportsRealtime(): boolean {
+    return false;
+  }
+
+  startRealtime(_ctx: ConnectorRealtimeContext): Promise<ConnectorRealtimeHandle> {
+    return Promise.reject(new Error(`${this.manifest.id} does not support realtime sync`));
+  }
 
   /** Wraps ctx with a limit-aware abort signal. Call this from the sync processor before sync(). */
   wrapSyncContext(ctx: SyncContext): SyncContext {
@@ -156,6 +167,20 @@ export abstract class BaseConnector extends EventEmitter {
 
   /** Extract file content. Default: null (no file handling). */
   extractFile(_fileUrl: string, _mimetype: string, _auth: AuthContext): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
+  /** Fetch connector-native raw metadata for a source item. Default: unsupported. */
+  getRaw(_sourceId: string, _auth: AuthContext): Promise<Record<string, unknown> | null> {
+    return Promise.resolve(null);
+  }
+
+  /** Fetch connector-native binary asset for a source item. Default: unsupported. */
+  getRawAsset(
+    _sourceId: string,
+    _auth: AuthContext,
+    _variant: string,
+  ): Promise<ConnectorRawAsset | null> {
     return Promise.resolve(null);
   }
 }

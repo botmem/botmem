@@ -84,97 +84,72 @@ describe('IMessageConnector', () => {
       expect(connector.manifest.authType).toBe('local-tool');
     });
 
-    it('has configSchema with imsgHost and imsgPort properties', () => {
+    it('has bridge setup config properties', () => {
       const schema = connector.manifest.configSchema as {
         properties: Record<string, { type: string }>;
       };
-      expect(schema.properties).toHaveProperty('imsgHost');
-      expect(schema.properties).toHaveProperty('imsgPort');
-      expect(schema.properties.imsgHost.type).toBe('string');
-      expect(schema.properties.imsgPort.type).toBe('number');
+      expect(schema.properties).toHaveProperty('myIdentifier');
+      expect(schema.properties).toHaveProperty('authMethod');
+      expect(schema.properties.myIdentifier.type).toBe('string');
     });
   });
 
   describe('initiateAuth', () => {
-    it('returns complete with auth context containing host and port', async () => {
+    it('returns complete with tunnel auth context for bridge mode', async () => {
       const result = await connector.initiateAuth({
-        imsgHost: '192.168.1.100',
-        imsgPort: 19876,
+        authMethod: 'bridge',
+        bridgeToken: 'imsg_bt_test',
+        myIdentifier: 'me@icloud.com',
       });
 
       expect(result.type).toBe('complete');
       if (result.type === 'complete') {
         expect(result.auth.raw).toEqual({
-          imsgHost: '192.168.1.100',
-          imsgPort: 19876,
-          myIdentifier: '',
-        });
-      }
-      expect(mockConnect).toHaveBeenCalledOnce();
-      expect(mockChatsList).toHaveBeenCalledWith(1);
-      expect(mockDisconnect).toHaveBeenCalledOnce();
-    });
-
-    it('uses default host and port when not provided', async () => {
-      const result = await connector.initiateAuth({});
-
-      expect(result.type).toBe('complete');
-      if (result.type === 'complete') {
-        expect(result.auth.raw).toEqual({
-          imsgHost: 'localhost',
-          imsgPort: 19876,
-          myIdentifier: '',
+          myIdentifier: 'me@icloud.com',
+          tunnelMode: true,
+          bridgeToken: 'imsg_bt_test',
         });
       }
     });
 
-    it('throws when connect fails', async () => {
-      mockConnect.mockRejectedValueOnce(new Error('Connection refused'));
-
-      await expect(connector.initiateAuth({})).rejects.toThrow(/Cannot connect to imsg bridge/);
+    it('rejects legacy local TCP setup', async () => {
+      await expect(connector.initiateAuth({})).rejects.toThrow(
+        /iMessage must be connected through the Botmem bridge setup flow/,
+      );
     });
   });
 
   describe('completeAuth', () => {
-    it('returns auth with host, port, and myIdentifier', async () => {
+    it('returns tunnel auth with myIdentifier', async () => {
       const auth = await connector.completeAuth({
-        imsgHost: '10.0.0.1',
-        imsgPort: 9999,
         myIdentifier: 'me@icloud.com',
       });
 
       expect(auth.raw).toEqual({
-        imsgHost: '10.0.0.1',
-        imsgPort: 9999,
         myIdentifier: 'me@icloud.com',
+        tunnelMode: true,
       });
     });
 
     it('uses defaults when params are empty', async () => {
       const auth = await connector.completeAuth({});
       expect(auth.raw).toEqual({
-        imsgHost: 'localhost',
-        imsgPort: 19876,
         myIdentifier: '',
+        tunnelMode: true,
       });
     });
   });
 
   describe('validateAuth', () => {
-    it('returns true on success', async () => {
+    it('returns true for tunnel auth', async () => {
       const result = await connector.validateAuth({
-        raw: { imsgHost: 'localhost', imsgPort: 19876 },
+        raw: { tunnelMode: true },
       });
 
       expect(result).toBe(true);
-      expect(mockConnect).toHaveBeenCalledOnce();
-      expect(mockChatsList).toHaveBeenCalledWith(1);
-      expect(mockDisconnect).toHaveBeenCalledOnce();
     });
 
-    it('returns false on error', async () => {
-      mockConnect.mockRejectedValueOnce(new Error('Connection refused'));
-
+    it('returns false for legacy local auth', async () => {
       const result = await connector.validateAuth({
         raw: { imsgHost: 'localhost', imsgPort: 19876 },
       });
@@ -190,6 +165,14 @@ describe('IMessageConnector', () => {
   });
 
   describe('sync', () => {
+    beforeEach(() => {
+      connector.setTunnelTransport({
+        connect: vi.fn().mockResolvedValue(undefined),
+        disconnect: vi.fn(),
+        call: vi.fn(),
+      });
+    });
+
     const makeSyncCtx = (overrides: Record<string, unknown> = {}): SyncContext =>
       ({
         accountId: 'acc-1',
@@ -448,6 +431,14 @@ describe('IMessageConnector', () => {
   });
 
   describe('sync (progress emission)', () => {
+    beforeEach(() => {
+      connector.setTunnelTransport({
+        connect: vi.fn().mockResolvedValue(undefined),
+        disconnect: vi.fn(),
+        call: vi.fn(),
+      });
+    });
+
     it('emits progress every PROGRESS_INTERVAL messages', async () => {
       // Create enough messages to trigger progress
       const messages = Array.from({ length: 55 }, (_, i) => ({

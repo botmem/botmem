@@ -114,7 +114,6 @@ Semantic search across all memories. Returns scored, ranked results.
     "score": 0.87,
     "weights": {
       "semantic": 0.92,
-      "rerank": 0,
       "recency": 0.78,
       "importance": 0.7,
       "trust": 0.95,

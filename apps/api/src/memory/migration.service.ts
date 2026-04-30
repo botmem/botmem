@@ -8,6 +8,7 @@ import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
 import { ContentCleaner } from './content-cleaner';
 import { TypesenseService } from './typesense.service';
+import { MEMORY_INDEX_SCHEMA_VERSION } from './typesense.service';
 import { EnrichService } from './enrich.service';
 import { ConfigService } from '../config/config.service';
 import { memories, memoryLinks } from '../db/schema';
@@ -375,6 +376,12 @@ export class MigrationService {
           if (p.name) peopleNames.push(p.name);
         }
       }
+      if (plainMetadata.people) {
+        for (const p of plainMetadata.people as Array<{ name?: string } | string>) {
+          const name = typeof p === 'string' ? p : p.name;
+          if (name) peopleNames.push(name);
+        }
+      }
 
       let parsedEntities: Array<{ type: string; value: string }> = [];
       try {
@@ -384,6 +391,7 @@ export class MigrationService {
       }
 
       const typesensePayload: Record<string, unknown> = {
+        schema_version: MEMORY_INDEX_SCHEMA_VERSION,
         text: cleanedText,
         source_type: mem.sourceType,
         connector_type: mem.connectorType,
@@ -391,6 +399,38 @@ export class MigrationService {
         account_id: mem.accountId,
         memory_bank_id: mem.memoryBankId || '',
         people: peopleNames,
+        person_aliases: [...new Set(peopleNames)],
+        locations: [
+          plainMetadata.location,
+          plainMetadata.city,
+          plainMetadata.state,
+          plainMetadata.country,
+          plainMetadata.address,
+        ].filter(Boolean),
+        location_text: [
+          plainMetadata.location,
+          plainMetadata.city,
+          plainMetadata.state,
+          plainMetadata.country,
+          plainMetadata.address,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        organizations: parsedEntities
+          .filter((e) => e.type === 'organization')
+          .map((e) => e.value)
+          .filter(Boolean),
+        thread_ids: [plainMetadata.threadId, plainMetadata.chatId].filter(Boolean),
+        transaction_tokens: [
+          plainMetadata.amount,
+          plainMetadata.currency,
+          plainMetadata.counterparty,
+          ...(cleanedText.match(
+            /[a-z0-9]+(?:[._-][a-z0-9]+)*|\b(?:aed|usd|eur|gbp|sar|egp)\b|\d+(?:[.,]\d+)?/gi,
+          ) ?? []),
+        ]
+          .map((token) => String(token).toLowerCase())
+          .filter(Boolean),
         importance: (mem.weights as Record<string, number>)?.importance ?? 0.5,
         recall_count: mem.recallCount ?? 0,
         pinned: mem.pinned ?? false,

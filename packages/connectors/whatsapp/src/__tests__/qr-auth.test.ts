@@ -19,6 +19,9 @@ vi.mock('@whiskeysockets/baileys', () => ({
   makeWASocket: mockMakeWASocket,
   makeCacheableSignalKeyStore: mockMakeCacheableSignalKeyStore,
   fetchLatestBaileysVersion: mockFetchLatestBaileysVersion,
+  Browsers: {
+    macOS: (browser: string) => ['Mac OS', browser, '14.4.1'],
+  },
   DisconnectReason: {
     loggedOut: 401,
     badSession: 500,
@@ -627,6 +630,21 @@ describe('qr-auth', () => {
 
     const socketOptions = mockMakeWASocket.mock.calls[mockMakeWASocket.mock.calls.length - 1][0];
     expect(socketOptions.syncFullHistory).toBe(true);
+  });
+
+  it('uses Desktop browser identity for full-history QR pairing', async () => {
+    createMockSocket();
+    const callbacks = {
+      onQrCode: vi.fn(),
+      onConnected: vi.fn(),
+      onError: vi.fn(),
+    };
+
+    const { startQrAuth } = await import('../qr-auth.js');
+    await startQrAuth('/tmp/test-session-desktop', callbacks);
+
+    const socketOptions = mockMakeWASocket.mock.calls[mockMakeWASocket.mock.calls.length - 1][0];
+    expect(socketOptions.browser).toEqual(['Mac OS', 'Desktop', '14.4.1']);
   });
 
   it('uses ev.process instead of individual .on for history events', async () => {

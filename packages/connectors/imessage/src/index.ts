@@ -10,7 +10,7 @@ import type {
   PipelineContext,
 } from '@botmem/connector-sdk';
 import { ImsgClient } from './imsg-client.js';
-import { TcpTransport, type RpcTransport } from './transport.js';
+import type { RpcTransport } from './transport.js';
 
 /** Tapback/reaction prefixes used by iMessage */
 const TAPBACK_PREFIXES = [
@@ -28,9 +28,22 @@ const TAPBACK_PREFIXES = [
   'Removed a question mark',
 ];
 
-const DEFAULT_HOST = 'localhost';
-const DEFAULT_PORT = 19876;
 const PROGRESS_INTERVAL = 50; // emit progress every N messages
+const BRIDGE_PREFLIGHT_TIMEOUT_MS = 3000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export class IMessageConnector extends BaseConnector {
   /** Optional tunnel transport injected by SyncProcessor for remote mode. */
@@ -39,7 +52,7 @@ export class IMessageConnector extends BaseConnector {
   readonly manifest: ConnectorManifest = {
     id: 'imessage',
     name: 'iMessage',
-    description: 'Import iMessage conversations via imsg RPC bridge',
+    description: 'Import iMessage conversations via the Botmem bridge tunnel',
     color: '#4ECDC4',
     icon: 'smartphone',
     authType: 'local-tool',
@@ -53,17 +66,23 @@ export class IMessageConnector extends BaseConnector {
           description:
             'Your iMessage email or phone number (used to identify you in conversations)',
         },
+        authMethod: {
+          type: 'string',
+          title: 'Bridge Mode',
+          description: 'Use the Botmem encrypted WebSocket bridge',
+          default: 'bridge',
+        },
         imsgHost: {
           type: 'string',
-          title: 'imsg Bridge Host',
-          description: 'Hostname or IP of the machine running the imsg RPC bridge',
-          default: DEFAULT_HOST,
+          title: 'Bridge Host',
+          description: 'Optional host for a local iMessage bridge',
+          default: 'localhost',
         },
         imsgPort: {
           type: 'number',
-          title: 'imsg Bridge Port',
-          description: 'TCP port the imsg RPC bridge is listening on',
-          default: DEFAULT_PORT,
+          title: 'Bridge Port',
+          description: 'Optional port for a local iMessage bridge',
+          default: 19876,
         },
       },
     },
@@ -147,37 +166,12 @@ export class IMessageConnector extends BaseConnector {
       };
     }
 
-    // Local TCP mode — verify bridge connectivity
-    const imsgHost = (config.imsgHost as string) || DEFAULT_HOST;
-    const imsgPort = (config.imsgPort as number) || DEFAULT_PORT;
-
-    const transport = new TcpTransport(imsgHost, imsgPort);
-    const client = new ImsgClient(transport);
-    try {
-      await client.connect();
-      await client.chatsList(1); // ping to verify the bridge works
-      client.disconnect();
-    } catch (err: unknown) {
-      throw new Error(
-        `Cannot connect to imsg bridge at ${imsgHost}:${imsgPort} — ${err instanceof Error ? err.message : String(err)}. ` +
-          'Make sure the imsg RPC bridge is running: socat TCP-LISTEN:19876,reuseaddr,fork EXEC:"imsg rpc"',
-        { cause: err },
-      );
-    }
-
-    const myIdentifier = (config.myIdentifier as string) || '';
-
-    return {
-      type: 'complete',
-      auth: { raw: { imsgHost, imsgPort, myIdentifier } },
-    };
+    throw new Error('iMessage must be connected through the Botmem bridge setup flow.');
   }
 
   async completeAuth(params: Record<string, unknown>): Promise<AuthContext> {
-    const imsgHost = (params.imsgHost as string) || DEFAULT_HOST;
-    const imsgPort = (params.imsgPort as number) || DEFAULT_PORT;
     const myIdentifier = (params.myIdentifier as string) || '';
-    return { raw: { imsgHost, imsgPort, myIdentifier } };
+    return { raw: { myIdentifier, tunnelMode: true } };
   }
 
   async validateAuth(auth: AuthContext): Promise<boolean> {
@@ -186,19 +180,7 @@ export class IMessageConnector extends BaseConnector {
       return true; // Actual connectivity checked by ImsgTunnelService.isConnected()
     }
 
-    const imsgHost = (auth.raw?.imsgHost as string) || DEFAULT_HOST;
-    const imsgPort = (auth.raw?.imsgPort as number) || DEFAULT_PORT;
-
-    const transport = new TcpTransport(imsgHost, imsgPort);
-    const client = new ImsgClient(transport);
-    try {
-      await client.connect();
-      await client.chatsList(1);
-      client.disconnect();
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 
   async revokeAuth(): Promise<void> {
@@ -213,14 +195,25 @@ export class IMessageConnector extends BaseConnector {
       ctx.logger.info('Using tunnel transport (remote bridge)');
       transport = this.tunnelTransport;
     } else {
-      const imsgHost = (ctx.auth.raw?.imsgHost as string) || DEFAULT_HOST;
-      const imsgPort = (ctx.auth.raw?.imsgPort as number) || DEFAULT_PORT;
-      ctx.logger.info(`Connecting to imsg bridge at ${imsgHost}:${imsgPort}`);
-      transport = new TcpTransport(imsgHost, imsgPort);
+      throw new Error(
+        'iMessage bridge tunnel is not connected. Run the bridge command from connector setup, then retry sync.',
+      );
     }
 
     const client = new ImsgClient(transport);
-    await client.connect();
+    try {
+      await withTimeout(
+        client.connect(),
+        BRIDGE_PREFLIGHT_TIMEOUT_MS,
+        'iMessage bridge tunnel is not connected',
+      );
+    } catch (err) {
+      client.disconnect();
+      throw new Error(
+        'iMessage bridge not connected. Start the Botmem iMessage bridge from connector setup, then run `botmem sync <account-id>`.',
+        { cause: err },
+      );
+    }
 
     try {
       const chats = await client.chatsList(10_000);

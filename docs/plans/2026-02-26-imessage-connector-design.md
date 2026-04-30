@@ -1,32 +1,38 @@
-# iMessage Connector — socat + imsg RPC Design
+# iMessage Connector — Legacy Local TCP Design
+
+Superseded: Botmem now relies on the dashboard-generated iMessage bridge command and
+`botmem sync <imessage-account-id>` for sync. This document is retained as historical context for
+the old local TCP approach.
 
 ## Problem
 
 The current iMessage connector uses `imessage-exporter` CLI which only works natively on macOS. Botmem needs to run in Docker, so we need a bridge to access iMessage data from within a container.
 
-## Approach: socat TCP bridge + imsg RPC
+## Historical Approach: Local TCP bridge + RPC
 
 ### Architecture
 
 ```
 Mac Host                              Docker Container
 ┌──────────────────────┐              ┌──────────────────────────┐
-│  socat TCP:19876     │◄────TCP─────►│  IMessageConnector       │
+│  TCP bridge :19876   │◄────TCP─────►│  IMessageConnector       │
 │    ↕ stdio           │              │  (connects to host:19876)│
-│  imsg rpc            │              │                          │
+│  local RPC process   │              │                          │
 │  (reads chat.db)     │              │  JSON-RPC 2.0 over TCP   │
 └──────────────────────┘              └──────────────────────────┘
 ```
 
-**Host side**: `socat TCP-LISTEN:19876,reuseaddr,fork EXEC:"imsg rpc"` — spawns one `imsg rpc` process per TCP connection.
+**Host side**: legacy local TCP bridge process. New setups should use the Botmem iMessage bridge
+command generated in connector setup, then run `botmem sync <imessage-account-id>`.
 
 **Docker side**: Connector opens TCP socket to `host.docker.internal:19876`, sends JSON-RPC 2.0 requests (newline-delimited JSON), reads responses.
 
 ### imsg RPC Protocol
 
-Transport: stdin/stdout, newline-delimited JSON-RPC 2.0. Over socat, this becomes TCP with same framing.
+Transport: stdin/stdout, newline-delimited JSON-RPC 2.0. Over the legacy local bridge, this becomes TCP with same framing.
 
 Methods used:
+
 - `chats.list` — list all conversations (returns chat id, name, participants, last_message_at)
 - `messages.history` — fetch messages for a chat (params: chat_id, limit, start/end dates)
 

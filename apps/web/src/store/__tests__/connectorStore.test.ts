@@ -30,7 +30,9 @@ describe('connectorStore', () => {
     });
 
     it('handles API error gracefully', async () => {
-      (api.listConnectors as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listConnectors as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useConnectorStore.getState().fetchManifests();
       expect(useConnectorStore.getState().manifests).toEqual([]);
     });
@@ -38,13 +40,17 @@ describe('connectorStore', () => {
 
   describe('fetchAccounts', () => {
     it('fetches and sets accounts', async () => {
-      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ accounts: [{ id: 'a1' }] });
+      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        accounts: [{ id: 'a1' }],
+      });
       await useConnectorStore.getState().fetchAccounts();
       expect(useConnectorStore.getState().accounts).toHaveLength(1);
     });
 
     it('handles API error gracefully', async () => {
-      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useConnectorStore.getState().fetchAccounts();
       expect(useConnectorStore.getState().accounts).toEqual([]);
     });
@@ -60,7 +66,9 @@ describe('connectorStore', () => {
     });
 
     it('creates local account on API failure', async () => {
-      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useConnectorStore.getState().addAccount('gmail', 'test');
       const accounts = useConnectorStore.getState().accounts;
       expect(accounts).toHaveLength(1);
@@ -109,7 +117,9 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.deleteAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.deleteAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
       await useConnectorStore.getState().removeAccount('a1');
       expect(useConnectorStore.getState().accounts).toHaveLength(0);
     });
@@ -157,13 +167,15 @@ describe('connectorStore', () => {
           },
         ],
       });
-      (api.triggerSync as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ job: { id: 'j1' } });
+      (api.triggerSync as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        job: { id: 'j1' },
+      });
 
       await useConnectorStore.getState().syncNow('a1');
       expect(api.triggerSync).toHaveBeenCalledWith('a1', undefined);
     });
 
-    it('reverts to connected on API failure', async () => {
+    it('refetches backend account state on API failure', async () => {
       useConnectorStore.setState({
         accounts: [
           {
@@ -181,8 +193,26 @@ describe('connectorStore', () => {
         ],
       });
       (api.triggerSync as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        accounts: [
+          {
+            id: 'a1',
+            type: 'gmail',
+            identifier: 'test',
+            status: 'failed',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            contactsCount: 0,
+            groupsCount: 0,
+            lastError: 'bridge not connected',
+          },
+        ],
+      });
       await useConnectorStore.getState().syncNow('a1');
-      expect(useConnectorStore.getState().accounts[0].status).toBe('connected');
+      expect(api.listAccounts).toHaveBeenCalled();
+      expect(useConnectorStore.getState().accounts[0].status).toBe('failed');
+      expect(useConnectorStore.getState().accounts[0].lastError).toBe('bridge not connected');
     });
   });
 });

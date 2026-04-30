@@ -41,5 +41,11 @@ export default defineConfig(({ isSsrBuild }) => ({
   server: {
     port: 12412,
     strictPort: false,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:12412',
+        changeOrigin: true,
+      },
+    },
   },
 }));

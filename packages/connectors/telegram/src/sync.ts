@@ -1,13 +1,140 @@
-import type { SyncContext, ConnectorDataEvent } from '@botmem/connector-sdk';
+import type {
+  ConnectorDataEvent,
+  ConnectorRealtimeContext,
+  ConnectorRealtimeHandle,
+  SyncContext,
+} from '@botmem/connector-sdk';
+import { NewMessage, type NewMessageEvent } from 'telegram/events/index.js';
 import { createClientFromSession } from './auth.js';
 
 interface DialogCursors {
   [dialogId: string]: number;
 }
 
+type TelegramEntity = Record<string, unknown>;
+type TelegramMessage = {
+  id: number;
+  message?: string;
+  media?: unknown;
+  date?: number;
+  out?: boolean;
+  getSender?: () => Promise<TelegramEntity | undefined>;
+  peerId?: Record<string, unknown>;
+};
+
 function jitter(min: number, max: number): Promise<void> {
   const ms = min + Math.random() * (max - min);
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function withRetries<T>(
+  action: () => Promise<T>,
+  ctx: SyncContext,
+  label: string,
+  attempts = 3,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await action();
+    } catch (err) {
+      lastError = err;
+      if (attempt >= attempts) break;
+      const delay = 1000 * attempt;
+      ctx.logger.warn(
+        `${label} failed on attempt ${attempt}/${attempts}: ${err instanceof Error ? err.message : String(err)}; retrying in ${delay}ms`,
+      );
+      await jitter(delay, delay + 500);
+    }
+  }
+  throw lastError instanceof Error
+    ? new Error(`Telegram ${label} failed after ${attempts} attempts: ${lastError.message}`, {
+        cause: lastError,
+      })
+    : new Error(`Telegram ${label} failed after ${attempts} attempts`);
+}
+
+function entityName(entity: TelegramEntity | undefined): string {
+  if (!entity) return '';
+  return (
+    [entity.firstName as string | undefined, entity.lastName as string | undefined]
+      .filter(Boolean)
+      .join(' ') ||
+    (entity.username as string | undefined) ||
+    ''
+  );
+}
+
+function peerIdFromMessage(msg: TelegramMessage): string {
+  const peer = msg.peerId || {};
+  return (
+    (peer.channelId as { toString?: () => string } | undefined)?.toString?.() ||
+    (peer.chatId as { toString?: () => string } | undefined)?.toString?.() ||
+    (peer.userId as { toString?: () => string } | undefined)?.toString?.() ||
+    ''
+  );
+}
+
+async function buildTelegramMessageEvent(
+  msg: TelegramMessage,
+  options: {
+    chatId: string;
+    chatName?: string;
+    isGroup?: boolean;
+  },
+): Promise<ConnectorDataEvent | null> {
+  if (!msg.message && !msg.media) return null;
+
+  const sender = await msg.getSender?.();
+  if (sender?.bot === true) return null;
+
+  const senderPhone = sender?.phone as string | undefined;
+  const senderUsername = sender?.username as string | undefined;
+  const senderName = entityName(sender);
+  const senderId = sender?.id?.toString() || '';
+  const participants: string[] = [];
+  if (senderPhone) participants.push(senderPhone);
+  else if (senderUsername) participants.push(senderUsername);
+
+  const timestamp =
+    typeof msg.date === 'number' && msg.date > 0
+      ? new Date(msg.date * 1000).toISOString()
+      : new Date().toISOString();
+
+  return {
+    sourceType: 'message',
+    sourceId: `telegram:${options.chatId}:${msg.id}`,
+    timestamp,
+    content: {
+      text: msg.message || '[media]',
+      participants,
+      metadata: {
+        chatId: options.chatId,
+        chatName: options.chatName || '',
+        isGroup: options.isGroup || false,
+        fromMe: msg.out || false,
+        senderId,
+        senderPhone: senderPhone || undefined,
+        senderName: senderName || undefined,
+        senderUsername: senderUsername || undefined,
+        messageType: msg.media ? 'media' : 'text',
+      },
+    },
+  };
 }
 
 /**
@@ -35,12 +162,12 @@ export async function syncTelegram(
   try {
     // Phase 1: Dialogs + Messages
     ctx.logger.info('Phase 1: Fetching dialogs...');
-    const dialogs = await Promise.race([
-      client.getDialogs({}),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Telegram getDialogs timed out after 120s')), 120_000),
-      ),
-    ]);
+    const dialogs = await withRetries(
+      () =>
+        withTimeout(client.getDialogs({}), 120_000, 'Telegram dialog fetch timed out after 120s'),
+      ctx,
+      'dialog fetch',
+    );
     ctx.logger.info(`Found ${dialogs.length} dialogs`);
 
     for (const dialog of dialogs) {
@@ -72,29 +199,8 @@ export async function syncTelegram(
           const msgId = msg.id;
           if (msgId > maxFetchedId) maxFetchedId = msgId;
 
-          const sender = await msg.getSender();
-          const senderData = sender as Record<string, unknown> | undefined;
-          // Skip messages from bots
-          if (senderData?.bot === true) continue;
-          const senderPhone = senderData?.phone as string | undefined;
-          const senderName =
-            [
-              senderData?.firstName as string | undefined,
-              senderData?.lastName as string | undefined,
-            ]
-              .filter(Boolean)
-              .join(' ') ||
-            (senderData?.username as string | undefined) ||
-            '';
-          const senderUsername = senderData?.username as string | undefined;
-          const senderId = senderData?.id?.toString() || '';
-
           const isGroup = dialog.isGroup || dialog.isChannel;
           const chatName = dialog.title || '';
-
-          const participants: string[] = [];
-          if (senderPhone) participants.push(senderPhone);
-          else if (senderUsername) participants.push(senderUsername);
 
           // Build media metadata
           let fileBase64: string | undefined;
@@ -113,27 +219,13 @@ export async function syncTelegram(
             }
           }
 
-          const event: ConnectorDataEvent = {
-            sourceType: 'message',
-            sourceId: `telegram:${dialogId}:${msgId}`,
-            timestamp: new Date((msg.date || 0) * 1000).toISOString(),
-            content: {
-              text: msg.message || '[media]',
-              participants,
-              metadata: {
-                chatId: dialogId,
-                chatName,
-                isGroup,
-                fromMe: msg.out || false,
-                senderId,
-                senderPhone: senderPhone || undefined,
-                senderName: senderName || undefined,
-                senderUsername: senderUsername || undefined,
-                messageType: msg.media ? 'media' : 'text',
-                ...(fileBase64 && { fileBase64, fileMimeType }),
-              },
-            },
-          };
+          const event = await buildTelegramMessageEvent(msg as unknown as TelegramMessage, {
+            chatId: dialogId,
+            chatName,
+            isGroup,
+          });
+          if (!event) continue;
+          if (fileBase64) Object.assign(event.content.metadata, { fileBase64, fileMimeType });
 
           emitData(event);
           processed++;
@@ -224,5 +316,64 @@ export async function syncTelegram(
     cursor: JSON.stringify(cursors),
     hasMore,
     processed,
+  };
+}
+
+export async function startTelegramRealtime(
+  ctx: ConnectorRealtimeContext,
+): Promise<ConnectorRealtimeHandle> {
+  const session = ctx.auth.raw?.session as string;
+  if (!session) throw new Error('No Telegram session — please re-authenticate');
+
+  const client = createClientFromSession(session);
+  await Promise.race([
+    client.connect(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Telegram connection timed out after 60s')), 60_000),
+    ),
+  ]);
+
+  let stopped = false;
+  await ctx.onConnected?.();
+
+  const handler = async (event: NewMessageEvent) => {
+    if (stopped) return;
+    try {
+      const msg = event.message as unknown as TelegramMessage;
+      const chat = (await event.getChat()) as TelegramEntity | undefined;
+      const chatId = event.chatId?.toString() || peerIdFromMessage(msg);
+      if (!chatId) return;
+
+      const connectorEvent = await buildTelegramMessageEvent(msg, {
+        chatId,
+        chatName: (chat?.title as string | undefined) || entityName(chat),
+        isGroup: event.isGroup || event.isChannel,
+      });
+      if (connectorEvent) await ctx.emitData(connectorEvent);
+    } catch (err) {
+      ctx.logger.warn(
+        `Telegram realtime event failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
+  const eventBuilder = new NewMessage({});
+  client.addEventHandler(handler, eventBuilder);
+  ctx.signal.addEventListener(
+    'abort',
+    () => {
+      stopped = true;
+      client.removeEventHandler(handler, eventBuilder);
+      client.disconnect().catch(() => undefined);
+    },
+    { once: true },
+  );
+
+  return {
+    async stop() {
+      stopped = true;
+      client.removeEventHandler(handler, eventBuilder);
+      await client.disconnect().catch(() => undefined);
+    },
   };
 }

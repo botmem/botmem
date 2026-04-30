@@ -166,7 +166,7 @@ export function DataPolicyPage() {
               />
               <PipelineStep
                 label="SEARCHABLE MEMORY"
-                description="Fully indexed memory with weighted ranking: 40% semantic, 30% rerank, 15% recency, 10% importance, 5% trust."
+                description="Fully indexed memory with weighted ranking: 70% semantic, 15% recency, 10% importance, 5% trust."
                 isLast
               />
             </div>

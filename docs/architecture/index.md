@@ -106,7 +106,7 @@ The central entity. Each memory represents a normalized event from any source �
 
 - **Text content** — the searchable body
 - **Vector embedding** — 1024-dimensional vector in Typesense (or 3072d with OpenRouter/Gemini)
-- **Weights** — semantic, rerank, recency, importance, trust scores
+- **Weights** — semantic, recency, importance, trust scores
 - **Factuality** — label (FACT/UNVERIFIED/FICTION), confidence, rationale
 - **Entities** — extracted people, organizations, topics, dates
 - **Claims** — factual assertions extracted from the text
@@ -130,13 +130,10 @@ Graph edges connecting related memories. Created automatically during enrichment
 
 ## Processing Queues
 
-| Queue      | Concurrency      | Purpose                                                   |
-| ---------- | ---------------- | --------------------------------------------------------- |
-| `sync`     | 2                | Orchestrates connector sync, writes raw events            |
-| `clean`    | default          | Normalizes and cleans raw event text                      |
-| `embed`    | 4 (configurable) | Creates memories, generates embeddings, resolves contacts |
-| `file`     | default          | Downloads files, extracts content, re-embeds              |
-| `enrich`   | 2 (configurable) | Entity extraction, factuality, graph links                |
-| `backfill` | default          | Retroactive processing of older memories                  |
+| Queue         | Concurrency      | Purpose                                                   |
+| ------------- | ---------------- | --------------------------------------------------------- |
+| `sync`        | 2                | Orchestrates connector sync, writes raw events            |
+| `memory`      | 4 (configurable) | Creates memories, embeds, enriches, and resolves contacts |
+| `maintenance` | default          | Retroactive repair and maintenance work                   |
 
 All queues use exponential backoff for retries.

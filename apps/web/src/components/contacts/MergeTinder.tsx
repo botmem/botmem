@@ -15,6 +15,14 @@ interface MergeSuggestion {
   contact1: MergeContact;
   contact2: MergeContact;
   reason: string;
+  confidence?: number;
+  positiveEvidence?: string[];
+  negativeEvidence?: string[];
+  sharedIdentifiers?: string[];
+  aliasSimilarity?: number;
+  cooccurrenceConflicts?: string[];
+  sourceConnectors?: string[];
+  sampleMemoryIds?: string[];
 }
 
 interface UndoEntry {
@@ -256,7 +264,25 @@ export function MergeTinder({
           </div>
 
           {/* Reason */}
-          <p className="font-mono text-xs text-nb-muted mt-2 text-center">{current.reason}</p>
+          <div className="mt-3 border-2 border-nb-border bg-nb-surface-muted p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-mono text-xs text-nb-text">{current.reason}</p>
+              {current.confidence !== undefined && (
+                <Badge color="var(--color-nb-lime)" className="text-[10px] shrink-0">
+                  {Math.round(current.confidence * 100)}%
+                </Badge>
+              )}
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <EvidenceList title="For" items={current.positiveEvidence || []} />
+              <EvidenceList title="Against" items={current.negativeEvidence || []} />
+            </div>
+            {!!current.sourceConnectors?.length && (
+              <p className="mt-2 font-mono text-[11px] text-nb-muted">
+                Sources: {current.sourceConnectors.join(', ')}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -371,5 +397,24 @@ export function MergeTinder({
         </span>
       </div>
     </Card>
+  );
+}
+
+function EvidenceList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <p className="font-display text-[10px] font-bold uppercase text-nb-muted">{title}</p>
+      {items.length ? (
+        <ul className="mt-1 space-y-1">
+          {items.slice(0, 4).map((item) => (
+            <li key={item} className="font-mono text-[11px] text-nb-text">
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 font-mono text-[11px] text-nb-muted">None</p>
+      )}
+    </div>
   );
 }

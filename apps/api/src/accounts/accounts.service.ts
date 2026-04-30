@@ -1,13 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { eq, sql, inArray, or } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { TypesenseService } from '../memory/typesense.service';
 import { AnalyticsService } from '../analytics/analytics.service';
-import { accounts, jobs, rawEvents, memories, memoryLinks, memoryContacts } from '../db/schema';
+import { accounts, jobs } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
 
 @Injectable()
@@ -68,12 +68,22 @@ export class AccountsService {
     return this.getById(id);
   }
 
-  async getAll(userId?: string) {
+  async getAll(userId?: string, options?: { includeArchived?: boolean }) {
     const rows = await this.dbService.withCurrentUser((db) => {
+      const activeOnly = sql`${accounts.status} NOT IN ('archived', 'inactive')`;
       if (userId) {
-        return db.select().from(accounts).where(eq(accounts.userId, userId));
+        return db
+          .select()
+          .from(accounts)
+          .where(
+            options?.includeArchived
+              ? eq(accounts.userId, userId)
+              : sql`${accounts.userId} = ${userId} AND ${activeOnly}`,
+          );
       }
-      return db.select().from(accounts);
+      return options?.includeArchived
+        ? db.select().from(accounts)
+        : db.select().from(accounts).where(activeOnly);
     });
     return rows.map((r) => this.decryptAccount(r));
   }
@@ -93,10 +103,11 @@ export class AccountsService {
       status: string;
       identifier: string;
       authContext: string;
-      lastCursor: string;
+      lastCursor: string | null;
       lastSyncAt: Date | string;
       itemsSynced: number;
       lastError: string | null;
+      tunnelMode: boolean;
     }>,
   ) {
     await this.getById(id); // throws if not found
@@ -139,6 +150,8 @@ export class AccountsService {
   async remove(id: string) {
     const account = await this.getById(id); // throws if not found
 
+    await this.stopAccountJobs(id);
+
     // Revoke connector auth (close sockets, delete session files, etc.)
     try {
       const connector = this.connectors.get(account.connectorType);
@@ -162,49 +175,96 @@ export class AccountsService {
       this.logger.warn(`Failed to clean BullMQ jobs for account ${id}:`, err);
     }
 
-    // Wrap all deletes in a transaction for atomicity
-    let memoryIds: string[] = [];
+    // Delete means remove the connector connection, not the data it already imported.
+    // Keep memories, raw events, contacts, credentials history, and job history.
     await this.dbService.withCurrentUser(async (db) => {
-      const accountMemories = await db
-        .select({ id: memories.id })
-        .from(memories)
-        .where(eq(memories.accountId, id));
-      memoryIds = accountMemories.map((m: { id: string }) => m.id);
-
-      if (memoryIds.length > 0) {
-        for (let i = 0; i < memoryIds.length; i += 500) {
-          const batch = memoryIds.slice(i, i + 500);
-          await db.delete(memoryContacts).where(inArray(memoryContacts.memoryId, batch));
-          await db
-            .delete(memoryLinks)
-            .where(
-              or(inArray(memoryLinks.srcMemoryId, batch), inArray(memoryLinks.dstMemoryId, batch)),
-            );
-        }
-      }
-
-      await db.delete(memories).where(eq(memories.accountId, id));
-      await db.delete(rawEvents).where(eq(rawEvents.accountId, id));
-      await db.delete(jobs).where(eq(jobs.accountId, id));
-      await db.delete(accounts).where(eq(accounts.id, id));
+      await db
+        .update(jobs)
+        .set({
+          status: 'cancelled',
+          error: 'Cancelled because connector account was deleted',
+          completedAt: new Date(),
+        })
+        .where(sql`${jobs.accountId} = ${id} AND ${jobs.status} IN ('queued', 'running')`);
+      await db
+        .update(accounts)
+        .set({
+          status: 'archived',
+          schedule: 'manual',
+          authContext: null,
+          lastError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(accounts.id, id));
     });
 
     this.analytics.capture(
       'account_deleted',
       {
         connector_type: account.connectorType,
-        memories_deleted: memoryIds.length,
+        data_deleted: false,
       },
       account.userId ?? undefined,
     );
+  }
 
-    // Clean up Typesense documents outside the transaction (best-effort)
-    if (memoryIds.length > 0) {
-      const TYPESENSE_BATCH = 40;
-      for (let i = 0; i < memoryIds.length; i += TYPESENSE_BATCH) {
-        const batch = memoryIds.slice(i, i + TYPESENSE_BATCH);
-        await Promise.allSettled(batch.map((mid) => this.typesense.remove(mid)));
+  private async stopAccountJobs(accountId: string) {
+    let jobRows: Array<{ id: string }> = [];
+    try {
+      jobRows = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ id: jobs.id })
+          .from(jobs)
+          .where(sql`${jobs.accountId} = ${accountId} AND ${jobs.status} IN ('queued', 'running')`),
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to list active jobs for account ${accountId}:`, err);
+    }
+
+    for (const job of jobRows) {
+      try {
+        if (typeof this.syncQueue.getJob !== 'function') return;
+        const bullJob = await this.syncQueue.getJob(job.id);
+        if (!bullJob) continue;
+        const state = await bullJob.getState().catch(() => 'unknown');
+        if (state === 'active') {
+          try {
+            bullJob.discard();
+          } catch {
+            // Best-effort cleanup before removing orphaned queue jobs.
+          }
+        }
+        await bullJob.remove();
+      } catch (err) {
+        this.logger.warn(`Failed to remove BullMQ job ${job.id} for account ${accountId}:`, err);
       }
     }
+  }
+
+  async archive(id: string) {
+    await this.getById(id);
+    await this.dbService.withCurrentUser((db) =>
+      db
+        .update(accounts)
+        .set({
+          status: 'archived',
+          schedule: 'manual',
+          lastError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(accounts.id, id)),
+    );
+    return this.getById(id);
+  }
+
+  async restore(id: string) {
+    await this.getById(id);
+    await this.dbService.withCurrentUser((db) =>
+      db
+        .update(accounts)
+        .set({ status: 'connected', lastError: null, updatedAt: new Date() })
+        .where(eq(accounts.id, id)),
+    );
+    return this.getById(id);
   }
 }

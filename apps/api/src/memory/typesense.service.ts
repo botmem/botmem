@@ -12,6 +12,30 @@ export interface ScoredPoint {
 }
 
 const COLLECTION_NAME = 'memories';
+export const MEMORY_INDEX_SCHEMA_VERSION = 2;
+
+const STRUCTURED_FIELDS = [
+  { name: 'schema_version', type: 'int32' as const, optional: true, facet: true },
+  { name: 'person_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_aliases', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_sender_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_recipient_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_participant_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_mentioned_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_photo_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'person_counterparty_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'locations', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'location_text', type: 'string' as const, optional: true },
+  { name: 'organizations', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'thread_ids', type: 'string[]' as const, optional: true, facet: true },
+  { name: 'transaction_tokens', type: 'string[]' as const, optional: true, facet: true },
+];
+
+type TypesenseHit = {
+  document: Record<string, unknown>;
+  vector_distance?: number;
+  hybrid_search_info?: { rank_fusion_score?: number };
+};
 
 @Injectable()
 export class TypesenseService implements OnModuleInit {
@@ -91,6 +115,24 @@ export class TypesenseService implements OnModuleInit {
         });
         this.logger.log('[ensureCollection] "people" field migrated to string[]');
       }
+
+      const existingFields = new Set((collection.fields ?? []).map((f) => f.name));
+      const missingStructuredFields = STRUCTURED_FIELDS.filter(
+        (field) => !existingFields.has(field.name),
+      );
+      if (missingStructuredFields.length) {
+        this.logger.warn(
+          `[ensureCollection] Adding structured memory index fields: ${missingStructuredFields
+            .map((f) => f.name)
+            .join(', ')}`,
+        );
+        const collectionApi = this.client.collections(COLLECTION_NAME) as unknown as {
+          update?: (body: unknown) => Promise<unknown>;
+        };
+        if (collectionApi.update) {
+          await collectionApi.update({ fields: missingStructuredFields });
+        }
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('Typesense collection')) throw err;
       const isNotFound =
@@ -112,6 +154,7 @@ export class TypesenseService implements OnModuleInit {
           { name: 'pinned', type: 'bool' as const, facet: true, optional: true },
           { name: 'importance', type: 'float' as const, optional: true },
           { name: 'entities_text', type: 'string' as const, optional: true },
+          ...STRUCTURED_FIELDS,
           { name: 'embedding', type: 'float[]' as const, num_dim: vectorSize },
         ],
       });
@@ -138,6 +181,7 @@ export class TypesenseService implements OnModuleInit {
       importance: 0.5,
       recall_count: 0,
       pinned: false,
+      schema_version: MEMORY_INDEX_SCHEMA_VERSION,
       // Payload overrides defaults
       ...flat,
     };
@@ -192,13 +236,13 @@ export class TypesenseService implements OnModuleInit {
       );
 
       const hits = (results.results?.[0] as Record<string, unknown>)?.hits as
-        | Array<{ document: Record<string, unknown>; vector_distance?: number }>
+        | TypesenseHit[]
         | undefined;
       if (!hits) return [];
 
       return hits.map((hit) => ({
         id: hit.document.id as string,
-        score: 1 - (hit.vector_distance ?? 0), // Convert distance to similarity
+        score: this.scoreHit(hit),
         payload: this.extractPayload(hit.document),
       }));
     } catch (err: unknown) {
@@ -247,13 +291,13 @@ export class TypesenseService implements OnModuleInit {
       );
 
       const hits = (results.results?.[0] as Record<string, unknown>)?.hits as
-        | Array<{ document: Record<string, unknown>; vector_distance?: number }>
+        | TypesenseHit[]
         | undefined;
       if (!hits) return [];
 
       return hits.map((hit) => ({
         id: hit.document.id as string,
-        score: 1 - (hit.vector_distance ?? 0),
+        score: this.scoreHit(hit),
         payload: this.extractPayload(hit.document),
       }));
     } catch {
@@ -276,6 +320,44 @@ export class TypesenseService implements OnModuleInit {
       };
     } catch {
       return { pointsCount: 0, indexedVectorsCount: 0, status: 'not_found' };
+    }
+  }
+
+  async getSchemaStatus(): Promise<{
+    collection: string;
+    currentVersion: number;
+    expectedVersion: number;
+    status: 'missing' | 'current' | 'stale';
+    missingFields: string[];
+  }> {
+    try {
+      const collection = await this.client.collections(COLLECTION_NAME).retrieve();
+      const fields = new Set((collection.fields ?? []).map((f) => f.name));
+      const missingFields = STRUCTURED_FIELDS.filter((f) => !fields.has(f.name)).map((f) => f.name);
+      const currentVersion = fields.has('schema_version') ? MEMORY_INDEX_SCHEMA_VERSION : 1;
+      return {
+        collection: COLLECTION_NAME,
+        currentVersion,
+        expectedVersion: MEMORY_INDEX_SCHEMA_VERSION,
+        status:
+          missingFields.length || currentVersion < MEMORY_INDEX_SCHEMA_VERSION
+            ? 'stale'
+            : 'current',
+        missingFields,
+      };
+    } catch (err: unknown) {
+      const status = (err as { httpStatus?: number }).httpStatus;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (status === 404 || msg.includes('Not Found')) {
+        return {
+          collection: COLLECTION_NAME,
+          currentVersion: 0,
+          expectedVersion: MEMORY_INDEX_SCHEMA_VERSION,
+          status: 'missing',
+          missingFields: STRUCTURED_FIELDS.map((f) => f.name),
+        };
+      }
+      throw err;
     }
   }
 
@@ -350,7 +432,7 @@ export class TypesenseService implements OnModuleInit {
 
     const responseAny = response as unknown as {
       results?: Array<{
-        hits?: Array<{ document: Record<string, unknown>; vector_distance?: number }>;
+        hits?: TypesenseHit[];
       }>;
       conversation?: { answer?: string; conversation_id?: string };
     };
@@ -359,7 +441,7 @@ export class TypesenseService implements OnModuleInit {
 
     const results: ScoredPoint[] = hits.map((hit) => ({
       id: hit.document.id as string,
-      score: 1 - (hit.vector_distance ?? 0),
+      score: this.scoreHit(hit),
       payload: this.extractPayload(hit.document),
     }));
 
@@ -417,17 +499,11 @@ export class TypesenseService implements OnModuleInit {
       );
 
       const firstResult = results.results?.[0] as Record<string, unknown> | undefined;
-      const hits = firstResult?.hits as
-        | Array<{
-            document: Record<string, unknown>;
-            vector_distance?: number;
-            text_match_info?: Record<string, unknown>;
-          }>
-        | undefined;
+      const hits = firstResult?.hits as TypesenseHit[] | undefined;
 
       const scoredResults: ScoredPoint[] = (hits ?? []).map((hit) => ({
         id: hit.document.id as string,
-        score: 1 - (hit.vector_distance ?? 0),
+        score: this.scoreHit(hit),
         payload: this.extractPayload(hit.document),
       }));
 
@@ -448,6 +524,51 @@ export class TypesenseService implements OnModuleInit {
       }
       throw err;
     }
+  }
+
+  async textSearch(
+    query: string,
+    limit: number,
+    filterBy?: string,
+    queryBy = 'text,entities_text,people,locations,location_text,organizations,transaction_tokens,thread_ids',
+  ): Promise<ScoredPoint[]> {
+    try {
+      const response = await this.client
+        .collections(COLLECTION_NAME)
+        .documents()
+        .search({
+          q: query || '*',
+          query_by: queryBy,
+          per_page: limit,
+          exclude_fields: 'embedding',
+          ...(filterBy ? { filter_by: filterBy } : {}),
+        } as never);
+      const hits = (response as unknown as { hits?: TypesenseHit[] }).hits ?? [];
+      return hits.map((hit) => ({
+        id: hit.document.id as string,
+        score: this.scoreHit(hit),
+        payload: this.extractPayload(hit.document),
+      }));
+    } catch (err: unknown) {
+      const status = (err as { httpStatus?: number }).httpStatus;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (status === 404 || msg.includes('Not Found')) return [];
+      throw err;
+    }
+  }
+
+  private scoreHit(hit: TypesenseHit): number {
+    const fusionScore = hit.hybrid_search_info?.rank_fusion_score;
+    if (typeof fusionScore === 'number' && Number.isFinite(fusionScore)) {
+      return this.clampScore(fusionScore);
+    }
+
+    return this.clampScore(1 - (hit.vector_distance ?? 0));
+  }
+
+  private clampScore(score: number): number {
+    if (!Number.isFinite(score)) return 0;
+    return Math.max(0, Math.min(1, score));
   }
 
   buildFilterString(filters: {

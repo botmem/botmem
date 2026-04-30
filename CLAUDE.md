@@ -11,6 +11,14 @@ cp .env.example .env          # Configure environment (edit as needed)
 pnpm dev                      # Builds deps, then API + web on :12412
 ```
 
+## Agent Workflow
+
+- Keep progress updates concise and only mention details that affect the user's current decision or outcome.
+- Connector-specific sync/realtime behavior belongs in connector packages; the API should only orchestrate generic connector lifecycle and persistence.
+- Deleting a connector account means disconnecting/archiving the connector and stopping future work; preserve memories, raw events, contacts, credentials history, and job history unless the user explicitly asks for data deletion.
+- Production logs must not include user message contents, phone numbers, names, chat IDs, or other user-data-bearing metadata; temporary diagnostic logging must be removed or redacted before shipping.
+- Person merge suggestions must not treat embedded full-name fragments with different first names as the same person, e.g. `Saleh Al-Ghamdi` is not `Mostafa Mohamed Saleh Al-Ghamdi`.
+
 ## Monorepo Structure
 
 ```
@@ -99,10 +107,10 @@ Connectors are EventEmitters. During sync they emit `data`, `progress`, and `log
 
 BullMQ queues process work asynchronously through Redis:
 
-| Queue    | Worker             | Purpose                                                                                              |
-| -------- | ------------------ | ---------------------------------------------------------------------------------------------------- |
-| `sync`   | `SyncProcessor`    | Orchestrates `connector.sync()`, writes to `rawEvents`, enqueues memory jobs                         |
-| `memory` | `MemoryProcessor`  | Parses raw event, cleans content, creates Memory, embeds, enriches inline, encrypts, upserts to Typesense |
+| Queue    | Worker            | Purpose                                                                                                   |
+| -------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `sync`   | `SyncProcessor`   | Orchestrates `connector.sync()`, writes to `rawEvents`, enqueues memory jobs                              |
+| `memory` | `MemoryProcessor` | Parses raw event, cleans content, creates Memory, embeds, enriches inline, encrypts, upserts to Typesense |
 
 Job statuses: `queued → running → done | failed | cancelled`
 
@@ -134,10 +142,6 @@ Core design: **store everything, label confidence** — never delete memories, c
 ### Scoring formula
 
 ```
-# With reranker (recall intent):
-final = 0.40×semantic + 0.30×rerank + 0.15×recency + 0.10×importance + 0.05×trust
-
-# Without reranker:
 final = 0.40×semantic + 0.25×recency + 0.20×importance + 0.15×trust
 
 # Search recency:    exp(-0.005 × age_days)  — gentle, ~139-day half-life
@@ -147,12 +151,11 @@ final = 0.40×semantic + 0.25×recency + 0.20×importance + 0.15×trust
 Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments. All scoring constants are centralized in `apps/api/src/memory/search.constants.ts`.
 
 - `semantic` — Typesense vector similarity score (or `rank_fusion_score` from hybrid BM25+vector search)
-- `rerank` — optional second-pass reranker score (TEI, Ollama, or Jina backends)
 - `recency` — exponential decay from event time
 - `importance` — boosted by repeated recall, direct mention, user pinning
 - `trust` — connector base trust + factuality confidence
 
-Search results use **diversity reranking** (greedy interleaved selection) to prevent a single connector from dominating. Controlled by `diversityFactor` parameter (0-1, default 0.15).
+Search results use **diversity ordering** (greedy interleaved selection) to prevent a single connector from dominating. Controlled by `diversityFactor` parameter (0-1, default 0.15).
 
 ### Factuality labels
 
@@ -183,34 +186,34 @@ Typesense collection `memories`: hybrid BM25 + vector search (cosine), fields in
 
 All under `apps/api/src/`:
 
-| Module          | Purpose                                                                         |
-| --------------- | ------------------------------------------------------------------------------- |
-| `accounts/`     | Account CRUD, credential management                                             |
-| `agent/`        | Agent API endpoints (search, ask, tools for AI agents)                          |
-| `analytics/`    | PostHog analytics integration + event tracking                                  |
-| `api-keys/`     | API key generation, validation, management (`bm_sk_...` tokens)                 |
-| `auth/`         | OAuth flow orchestration, callback handling                                     |
-| `billing/`      | Usage tracking + billing (stub)                                                 |
-| `config/`       | Environment + ConfigService                                                     |
-| `connectors/`   | Connector registry + factory                                                    |
-| `crypto/`       | AES-256-GCM encryption/decryption, recovery key handling                        |
-| `db/`           | PostgreSQL init, Drizzle schema, DbService, migrations                          |
-| `demo/`         | Demo mode with sample data                                                      |
-| `events/`       | WebSocket gateway (`/events`) for real-time updates                             |
-| `geo/`          | Geodecoding (offline GeoNames) for location memories                            |
-| `jobs/`         | Job CRUD, sync triggering, status tracking                                      |
-| `logs/`         | Log persistence + retrieval                                                     |
-| `mail/`         | Transactional email sending                                                     |
-| `mcp/`          | MCP (Model Context Protocol) server integration                                 |
-| `me/`           | Current user profile endpoint                                                   |
-| `memory-banks/` | Memory bank grouping + organization                                             |
-| `memory/`       | Search, ranking, embedding, ContentCleaner, MemoryProcessor, BullMQ processors  |
-| `oauth/`        | OAuth client credentials + token management                                     |
-| `people/`       | Contact dedup, identifier merging (domain concept: "contacts")                  |
-| `plugins/`      | Plugin/extension system                                                         |
-| `settings/`     | User + system settings API                                                      |
-| `tracing/`      | OpenTelemetry tracing integration                                               |
-| `user-auth/`    | User authentication (Firebase + local), JWT, refresh tokens, recovery key flow  |
+| Module          | Purpose                                                                        |
+| --------------- | ------------------------------------------------------------------------------ |
+| `accounts/`     | Account CRUD, credential management                                            |
+| `agent/`        | Agent API endpoints (search, ask, tools for AI agents)                         |
+| `analytics/`    | PostHog analytics integration + event tracking                                 |
+| `api-keys/`     | API key generation, validation, management (`bm_sk_...` tokens)                |
+| `auth/`         | OAuth flow orchestration, callback handling                                    |
+| `billing/`      | Usage tracking + billing (stub)                                                |
+| `config/`       | Environment + ConfigService                                                    |
+| `connectors/`   | Connector registry + factory                                                   |
+| `crypto/`       | AES-256-GCM encryption/decryption, recovery key handling                       |
+| `db/`           | PostgreSQL init, Drizzle schema, DbService, migrations                         |
+| `demo/`         | Demo mode with sample data                                                     |
+| `events/`       | WebSocket gateway (`/events`) for real-time updates                            |
+| `geo/`          | Geodecoding (offline GeoNames) for location memories                           |
+| `jobs/`         | Job CRUD, sync triggering, status tracking                                     |
+| `logs/`         | Log persistence + retrieval                                                    |
+| `mail/`         | Transactional email sending                                                    |
+| `mcp/`          | MCP (Model Context Protocol) server integration                                |
+| `me/`           | Current user profile endpoint                                                  |
+| `memory-banks/` | Memory bank grouping + organization                                            |
+| `memory/`       | Search, ranking, embedding, ContentCleaner, MemoryProcessor, BullMQ processors |
+| `oauth/`        | OAuth client credentials + token management                                    |
+| `people/`       | Contact dedup, identifier merging (domain concept: "contacts")                 |
+| `plugins/`      | Plugin/extension system                                                        |
+| `settings/`     | User + system settings API                                                     |
+| `tracing/`      | OpenTelemetry tracing integration                                              |
+| `user-auth/`    | User authentication (Firebase + local), JWT, refresh tokens, recovery key flow |
 
 ## Frontend
 
@@ -239,6 +242,7 @@ pnpm test         # Run Vitest across all workspaces
 - Connector packages are named `@botmem/connector-<name>`
 - Shared types live in `@botmem/shared` — import from there, not from api internals
 - Tests go in `__tests__/` directories adjacent to source, using Vitest
+- Chat answers must preserve conversation identity: do not merge adjacent messages across different chat IDs, threads, or contacts just because timestamps are close.
 
 ## Design Context
 
