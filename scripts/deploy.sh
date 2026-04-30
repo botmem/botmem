@@ -68,6 +68,10 @@ done
 # ── Rollback if health check failed ────────────────────────────────────────
 if [ "$HEALTHY" = false ]; then
   echo "==> HEALTH CHECK FAILED after ${HEALTH_TIMEOUT}s"
+  echo "==> API container status:"
+  docker compose -f "$COMPOSE_FILE" ps api || true
+  echo "==> Recent API logs:"
+  docker logs --tail 120 botmem-api-1 || true
 
   if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
     echo "==> ROLLING BACK to ${PREV_TAG}"
