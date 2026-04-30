@@ -1,0 +1,57 @@
+botmem.xyz {
+	@trace method TRACE TRACK
+	respond @trace 405
+
+	header -Server
+	header -X-Powered-By
+	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+	header X-Content-Type-Options "nosniff"
+	header X-Frame-Options "DENY"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+
+	@html {
+		not path /api/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
+	}
+	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
+	header @html Pragma "no-cache"
+
+	@spa_no_slash {
+		not path /api/* /docs/* /events
+		not path_regexp \.[^/]+$
+		path_regexp ^/[^/]+[^/]$
+	}
+	rewrite @spa_no_slash {path}/
+
+	handle /docs* {
+		uri strip_prefix /docs
+		root * /srv/docs
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+
+	handle /__/auth/* {
+		reverse_proxy https://botmem-app.firebaseapp.com {
+			header_up Host {http.reverse_proxy.upstream.hostport}
+		}
+	}
+
+	reverse_proxy api:12412 {
+		header_down -Content-Security-Policy
+	}
+}
+
+www.botmem.xyz {
+	redir https://botmem.xyz{uri} permanent
+}
+
+docs.botmem.xyz {
+	header -Server
+	header -X-Powered-By
+	header X-Content-Type-Options "nosniff"
+	header X-Frame-Options "DENY"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+
+	root * /srv/docs
+	try_files {path} {path}/ /index.html
+	file_server
+}

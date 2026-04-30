@@ -228,14 +228,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if docs changed
+      - name: Mark docs for deployment
         id: docs-check
-        run: |
-          if git diff --name-only ${{ github.event.before }} HEAD | grep -q '^docs/'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Install pnpm
         if: steps.docs-check.outputs.changed == 'true'
@@ -283,9 +278,10 @@ jobs:
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
           VPS="root@${{ secrets.VPS_TAILSCALE_HOST }}"
 
-          # Copy deploy script and updated compose file to VPS
+          # Copy deploy script, updated compose file, and managed Caddy config to VPS
           scp $SSH_OPTS scripts/deploy.sh ${VPS}:/opt/botmem/deploy.sh
           scp $SSH_OPTS docker-compose.prod.yml ${VPS}:/opt/botmem/docker-compose.prod.yml
+          scp $SSH_OPTS Caddyfile.production ${VPS}:/opt/botmem/Caddyfile
           ssh $SSH_OPTS ${VPS} "chmod +x /opt/botmem/deploy.sh"
 
           # Login to GHCR and deploy
@@ -301,6 +297,7 @@ jobs:
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
           ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
           scp $SSH_OPTS -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
+          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'cd /opt/botmem && docker compose -f docker-compose.prod.yml up -d caddy'
 
       - name: Validate deployment
         env:
