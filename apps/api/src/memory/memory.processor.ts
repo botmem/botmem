@@ -8,6 +8,7 @@ import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
 import { TypesenseService } from './typesense.service';
+import { MEMORY_INDEX_SCHEMA_VERSION } from './typesense.service';
 import { MemoryService } from './memory.service';
 import { EnrichService } from './enrich.service';
 import { ContentCleaner } from './content-cleaner';
@@ -37,13 +38,34 @@ import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.
 import { Traced } from '../tracing/traced.decorator';
 import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
 
+type RawEventProcessingState =
+  | 'pending'
+  | 'memory_created'
+  | 'skipped_contact'
+  | 'skipped_empty'
+  | 'deduped'
+  | 'failed';
+
 /** Strip PostgreSQL-incompatible null bytes from strings */
 function stripNullBytes(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x00/g, '');
 }
 
-@Processor('memory')
+function arrayFromUnknown(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function compactStrings(values: unknown[]): string[] {
+  return [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))];
+}
+
+@Processor('memory', {
+  lockDuration: 900_000,
+  lockRenewTime: 300_000,
+  stalledInterval: 120_000,
+  maxStalledCount: 3,
+})
 export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(MemoryProcessor.name);
 
@@ -77,43 +99,64 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   async onModuleInit() {
     this.worker.on('error', (err) => this.logger.warn(`[memory worker] ${err.message}`));
     this.worker.on('failed', (job, err) => this.onJobFailed(job, err));
-    const defaultC = this.config.aiConcurrency.embed;
+    const defaultC = this.config.aiConcurrency.memory;
     const concurrency =
       parseInt(await this.settingsService.get('memory_concurrency'), 10) || defaultC;
     this.worker.concurrency = concurrency;
-    this.worker.opts.lockDuration = 300_000;
     this.settingsService.onChange((key, value) => {
       if (key === 'memory_concurrency') {
         this.worker.concurrency = parseInt(value, 10) || defaultC;
       }
     });
 
-    // Drain old queues: migrate remaining jobs to unified memory queue
+    // Drain old queues: migrate remaining legacy work to unified memory queue.
     this.drainOldQueues().catch((err) =>
       this.logger.warn(`[drain] Failed to migrate old queue jobs: ${err.message}`),
     );
   }
 
-  /** Migrate remaining jobs from old clean/embed/enrich queues to the unified memory queue. */
+  /** Migrate remaining jobs from old embed/enrich queues to the unified memory queue. */
   private async drainOldQueues() {
     const redisUrl = this.config.redisUrl;
-    for (const queueName of ['clean', 'embed', 'enrich']) {
+    for (const queueName of ['embed', 'enrich']) {
       try {
         const oldQueue = new Queue(queueName, {
           connection: { url: redisUrl, maxRetriesPerRequest: null },
         });
-        const waiting = await oldQueue.getWaiting();
-        const delayed = await oldQueue.getDelayed();
-        const remaining = [...waiting, ...delayed];
-        if (remaining.length > 0) {
-          this.logger.log(`Migrating ${remaining.length} jobs from ${queueName} to memory queue`);
-          for (const job of remaining) {
-            await this.memoryQueue.add('process', job.data, {
+        const remaining = await oldQueue.getJobs(
+          ['waiting', 'delayed', 'failed', 'active'],
+          0,
+          999,
+        );
+        let migrated = 0;
+        for (const job of remaining) {
+          const rawEventId =
+            typeof job.data?.rawEventId === 'string'
+              ? job.data.rawEventId
+              : typeof job.data?.raw_event_id === 'string'
+                ? job.data.raw_event_id
+                : null;
+          if (!rawEventId) continue;
+          await this.memoryQueue.add(
+            'process',
+            { rawEventId },
+            {
               attempts: 5,
               backoff: { type: 'exponential', delay: 5000 },
-            });
+              jobId: `legacy:${queueName}:${rawEventId}`,
+            },
+          );
+          migrated++;
+          try {
             await job.remove();
+          } catch (err) {
+            this.logger.warn(
+              `[drain] Re-enqueued ${queueName} job ${job.id} but could not remove legacy entry: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
+        }
+        if (migrated > 0) {
+          this.logger.log(`Migrated ${migrated} raw event(s) from legacy ${queueName} queue`);
         }
         await oldQueue.close();
       } catch {
@@ -125,6 +168,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   private async onJobFailed(job: Job | undefined, err: Error) {
     if (!job) return;
     const { rawEventId } = job.data;
+    if (!rawEventId) return;
     const mid = rawEventId?.slice(0, 8) || '?';
     const isLastAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
     if (!isLastAttempt) return;
@@ -140,6 +184,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         .where(eq(rawEvents.id, rawEventId));
       const raw = rows[0];
       if (raw) {
+        await this.markRawEventState(rawEventId, 'failed');
         this.addLog(
           raw.connectorType,
           raw.accountId,
@@ -187,10 +232,22 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const event: ConnectorDataEvent = JSON.parse(
       this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
     );
+    event.sourceId = rawEvent.sourceId;
     const connector = this.connectors.get(rawEvent.connectorType);
 
-    // Skip contact/group events — these are handled by PeopleService, not as memories
-    if ((event.sourceType as string) === 'contact' || (event.sourceType as string) === 'group') {
+    // Skip contact/group events — these are handled by PeopleService, not as memories.
+    // Also skip legacy WhatsApp metadata rows that were emitted as sourceType=message.
+    if (
+      (event.sourceType as string) === 'contact' ||
+      (event.sourceType as string) === 'group' ||
+      (rawEvent.connectorType === 'whatsapp' &&
+        (rawEvent.sourceId.startsWith('wa-contact:') ||
+          rawEvent.sourceId.startsWith('wa-group:') ||
+          event.sourceId.startsWith('wa-contact:') ||
+          event.sourceId.startsWith('wa-group:') ||
+          (event.content?.metadata as Record<string, unknown> | undefined)?.type === 'contact')) ||
+      (rawEvent.connectorType === 'telegram' && event.sourceId.startsWith('telegram:contact:'))
+    ) {
       this.addLog(
         rawEvent.connectorType,
         rawEvent.accountId,
@@ -198,6 +255,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         `[memory:skip] ${mid} sourceType=${event.sourceType} — not a memory`,
         parentJobId,
       );
+      await this.markRawEventState(rawEventId, 'skipped_contact');
       await this.advanceAndComplete(parentJobId);
       return;
     }
@@ -211,6 +269,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       '';
 
     if (!text) {
+      await this.markRawEventState(rawEventId, 'skipped_empty');
       await this.advanceAndComplete(parentJobId);
       return;
     }
@@ -231,7 +290,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       rawEvent.connectorType,
       rawEvent.accountId,
       'info',
-      `[memory:start] ${event.sourceType} ${mid} (${text.length} chars) "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+      `[memory:start] ${event.sourceType} ${mid} (${text.length} chars)`,
       parentJobId,
     );
 
@@ -287,6 +346,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // 4. Apply ContentCleaner
     embedText = this.contentCleaner.cleanText(embedText, event.sourceType, rawEvent.connectorType);
     if (!embedText) {
+      await this.markRawEventState(rawEventId, 'skipped_empty');
       await this.advanceAndComplete(parentJobId);
       return;
     }
@@ -345,6 +405,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         `[memory:dedup] ${mid} — skipping duplicate source_id ${event.sourceId.slice(0, 30)}`,
         parentJobId,
       );
+      await this.markRawEventState(rawEventId, 'deduped');
       await this.advanceAndComplete(parentJobId);
       return;
     }
@@ -596,7 +657,43 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // Upsert to Typesense
     t0 = Date.now();
     const peopleNames = resolvedContacts.map((c) => c.name).filter(Boolean) as string[];
+    const roleIds = (roles: string[]) =>
+      resolvedContacts.filter((c) => roles.includes(c.role)).map((c) => c.contactId);
+    const metadataPeople = arrayFromUnknown(mergedMetadata.people).flatMap((p) =>
+      typeof p === 'string'
+        ? [p]
+        : [p && typeof p === 'object' ? (p as { name?: unknown }).name : ''],
+    );
+    const locationValues = compactStrings([
+      mergedMetadata.location,
+      mergedMetadata.city,
+      mergedMetadata.state,
+      mergedMetadata.country,
+      mergedMetadata.address,
+      ...arrayFromUnknown(mergedMetadata.locations),
+    ]);
+    const organizations = compactStrings(
+      embedResult.entities
+        .filter((e) => e.type === 'organization')
+        .map((e) => e.id.replace(/^name:/, '')),
+    );
+    const threadIds = compactStrings([
+      mergedMetadata.threadId,
+      mergedMetadata.chatId,
+      ...embedResult.entities
+        .filter((e) => e.type === 'message' && e.id.startsWith('thread:'))
+        .map((e) => e.id.replace('thread:', '')),
+    ]);
+    const transactionTokens = compactStrings([
+      mergedMetadata.amount,
+      mergedMetadata.currency,
+      mergedMetadata.counterparty,
+      ...(currentText.match(
+        /[a-z0-9]+(?:[._-][a-z0-9]+)*|\b(?:aed|usd|eur|gbp|sar|egp)\b|\d+(?:[.,]\d+)?/gi,
+      ) ?? []),
+    ]).map((token) => token.toLowerCase());
     const typesensePayload: Record<string, unknown> = {
+      schema_version: MEMORY_INDEX_SCHEMA_VERSION,
       text: truncatedText,
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
@@ -604,6 +701,20 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       account_id: rawEvent.accountId,
       memory_bank_id: memoryBankId,
       people: peopleNames,
+      person_ids: resolvedContacts.map((c) => c.contactId),
+      person_aliases: compactStrings([...peopleNames, ...metadataPeople]),
+      person_sender_ids: roleIds(['sender']),
+      person_recipient_ids: roleIds(['recipient']),
+      person_participant_ids: roleIds(['participant']),
+      person_mentioned_ids: roleIds(['mentioned']),
+      person_photo_ids:
+        event.sourceType === 'photo' ? resolvedContacts.map((c) => c.contactId) : [],
+      person_counterparty_ids: roleIds(['counterparty']),
+      locations: locationValues,
+      location_text: locationValues.join(' '),
+      organizations,
+      thread_ids: threadIds,
+      transaction_tokens: transactionTokens,
     };
     await this.typesense.upsert(memoryId, vector, typesensePayload);
     const typesenseMs = Date.now() - t0;
@@ -635,7 +746,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const recency = Math.exp(-0.015 * ageDays);
     const importance = 0.5 + Math.min(enrichEntities.length * 0.1, 0.4);
     const trust = this.getTrustScore(rawEvent.connectorType);
-    const weights = { semantic: 0, rerank: 0, recency, importance, trust, final: 0 };
+    const weights = { semantic: 0, recency, importance, trust, final: 0 };
 
     // 9. Encrypt all fields (single pass)
     currentText = stripNullBytes(currentText);
@@ -652,6 +763,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           `[memory:quota] Skipped — reached ${quota.limit} memory limit (free plan).`,
           parentJobId,
         );
+        await this.markRawEventState(rawEventId, 'failed');
         await this.advanceAndComplete(parentJobId);
         return;
       }
@@ -759,6 +871,27 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       await this.contactsService.linkMemory(memoryId, contactId, role);
       contactCount++;
     }
+    const alreadyLinked = new Set(resolvedContacts.map((c) => c.contactId));
+    for (const entity of enrichEntities) {
+      if (entity.type !== 'person' || !entity.value) continue;
+      try {
+        const person = await this.contactsService.resolvePerson(
+          [{ type: 'name', value: entity.value, connectorType: rawEvent.connectorType }],
+          'person',
+          ownerUserId || undefined,
+        );
+        if (alreadyLinked.has(person.id)) continue;
+        await this.contactsService.linkMemory(memoryId, person.id, 'mentioned');
+        alreadyLinked.add(person.id);
+        contactCount++;
+      } catch (err) {
+        this.logger.debug(
+          `[memory] weak mentioned link skipped for ${entity.value}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
 
     // Thread linking
     for (const entity of embedResult.entities) {
@@ -835,6 +968,8 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
     });
+
+    await this.markRawEventState(rawEventId, 'memory_created');
 
     // Advance parent job progress
     await this.advanceAndComplete(parentJobId);
@@ -1003,6 +1138,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  private async markRawEventState(rawEventId: string, state: RawEventProcessingState) {
+    await this.dbService.db
+      .update(rawEvents)
+      .set({ processingState: state })
+      .where(eq(rawEvents.id, rawEventId));
   }
 
   private async buildPipelineContext(

@@ -6,6 +6,8 @@ import { MemoryBanksService } from '../memory-banks/memory-banks.service';
 import { DbService } from '../db/db.service';
 import { accounts } from '../db/schema';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import type { Job } from '@botmem/shared';
@@ -56,6 +58,11 @@ export class JobsController {
     private accountsService: AccountsService,
     private memoryBanksService: MemoryBanksService,
     private dbService: DbService,
+    @InjectQueue('sync') private syncQueue: Queue,
+    @InjectQueue('memory') private memoryQueue: Queue,
+    @InjectQueue('maintenance') private maintenanceQueue: Queue,
+    @InjectQueue('embed') private embedQueue: Queue,
+    @InjectQueue('enrich') private enrichQueue: Queue,
   ) {}
 
   @Get()
@@ -63,6 +70,39 @@ export class JobsController {
     // User isolation: only show jobs for user's accounts (filtered at DB level)
     const rows = await this.jobsService.getAllForUser(user.id, { accountId });
     return { jobs: rows.map(toApiJob) };
+  }
+
+  @Get('queues')
+  async queues() {
+    return this.jobsService.getQueueStats({
+      sync: this.syncQueue,
+      memory: this.memoryQueue,
+      embed: this.embedQueue,
+      enrich: this.enrichQueue,
+      maintenance: this.maintenanceQueue,
+    });
+  }
+
+  @RequiresJwt()
+  @Post('retry-failed')
+  async retryFailed(@CurrentUser() user: { id: string }) {
+    const failedJobs = (await this.jobsService.getAllForUser(user.id)).filter(
+      (job) => job.status === 'failed',
+    );
+
+    let retried = 0;
+    for (const job of failedJobs) {
+      const account = await this.accountsService.getById(job.accountId);
+      await this.jobsService.triggerSync(
+        account.id,
+        account.connectorType,
+        account.identifier,
+        job.memoryBankId ?? undefined,
+      );
+      retried++;
+    }
+
+    return { ok: true, retried };
   }
 
   @Get(':id')

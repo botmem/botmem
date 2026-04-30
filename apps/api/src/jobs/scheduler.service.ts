@@ -63,7 +63,7 @@ export class SchedulerService implements OnModuleInit {
 
     await this.syncQueue.add(
       repeatKey,
-      { accountId, connectorType, jobId: crypto.randomUUID() },
+      { accountId, connectorType, scheduled: true },
       { repeat: { pattern: cron } },
     );
   }

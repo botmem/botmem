@@ -70,9 +70,11 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
     'account_id',
     'connector_type',
     'source_id',
+    'source_hash',
     'source_type',
     'payload',
     'cleaned_text',
+    'processing_state',
     'timestamp',
     'job_id',
     'created_at',
@@ -182,7 +184,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.pool = new Pool({
       connectionString: this.config.databaseUrl,
-      max: 20,
+      max: this.config.databasePoolMax,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 30000,
     });

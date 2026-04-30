@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { keyToMnemonic } from '@botmem/shared';
 
 // Mock ioredis
 const redisStore = new Map<string, string>();
@@ -253,6 +254,32 @@ describe('CliAuthService', () => {
       expect(result.redirectUri).toContain('code=');
     });
 
+    it('should accept mnemonic recovery key and store DEK', async () => {
+      const recoveryKey = Buffer.from('c'.repeat(32)).toString('base64');
+      const mnemonic = keyToMnemonic(recoveryKey);
+      const recoveryKeyHash = createHash('sha256').update(recoveryKey).digest('hex');
+      usersService.findByEmail.mockResolvedValue({
+        id: 'u1',
+        email: 'test@example.com',
+        passwordHash: '$2b$12$hash',
+        recoveryKeyHash,
+      });
+      (bcrypt.compare as any).mockResolvedValue(true);
+      userKeyService.getDek.mockResolvedValue(null);
+
+      await service.approve({
+        sessionId: 'sess-1',
+        email: 'test@example.com',
+        password: 'pass',
+        recoveryKey: mnemonic,
+      });
+
+      expect(userKeyService.storeDek).toHaveBeenCalledWith(
+        'u1',
+        Buffer.from(recoveryKey, 'base64'),
+      );
+    });
+
     it('should reject invalid recovery key', async () => {
       usersService.findByEmail.mockResolvedValue({
         id: 'u1',
@@ -339,6 +366,29 @@ describe('CliAuthService', () => {
 
       expect(userKeyService.storeDek).toHaveBeenCalledWith('u1', expect.any(Buffer));
       expect(result.redirectUri).toContain('code=');
+    });
+
+    it('should accept mnemonic recovery key and store DEK', async () => {
+      const recoveryKey = Buffer.from('d'.repeat(32)).toString('base64');
+      const mnemonic = keyToMnemonic(recoveryKey);
+      const recoveryKeyHash = createHash('sha256').update(recoveryKey).digest('hex');
+      userKeyService.getDek.mockResolvedValue(null);
+      usersService.findById.mockResolvedValue({
+        id: 'u1',
+        recoveryKeyHash,
+      });
+
+      await service.approveWithToken({
+        sessionId: 'sess-1',
+        userId: 'u1',
+        email: 'test@example.com',
+        recoveryKey: mnemonic,
+      });
+
+      expect(userKeyService.storeDek).toHaveBeenCalledWith(
+        'u1',
+        Buffer.from(recoveryKey, 'base64'),
+      );
     });
   });
 

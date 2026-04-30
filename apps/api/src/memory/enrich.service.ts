@@ -129,7 +129,6 @@ export class EnrichService {
       const trust = this.getTrustScore(memory.connectorType);
       const weights = {
         semantic: 0,
-        rerank: 0,
         recency,
         importance: DEFAULT_CONFIDENCE,
         trust,
@@ -263,7 +262,7 @@ export class EnrichService {
     const recency = Math.exp(-0.015 * ageDays);
     const importance = 0.5 + Math.min(entities.length * 0.1, 0.4);
     const trust = this.getTrustScore(memory.connectorType);
-    const weights = { semantic: 0, rerank: 0, recency, importance, trust, final: 0 };
+    const weights = { semantic: 0, recency, importance, trust, final: 0 };
 
     await this.dbService.db
       .update(memories)
@@ -647,11 +646,21 @@ export class EnrichService {
     const currentLabel = memory.factualityLabel;
     if (currentLabel === 'FACT' && !newLabel) return;
 
-    // Update factuality label if promoted
+    // Update factuality label + encrypted JSON if promoted
     if (newLabel) {
+      const rationale = `Corroborated by ${crossConnectorTypes.size} cross-connector source(s): ${[...crossConnectorTypes].join(', ')}`;
+      const factualityJson = JSON.stringify({
+        label: newLabel,
+        confidence: newConfidence,
+        rationale,
+      });
+      const encryptedFactuality = this.crypto.encrypt(factualityJson);
       await this.dbService.db
         .update(memories)
-        .set({ factualityLabel: newLabel })
+        .set({
+          factualityLabel: newLabel,
+          ...(encryptedFactuality ? { factuality: encryptedFactuality } : {}),
+        })
         .where(eq(memories.id, memoryId));
     }
 

@@ -125,7 +125,6 @@ export class AgentService {
       query,
       options?.filters,
       limit,
-      false,
       options?.userId,
     );
 
@@ -195,7 +194,7 @@ export class AgentService {
 
       const enriched: EnrichedMemory[] = [];
       for (const row of filtered) {
-        const e = await this.enrichMemory(row.id);
+        const e = await this.enrichMemory(row.id, undefined, options.userId);
         if (e) enriched.push(e);
       }
 
@@ -213,7 +212,11 @@ export class AgentService {
 
   // ── remember ───────────────────────────────────────────────────────
 
-  async remember(text: string, metadata?: Record<string, unknown>, _userId?: string): Promise<EnrichedMemory> {
+  async remember(
+    text: string,
+    metadata?: Record<string, unknown>,
+    _userId?: string,
+  ): Promise<EnrichedMemory> {
     const id = randomUUID();
     const now = new Date();
 
@@ -250,7 +253,7 @@ export class AgentService {
       this.logger.warn(`Failed to embed new memory ${id}: ${err}`);
     }
 
-    return (await this.enrichMemory(id))!;
+    return (await this.enrichMemory(id, undefined, _userId))!;
   }
 
   // ── forget ─────────────────────────────────────────────────────────
@@ -271,7 +274,10 @@ export class AgentService {
 
   // ── context ────────────────────────────────────────────────────────
 
-  async context(contactId: string, userId?: string): Promise<{
+  async context(
+    contactId: string,
+    userId?: string,
+  ): Promise<{
     contact: PersonWithIdentifiers;
     identifiersByType: Record<string, string[]>;
     recentMemories: EnrichedMemory[];
@@ -321,7 +327,7 @@ export class AgentService {
 
       const recentMemories: EnrichedMemory[] = [];
       for (const row of recentRows) {
-        const e = await this.enrichMemory(row.id);
+        const e = await this.enrichMemory(row.id, undefined, userId);
         if (e) recentMemories.push(e);
       }
 
@@ -399,7 +405,6 @@ export class AgentService {
       query,
       undefined,
       maxResults,
-      false,
       userId,
     );
 
@@ -494,18 +499,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     const mem = await this.memoryService.getById(memoryId, userId);
     if (!mem) return null;
 
-    // Fetch linked contacts
-    const mcRows = await this.dbService.withCurrentUser((db) =>
-      db
-        .select({
-          contactId: memoryPeople.personId,
-          role: memoryPeople.role,
-          displayName: people.displayName,
-        })
-        .from(memoryPeople)
-        .innerJoin(people, eq(memoryPeople.personId, people.id))
-        .where(eq(memoryPeople.memoryId, memoryId)),
-    );
+    const peopleMap = await this.memoryService.getPeopleForMemories([memoryId]);
 
     return {
       id: mem.id,
@@ -522,10 +516,10 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
       entities: safeParse(mem.entities, []),
       weights: safeParse(mem.weights, {}),
       metadata: safeParse(mem.metadata, {}),
-      contacts: mcRows.map((r) => ({
-        id: r.contactId,
-        displayName: r.displayName,
-        role: r.role,
+      contacts: (peopleMap.get(memoryId) || []).map((p) => ({
+        id: p.personId,
+        displayName: p.displayName,
+        role: p.role,
       })),
       ...(score !== undefined ? { score } : {}),
     };

@@ -19,6 +19,14 @@ interface MergeSuggestion {
   contact1: Contact;
   contact2: Contact;
   reason: string;
+  confidence?: number;
+  positiveEvidence?: string[];
+  negativeEvidence?: string[];
+  sharedIdentifiers?: string[];
+  aliasSimilarity?: number;
+  cooccurrenceConflicts?: string[];
+  sourceConnectors?: string[];
+  sampleMemoryIds?: string[];
 }
 
 interface ContactState {
@@ -48,6 +56,17 @@ interface ContactState {
   splitContact: (contactId: string, identifierIds: string[]) => Promise<void>;
 }
 
+function parseAvatars(rawAvatars: ApiContact['avatars']): Array<{ url: string; source: string }> {
+  if (Array.isArray(rawAvatars)) return rawAvatars;
+  if (typeof rawAvatars !== 'string' || !rawAvatars.trim()) return [];
+  try {
+    const parsed = JSON.parse(rawAvatars);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function parseContact(raw: ApiContact): Contact {
   const identifiers = (raw.identifiers || []).map((i) => ({
     id: i.id,
@@ -63,7 +82,7 @@ function parseContact(raw: ApiContact): Contact {
     id: raw.id,
     displayName: raw.displayName || '',
     entityType: raw.entityType || 'person',
-    avatars: typeof raw.avatars === 'string' ? JSON.parse(raw.avatars) : raw.avatars || [],
+    avatars: parseAvatars(raw.avatars),
     identifiers,
     connectorSources,
     memoryCount: raw.memoryCount || 0,
@@ -171,8 +190,25 @@ export const useContactStore = create<ContactState>((set, get) => ({
           contact1: parseContact(s.contact1),
           contact2: parseContact(s.contact2),
           reason: s.reason,
+          confidence: s.confidence,
+          positiveEvidence: s.positiveEvidence,
+          negativeEvidence: s.negativeEvidence,
+          sharedIdentifiers: s.sharedIdentifiers,
+          aliasSimilarity: s.aliasSimilarity,
+          cooccurrenceConflicts: s.cooccurrenceConflicts,
+          sourceConnectors: s.sourceConnectors,
+          sampleMemoryIds: s.sampleMemoryIds,
         })),
       });
+
+      const { contacts, total, searchQuery, entityFilter } = get();
+      if (contacts.length > 0 || total > 0) {
+        if (searchQuery.trim().length >= 3) {
+          await get().searchContacts(searchQuery);
+        } else {
+          await get().loadContacts(entityFilter);
+        }
+      }
     } catch (err) {
       console.error('Failed to load suggestions:', err);
     }

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import Redis from 'ioredis';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { resolveRecoveryKey } from '@botmem/shared';
 import { ConfigService } from '../config/config.service';
 import { UserAuthService } from './user-auth.service';
 import { UsersService } from './users.service';
@@ -39,6 +40,22 @@ function base64url(buf: Buffer): string {
 function validatePKCE(codeVerifier: string, codeChallenge: string): boolean {
   const computed = base64url(createHash('sha256').update(codeVerifier).digest());
   return computed === codeChallenge;
+}
+
+function verifyRecoveryKey(input: string, storedHash: string | null | undefined): Buffer {
+  let recoveryKey: string;
+  try {
+    recoveryKey = resolveRecoveryKey(input);
+  } catch {
+    throw new ForbiddenException('Invalid recovery key');
+  }
+  const recoveryKeyHash = createHash('sha256').update(recoveryKey).digest('hex');
+  const hashBuf = Buffer.from(recoveryKeyHash, 'hex');
+  const storedBuf = Buffer.from(storedHash ?? '', 'hex');
+  if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
+    throw new ForbiddenException('Invalid recovery key');
+  }
+  return Buffer.from(recoveryKey, 'base64');
 }
 
 @Injectable()
@@ -137,13 +154,7 @@ export class CliAuthService implements OnModuleDestroy {
       if (!params.recoveryKey) {
         throw new ForbiddenException('Recovery key required (encryption key not cached)');
       }
-      const recoveryKeyHash = createHash('sha256').update(params.recoveryKey).digest('hex');
-      const hashBuf = Buffer.from(recoveryKeyHash, 'hex');
-      const storedBuf = Buffer.from(user.recoveryKeyHash ?? '', 'hex');
-      if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
-        throw new ForbiddenException('Invalid recovery key');
-      }
-      const dek = Buffer.from(params.recoveryKey, 'base64');
+      const dek = verifyRecoveryKey(params.recoveryKey, user.recoveryKeyHash);
       await this.userKeyService.storeDek(user.id, dek);
     }
 
@@ -196,13 +207,7 @@ export class CliAuthService implements OnModuleDestroy {
       }
       const user = await this.usersService.findById(params.userId);
       if (!user) throw new UnauthorizedException('User not found');
-      const recoveryKeyHash = createHash('sha256').update(params.recoveryKey).digest('hex');
-      const hashBuf = Buffer.from(recoveryKeyHash, 'hex');
-      const storedBuf = Buffer.from(user.recoveryKeyHash ?? '', 'hex');
-      if (hashBuf.length !== storedBuf.length || !timingSafeEqual(hashBuf, storedBuf)) {
-        throw new ForbiddenException('Invalid recovery key');
-      }
-      const dek = Buffer.from(params.recoveryKey, 'base64');
+      const dek = verifyRecoveryKey(params.recoveryKey, user.recoveryKeyHash);
       await this.userKeyService.storeDek(params.userId, dek);
     }
 

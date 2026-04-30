@@ -626,7 +626,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"semantic\":0,\"rerank\":0,\"recency\":0,\"importance\":0.5,\"trust\":0.5,\"final\":0}'::jsonb"
+          "default": "'{\"semantic\":0,\"recency\":0,\"importance\":0.5,\"trust\":0.5,\"final\":0}'::jsonb"
         },
         "entities": {
           "name": "entities",

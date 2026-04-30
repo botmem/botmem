@@ -74,7 +74,7 @@ describe('corroborateFactuality', () => {
 
     service = new (EnrichService as any)(
       /* dbService */ { db: mockDb },
-      /* crypto */ {},
+      /* crypto */ { encrypt: vi.fn((value: string) => `encrypted:${value}`) },
       /* userKeyService */ {},
       /* ai */ {},
       /* typesense */ {},

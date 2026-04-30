@@ -70,9 +70,11 @@ function MemoryContext({
     people?.find((p) => p.role === 'participant' && p.personId !== senderPerson?.personId);
   const resolvedSenderName = metadata.senderName || senderPerson?.displayName || '';
   const resolvedRecipientName = metadata.chatName || recipientPerson?.displayName || '';
+  let renderedMessageContext = false;
 
   // WhatsApp / message sender + recipient
   if (resolvedSenderName || metadata.senderPhone) {
+    renderedMessageContext = true;
     const name = resolvedSenderName || metadata.senderPhone;
     const suffix = resolvedSenderName && metadata.senderPhone ? ` (${metadata.senderPhone})` : '';
     const you = metadata.fromMe === true ? ' (you)' : '';
@@ -98,7 +100,7 @@ function MemoryContext({
   // Email from/to/subject
   if (metadata.from && !metadata.senderName)
     rows.push({ label: 'From', value: metadata.from, bold: true });
-  if (metadata.to) rows.push({ label: 'To', value: metadata.to });
+  if (metadata.to && !renderedMessageContext) rows.push({ label: 'To', value: metadata.to });
   if (metadata.subject) rows.push({ label: 'Subject', value: metadata.subject });
 
   // Slack channel
@@ -201,10 +203,7 @@ export function MemoryDetailCore({
 }: MemoryDetailCoreProps) {
   const filteredWeights = weights
     ? Object.entries(weights).filter(
-        ([key, val]) =>
-          !(key === 'semantic' && val === 0) &&
-          !(key === 'rerank' && val === 0) &&
-          !(key === 'final' && val === 0),
+        ([key, val]) => !(key === 'semantic' && val === 0) && !(key === 'final' && val === 0),
       )
     : [];
 

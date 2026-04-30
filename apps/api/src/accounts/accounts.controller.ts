@@ -5,20 +5,36 @@ import {
   Patch,
   Delete,
   Param,
+  Query,
   Body,
   NotFoundException,
 } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
-import { memories, memoryPeople, people } from '../db/schema';
-import { sql, eq, inArray } from 'drizzle-orm';
+import { memories, memoryPeople, people, jobs } from '../db/schema';
+import { sql, eq, inArray, desc } from 'drizzle-orm';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import type { ConnectorAccount } from '@botmem/shared';
+
+function normalizeAccountError(
+  connectorType: string,
+  accountId: string,
+  error: string | null,
+): string | null {
+  if (!error) return null;
+  if (connectorType === 'imessage' && error.includes('bridge')) {
+    return `iMessage bridge not connected. Start the Botmem iMessage bridge from connector setup, then run \`botmem sync ${accountId}\`.`;
+  }
+  if (connectorType === 'imessage' && error.includes('botmem sync <account-id>')) {
+    return error.replaceAll('<account-id>', accountId);
+  }
+  return error;
+}
 
 function toApiAccount(
   row: {
@@ -34,18 +50,50 @@ function toApiAccount(
   memoryCount?: number,
   contactsCount?: number,
   groupsCount?: number,
+  jobHealth?: {
+    phase: string | null;
+    lastActivityAt: string | null;
+    activeJobId: string | null;
+    queuedJobId: string | null;
+    progress: number | null;
+    total: number | null;
+  },
 ): ConnectorAccount {
+  const status = row.status as ConnectorAccount['status'];
+  const lastError = normalizeAccountError(row.connectorType, row.id, row.lastError);
+  const recoveryReason = lastError || null;
+  const recoveryAction =
+    status === 'reconnect_required'
+      ? row.connectorType === 'whatsapp'
+        ? 'rescan_qr'
+        : 'reconnect'
+      : status === 'failed' && row.connectorType === 'imessage'
+        ? 'start_bridge'
+        : status === 'failed'
+          ? 'retry'
+          : null;
+
   return {
     id: row.id,
     type: row.connectorType,
     identifier: row.identifier,
-    status: row.status as ConnectorAccount['status'],
+    status,
     schedule: row.schedule as ConnectorAccount['schedule'],
     lastSync: row.lastSyncAt ? String(row.lastSyncAt) : null,
     memoriesIngested: memoryCount ?? row.itemsSynced ?? 0,
     contactsCount: contactsCount ?? 0,
     groupsCount: groupsCount ?? 0,
-    lastError: row.lastError || null,
+    lastError,
+    syncHealth: {
+      phase: jobHealth?.phase ?? null,
+      lastActivityAt: jobHealth?.lastActivityAt ?? null,
+      activeJobId: jobHealth?.activeJobId ?? null,
+      queuedJobId: jobHealth?.queuedJobId ?? null,
+      progress: jobHealth?.progress ?? null,
+      total: jobHealth?.total ?? null,
+      recoveryAction,
+      recoveryReason,
+    },
   };
 }
 
@@ -60,8 +108,13 @@ export class AccountsController {
   ) {}
 
   @Get()
-  async list(@CurrentUser() user: { id: string }) {
-    const rows = await this.accountsService.getAll(user.id);
+  async list(
+    @CurrentUser() user: { id: string },
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    const rows = await this.accountsService.getAll(user.id, {
+      includeArchived: includeArchived === 'true',
+    });
 
     return this.dbService.withCurrentUser(async (db) => {
       // Count actual memories per account from DB
@@ -97,6 +150,47 @@ export class AccountsController {
         }
       }
 
+      const latestJobs = accountIds.length
+        ? await db
+            .select({
+              id: jobs.id,
+              accountId: jobs.accountId,
+              status: jobs.status,
+              progress: jobs.progress,
+              total: jobs.total,
+              startedAt: jobs.startedAt,
+              createdAt: jobs.createdAt,
+            })
+            .from(jobs)
+            .where(inArray(jobs.accountId, accountIds))
+            .orderBy(desc(jobs.createdAt))
+        : [];
+      const jobHealthMap = new Map<
+        string,
+        {
+          phase: string | null;
+          lastActivityAt: string | null;
+          activeJobId: string | null;
+          queuedJobId: string | null;
+          progress: number | null;
+          total: number | null;
+        }
+      >();
+      for (const job of latestJobs) {
+        if (jobHealthMap.has(job.accountId)) continue;
+        if (job.status !== 'running' && job.status !== 'queued') continue;
+        const lastActivity = job.startedAt || job.createdAt;
+        jobHealthMap.set(job.accountId, {
+          phase: job.status === 'queued' ? 'Queued for sync' : 'Syncing connector data',
+          lastActivityAt:
+            lastActivity instanceof Date ? lastActivity.toISOString() : String(lastActivity),
+          activeJobId: job.status === 'running' ? job.id : null,
+          queuedJobId: job.status === 'queued' ? job.id : null,
+          progress: job.progress,
+          total: job.total,
+        });
+      }
+
       return {
         accounts: rows.map((r) =>
           toApiAccount(
@@ -104,6 +198,7 @@ export class AccountsController {
             memoryCountMap.get(r.id) ?? 0,
             contactsMap.get(r.id) ?? 0,
             groupsMap.get(r.id) ?? 0,
+            jobHealthMap.get(r.id),
           ),
         ),
       };
@@ -156,6 +251,28 @@ export class AccountsController {
       throw new NotFoundException('Account not found');
     }
     const row = await this.accountsService.update(id, dto);
+    return toApiAccount(row);
+  }
+
+  @RequiresJwt()
+  @Post(':id/archive')
+  async archive(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    const account = await this.accountsService.getById(id);
+    if (account.userId !== user.id) {
+      throw new NotFoundException('Account not found');
+    }
+    const row = await this.accountsService.archive(id);
+    return toApiAccount(row);
+  }
+
+  @RequiresJwt()
+  @Post(':id/restore')
+  async restore(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    const account = await this.accountsService.getById(id);
+    if (account.userId !== user.id) {
+      throw new NotFoundException('Account not found');
+    }
+    const row = await this.accountsService.restore(id);
     return toApiAccount(row);
   }
 

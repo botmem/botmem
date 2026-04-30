@@ -30,6 +30,7 @@ vi.stubGlobal('fetch', mockFetch);
 describe('syncLocations', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    vi.useRealTimers();
   });
 
   it('emits location events without geocoding', async () => {
@@ -116,5 +117,40 @@ describe('syncLocations', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const urls = mockFetch.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(urls.every((u: string) => !u.includes('nominatim'))).toBe(true);
+  });
+
+  it('uses tomorrow as the exclusive OwnTracks to date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T13:00:00Z'));
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: [] }),
+    });
+
+    const ctx = createMockContext({
+      cursor: JSON.stringify({ pairs: { 'testuser/testdevice': 1777550000 }, pairIndex: 0 }),
+    });
+    await syncLocations(ctx, vi.fn(), vi.fn());
+
+    const url = new URL(String(mockFetch.mock.calls[0][0]));
+    expect(url.searchParams.get('from')).toBe('2026-04-30');
+    expect(url.searchParams.get('to')).toBe('2026-05-01');
+  });
+
+  it('wraps pairIndex without spending a sync on reset', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: [] }),
+    });
+
+    const ctx = createMockContext({
+      cursor: JSON.stringify({ pairs: { 'testuser/testdevice': 1777550000 }, pairIndex: 1 }),
+    });
+    const result = await syncLocations(ctx, vi.fn(), vi.fn());
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.processed).toBe(0);
+    expect(JSON.parse(result.cursor || '{}').pairIndex).toBe(1);
   });
 });

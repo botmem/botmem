@@ -149,7 +149,7 @@ All tool responses use [toon format](https://github.com/toon-format/toon) — a 
 Semantic search across emails, messages, photos, and locations. Results are ranked using Botmem's scoring formula:
 
 ```
-final = 0.40×semantic + 0.30×rerank + 0.15×recency + 0.10×importance + 0.05×trust
+final = 0.70 * semantic + 0.15 * recency + 0.10 * importance + 0.05 * trust
 ```
 
 **Parameters:**

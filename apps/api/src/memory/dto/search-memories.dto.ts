@@ -4,10 +4,11 @@ import {
   IsOptional,
   IsInt,
   IsNumber,
+  IsBoolean,
   Min,
   Max,
-  IsBoolean,
   IsArray,
+  IsObject,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -63,16 +64,33 @@ export class SearchMemoriesDto {
   limit?: number;
 
   @IsOptional()
-  @IsBoolean()
-  rerank?: boolean;
+  @IsString()
+  memoryBankId?: string;
+
+  /** Legacy CLI/API filters shape: { connectorType, sourceType, contactId, ... } */
+  @IsOptional()
+  @IsObject()
+  filters?: Record<string, string>;
 
   @IsOptional()
   @IsString()
-  memoryBankId?: string;
+  connectorType?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  contactId?: string;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(1)
   diversityFactor?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  debug?: boolean;
 }

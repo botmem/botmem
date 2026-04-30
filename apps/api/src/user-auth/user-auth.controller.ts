@@ -5,6 +5,7 @@ import { CliAuthService } from './cli-auth.service';
 import { UsersService } from './users.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { ReadOnly } from './decorators/read-only.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RegisterDto } from './dto/register.dto';
@@ -117,6 +118,7 @@ export class UserAuthController {
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ReadOnly()
   @Post('recovery-key')
   @HttpCode(200)
   async submitRecoveryKey(

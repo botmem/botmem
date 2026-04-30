@@ -4,7 +4,6 @@ import { OllamaService } from './ollama.service';
 import { OpenRouterService } from './openrouter.service';
 import { GeminiEmbedService, EmbedPart } from './gemini-embed.service';
 import { AiCacheService } from './ai-cache.service';
-import { RerankService } from './rerank.service';
 import { Traced } from '../tracing/traced.decorator';
 
 /** In-memory LRU cache for query embeddings (avoids re-embedding identical/recent queries) */
@@ -49,7 +48,6 @@ export class AiService {
     private readonly openrouter: OpenRouterService,
     private readonly gemini: GeminiEmbedService,
     private readonly cache: AiCacheService,
-    private readonly reranker: RerankService,
   ) {}
 
   /** Generation backend (text/VL) — always follows AI_BACKEND */
@@ -84,7 +82,7 @@ export class AiService {
   async embed(text: string, retries?: number): Promise<number[]> {
     const model = this.embedModelName;
 
-    const cached = await this.cache.get(model, text, 'embed');
+    const cached = await this.cache.get(model, text, 'embed', this.config.embedBackend);
     if (cached.hit) return JSON.parse(cached.output);
 
     const t0 = Date.now();
@@ -143,7 +141,7 @@ export class AiService {
       ? prompt + '::img::' + images.map((i) => i.slice(0, 64)).join(',')
       : prompt;
 
-    const cached = await this.cache.get(model, cacheInput, op);
+    const cached = await this.cache.get(model, cacheInput, op, this.config.aiBackend);
     if (cached.hit) return cached.output;
 
     const t0 = Date.now();
@@ -163,9 +161,5 @@ export class AiService {
       .catch(() => {});
 
     return text;
-  }
-
-  async rerank(query: string, documents: string[]): Promise<number[]> {
-    return this.reranker.rerank(query, documents);
   }
 }

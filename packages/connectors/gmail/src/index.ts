@@ -11,7 +11,7 @@ import type {
   PipelineContext,
 } from '@botmem/connector-sdk';
 import { createOAuth2Client, getAuthUrl, exchangeCode } from './oauth.js';
-import { syncGmail } from './sync.js';
+import { isGmailContinuationCursor, syncGmail } from './sync.js';
 import { syncContacts } from './contacts.js';
 
 function parseEmailAddresses(header: string): Array<{ name: string | null; email: string }> {
@@ -177,18 +177,11 @@ export class GmailConnector extends BaseConnector {
     const toHeader = (metadata.to as string) || '';
     const ccHeader = (metadata.cc as string) || '';
 
-    for (const { name, email } of parseEmailAddresses(fromHeader)) {
-      const parts = [`email:${email}`];
-      if (name) parts.push(`name:${name}`);
-      entities.push({ type: 'person', id: parts.join('|'), role: 'sender' });
+    for (const { email } of parseEmailAddresses(fromHeader)) {
+      entities.push({ type: 'person', id: `email:${email}`, role: 'sender' });
     }
-    for (const { name, email } of [
-      ...parseEmailAddresses(toHeader),
-      ...parseEmailAddresses(ccHeader),
-    ]) {
-      const parts = [`email:${email}`];
-      if (name) parts.push(`name:${name}`);
-      entities.push({ type: 'person', id: parts.join('|'), role: 'recipient' });
+    for (const { email } of [...parseEmailAddresses(toHeader), ...parseEmailAddresses(ccHeader)]) {
+      entities.push({ type: 'person', id: `email:${email}`, role: 'recipient' });
     }
 
     // Thread linking
@@ -211,17 +204,22 @@ export class GmailConnector extends BaseConnector {
   async sync(ctx: SyncContext): Promise<SyncResult> {
     // Sync contacts first — lightweight and must not be cut off by debug limit
     let contactsProcessed = 0;
-    try {
-      const contactsResult = await syncContacts(
-        ctx,
-        (event) => this.emitData(event),
-        (progress) => this.emit('progress', progress),
-      );
-      contactsProcessed = contactsResult.processed;
-    } catch (err: unknown) {
-      ctx.logger.warn(
-        `Contacts sync failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-      );
+    if (!isGmailContinuationCursor(ctx.cursor)) {
+      try {
+        const contactsResult = await syncContacts(
+          ctx,
+          (event) => this.emitData(event),
+          (progress) => this.emit('progress', progress),
+        );
+        contactsProcessed = contactsResult.processed;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        const warning = message.includes('invalid_grant')
+          ? `Google Contacts credentials need reconnect, continuing Gmail email sync: ${message}`
+          : `Contacts sync failed (non-fatal): ${message}`;
+        ctx.logger.warn(warning);
+        this.emit('degraded', { message: warning });
+      }
     }
 
     // Sync emails

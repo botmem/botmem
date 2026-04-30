@@ -3,8 +3,10 @@ import {
   makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  Browsers,
   proto,
 } from '@whiskeysockets/baileys';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
 import type { Boom } from '@hapi/boom';
 import * as QRCode from 'qrcode';
@@ -77,14 +79,15 @@ async function processInlineHistoryPayload(
     buffer = await inflatePromise(buffer);
     const syncData = proto.HistorySync.decode(buffer);
 
-    const messages: proto.IWebMessageInfo[] = [];
+    const messages: WAMessage[] = [];
     const contacts: Array<{ id: string; name?: string; lid?: string }> = [];
     const chats: Array<{ id: string; name?: string | null }> = [];
 
     for (const chat of syncData.conversations || []) {
-      contacts.push({ id: chat.id!, name: chat.name || undefined, lid: chat.lidJid || undefined });
+      if (!chat.id) continue;
+      contacts.push({ id: chat.id, name: chat.name || undefined, lid: chat.lidJid || undefined });
       for (const item of chat.messages || []) {
-        if (item.message) messages.push(item.message as proto.IWebMessageInfo);
+        if (item.message?.key) messages.push(item.message as WAMessage);
       }
       chats.push({ id: chat.id, name: chat.name });
     }
@@ -136,6 +139,17 @@ const RECONNECT_CODES = new Set([
   DisconnectReason.timedOut,
 ]);
 
+const DEBUG_WHATSAPP_AUTH = process.env.WHATSAPP_DEBUG_AUTH === '1';
+
+function debugAuth(message: string) {
+  if (DEBUG_WHATSAPP_AUTH) console.info(message);
+}
+
+function disconnectStatusCode(lastDisconnect: unknown): number {
+  const err = (lastDisconnect as { error?: Boom | Error } | undefined)?.error;
+  return err && 'output' in err ? (err as Boom).output.statusCode : 0;
+}
+
 export interface QrAuthOptions {
   maxRetries?: number;
   /** Custom WebSocket URL for Baileys to connect to (e.g. tunnel relay) instead of WhatsApp directly */
@@ -167,6 +181,9 @@ export async function startQrAuth(
     mkdirSync(sessionDir, { recursive: true });
     const { state, saveCreds } = await useAtomicMultiFileAuthState(sessionDir);
     const version = await getWhatsAppVersion();
+    debugAuth(
+      `[WhatsApp QR] attempt=${retries + 1}/${maxRetries + 1} session=${sessionDir} version=${version.join('.')} hasMe=${state.creds.me?.id ? 'yes' : 'no'} processedHistory=${state.creds.processedHistoryMessages?.length || 0}`,
+    );
 
     const socketConfig: Parameters<typeof makeWASocket>[0] = {
       auth: {
@@ -174,7 +191,7 @@ export async function startQrAuth(
         keys: makeCacheableSignalKeyStore(state.keys, logger),
       },
       version,
-      browser: ['Mac OS', 'Chrome', '10.15.7'],
+      browser: Browsers.macOS('Desktop'),
       printQRInTerminal: false,
       logger,
       syncFullHistory: true,
@@ -191,8 +208,12 @@ export async function startQrAuth(
     (socketConfig as Record<string, unknown>).shouldSyncHistoryMessage = (
       msg: proto.Message.IHistorySyncNotification,
     ) => {
+      debugAuth(
+        `[WhatsApp QR] shouldSyncHistoryMessage type=${msg.syncType ?? '-'} progress=${msg.progress ?? '-'} inlineBytes=${msg.initialHistBootstrapInlinePayload?.length || 0}`,
+      );
       if (!inlineProcessed && msg.initialHistBootstrapInlinePayload?.length && sockRef) {
         inlineProcessed = true;
+        debugAuth('[WhatsApp QR] processing inline history payload');
         processInlineHistoryPayload(msg, sockRef.ev);
       }
       return true;
@@ -206,20 +227,28 @@ export async function startQrAuth(
       });
     }
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', () => void saveCreds());
 
     // Use sock.ev.process() for history-related handlers — Baileys buffers events
     // during history sync and flushes them as a consolidated map. Individual .on()
     // listeners may miss buffered history payloads.
     sock.ev.process(async (events) => {
+      const keys = Object.keys(events);
+      debugAuth(`[WhatsApp QR] ev.process events=${keys.join(',') || 'none'}`);
       if (events['messaging-history.set']) {
         const data = events['messaging-history.set'];
+        debugAuth(
+          `[WhatsApp QR] messaging-history.set msgs=${data.messages?.length || 0} chats=${data.chats?.length || 0} contacts=${data.contacts?.length || 0} syncType=${data.syncType ?? '-'} progress=${data.progress ?? '-'}`,
+        );
         for (const msg of data.messages || []) {
           storeAuthMessage(msg.key, msg.message);
         }
       }
       if (events['messages.upsert']) {
         const upsert = events['messages.upsert'];
+        debugAuth(
+          `[WhatsApp QR] messages.upsert msgs=${upsert.messages?.length || 0} type=${upsert.type}`,
+        );
         for (const msg of upsert.messages || []) {
           storeAuthMessage(msg.key, msg.message);
         }
@@ -228,9 +257,14 @@ export async function startQrAuth(
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
+      const statusCode = disconnectStatusCode(lastDisconnect);
+      debugAuth(
+        `[WhatsApp QR] connection.update connection=${connection || '-'} qr=${qr ? 'yes' : 'no'} isNewLogin=${update.isNewLogin ? 'yes' : 'no'} receivedPending=${update.receivedPendingNotifications ? 'yes' : 'no'} code=${statusCode || '-'}`,
+      );
 
       if (qr && !connected) {
         qrShown = true;
+        debugAuth('[WhatsApp QR] QR generated');
         const qrDataUrl = await QRCode.toDataURL(qr);
         callbacks.onQrCode(qrDataUrl);
       }
@@ -242,10 +276,14 @@ export async function startQrAuth(
         // If 515 arrives, we cancel this timer and let the reconnect create
         // a new (stable) socket that actually receives history.
         if (stabilityTimer) clearTimeout(stabilityTimer);
+        debugAuth(`[WhatsApp QR] connection open; waiting ${STABILITY_MS}ms stability window`);
         stabilityTimer = setTimeout(() => {
           if (connected) return;
           connected = true;
           stabilityTimer = null;
+          debugAuth(
+            `[WhatsApp QR] stable open; buffering auth socket and handing to first sync user=${sock.user?.id || '-'}`,
+          );
           sock.ev.buffer();
           callbacks.onConnected({ raw: { sessionDir, jid: sock.user?.id } }, sock);
         }, STABILITY_MS);
@@ -260,13 +298,8 @@ export async function startQrAuth(
 
         if (connected) return;
 
-        const disconnectError = lastDisconnect?.error as Boom | Error | undefined;
-        const statusCode =
-          disconnectError && 'output' in disconnectError
-            ? (disconnectError as Boom).output.statusCode
-            : 0;
-
         if (FATAL_CODES.has(statusCode)) {
+          debugAuth(`[WhatsApp QR] fatal close code=${statusCode}`);
           callbacks.onError(new Error(`WhatsApp authentication failed (${statusCode})`));
           return;
         }
@@ -274,11 +307,13 @@ export async function startQrAuth(
         if (RECONNECT_CODES.has(statusCode) && retries < maxRetries) {
           retries++;
           const delay = Math.min(500 * Math.pow(2, retries - 1), 10_000);
+          debugAuth(`[WhatsApp QR] reconnecting after close code=${statusCode} delay=${delay}ms`);
           setTimeout(attempt, delay);
           return;
         }
 
         if (qrShown) {
+          debugAuth(`[WhatsApp QR] closed after QR without reconnect code=${statusCode}`);
           callbacks.onError(new Error('WhatsApp connection closed'));
           return;
         }
@@ -286,8 +321,10 @@ export async function startQrAuth(
         if (retries < maxRetries) {
           retries++;
           const delay = Math.min(500 * Math.pow(2, retries - 1), 10_000);
+          debugAuth(`[WhatsApp QR] retrying before QR code=${statusCode} delay=${delay}ms`);
           setTimeout(attempt, delay);
         } else {
+          debugAuth(`[WhatsApp QR] failed after retries code=${statusCode}`);
           callbacks.onError(new Error('Failed to connect to WhatsApp after retries'));
         }
       }

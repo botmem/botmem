@@ -155,7 +155,6 @@ export function apiMemoryToShared(raw: ApiMemoryItem): Memory {
     }),
     weights: safeJsonParse(raw.weights, {
       semantic: 0,
-      rerank: 0,
       recency: 0,
       importance: 0.5,
       trust: 0.5,

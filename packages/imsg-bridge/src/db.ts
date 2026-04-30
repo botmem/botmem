@@ -135,6 +135,7 @@ export class ImsgDatabase {
         m.ROWID as id,
         m.guid,
         m.text,
+        m.attributedBody,
         m.date,
         m.is_from_me,
         m.cache_roomnames,
@@ -170,11 +171,16 @@ export class ImsgDatabase {
 
     const rows = this.db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
     const participants = this.getChatParticipants(chatId);
+    const messageIds = rows.map((row) => row.id as number);
+    const attachmentsByMessageId = this.getAttachmentsForMessages(messageIds);
 
     return rows.map((row) => {
       const msgId = row.id as number;
-      const attachments = this.getMessageAttachments(msgId);
-      const reactions = this.getMessageReactions(msgId);
+      const attachments = attachmentsByMessageId.get(msgId) || [];
+      const text =
+        (row.text as string) ||
+        extractAttributedBodyText(row.attributedBody as Buffer | null | undefined) ||
+        '';
 
       return {
         id: msgId,
@@ -182,10 +188,13 @@ export class ImsgDatabase {
         guid: (row.guid as string) || `imsg-local-${msgId}`,
         sender: (row.handle_id as string) || '',
         is_from_me: (row.is_from_me as number) === 1,
-        text: (row.text as string) || '',
+        text,
         created_at: coreDataToISO(row.date as number | null),
         attachments,
-        reactions,
+        // Reactions are not used by the Botmem ingestion pipeline. Fetching them
+        // per message requires an unindexed suffix LIKE scan over the message
+        // table, which makes large chats time out.
+        reactions: [],
         chat_identifier: chatMeta.identifier,
         chat_name: chatMeta.name,
         participants,
@@ -219,39 +228,39 @@ export class ImsgDatabase {
     return row || { name: 'Unknown', identifier: '' };
   }
 
-  private getMessageAttachments(messageId: number): Attachment[] {
-    const sql = `
-      SELECT a.filename, a.mime_type, a.transfer_name
-      FROM attachment a
-      JOIN message_attachment_join maj ON maj.attachment_id = a.ROWID
-      WHERE maj.message_id = ?
-    `;
-    const rows = this.db.prepare(sql).all(messageId) as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      filename: (r.filename as string) || undefined,
-      mime_type: (r.mime_type as string) || undefined,
-      transfer_name: (r.transfer_name as string) || undefined,
-    }));
-  }
+  private getAttachmentsForMessages(messageIds: number[]): Map<number, Attachment[]> {
+    const byMessageId = new Map<number, Attachment[]>();
+    if (messageIds.length === 0) return byMessageId;
 
-  private getMessageReactions(messageId: number): Reaction[] {
-    // Reactions in iMessage are stored as associated messages with type 2000-2005
-    const sql = `
-      SELECT
-        h.id as sender,
-        m.associated_message_type as type
-      FROM message m
-      LEFT JOIN handle h ON h.ROWID = m.handle_id
-      WHERE m.associated_message_guid LIKE '%' || (
-        SELECT guid FROM message WHERE ROWID = ?
-      )
-      AND m.associated_message_type BETWEEN 2000 AND 2005
-    `;
-    const rows = this.db.prepare(sql).all(messageId) as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      sender: (r.sender as string) || undefined,
-      type: reactionTypeToString(r.type as number),
-    }));
+    const chunkSize = 900;
+    for (let i = 0; i < messageIds.length; i += chunkSize) {
+      const chunk = messageIds.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(',');
+      const sql = `
+        SELECT
+          maj.message_id,
+          a.filename,
+          a.mime_type,
+          a.transfer_name
+        FROM message_attachment_join maj
+        JOIN attachment a ON a.ROWID = maj.attachment_id
+        WHERE maj.message_id IN (${placeholders})
+      `;
+      const rows = this.db.prepare(sql).all(...chunk) as Array<Record<string, unknown>>;
+
+      for (const row of rows) {
+        const messageId = row.message_id as number;
+        const attachments = byMessageId.get(messageId) || [];
+        attachments.push({
+          filename: (row.filename as string) || undefined,
+          mime_type: (row.mime_type as string) || undefined,
+          transfer_name: (row.transfer_name as string) || undefined,
+        });
+        byMessageId.set(messageId, attachments);
+      }
+    }
+
+    return byMessageId;
   }
 }
 
@@ -263,14 +272,82 @@ function isoToCoreData(iso: string): number {
   return (unixSeconds - CORE_DATA_EPOCH_OFFSET) * 1_000_000_000;
 }
 
-function reactionTypeToString(type: number): string {
-  const map: Record<number, string> = {
-    2000: 'love',
-    2001: 'like',
-    2002: 'dislike',
-    2003: 'laugh',
-    2004: 'emphasis',
-    2005: 'question',
-  };
-  return map[type] || `reaction-${type}`;
+function extractAttributedBodyText(body?: Buffer | null): string {
+  if (!body?.length) return '';
+
+  const nsString = Buffer.from('NSString', 'utf8');
+  const marker = Buffer.from([0x95, 0x84, 0x01, 0x2b]);
+  let searchFrom = 0;
+
+  while (searchFrom < body.length) {
+    const stringClassAt = body.indexOf(nsString, searchFrom);
+    if (stringClassAt === -1) return '';
+
+    const markerAt = body.indexOf(marker, stringClassAt + nsString.length);
+    if (markerAt === -1) return '';
+
+    const lengthAt = markerAt + marker.length;
+    const parsed = readArchivedStringLength(body, lengthAt);
+    if (!parsed) {
+      searchFrom = stringClassAt + nsString.length;
+      continue;
+    }
+
+    const { length, offset } = parsed;
+    const start = lengthAt + offset;
+    const end = start + length;
+    if (length <= 0 || end > body.length) {
+      searchFrom = stringClassAt + nsString.length;
+      continue;
+    }
+
+    const text = body.subarray(start, end).toString('utf8').trim();
+    if (isLikelyMessageText(text)) return text;
+
+    searchFrom = stringClassAt + nsString.length;
+  }
+
+  return '';
+}
+
+function readArchivedStringLength(
+  body: Buffer,
+  offset: number,
+): { length: number; offset: number } | null {
+  const first = body[offset];
+  if (first === undefined) return null;
+  if (first < 0x80) return { length: first, offset: 1 };
+
+  const byteCount = first & 0x7f;
+  if (byteCount <= 0 || byteCount > 4 || offset + byteCount >= body.length) return null;
+
+  let length = 0;
+  for (let i = 1; i <= byteCount; i++) {
+    length = (length << 8) + body[offset + i];
+  }
+
+  return { length, offset: 1 + byteCount };
+}
+
+function isLikelyMessageText(text: string): boolean {
+  if (!text) return false;
+  if (text.includes('\u0000')) return false;
+
+  const blocked = new Set([
+    'NSString',
+    'NSMutableString',
+    'NSAttributedString',
+    'NSMutableAttributedString',
+    'NSObject',
+    'NSDictionary',
+    'NSNumber',
+    'NSValue',
+    'NSData',
+    'NSMutableData',
+    'NSKeyedArchiver',
+  ]);
+  if (blocked.has(text)) return false;
+  if (text.startsWith('__kIM')) return false;
+
+  return /[\p{L}\p{N}]/u.test(text);
 }

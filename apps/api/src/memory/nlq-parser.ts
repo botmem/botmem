@@ -16,8 +16,22 @@ interface TemporalResult {
   text: string;
 }
 
+const TEMPORAL_CACHE_MAX = 256;
+const temporalCache = new Map<string, TemporalResult | null>();
 const DANGLING = /\s+(?:in|from|during|between|since|before|after|on|only)\s*$/i;
 const LEADING_PREPS = /^(?:from|in|during|since|before|after|on)\s+/i;
+
+function rememberTemporal(
+  cacheKey: string,
+  temporal: TemporalResult | null,
+): TemporalResult | null {
+  temporalCache.set(cacheKey, temporal);
+  if (temporalCache.size > TEMPORAL_CACHE_MAX) {
+    const oldest = temporalCache.keys().next().value;
+    if (oldest) temporalCache.delete(oldest);
+  }
+  return temporal;
+}
 
 // --- Intent patterns (ordered: first match wins) ---
 
@@ -79,25 +93,38 @@ function preferPast(
  * Returns a date range and the matched text, or null.
  */
 function parseTemporal(query: string, refDate: Date): TemporalResult | null {
+  const cacheKey = `${refDate.toISOString()}\n${query}`;
+  if (temporalCache.has(cacheKey)) {
+    return temporalCache.get(cacheKey) ?? null;
+  }
+
   const doc = nlp(query);
   const dates = doc.dates();
   const dateText = dates.text().trim();
 
-  if (!dateText) return null;
+  if (!dateText) {
+    return rememberTemporal(cacheKey, null);
+  }
 
   // Strip leading preposition that confuses compromise-dates re-parse
   const cleaned = dateText.replace(LEADING_PREPS, '');
-  if (!cleaned) return null;
+  if (!cleaned) {
+    return rememberTemporal(cacheKey, null);
+  }
 
   const parsed = nlp(cleaned).dates().get();
-  if (!parsed.length) return null;
+  if (!parsed.length) {
+    return rememberTemporal(cacheKey, null);
+  }
 
   const result = parsed[0];
-  if (!result.start) return null;
+  if (!result.start) {
+    return rememberTemporal(cacheKey, null);
+  }
 
   const range = preferPast(result, refDate);
 
-  return { range, text: dateText };
+  return rememberTemporal(cacheKey, { range, text: dateText });
 }
 
 function classifyIntent(query: string): 'recall' | 'browse' | 'find' {

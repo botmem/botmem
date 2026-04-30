@@ -13,6 +13,7 @@ export const searchHelp = `
     --contact <id>       Filter by contact UUID
     --memory-bank <id>   Filter by memory bank ID
     --limit <n>          Max results (default: 20)
+    --debug              Include search planner and lane diagnostics
     --json               Output raw JSON
 
   EXAMPLES
@@ -31,6 +32,7 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
   const filters: Record<string, string> = {};
   let limit: number | undefined;
   let memoryBankId: string | undefined;
+  let debug = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -48,6 +50,8 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
       memoryBankId = args[++i];
     } else if (a === '--limit') {
       limit = parseInt(args[++i], 10);
+    } else if (a === '--debug') {
+      debug = true;
     } else if (!a.startsWith('--')) {
       query.push(a);
     }
@@ -60,17 +64,26 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     process.exit(1);
   }
 
-  const response = await client.searchMemories(
-    queryStr,
-    Object.keys(filters).length ? filters : undefined,
-    limit,
-    memoryBankId,
-  );
+  const response = debug
+    ? await client.searchMemories(
+        queryStr,
+        Object.keys(filters).length ? filters : undefined,
+        limit,
+        memoryBankId,
+        true,
+      )
+    : await client.searchMemories(
+        queryStr,
+        Object.keys(filters).length ? filters : undefined,
+        limit,
+        memoryBankId,
+      );
   const {
     items: results,
     fallback,
     resolvedEntities,
     parsed,
+    diagnostics,
   } = response as {
     items: SearchResult[];
     fallback: boolean;
@@ -80,11 +93,17 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
       temporalFallback?: boolean;
       intent?: string;
     };
+    diagnostics?: unknown;
   };
 
   if (json) {
-    console.log(JSON.stringify({ items: results, fallback, resolvedEntities, parsed }, null, 2));
+    console.log(
+      JSON.stringify({ items: results, fallback, resolvedEntities, parsed, diagnostics }, null, 2),
+    );
   } else {
+    if (debug && diagnostics) {
+      console.log(`\x1b[36mDebug:\x1b[0m ${JSON.stringify(diagnostics, null, 2)}\n`);
+    }
     // Show NLQ parse info when present
     if (parsed?.temporal && !parsed.temporalFallback) {
       const fromStr = new Date(parsed.temporal.from).toLocaleDateString();

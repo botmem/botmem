@@ -424,7 +424,21 @@ export const api = {
     }),
   deleteContact: (id: string) => request<{ ok: boolean }>(`/people/${id}`, { method: 'DELETE' }),
   getMergeSuggestions: <T = ApiContact>() =>
-    request<Array<{ contact1: T; contact2: T; reason: string }>>('/people/suggestions'),
+    request<
+      Array<{
+        contact1: T;
+        contact2: T;
+        reason: string;
+        confidence?: number;
+        positiveEvidence?: string[];
+        negativeEvidence?: string[];
+        sharedIdentifiers?: string[];
+        aliasSimilarity?: number;
+        cooccurrenceConflicts?: string[];
+        sourceConnectors?: string[];
+        sampleMemoryIds?: string[];
+      }>
+    >('/people/suggestions'),
   dismissSuggestion: (contactId1: string, contactId2: string) =>
     request<{ ok: boolean }>('/people/suggestions/dismiss', {
       method: 'POST',

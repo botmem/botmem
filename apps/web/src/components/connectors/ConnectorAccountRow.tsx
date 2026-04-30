@@ -16,9 +16,25 @@ const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
 const statusColors: Record<string, string> = {
   connected: 'var(--color-nb-green)',
   syncing: 'var(--color-nb-blue)',
+  queued: 'var(--color-nb-yellow)',
+  degraded: 'var(--color-nb-yellow)',
+  reconnect_required: 'var(--color-nb-orange)',
+  failed: 'var(--color-nb-red)',
   error: 'var(--color-nb-red)',
   disconnected: 'var(--color-nb-orange)',
 };
+
+function statusLabel(status: string): string {
+  return status.replace(/_/g, ' ');
+}
+
+function actionLabel(account: ConnectorAccount, authType?: string): string {
+  const action = account.syncHealth?.recoveryAction;
+  if (action === 'rescan_qr' || authType === 'qr-code') return 'RE-SCAN QR';
+  if (action === 'start_bridge') return 'BRIDGE HELP';
+  if (action === 'reconnect') return 'RECONNECT';
+  return 'EDIT';
+}
 
 interface ConnectorAccountRowProps {
   account: ConnectorAccount;
@@ -68,7 +84,15 @@ export function ConnectorAccountRow({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge color={statusColors[account.status]}>{account.status}</Badge>
+          <Badge color={statusColors[account.status]}>{statusLabel(account.status)}</Badge>
+          {(account.status === 'syncing' || account.status === 'queued') && account.syncHealth && (
+            <span className="font-mono text-xs uppercase text-nb-muted">
+              {account.syncHealth.phase || statusLabel(account.status)}
+              {account.syncHealth.total && account.syncHealth.total > 0
+                ? ` ${account.syncHealth.progress ?? 0}/${account.syncHealth.total}`
+                : ''}
+            </span>
+          )}
           {showBankSelector && (
             <select
               id="sync-memory-bank"
@@ -86,15 +110,18 @@ export function ConnectorAccountRow({
               ))}
             </select>
           )}
-          {(account.status === 'error' || account.status === 'disconnected') && onEdit && (
-            <Button
-              size="sm"
-              variant={account.status === 'disconnected' ? 'primary' : 'danger'}
-              onClick={() => onEdit(account.id)}
-            >
-              {authType === 'qr-code' ? 'RECONNECT' : 'EDIT'}
-            </Button>
-          )}
+          {(['error', 'disconnected', 'reconnect_required', 'failed'] as string[]).includes(
+            account.status,
+          ) &&
+            onEdit && (
+              <Button
+                size="sm"
+                variant={account.status === 'reconnect_required' ? 'primary' : 'danger'}
+                onClick={() => onEdit(account.id)}
+              >
+                {actionLabel(account, authType)}
+              </Button>
+            )}
           <select
             id="sync-schedule"
             name="sync-schedule"
@@ -147,9 +174,9 @@ export function ConnectorAccountRow({
         <div
           className={cn(
             'border-t-3 border-nb-border px-3 py-2',
-            account.status === 'error'
+            account.status === 'error' || account.status === 'failed'
               ? 'bg-red-950/30'
-              : account.status === 'disconnected'
+              : account.status === 'disconnected' || account.status === 'reconnect_required'
                 ? 'bg-orange-950/30'
                 : 'bg-yellow-950/30',
           )}
@@ -157,21 +184,27 @@ export function ConnectorAccountRow({
           <p
             className={cn(
               'font-mono text-xs',
-              account.status === 'error'
+              account.status === 'error' || account.status === 'failed'
                 ? 'text-nb-red'
-                : account.status === 'disconnected'
+                : account.status === 'disconnected' || account.status === 'reconnect_required'
                   ? 'text-orange-400'
                   : 'text-yellow-400',
             )}
           >
             <span className="font-bold uppercase">
-              {account.status === 'error'
+              {account.status === 'error' || account.status === 'failed'
                 ? 'Error: '
-                : account.status === 'disconnected'
-                  ? 'Disconnected: '
+                : account.status === 'disconnected' || account.status === 'reconnect_required'
+                  ? 'Reconnect required: '
                   : 'Warning: '}
             </span>
             {account.lastError}
+            {account.type === 'imessage' && account.status === 'failed' && (
+              <span className="block mt-1 text-nb-muted">
+                Start the Botmem iMessage bridge from connector setup, then run `botmem sync{' '}
+                {account.id}`.
+              </span>
+            )}
           </p>
         </div>
       )}

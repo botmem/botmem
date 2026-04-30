@@ -12,7 +12,28 @@ export type AuthType = 'oauth2' | 'qr-code' | 'phone-code' | 'api-key' | 'local-
 
 export type SyncSchedule = 'hourly' | 'every-6h' | 'daily' | 'manual';
 
-export type ConnectorStatus = 'connected' | 'syncing' | 'error' | 'disconnected';
+export type ConnectorStatus =
+  | 'connected'
+  | 'syncing'
+  | 'queued'
+  | 'degraded'
+  | 'reconnect_required'
+  | 'failed'
+  | 'error'
+  | 'disconnected'
+  | 'inactive'
+  | 'archived';
+
+export interface ConnectorSyncHealth {
+  phase: string | null;
+  lastActivityAt: string | null;
+  activeJobId: string | null;
+  queuedJobId: string | null;
+  progress: number | null;
+  total: number | null;
+  recoveryAction: 'reconnect' | 'rescan_qr' | 'start_bridge' | 'retry' | null;
+  recoveryReason: string | null;
+}
 
 export interface ConnectorManifest {
   id: string;
@@ -48,6 +69,7 @@ export interface ConnectorAccount {
   contactsCount: number;
   groupsCount: number;
   lastError: string | null;
+  syncHealth?: ConnectorSyncHealth;
 }
 
 export interface ConnectorConfig {
@@ -103,7 +125,6 @@ export interface Memory {
   };
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;

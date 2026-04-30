@@ -14,7 +14,6 @@ describe('MemoryService', () => {
   let aiService: {
     embed: ReturnType<typeof vi.fn>;
     embedQuery: ReturnType<typeof vi.fn>;
-    rerank: ReturnType<typeof vi.fn>;
     generate: ReturnType<typeof vi.fn>;
   };
   let typesenseService: {
@@ -24,10 +23,11 @@ describe('MemoryService', () => {
     upsert: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
     buildFilterString: ReturnType<typeof vi.fn>;
+    textSearch: ReturnType<typeof vi.fn>;
+    getSchemaStatus: ReturnType<typeof vi.fn>;
   };
   let connectorsService: { get: ReturnType<typeof vi.fn> };
   let pluginRegistry: {
-    getReranker: ReturnType<typeof vi.fn>;
     getScorers: ReturnType<typeof vi.fn>;
     fireHook: ReturnType<typeof vi.fn>;
   };
@@ -61,7 +61,6 @@ describe('MemoryService', () => {
     aiService = {
       embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
       embedQuery: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
-      rerank: vi.fn().mockResolvedValue([0.8, 0.6]),
       generate: vi.fn().mockResolvedValue('generated text'),
     };
 
@@ -72,6 +71,14 @@ describe('MemoryService', () => {
       upsert: vi.fn(),
       remove: vi.fn(),
       buildFilterString: vi.fn().mockReturnValue(''),
+      textSearch: vi.fn().mockResolvedValue([]),
+      getSchemaStatus: vi.fn().mockResolvedValue({
+        collection: 'memories',
+        currentVersion: 2,
+        expectedVersion: 2,
+        status: 'current',
+        missingFields: [],
+      }),
       buildTypesenseFilter: vi.fn().mockReturnValue(''),
     };
 
@@ -85,7 +92,6 @@ describe('MemoryService', () => {
     };
 
     pluginRegistry = {
-      getReranker: vi.fn().mockReturnValue(null),
       getScorers: vi.fn().mockReturnValue([]),
       fireHook: vi.fn().mockResolvedValue(undefined),
     };
@@ -162,7 +168,23 @@ describe('MemoryService', () => {
     it('embeds the query and calls search pipeline', async () => {
       const result = await service.search('meeting with john');
       expect(aiService.embedQuery).toHaveBeenCalled();
+      expect(typesenseService.textSearch).toHaveBeenCalled();
       expect(result).toHaveProperty('items');
+    });
+
+    it('returns diagnostics when debug is enabled', async () => {
+      const result = await service.search(
+        'card top ups ghanoomy',
+        undefined,
+        20,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { debug: true },
+      );
+      expect(result.diagnostics?.intent).toBe('transaction');
+      expect(result.diagnostics?.schemaStatus?.status).toBe('current');
     });
 
     it('returns empty when user has no accounts', async () => {
@@ -334,14 +356,17 @@ describe('MemoryService', () => {
 
     it('returns true when no DEK and encrypted memories exist', async () => {
       userKeyService.getDek.mockResolvedValueOnce(null);
-      mockDb.limit.mockResolvedValueOnce([{ count: 5 }]);
+      cryptoService.isEncrypted.mockReturnValueOnce(true);
+      mockDb.where.mockResolvedValueOnce([{ id: 'acc-1' }]).mockReturnValueOnce(mockDb);
+      mockDb.limit.mockResolvedValueOnce([{ text: 'iv:cipher:tag' }]);
       const result = await service.needsRecoveryKey('user-1');
       expect(result).toBe(true);
     });
 
     it('returns false when no DEK but no encrypted memories', async () => {
       userKeyService.getDek.mockResolvedValueOnce(null);
-      mockDb.limit.mockResolvedValueOnce([{ count: 0 }]);
+      mockDb.where.mockResolvedValueOnce([{ id: 'acc-1' }]).mockReturnValueOnce(mockDb);
+      mockDb.limit.mockResolvedValueOnce([]);
       const result = await service.needsRecoveryKey('user-1');
       expect(result).toBe(false);
     });

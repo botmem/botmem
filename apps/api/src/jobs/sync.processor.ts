@@ -13,14 +13,57 @@ import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { rawEvents, accounts } from '../db/schema';
+import { rawEventSourceHash } from '../db/raw-event-source-hash';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
-import type { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
+import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
 import { Traced } from '../tracing/traced.decorator';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
+
+type AccountFailureStatus = 'reconnect_required' | 'failed';
+
+function classifyAccountFailure(connectorType: string, message: string): AccountFailureStatus {
+  const msg = message.toLowerCase();
+  if (
+    msg.includes('invalid_grant') ||
+    msg.includes('401') ||
+    msg.includes('unauthorized') ||
+    msg.includes('reconnect') ||
+    msg.includes('re-scan qr') ||
+    msg.includes('session expired') ||
+    msg.includes('session files missing') ||
+    msg.includes('no telegram session') ||
+    msg.includes('please re-authenticate')
+  ) {
+    return 'reconnect_required';
+  }
+  if (connectorType === 'photos' && msg.includes('immich') && msg.includes('401')) {
+    return 'reconnect_required';
+  }
+  return 'failed';
+}
+
+function isRecoverableRuntimeFailure(connectorType: string, message: string): boolean {
+  if (connectorType !== 'whatsapp') return false;
+  const msg = message.toLowerCase();
+  return (
+    msg.includes('connection lost during sync') ||
+    msg.includes('connection closed during sync') ||
+    msg.includes('connection lost during realtime sync') ||
+    msg.includes('another whatsapp web session is active')
+  );
+}
+
+function isFatalSyncFailure(connectorType: string, message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    classifyAccountFailure(connectorType, message) === 'reconnect_required' ||
+    (connectorType === 'imessage' && msg.includes('bridge not running'))
+  );
+}
 
 @Processor('sync')
 export class SyncProcessor extends WorkerHost implements OnModuleInit {
@@ -47,7 +90,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
   /** Lazily resolve ImsgTunnelService — returns null if not available. */
   private getImsgTunnel(): ImsgTunnelService | null {
     try {
-      return this.moduleRef.get('ImsgTunnelService', { strict: false });
+      return this.moduleRef.get(ImsgTunnelService, { strict: false });
     } catch {
       return null;
     }
@@ -93,7 +136,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     job: Job<{
       accountId: string;
       connectorType: string;
-      jobId: string;
+      jobId?: string;
+      scheduled?: boolean;
       memoryBankId?: string;
       _trace?: { traceId: string; spanId: string };
     }>,
@@ -109,24 +153,32 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     job: Job<{
       accountId: string;
       connectorType: string;
-      jobId: string;
+      jobId?: string;
+      scheduled?: boolean;
       memoryBankId?: string;
       _trace?: { traceId: string; spanId: string };
     }>,
   ) {
-    const { accountId, connectorType, jobId } = job.data;
+    const { accountId, connectorType } = job.data;
+    let { jobId } = job.data;
     const currentTrace = this.traceContext.current()!;
     const syncStartTime = Date.now();
     const connector = this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
 
-    // Skip if this account is already syncing (prevents concurrent syncs sharing rate limits)
-    if (account.status === 'syncing') {
-      this.logger.log(
-        `Skipping sync for account ${accountId} (${connectorType}) — already syncing`,
-      );
-      return;
+    if (job.data.scheduled || !jobId) {
+      const scheduled = await this.jobsService.startScheduledSync(accountId, connectorType);
+      if (!scheduled.job) return;
+      jobId = scheduled.job.id;
+      if (scheduled.skipped) {
+        this.events.emitToChannel('dashboard', 'dashboard:jobs', {
+          trigger: 'sync_skipped',
+          jobId,
+        });
+        return;
+      }
     }
+    if (!jobId) return;
 
     // Enrich trace context with job metadata for PostHog log correlation
     this.traceContext.set({ jobId, connectorType });
@@ -142,8 +194,14 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       if (ownerUserId) this.traceContext.set({ userId: ownerUserId });
     }
 
-    await this.jobsService.updateJob(jobId, { status: 'running', startedAt: new Date() });
-    await this.accountsService.update(accountId, { status: 'syncing' });
+    await this.jobsService.updateJob(jobId, {
+      status: 'running',
+      progress: 0,
+      total: 0,
+      error: null,
+      startedAt: new Date(),
+    });
+    await this.accountsService.update(accountId, { status: 'syncing', lastError: null });
     this.events.emitToChannel(`job:${jobId}`, 'job:progress', { jobId, progress: 0 });
 
     const logger: ConnectorLogger = {
@@ -156,7 +214,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     const abortController = new AbortController();
     let cursor = account.lastCursor;
     let totalProcessed = 0;
+    let totalInserted = 0;
     let knownTotal = 0;
+    let degradedReason: string | null = null;
     const pendingWrites: Promise<void>[] = [];
 
     connector.on('data', (event: ConnectorDataEvent) => {
@@ -167,25 +227,34 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       // must run inside withUserId() scope. ownerUserId is resolved above via unscoped bootstrap.
       const rawEventId = randomUUID();
       const now = new Date();
+      const sourceHash = rawEventSourceHash(accountId, connectorType, event.sourceId);
       const insertRawEvent = async () => {
         const insertFn = (db: typeof this.dbService.db) =>
-          db.insert(rawEvents).values({
-            id: rawEventId,
-            accountId,
-            connectorType,
-            sourceId: event.sourceId,
-            sourceType: event.sourceType,
-            payload: this.crypto.encrypt(JSON.stringify(event))!,
-            timestamp: new Date(event.timestamp),
-            jobId,
-            createdAt: now,
-          });
+          db
+            .insert(rawEvents)
+            .values({
+              id: rawEventId,
+              accountId,
+              connectorType,
+              sourceId: event.sourceId,
+              sourceHash,
+              sourceType: event.sourceType,
+              payload: this.crypto.encrypt(JSON.stringify(event))!,
+              timestamp: new Date(event.timestamp),
+              jobId,
+              createdAt: now,
+            })
+            .onConflictDoNothing({ target: rawEvents.sourceHash })
+            .returning({ id: rawEvents.id });
+        let inserted: Array<{ id: string }>;
         if (ownerUserId) {
-          await this.dbService.withUserId(ownerUserId, insertFn);
+          inserted = await this.dbService.withUserId(ownerUserId, insertFn);
         } else {
           // No ownerUserId — unscoped fallback (orphaned account, should rarely happen)
-          await insertFn(this.dbService.db);
+          inserted = await insertFn(this.dbService.db);
         }
+        if (inserted.length === 0) return;
+        totalInserted += inserted.length;
         await this.memoryQueue.add(
           'process',
           { rawEventId, _trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId } },
@@ -211,6 +280,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         total,
       });
     });
+    connector.on('degraded', (event: { message?: string }) => {
+      degradedReason = event?.message || 'Connector completed with warnings';
+      logger.warn(degradedReason);
+    });
 
     try {
       let hasMore = true;
@@ -230,10 +303,11 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           // Proceed without merging saved credentials (e.g. redirectUri)
         }
 
+        const effectiveCursor = connectorType === 'whatsapp' && !job.data.scheduled ? null : cursor;
         const rawCtx: SyncContext = {
           accountId,
           auth,
-          cursor,
+          cursor: effectiveCursor,
           jobId,
           logger,
           signal: abortController.signal,
@@ -248,12 +322,19 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           'setTunnelTransport' in connector
         ) {
           const tunnel = this.getImsgTunnel();
-          if (tunnel) {
-            const { WsTunnelTransport } = await import('../imsg-tunnel/ws-tunnel-transport');
-            (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
-              new WsTunnelTransport(tunnel, accountId),
+          if (!tunnel) {
+            throw new Error(
+              'iMessage tunnel service is unavailable. Restart Botmem and try again.',
             );
           }
+          const { WsTunnelTransport } = await import('../imsg-tunnel/ws-tunnel-transport');
+          (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
+            new WsTunnelTransport(tunnel, accountId),
+          );
+        } else if (connectorType === 'imessage') {
+          throw new Error(
+            'Legacy local iMessage TCP bridge is no longer supported. Reconnect iMessage from connector setup, run the generated bridge command, then retry sync.',
+          );
         }
 
         const result = await connector.sync(ctx);
@@ -263,7 +344,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
         // Update cursor after each page so we can resume if interrupted
         await this.accountsService.update(accountId, {
-          lastCursor: result.cursor || undefined,
+          lastCursor: result.cursor ?? null,
           itemsSynced: (account.itemsSynced || 0) + result.processed,
         });
 
@@ -273,14 +354,15 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
       await this.accountsService.update(accountId, {
         lastSyncAt: new Date(),
-        status: 'connected',
-        lastError: null,
+        status: degradedReason ? 'degraded' : 'connected',
+        lastError: degradedReason,
       });
 
       // Wait for all pending DB writes / embed enqueues to finish
       await Promise.allSettled(pendingWrites);
 
-      if (totalProcessed === 0) {
+      const pipelineTotal = totalInserted || totalProcessed;
+      if (pipelineTotal === 0) {
         // Nothing to process through pipeline — mark done immediately
         await this.jobsService.updateJob(jobId, {
           status: 'done',
@@ -295,13 +377,13 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         });
       } else {
         // Set total to actual emitted count so progress never exceeds it
-        await this.jobsService.updateJob(jobId, { total: totalProcessed });
-        logger.info(`Sync complete, ${totalProcessed} items now in pipeline`);
+        await this.jobsService.updateJob(jobId, { total: pipelineTotal });
+        logger.info(`Sync complete, ${pipelineTotal} emitted item(s) now in pipeline`);
       }
       this.analytics.capture('sync_complete', {
         connector_type: connectorType,
         duration_ms: Date.now() - syncStartTime,
-        item_count: totalProcessed,
+        item_count: pipelineTotal,
       });
     } catch (err: unknown) {
       // If the error is from hitting the sync limit, treat as success
@@ -312,7 +394,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           lastError: null,
         });
         await Promise.allSettled(pendingWrites);
-        if (totalProcessed === 0) {
+        const pipelineTotal = totalInserted || totalProcessed;
+        if (pipelineTotal === 0) {
           await this.jobsService.updateJob(jobId, {
             status: 'done',
             progress: 0,
@@ -334,7 +417,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       });
 
       const maxAttempts = job.opts.attempts ?? 1;
-      const isLastAttempt = job.attemptsMade >= maxAttempts - 1;
+      const fatal = isFatalSyncFailure(connectorType, errMsg);
+      const recoverableRuntimeFailure = isRecoverableRuntimeFailure(connectorType, errMsg);
+      const isLastAttempt = fatal || job.attemptsMade >= maxAttempts - 1;
 
       if (isLastAttempt) {
         await this.jobsService.updateJob(jobId, {
@@ -343,27 +428,26 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           completedAt: new Date(),
         });
 
-        // WhatsApp session/connection errors → 'disconnected' (shows RECONNECT button)
-        const isSessionError =
-          errMsg.includes('reconnect') ||
-          errMsg.includes('re-scan QR') ||
-          errMsg.includes('session expired') ||
-          errMsg.includes('session files missing') ||
-          errMsg.includes('Another WhatsApp Web session');
-        const accountStatus = isSessionError ? 'disconnected' : 'error';
+        const accountStatus = classifyAccountFailure(connectorType, errMsg);
 
-        await this.accountsService.update(accountId, { status: accountStatus, lastError: errMsg });
+        await this.accountsService.update(
+          accountId,
+          recoverableRuntimeFailure
+            ? { status: 'connected', lastError: null }
+            : { status: accountStatus, lastError: errMsg },
+        );
         this.events.emitToChannel(`job:${jobId}`, 'job:complete', { jobId, status: 'failed' });
         this.events.emitToChannel('dashboard', 'dashboard:jobs', { trigger: 'sync_failed', jobId });
 
         // Broadcast notification so frontend updates in real-time
-        if (isSessionError) {
+        if (!recoverableRuntimeFailure && accountStatus === 'reconnect_required') {
           this.events.emitToChannel('notifications', 'connector:warning', {
             connectorType,
             message: errMsg,
             action: 'reauth',
           });
         }
+        if (fatal) return;
       }
       throw err;
     } finally {

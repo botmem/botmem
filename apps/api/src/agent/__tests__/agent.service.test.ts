@@ -57,6 +57,7 @@ describe('AgentService', () => {
         .fn()
         .mockResolvedValue({ total: 100, byConnector: { gmail: 50 }, bySource: { email: 50 } }),
       delete: vi.fn().mockResolvedValue(undefined),
+      getPeopleForMemories: vi.fn().mockResolvedValue(new Map()),
     };
 
     aiService = {
@@ -104,13 +105,7 @@ describe('AgentService', () => {
       const result = await service.ask('test query');
       expect(result.results).toEqual([]);
       expect(result.query).toBe('test query');
-      expect(memoryService.search).toHaveBeenCalledWith(
-        'test query',
-        undefined,
-        20,
-        false,
-        undefined,
-      );
+      expect(memoryService.search).toHaveBeenCalledWith('test query', undefined, 20, undefined);
     });
 
     it('returns enriched results when search finds matches', async () => {
@@ -135,14 +130,25 @@ describe('AgentService', () => {
         'test',
         { sourceType: 'email' },
         5,
-        false,
         undefined,
       );
     });
 
     it('passes userId to search', async () => {
       await service.ask('test', { userId: 'user-1' });
-      expect(memoryService.search).toHaveBeenCalledWith('test', undefined, 20, false, 'user-1');
+      expect(memoryService.search).toHaveBeenCalledWith('test', undefined, 20, 'user-1');
+    });
+
+    it('passes userId when enriching search results', async () => {
+      memoryService.search.mockResolvedValueOnce({
+        items: [{ id: 'mem-1', score: 0.9 }],
+        fallback: false,
+        parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' },
+      });
+
+      await service.ask('test', { userId: 'user-1' });
+
+      expect(memoryService.getById).toHaveBeenCalledWith('mem-1', 'user-1');
     });
   });
 
@@ -203,6 +209,22 @@ describe('AgentService', () => {
       expect(result!.recentMemories).toEqual([]);
       expect(result!.stats.totalMemories).toBe(0);
       expect(result!.stats.dateRange).toBeNull();
+    });
+
+    it('passes userId when enriching contact context memories', async () => {
+      contactsService.getByIdForUser = vi.fn().mockResolvedValue({
+        id: 'c-1',
+        displayName: 'John Doe',
+        identifiers: [{ identifierType: 'email', identifierValue: 'john@example.com' }],
+      });
+
+      mockDb.where.mockResolvedValueOnce([{ memoryId: 'mem-1' }]);
+      mockDb.limit.mockResolvedValueOnce([fakeMemory]);
+
+      const result = await service.context('c-1', 'user-1');
+
+      expect(result!.recentMemories).toHaveLength(1);
+      expect(memoryService.getById).toHaveBeenCalledWith('mem-1', 'user-1');
     });
   });
 

@@ -120,6 +120,12 @@ export async function useAtomicMultiFileAuthState(folderRaw: string): Promise<{
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         set: async (data: Record<string, Record<string, any>>) => {
           const tasks: Promise<void>[] = [];
+          const categorySummary = Object.entries(data)
+            .map(([category, values]) => `${category}:${Object.keys(values || {}).length}`)
+            .join(',');
+          if (categorySummary && process.env.WHATSAPP_DEBUG_AUTH === '1') {
+            console.info(`[WhatsApp auth] keys.set ${categorySummary}`);
+          }
           for (const category in data) {
             for (const id in data[category]) {
               const value = data[category][id];

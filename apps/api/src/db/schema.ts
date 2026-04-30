@@ -80,9 +80,11 @@ export const rawEvents = pgTable(
       .references(() => accounts.id),
     connectorType: text('connector_type').notNull(),
     sourceId: text('source_id').notNull(),
+    sourceHash: text('source_hash'),
     sourceType: text('source_type').notNull(),
     payload: text('payload').notNull(), // large JSON stored as text
     cleanedText: text('cleaned_text'), // nullable -- set by clean processor
+    processingState: text('processing_state').notNull().default('pending'),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull(),
     jobId: text('job_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
@@ -90,7 +92,9 @@ export const rawEvents = pgTable(
   (table) => [
     index('idx_raw_events_account_id').on(table.accountId),
     index('idx_raw_events_source_id').on(table.sourceId),
+    uniqueIndex('idx_raw_events_source_hash').on(table.sourceHash),
     index('idx_raw_events_job_id').on(table.jobId),
+    index('idx_raw_events_processing_state').on(table.processingState),
   ],
 );
 
@@ -114,7 +118,7 @@ export const memories = pgTable(
     factualityLabel: text('factuality_label'), // plaintext label for SQL aggregation
     weights: jsonb('weights')
       .notNull()
-      .default({ semantic: 0, rerank: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }),
+      .default({ semantic: 0, recency: 0, importance: 0.5, trust: 0.5, final: 0 }),
     entities: text('entities').notNull().default('[]'), // encrypted ciphertext -- stays text
     claims: text('claims').notNull().default('[]'), // encrypted ciphertext -- stays text
     metadata: text('metadata').notNull().default('{}'), // encrypted ciphertext -- stays text

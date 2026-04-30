@@ -721,7 +721,6 @@ export interface FakeMemory {
   factuality: { label: string; confidence: number; rationale: string };
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;
@@ -851,7 +850,6 @@ function generateGmailMemory(contacts: FakeContact[]): FakeMemory {
     },
     weights: {
       semantic: 0,
-      rerank: 0,
       recency: 0,
       importance: randFloat(0.3, 0.8),
       trust: 0.7,
@@ -912,7 +910,6 @@ function generateSlackMemory(contacts: FakeContact[]): FakeMemory {
     },
     weights: {
       semantic: 0,
-      rerank: 0,
       recency: 0,
       importance: randFloat(0.2, 0.7),
       trust: 0.6,
@@ -957,7 +954,6 @@ function generateWhatsAppMemory(contacts: FakeContact[]): FakeMemory {
     factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: 'Personal message' },
     weights: {
       semantic: 0,
-      rerank: 0,
       recency: 0,
       importance: randFloat(0.2, 0.6),
       trust: 0.5,
@@ -998,7 +994,6 @@ function generateIMessageMemory(contacts: FakeContact[]): FakeMemory {
     factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: 'Personal message' },
     weights: {
       semantic: 0,
-      rerank: 0,
       recency: 0,
       importance: randFloat(0.2, 0.5),
       trust: 0.6,
@@ -1052,7 +1047,6 @@ function generatePhotoMemory(contacts: FakeContact[]): FakeMemory {
     factuality: { label: 'FACT', confidence: 0.9, rationale: 'Photo metadata' },
     weights: {
       semantic: 0,
-      rerank: 0,
       recency: 0,
       importance: randFloat(0.3, 0.7),
       trust: 0.8,
@@ -1166,7 +1160,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
       },
     ],
     factuality: { label: 'FACT', confidence: 0.9, rationale: 'Official budget document' },
-    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.8, trust: 0.8, final: 0 },
+    weights: { semantic: 0, recency: 0, importance: 0.8, trust: 0.8, final: 0 },
     metadata: {
       subject: 'Q3 Budget Review — GITEX Preparation',
       category: 'work',
@@ -1191,7 +1185,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
     ],
     claims: [{ claim: `${person1.displayName} deployed v2.1 to production`, confidence: 0.9 }],
     factuality: { label: 'FACT', confidence: 0.85, rationale: 'Deployment announcement' },
-    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.7, trust: 0.7, final: 0 },
+    weights: { semantic: 0, recency: 0, importance: 0.7, trust: 0.7, final: 0 },
     metadata: { channel: '#engineering', sender: person1.displayName },
     contactIndices: [contacts.indexOf(person1)].filter((i) => i >= 0),
     contactRoles: ['sender'],
@@ -1218,7 +1212,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
       },
     ],
     factuality: { label: 'UNVERIFIED', confidence: 0.7, rationale: 'Personal message' },
-    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.6, trust: 0.5, final: 0 },
+    weights: { semantic: 0, recency: 0, importance: 0.6, trust: 0.5, final: 0 },
     metadata: { sender: person2.displayName, chat: 'group' },
     contactIndices: [
       contacts.indexOf(person2),
@@ -1248,7 +1242,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
       },
     ],
     factuality: { label: 'FACT', confidence: 0.85, rationale: 'Appointment reminder' },
-    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.7, trust: 0.6, final: 0 },
+    weights: { semantic: 0, recency: 0, importance: 0.7, trust: 0.6, final: 0 },
     metadata: { sender: person0.displayName },
     contactIndices: [contacts.indexOf(person0)].filter((i) => i >= 0),
     contactRoles: ['sender'],
@@ -1275,7 +1269,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
       },
     ],
     factuality: { label: 'FACT', confidence: 0.9, rationale: 'Photo metadata' },
-    weights: { semantic: 0, rerank: 0, recency: 0, importance: 0.7, trust: 0.8, final: 0 },
+    weights: { semantic: 0, recency: 0, importance: 0.7, trust: 0.8, final: 0 },
     metadata: {
       location: 'Burj Khalifa, Downtown Dubai',
       people: [person0.displayName, person1.displayName, person2.displayName],

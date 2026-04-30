@@ -2,7 +2,7 @@
  * Transport abstraction for the iMessage JSON-RPC client.
  *
  * Two implementations:
- *   - TcpTransport: direct TCP socket (existing local bridge via socat)
+ *   - TcpTransport: direct TCP socket (legacy local bridge)
  *   - RpcTransport interface: used by WsTunnelTransport (server-side, in apps/api/)
  */
 

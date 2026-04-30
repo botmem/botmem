@@ -8,9 +8,11 @@ import type {
   ConnectorDataEvent,
   EmbedResult,
   PipelineContext,
+  ConnectorRealtimeContext,
+  ConnectorRealtimeHandle,
 } from '@botmem/connector-sdk';
 import { sendCode, verifyCode, verify2fa, createClientFromSession } from './auth.js';
-import { syncTelegram } from './sync.js';
+import { startTelegramRealtime, syncTelegram } from './sync.js';
 
 export class TelegramConnector extends BaseConnector {
   readonly manifest: ConnectorManifest = {
@@ -108,6 +110,14 @@ export class TelegramConnector extends BaseConnector {
 
   async revokeAuth(_auth: AuthContext): Promise<void> {
     // Session string is just discarded — no files to clean up
+  }
+
+  supportsRealtime(): boolean {
+    return true;
+  }
+
+  startRealtime(ctx: ConnectorRealtimeContext): Promise<ConnectorRealtimeHandle> {
+    return startTelegramRealtime(ctx);
   }
 
   embed(event: ConnectorDataEvent, cleanedText: string, _ctx: PipelineContext): EmbedResult {

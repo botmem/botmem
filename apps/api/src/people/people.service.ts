@@ -38,6 +38,7 @@ export function normalizePhone(raw: string): string {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMBEDDED_EMAIL_RE = /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/;
 
 /**
  * Normalize an identifier: trim, lowercase where appropriate, reclassify
@@ -52,6 +53,12 @@ export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | n
   // Reclassify: if a "name" looks like an email, treat it as email
   if (type === 'name' && EMAIL_RE.test(value)) {
     type = 'email';
+  } else if (type === 'name') {
+    const embeddedEmail = value.match(EMBEDDED_EMAIL_RE)?.[0];
+    if (embeddedEmail) {
+      type = 'email';
+      value = embeddedEmail;
+    }
   }
 
   switch (type) {
@@ -67,6 +74,7 @@ export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | n
         .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
+      if (looksLikeCombinedPersonName(value)) return null;
       break;
     default:
       // slack_id, immich_person_id, etc. — lowercase + trim
@@ -108,6 +116,336 @@ export const GENERIC_NAMES = new Set([
   'noreply',
 ]);
 
+const TITLE_WORDS = new Set([
+  'mr',
+  'mrs',
+  'ms',
+  'dr',
+  'eng',
+  'prof',
+  'sir',
+  'madam',
+  'captain',
+  'capt',
+  'sheikh',
+  'shaikh',
+  'sh',
+  'الدكتور',
+  'دكتور',
+]);
+const COMMON_FIRST_NAMES = new Set([
+  'mohamed',
+  'mohamad',
+  'mohammad',
+  'mohammed',
+  'mohd',
+  'muhammad',
+  'ahmed',
+  'amr',
+]);
+const LIKELY_GIVEN_NAMES = new Set([
+  ...COMMON_FIRST_NAMES,
+  'abdulrahman',
+  'abdelazeem',
+  'abdulaziz',
+  'abdullah',
+  'abdul',
+  'ali',
+  'fahad',
+  'faisal',
+  'hassan',
+  'hussein',
+  'hussien',
+  'khalid',
+  'meshal',
+  'mishal',
+  'omar',
+  'saad',
+  'saleh',
+  'sultan',
+  'yousef',
+  'yusuf',
+]);
+
+export function isMergeSuggestionEligibleEntity(entityType: string | null | undefined): boolean {
+  return !entityType || entityType === 'person';
+}
+
+export function looksLikeGroupName(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return false;
+  if (/^(dm|chat|group|conversation)\s+(with|for)\b/.test(normalized)) return true;
+  if (/\b(group chat|whatsapp group|slack channel|telegram group)\b/.test(normalized)) return true;
+  return /[/|;&+]/.test(name);
+}
+
+export function looksLikeCombinedPersonName(name: string): boolean {
+  if (looksLikeIdentifierLabel(name) || looksLikeGroupName(name)) return false;
+  const tokens = normalizeNameForMerge(name);
+  if (tokens.length < 4 || tokens.length % 2 !== 0) return false;
+  return LIKELY_GIVEN_NAMES.has(tokens[0]) && LIKELY_GIVEN_NAMES.has(tokens[2]);
+}
+
+export function isExactIdentifierAutoMergeEligible(
+  identifierType: string,
+  identifierValue: string,
+): boolean {
+  if (!identifierValue.trim()) return false;
+  if (identifierType !== 'name') return true;
+  return normalizeNameForMerge(identifierValue).length > 0;
+}
+
+export function normalizeNameForMerge(name: string): string[] {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0 && !TITLE_WORDS.has(token));
+}
+
+function levenshtein(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]) + 1;
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+export interface MergeEvidence {
+  confidence: number;
+  positiveEvidence: string[];
+  negativeEvidence: string[];
+  sharedIdentifiers: string[];
+  aliasSimilarity: number;
+  cooccurrenceConflicts: string[];
+}
+
+export function scoreNameOnlyMerge(nameA: string, nameB: string): MergeEvidence {
+  const a = normalizeNameForMerge(nameA);
+  const b = normalizeNameForMerge(nameB);
+  const positiveEvidence: string[] = [];
+  const negativeEvidence: string[] = [];
+  if (looksLikeIdentifierLabel(nameA) || looksLikeIdentifierLabel(nameB)) {
+    return {
+      confidence: 0,
+      positiveEvidence,
+      negativeEvidence: ['identifier-like label is not person-name evidence'],
+      sharedIdentifiers: [],
+      aliasSimilarity: 0,
+      cooccurrenceConflicts: [],
+    };
+  }
+  if (looksLikeCombinedPersonName(nameA) || looksLikeCombinedPersonName(nameB)) {
+    return {
+      confidence: 0,
+      positiveEvidence,
+      negativeEvidence: ['combined multi-person label is not person-name evidence'],
+      sharedIdentifiers: [],
+      aliasSimilarity: 0,
+      cooccurrenceConflicts: [],
+    };
+  }
+  if (!a.length || !b.length) {
+    return {
+      confidence: 0,
+      positiveEvidence,
+      negativeEvidence: ['empty normalized name'],
+      sharedIdentifiers: [],
+      aliasSimilarity: 0,
+      cooccurrenceConflicts: [],
+    };
+  }
+  if ((a.length > 1 && new Set(a).size === 1) || (b.length > 1 && new Set(b).size === 1)) {
+    return {
+      confidence: 0,
+      positiveEvidence,
+      negativeEvidence: ['repeated-token name is not person-name evidence'],
+      sharedIdentifiers: [],
+      aliasSimilarity: 0,
+      cooccurrenceConflicts: [],
+    };
+  }
+
+  if (looksLikeGroupName(nameA) || looksLikeGroupName(nameB)) {
+    negativeEvidence.push('group or list-like name separator');
+  }
+
+  const setA = new Set(a);
+  const setB = new Set(b);
+  const shared = a.filter((token) => setB.has(token));
+  const firstA = a[0];
+  const firstB = b[0];
+  const lastA = a[a.length - 1];
+  const lastB = b[b.length - 1];
+  const shorterTokens = a.length <= b.length ? a : b;
+  const longerTokens = a.length <= b.length ? b : a;
+  const longerSet = a.length <= b.length ? setB : setA;
+  const isMultiTokenSubset =
+    shorterTokens.length >= 2 &&
+    shorterTokens.length < longerTokens.length &&
+    shorterTokens.every((token) => longerSet.has(token));
+  const isPrefixSubset =
+    isMultiTokenSubset && shorterTokens.every((token, index) => longerTokens[index] === token);
+  const isEmbeddedSubset =
+    isMultiTokenSubset &&
+    !isPrefixSubset &&
+    shorterTokens.every(
+      (token, index) => longerTokens[longerTokens.length - shorterTokens.length + index] === token,
+    );
+
+  let score = 0;
+  if (a.join(' ') === b.join(' ')) {
+    score += 0.72;
+    positiveEvidence.push('exact normalized full-name match');
+  }
+  if (a.slice().sort().join(' ') === b.slice().sort().join(' ')) {
+    score += 0.72;
+    positiveEvidence.push('same tokens in different order');
+  }
+  const sameTokenSet = a.slice().sort().join(' ') === b.slice().sort().join(' ');
+  if (firstA !== firstB && !sameTokenSet) {
+    score -= 0.35;
+    negativeEvidence.push(`different first names "${firstA}" / "${firstB}"`);
+  }
+  if (firstA === firstB && firstA.length > 1) {
+    score += COMMON_FIRST_NAMES.has(firstA) ? 0.08 : 0.18;
+    positiveEvidence.push(`shared first name "${firstA}"`);
+  }
+  if (isPrefixSubset && a.join(' ') !== b.join(' ')) {
+    score -= 0.35;
+    negativeEvidence.push(
+      `shorter name is only a prefix of longer name: ${shorterTokens.join(' ')}`,
+    );
+  } else if (isMultiTokenSubset && a.join(' ') !== b.join(' ')) {
+    score += 0.45;
+    positiveEvidence.push(`one name contains the other: ${shorterTokens.join(' ')}`);
+  }
+  if (isEmbeddedSubset && firstA !== firstB) {
+    score -= 0.45;
+    negativeEvidence.push(
+      `embedded full-name fragment with different first name: ${shorterTokens.join(' ')}`,
+    );
+  }
+  if (lastA === lastB && a.length > 1 && b.length > 1) {
+    score += 0.28;
+    positiveEvidence.push(`shared surname "${lastA}"`);
+  } else if (a.length > 1 && b.length > 1 && !isMultiTokenSubset) {
+    const dist = levenshtein(lastA, lastB);
+    const prefix = lastA.startsWith(lastB) || lastB.startsWith(lastA);
+    if ((prefix && Math.min(lastA.length, lastB.length) >= 6) || dist <= 1) {
+      score += 0.38;
+      positiveEvidence.push(`compatible surname variants "${lastA}" / "${lastB}"`);
+    } else {
+      score -= 0.3;
+      negativeEvidence.push(`different surnames "${lastA}" / "${lastB}"`);
+    }
+  }
+  if (shared.length >= 2) {
+    score += Math.min(shared.length * 0.08, 0.24);
+    positiveEvidence.push(`shared tokens: ${shared.join(', ')}`);
+  }
+  const initialsA = a.filter((token) => token.length === 1);
+  const initialsB = b.filter((token) => token.length === 1);
+  const longA = a.filter((token) => token.length > 1);
+  const longB = b.filter((token) => token.length > 1);
+  if (
+    initialsA.some((initial) => longB.some((token) => token.startsWith(initial))) ||
+    initialsB.some((initial) => longA.some((token) => token.startsWith(initial)))
+  ) {
+    score += 0.12;
+    positiveEvidence.push('compatible middle initial');
+  }
+  if (a.length === 1 || b.length === 1) {
+    score -= 0.34;
+    negativeEvidence.push('first-name-only or single-token match');
+  }
+  if (COMMON_FIRST_NAMES.has(firstA) || COMMON_FIRST_NAMES.has(firstB)) {
+    score -= 0.12;
+    negativeEvidence.push('common first-name penalty');
+  }
+
+  const aliasSimilarity = Math.max(0, Math.min(1, score));
+  return {
+    confidence: Math.round(aliasSimilarity * 100) / 100,
+    positiveEvidence,
+    negativeEvidence,
+    sharedIdentifiers: [],
+    aliasSimilarity,
+    cooccurrenceConflicts: [],
+  };
+}
+
+export function isDirectNameAutoMergeEligible(nameA: string, nameB: string): boolean {
+  if (
+    looksLikeIdentifierLabel(nameA) ||
+    looksLikeIdentifierLabel(nameB) ||
+    looksLikeGroupName(nameA) ||
+    looksLikeGroupName(nameB) ||
+    looksLikeCombinedPersonName(nameA) ||
+    looksLikeCombinedPersonName(nameB)
+  ) {
+    return false;
+  }
+
+  const a = normalizeNameForMerge(nameA);
+  const b = normalizeNameForMerge(nameB);
+  if (!a.length || !b.length) return false;
+  if ((a.length > 1 && new Set(a).size === 1) || (b.length > 1 && new Set(b).size === 1)) {
+    return false;
+  }
+
+  const normalizedA = a.join(' ');
+  const normalizedB = b.join(' ');
+  if (normalizedA === normalizedB) return true;
+  if (a.slice().sort().join(' ') === b.slice().sort().join(' ')) return true;
+
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  if (
+    shorter.length >= 2 &&
+    longer.length > shorter.length &&
+    shorter[0] === longer[0] &&
+    shorter[shorter.length - 1] === longer[longer.length - 1] &&
+    shorter.every((token) => longer.includes(token))
+  ) {
+    return true;
+  }
+
+  if (a.length < 2 || b.length < 2 || a.length !== b.length) return false;
+  if (a[0] !== b[0]) return false;
+
+  const lastA = a[a.length - 1];
+  const lastB = b[b.length - 1];
+  const surnameDistance = levenshtein(lastA, lastB);
+  const compatibleSurnameTypo =
+    surnameDistance <= 1 ||
+    ((lastA.startsWith(lastB) || lastB.startsWith(lastA)) &&
+      Math.min(lastA.length, lastB.length) >= 6 &&
+      Math.abs(lastA.length - lastB.length) <= 1);
+  if (!compatibleSurnameTypo) return false;
+
+  for (let i = 1; i < a.length - 1; i++) {
+    if (
+      (a[i].length === 1 && b[i].startsWith(a[i])) ||
+      (b[i].length === 1 && a[i].startsWith(b[i]))
+    ) {
+      continue;
+    }
+    if (a[i] !== b[i] && levenshtein(a[i], b[i]) > 1) return false;
+  }
+
+  return true;
+}
+
 /** Determine if a name looks like a structured identifier (phone, email, etc.) */
 export function looksLikeIdentifier(name: string): boolean {
   const trimmed = name.trim();
@@ -117,6 +455,14 @@ export function looksLikeIdentifier(name: string): boolean {
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return true;
   // Slack/WhatsApp ID patterns (e.g. U0XXXXXXX, @lid)
   if (/^[A-Z]\d{6,}$/.test(trimmed)) return true;
+  return false;
+}
+
+export function looksLikeIdentifierLabel(name: string): boolean {
+  const trimmed = name.trim();
+  if (looksLikeIdentifier(trimmed)) return true;
+  if (/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(trimmed)) return true;
+  if (/<[^<>]+>/.test(trimmed)) return true;
   return false;
 }
 
@@ -238,38 +584,8 @@ export class PeopleService {
         }),
       );
 
-      // Auto-merge: deduplicate contacts with the exact same display name
-      if (displayName && displayName !== 'Unknown') {
-        try {
-          await this.deduplicateByExactName(displayName, userId);
-        } catch (err) {
-          this.logger.warn(
-            `[resolvePerson] deduplicateByExactName failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-
-        // Our contact may have been merged away — verify it still exists
-        const stillExists = await this.dbService.withCurrentUser((db) =>
-          db.select({ id: people.id }).from(people).where(eq(people.id, personId)),
-        );
-        if (!stillExists.length) {
-          // Find the winner by display name
-          const conditions: (SQLWrapper | undefined)[] = [
-            sql`${people.displayNameHash} = ${this.crypto.hmac(displayName.toLowerCase())}`,
-          ];
-          if (userId) conditions.push(eq(people.userId, userId));
-          const winners = await this.dbService.withCurrentUser((db) =>
-            db
-              .select({ id: people.id })
-              .from(people)
-              .where(and(...conditions))
-              .limit(1),
-          );
-          if (winners.length) {
-            personId = winners[0].id;
-          }
-        }
-      }
+      // Name-only matches are intentionally not auto-merged. Strong identifiers
+      // below (email, phone, connector ids) are the only automatic merge evidence.
     } else if (matchedIds.length === 1) {
       personId = matchedIds[0];
       // Update display name if we now have a better one (e.g. resolved from raw ID)
@@ -419,6 +735,20 @@ export class PeopleService {
             .update(people)
             .set({ entityType, updatedAt: new Date() })
             .where(eq(people.id, personId)),
+        );
+      }
+    }
+
+    // Name-only rows should not create permanent duplicates when the exact
+    // person name is already known. Keep this stricter than suggestions:
+    // multi-token person names only, no groups or combined chat labels.
+    if (nameIdent) {
+      try {
+        const dedupedId = await this.deduplicateByExactName(nameIdent.value, userId);
+        if (dedupedId) personId = dedupedId;
+      } catch (err) {
+        this.logger.debug(
+          `[resolvePerson] exact-name dedupe skipped: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -706,9 +1036,7 @@ export class PeopleService {
     // Since display names and identifier values are encrypted, we can't use SQL LIKE.
     // Fetch contacts (scoped to user) and filter in-memory after decryption.
     const allContactRows = await this.dbService.withCurrentUser((db) =>
-      userId
-        ? db.select().from(people).where(eq(people.userId, userId))
-        : db.select().from(people),
+      userId ? db.select().from(people).where(eq(people.userId, userId)) : db.select().from(people),
     );
 
     const allIdentRows = await this.dbService.withCurrentUser((db) =>
@@ -1181,16 +1509,31 @@ export class PeopleService {
       contact1: PersonWithIdentifiers;
       contact2: PersonWithIdentifiers;
       reason: string;
+      confidence: number;
+      positiveEvidence: string[];
+      negativeEvidence: string[];
+      sharedIdentifiers: string[];
+      aliasSimilarity: number;
+      cooccurrenceConflicts: string[];
+      sourceConnectors: string[];
+      sampleMemoryIds: string[];
     }>
   > {
     // Load contacts — filter by userId if provided, decrypt display names
     const rawContacts = await this.dbService.withCurrentUser((db) =>
       userId ? db.select().from(people).where(eq(people.userId, userId)) : db.select().from(people),
     );
-    const allContacts = rawContacts.map((c) => ({
-      ...c,
-      displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
-    }));
+    let allContacts = rawContacts
+      .map((c) => ({
+        ...c,
+        displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
+      }))
+      .filter(
+        (c) =>
+          isMergeSuggestionEligibleEntity(c.entityType) &&
+          !looksLikeGroupName(c.displayName) &&
+          !looksLikeCombinedPersonName(c.displayName),
+      );
 
     // Scope identifiers, dismissals, and memory links to this user's contacts
     const contactIds = allContacts.map((c) => c.id);
@@ -1217,9 +1560,134 @@ export class PeopleService {
       ),
     ]);
 
+    // Build identifiers map for quick lookup
+    const contactIdentsMap = new Map<string, typeof allIdentifiers>();
+    for (const ident of allIdentifiers) {
+      const list = contactIdentsMap.get(ident.personId) || [];
+      list.push(ident);
+      contactIdentsMap.set(ident.personId, list);
+    }
+
+    const contactById = new Map(allContacts.map((contact) => [contact.id, contact]));
+    const byExactIdentifier = new Map<string, Set<string>>();
+    for (const ident of allIdentifiers) {
+      if (!contactById.has(ident.personId)) continue;
+      const decryptedValue = this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue;
+      if (!isExactIdentifierAutoMergeEligible(ident.identifierType, decryptedValue)) continue;
+      const key = `${ident.identifierType}::${ident.identifierValueHash || ident.identifierValue}`;
+      const ids = byExactIdentifier.get(key) ?? new Set<string>();
+      ids.add(ident.personId);
+      byExactIdentifier.set(key, ids);
+    }
+
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      const current = parent.get(id) ?? id;
+      if (current === id) {
+        parent.set(id, id);
+        return id;
+      }
+      const root = find(current);
+      parent.set(id, root);
+      return root;
+    };
+    const union = (a: string, b: string) => {
+      parent.set(find(b), find(a));
+    };
+    for (const ids of byExactIdentifier.values()) {
+      const [first, ...rest] = [...ids];
+      if (!first) continue;
+      find(first);
+      for (const id of rest) union(first, id);
+    }
+
+    const byExactDisplayName = new Map<string, string[]>();
+    for (const contact of allContacts) {
+      const normalizedName = normalizeNameForMerge(contact.displayName).join(' ');
+      if (!normalizedName) continue;
+      const ids = byExactDisplayName.get(normalizedName) ?? [];
+      ids.push(contact.id);
+      byExactDisplayName.set(normalizedName, ids);
+    }
+    for (const ids of byExactDisplayName.values()) {
+      const [first, ...rest] = ids;
+      if (!first || rest.length === 0) continue;
+      find(first);
+      for (const id of rest) union(first, id);
+    }
+
+    const directNamePairKeys = new Set<string>();
+    const directNameBuckets = new Map<string, typeof allContacts>();
+    for (const contact of allContacts) {
+      const tokens = normalizeNameForMerge(contact.displayName);
+      if (tokens.length === 0 || looksLikeIdentifierLabel(contact.displayName)) continue;
+      for (const token of new Set(tokens)) {
+        if (token.length < 3 || GENERIC_NAMES.has(token)) continue;
+        const bucket = directNameBuckets.get(token) ?? [];
+        bucket.push(contact);
+        directNameBuckets.set(token, bucket);
+      }
+    }
+    for (const bucket of directNameBuckets.values()) {
+      if (bucket.length < 2 || bucket.length > 100) continue;
+      for (let i = 0; i < bucket.length; i++) {
+        for (let j = i + 1; j < bucket.length; j++) {
+          const pairKey = [bucket[i].id, bucket[j].id].sort().join('::');
+          if (directNamePairKeys.has(pairKey)) continue;
+          directNamePairKeys.add(pairKey);
+          if (isDirectNameAutoMergeEligible(bucket[i].displayName, bucket[j].displayName)) {
+            union(bucket[i].id, bucket[j].id);
+          }
+        }
+      }
+    }
+
+    const exactIdentifierComponents = new Map<string, string[]>();
+    for (const id of contactById.keys()) {
+      if (!parent.has(id)) continue;
+      const root = find(id);
+      const ids = exactIdentifierComponents.get(root) ?? [];
+      ids.push(id);
+      exactIdentifierComponents.set(root, ids);
+    }
+
+    const mergedAway = new Set<string>();
+    for (const ids of exactIdentifierComponents.values()) {
+      const active = ids
+        .filter((id) => !mergedAway.has(id) && contactById.has(id))
+        .map((id) => contactById.get(id)!)
+        .sort((a, b) => {
+          const memoryDelta = (b.memoryCount ?? 0) - (a.memoryCount ?? 0);
+          if (memoryDelta !== 0) return memoryDelta;
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        });
+      if (active.length < 2) continue;
+      const target = active[0];
+      for (const source of active.slice(1)) {
+        try {
+          await this.mergePeople(target.id, source.id);
+          mergedAway.add(source.id);
+          contactById.delete(source.id);
+        } catch (err) {
+          this.logger.warn(
+            `[getSuggestions] exact identifier auto-merge failed for ${source.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    }
+
+    if (mergedAway.size > 0) {
+      allContacts = allContacts.filter((contact) => !mergedAway.has(contact.id));
+    }
+
+    const activeContactIds = new Set(allContacts.map((contact) => contact.id));
+
     // Build contact -> connector types map
     const contactConnectors = new Map<string, Set<string>>();
     for (const ident of allIdentifiers) {
+      if (!activeContactIds.has(ident.personId)) continue;
       if (ident.connectorType) {
         const set = contactConnectors.get(ident.personId) || new Set();
         set.add(ident.connectorType);
@@ -1234,17 +1702,10 @@ export class PeopleService {
       dismissedPairs.add(key);
     }
 
-    // Build identifiers map for quick lookup
-    const contactIdentsMap = new Map<string, typeof allIdentifiers>();
-    for (const ident of allIdentifiers) {
-      const list = contactIdentsMap.get(ident.personId) || [];
-      list.push(ident);
-      contactIdentsMap.set(ident.personId, list);
-    }
-
     // Build co-occurrence map: contacts that appear in the same memories
     const memoryToContacts = new Map<string, Set<string>>();
     for (const mc of allMemoryContacts) {
+      if (!activeContactIds.has(mc.personId)) continue;
       const set = memoryToContacts.get(mc.memoryId) || new Set();
       set.add(mc.personId);
       memoryToContacts.set(mc.memoryId, set);
@@ -1265,15 +1726,21 @@ export class PeopleService {
       contact1: PersonWithIdentifiers;
       contact2: PersonWithIdentifiers;
       reason: string;
+      confidence: number;
+      positiveEvidence: string[];
+      negativeEvidence: string[];
+      sharedIdentifiers: string[];
+      aliasSimilarity: number;
+      cooccurrenceConflicts: string[];
+      sourceConnectors: string[];
+      sampleMemoryIds: string[];
     }> = [];
-
-    // Track contacts that were auto-merged (absorbed into another)
-    const mergedAway = new Set<string>();
 
     const addSuggestion = (
       c1: (typeof allContacts)[0],
       c2: (typeof allContacts)[0],
       reason: string,
+      evidence: MergeEvidence,
     ) => {
       const pairKey = [c1.id, c2.id].sort().join('::');
       if (dismissedPairs.has(pairKey) || suggestedPairs.has(pairKey)) return;
@@ -1281,9 +1748,21 @@ export class PeopleService {
 
       const idents1 = contactIdentsMap.get(c1.id) || [];
       const idents2 = contactIdentsMap.get(c2.id) || [];
+      const sourceConnectors = [
+        ...new Set([
+          ...(contactConnectors.get(c1.id) ?? new Set<string>()),
+          ...(contactConnectors.get(c2.id) ?? new Set<string>()),
+        ]),
+      ];
+      const sampleMemoryIds = [...memoryToContacts.entries()]
+        .filter(([, ids]) => ids.has(c1.id) && ids.has(c2.id))
+        .map(([memoryId]) => memoryId)
+        .slice(0, 5);
       suggestions.push({
         contact1: {
           ...c1,
+          avatars: this.decryptJsonb(c1.avatars),
+          metadata: this.decryptJsonb(c1.metadata),
           identifiers: idents1.map((id) => ({
             id: id.id,
             identifierType: id.identifierType,
@@ -1294,6 +1773,8 @@ export class PeopleService {
         },
         contact2: {
           ...c2,
+          avatars: this.decryptJsonb(c2.avatars),
+          metadata: this.decryptJsonb(c2.metadata),
           identifiers: idents2.map((id) => ({
             id: id.id,
             identifierType: id.identifierType,
@@ -1303,6 +1784,14 @@ export class PeopleService {
           })),
         },
         reason,
+        confidence: evidence.confidence,
+        positiveEvidence: evidence.positiveEvidence,
+        negativeEvidence: evidence.negativeEvidence,
+        sharedIdentifiers: evidence.sharedIdentifiers,
+        aliasSimilarity: evidence.aliasSimilarity,
+        cooccurrenceConflicts: evidence.cooccurrenceConflicts,
+        sourceConnectors,
+        sampleMemoryIds,
       });
     };
 
@@ -1326,31 +1815,12 @@ export class PeopleService {
       return false;
     };
 
-    // Helper: auto-merge c2 (source) into c1 (target)
-    const tryAutoMerge = async (
-      target: (typeof allContacts)[0],
-      source: (typeof allContacts)[0],
-      reason: string,
-    ): Promise<boolean> => {
-      if (mergedAway.has(target.id) || mergedAway.has(source.id)) return true;
-      try {
-        await this.mergePeople(target.id, source.id);
-        mergedAway.add(source.id);
-        this.logger.log(`[getSuggestions] auto-merged ${source.id} → ${target.id}: ${reason}`);
-        return true;
-      } catch (err) {
-        this.logger.warn(
-          `[getSuggestions] auto-merge failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return false;
-      }
-    };
-
     // looksLikeIdentifier and isMultiWordName are exported module-level functions
 
-    // Index contacts by first word and full name to avoid O(n²)
+    // Index contacts by exact name and normalized tokens to avoid O(n²) while
+    // still catching "AMR ESSAM" inside "HALA AMR ESSAM" style aliases.
     const byExactName = new Map<string, typeof allContacts>();
-    const byFirstWord = new Map<string, typeof allContacts>();
+    const byToken = new Map<string, typeof allContacts>();
     for (const c of allContacts) {
       const name = c.displayName.toLowerCase().trim();
       if (name.length < 3 || GENERIC_NAMES.has(name)) continue;
@@ -1358,74 +1828,39 @@ export class PeopleService {
       list.push(c);
       byExactName.set(name, list);
 
-      const first = name.split(/\s+/)[0];
-      if (first.length >= 3 && !GENERIC_NAMES.has(first)) {
-        const fList = byFirstWord.get(first) || [];
-        fList.push(c);
-        byFirstWord.set(first, fList);
+      if (looksLikeIdentifierLabel(c.displayName)) continue;
+      for (const token of new Set(normalizeNameForMerge(c.displayName))) {
+        if (token.length < 3 || GENERIC_NAMES.has(token)) continue;
+        const tokenList = byToken.get(token) || [];
+        tokenList.push(c);
+        byToken.set(token, tokenList);
       }
     }
 
-    // --- Phase 1: Auto-merge obvious exact-name groups before generating suggestions ---
-    // For each group of contacts with the exact same display name, auto-merge when:
-    //   - Name looks like an identifier (phone/email) → always merge all into one
-    //   - Name is a multi-word name (first+last) → merge all into one
-    //   - All members share a non-name identifier → merge all into one
-    for (const [name, group] of byExactName) {
+    // Exact/direct name pairs are consumed by the auto-merge pass above.
+    for (const [, group] of byExactName) {
       if (group.length < 2) continue;
-
-      // Check if any pair in the group was user-dismissed — if so, skip auto-merge for the group
-      let anyDismissed = false;
-      for (let i = 0; i < group.length && !anyDismissed; i++) {
-        for (let j = i + 1; j < group.length && !anyDismissed; j++) {
-          const pk = [group[i].id, group[j].id].sort().join('::');
-          if (dismissedPairs.has(pk)) anyDismissed = true;
-        }
-      }
-      if (anyDismissed) continue;
-
-      // Check if all members share at least one non-name identifier with the first member
-      const allShareIdentifier =
-        group.length <= 10 &&
-        group.slice(1).every((c) => shareNonNameIdentifier(group[0].id, c.id));
-
-      const shouldAutoMerge =
-        looksLikeIdentifier(name) || // phone number, email, etc.
-        isMultiWordName(name) || // "John Smith" — unambiguous full name
-        allShareIdentifier; // all share a phone/email/handle
-
-      if (shouldAutoMerge) {
-        // Pick the one with the most identifiers as the merge target
-        const sorted = [...group].sort((a, b) => {
-          const aCount = (contactIdentsMap.get(a.id) || []).length;
-          const bCount = (contactIdentsMap.get(b.id) || []).length;
-          return bCount - aCount;
-        });
-        const target = sorted[0];
-        for (let i = 1; i < sorted.length; i++) {
-          await tryAutoMerge(target, sorted[i], `Exact name match (auto): "${name}"`);
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          suggestedPairs.add([group[i].id, group[j].id].sort().join('::'));
         }
       }
     }
 
     // --- Phase 2: Generate suggestions for remaining (ambiguous) pairs ---
     const comparePair = (c1: (typeof allContacts)[0], c2: (typeof allContacts)[0]) => {
-      if (mergedAway.has(c1.id) || mergedAway.has(c2.id)) return;
       const pairKey = [c1.id, c2.id].sort().join('::');
       if (dismissedPairs.has(pairKey) || suggestedPairs.has(pairKey)) return;
-
-      const nameA = c1.displayName.toLowerCase().trim();
-      const nameB = c2.displayName.toLowerCase().trim();
-      const wordsA = nameA.split(/\s+/);
-      const wordsB = nameB.split(/\s+/);
-
-      // Never suggest merges based purely on single-word names (too ambiguous)
-      // unless they share a non-name identifier (phone/email/handle)
-      const bothSingleWord = wordsA.length === 1 && wordsB.length === 1;
-      if (bothSingleWord && !looksLikeIdentifier(nameA) && !shareNonNameIdentifier(c1.id, c2.id)) {
+      if (isDirectNameAutoMergeEligible(c1.displayName, c2.displayName)) return;
+      if (
+        (looksLikeIdentifierLabel(c1.displayName) || looksLikeIdentifierLabel(c2.displayName)) &&
+        !shareNonNameIdentifier(c1.id, c2.id)
+      ) {
         return;
       }
 
+      const nameA = c1.displayName.toLowerCase().trim();
+      const nameB = c2.displayName.toLowerCase().trim();
       const connectors1 = contactConnectors.get(c1.id) || new Set();
       const connectors2 = contactConnectors.get(c2.id) || new Set();
       const sameConnector =
@@ -1434,74 +1869,40 @@ export class PeopleService {
         [...connectors1][0] === [...connectors2][0];
       const isVisionConnector = sameConnector && [...connectors1][0] === 'photos';
 
-      // Strategy 1: Exact name match (not auto-merged — e.g. 3+ way conflict)
-      if (nameA === nameB) {
-        addSuggestion(c1, c2, `Exact name match: "${c1.displayName}"`);
-        return;
+      const evidence = scoreNameOnlyMerge(c1.displayName, c2.displayName);
+      if (coOccurrence.has(pairKey)) {
+        evidence.cooccurrenceConflicts.push('both people appear separately in the same memory');
+        evidence.negativeEvidence.push('co-occurrence conflict');
+        evidence.confidence = Math.max(0, evidence.confidence - 0.25);
       }
-
-      // Strategy 2: Substring / word matching
-      const shorter = Math.min(nameA.length, nameB.length);
-      const longer = Math.max(nameA.length, nameB.length);
-
-      let wordMatch = false;
-      if (wordsA.length === 1 && wordsB.length > 1) {
-        wordMatch = wordsB[0] === nameA || wordsB[wordsB.length - 1] === nameA;
-      } else if (wordsB.length === 1 && wordsA.length > 1) {
-        wordMatch = wordsA[0] === nameB || wordsA[wordsA.length - 1] === nameB;
+      if (shareNonNameIdentifier(c1.id, c2.id)) {
+        evidence.confidence = Math.max(evidence.confidence, 0.95);
+        evidence.positiveEvidence.push('shared strong identifier');
       }
-
-      if (
-        wordMatch ||
-        (shorter >= 4 &&
-          shorter / longer >= 0.4 &&
-          (nameA.includes(nameB) || nameB.includes(nameA)))
-      ) {
-        if (sameConnector && !isVisionConnector) {
-          if (shareNonNameIdentifier(c1.id, c2.id) || coOccurrence.has(pairKey)) {
-            addSuggestion(
-              c1,
-              c2,
-              `Display names match: "${c1.displayName}" and "${c2.displayName}"`,
-            );
-          }
-          return;
-        }
-        addSuggestion(c1, c2, `Display names match: "${c1.displayName}" and "${c2.displayName}"`);
-        return;
+      if (sameConnector && !isVisionConnector && !shareNonNameIdentifier(c1.id, c2.id)) {
+        evidence.confidence = Math.max(0, evidence.confidence - 0.15);
+        evidence.negativeEvidence.push('same non-vision connector without shared identifier');
       }
-
-      // Strategy 3: Shared first name + co-occurrence or shared identifier
-      // Skip when both have multi-word names with different last names — they're different people
-      const firstA = wordsA[0];
-      const firstB = wordsB[0];
-      if (firstA.length >= 3 && firstA === firstB && !GENERIC_NAMES.has(firstA)) {
-        if (wordsA.length > 1 && wordsB.length > 1) {
-          const lastA = wordsA[wordsA.length - 1];
-          const lastB = wordsB[wordsB.length - 1];
-          if (lastA !== lastB) return;
-        }
-        if (shareNonNameIdentifier(c1.id, c2.id)) {
-          addSuggestion(c1, c2, `Share first name "${firstA}" and a common identifier`);
-          return;
-        }
-        if (coOccurrence.has(pairKey)) {
-          addSuggestion(c1, c2, `Share first name "${firstA}" and appear in the same memories`);
-          return;
-        }
-        if (connectors1.has('photos') && connectors2.has('photos')) {
-          addSuggestion(c1, c2, `Share first name "${firstA}" and both appear in photos`);
-        }
+      if (connectors1.has('photos') && connectors2.has('photos')) {
+        evidence.positiveEvidence.push('both appear in photos');
+      }
+      if (nameA === nameB || evidence.confidence >= 0.55) {
+        addSuggestion(
+          c1,
+          c2,
+          `Name similarity: "${c1.displayName}" and "${c2.displayName}"`,
+          evidence,
+        );
       }
     };
 
-    // Compare only contacts sharing a first word (not all pairs)
-    for (const [, group] of byFirstWord) {
-      const active = group.filter((c) => !mergedAway.has(c.id));
-      if (active.length < 2 || active.length > 100) continue;
-      for (let i = 0; i < active.length; i++) {
-        for (let j = i + 1; j < active.length; j++) {
-          comparePair(active[i], active[j]);
+    // Compare contacts sharing at least one normalized token. Large common-name
+    // buckets are allowed through the scorer only when another signal is strong.
+    for (const [, group] of byToken) {
+      if (group.length < 2 || group.length > 100) continue;
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          comparePair(group[i], group[j]);
         }
       }
     }
@@ -1788,7 +2189,11 @@ export class PeopleService {
     return this.getById(personId) as Promise<PersonWithIdentifiers>;
   }
 
-  async splitPerson(personId: string, identifierIds: string[]): Promise<PersonWithIdentifiers> {
+  async splitPerson(
+    personId: string,
+    identifierIds: string[],
+    userId?: string,
+  ): Promise<PersonWithIdentifiers> {
     // Validate source contact exists
     const sourceRows = await this.dbService.withCurrentUser((db) =>
       db.select().from(people).where(eq(people.id, personId)),
@@ -1823,6 +2228,7 @@ export class PeopleService {
     await this.dbService.withCurrentUser((db) =>
       db.insert(people).values({
         id: newId,
+        userId: userId ?? sourceRows[0].userId,
         displayName: this.crypto.encrypt(decryptedName)!,
         displayNameHash: this.crypto.hmac(decryptedName.toLowerCase()),
         entityType: sourceRows[0].entityType || 'person',
@@ -1847,9 +2253,19 @@ export class PeopleService {
    * merge them all into the one with the highest memory count (most recent if tied).
    * Only runs when displayName is a real name (non-empty).
    */
-  async deduplicateByExactName(displayName: string, userId?: string): Promise<void> {
+  async deduplicateByExactName(displayName: string, userId?: string): Promise<string | undefined> {
     const trimmed = displayName.trim();
-    if (!trimmed) return;
+    if (!trimmed) return undefined;
+
+    const normalizedName = normalizeNameForMerge(trimmed);
+    if (
+      normalizedName.length < 2 ||
+      looksLikeIdentifierLabel(trimmed) ||
+      looksLikeGroupName(trimmed) ||
+      looksLikeCombinedPersonName(trimmed)
+    ) {
+      return undefined;
+    }
 
     // Find all contacts with this exact display name (case-insensitive) via HMAC hash
     const conditions: (SQLWrapper | undefined)[] = [
@@ -1864,7 +2280,10 @@ export class PeopleService {
         .where(and(...conditions)),
     );
 
-    if (matches.length < 2) return;
+    const eligibleMatches = matches.filter((contact) =>
+      isMergeSuggestionEligibleEntity(contact.entityType),
+    );
+    if (eligibleMatches.length < 2) return eligibleMatches[0]?.id;
 
     // Pick winner: contact with most memoryPeople rows; break ties by most recent createdAt
     const memCounts = await this.dbService.withCurrentUser((db) =>
@@ -1874,7 +2293,7 @@ export class PeopleService {
         .where(
           inArray(
             memoryPeople.personId,
-            matches.map((c) => c.id),
+            eligibleMatches.map((c) => c.id),
           ),
         )
         .groupBy(memoryPeople.personId),
@@ -1885,15 +2304,15 @@ export class PeopleService {
       countMap.set(row.personId, Number(row.count));
     }
 
-    matches.sort((a, b) => {
+    eligibleMatches.sort((a, b) => {
       const countDiff = (countMap.get(b.id) || 0) - (countMap.get(a.id) || 0);
       if (countDiff !== 0) return countDiff;
       // Most recent as tiebreaker
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-    const winner = matches[0];
-    const losers = matches.slice(1);
+    const winner = eligibleMatches[0];
+    const losers = eligibleMatches.slice(1);
 
     for (const loser of losers) {
       try {
@@ -1906,54 +2325,33 @@ export class PeopleService {
         );
       }
     }
+
+    return winner.id;
   }
 
-  /**
-   * Auto-merge obvious contact duplicates using safety-tiered rules.
-   * Tier 1: Non-person exact name matches (organizations, products, etc.)
-   * Tier 2: Sparse-to-rich exact name matches (name-only into structured)
-   * Tier 3: Person-to-person (skipped — left for manual review)
-   */
-  async autoMerge(): Promise<{
+  /** Auto-merge duplicate people that share an exact normalized identifier. */
+  async autoMerge(userId?: string): Promise<{
     merged: number;
     byRule: { nonPerson: number; sparseToRich: number };
     details: Array<{ targetId: string; sourceId: string; targetName: string; rule: string }>;
   }> {
-    const NON_PERSON_TYPES = new Set([
-      'organization',
-      'product',
-      'location',
-      'event',
-      'topic',
-      'pet',
-      'device',
-      'other',
-      'group',
-    ]);
-
-    // Load all contacts and identifiers in bulk
-    const allContacts = await this.dbService.withCurrentUser((db) => db.select().from(people));
-    const allIdentifiers = await this.dbService.withCurrentUser((db) =>
-      db.select().from(personIdentifiers),
+    const maxMs = Math.max(
+      500,
+      Math.min(Number(process.env.BOTMEM_AUTO_MERGE_MAX_MS ?? 15000), 25000),
     );
+    const deadline = Date.now() + maxMs;
+    const hasBudget = () => Date.now() < deadline;
 
-    // Build contactId -> identifiers map
-    const identsMap = new Map<string, typeof allIdentifiers>();
-    for (const ident of allIdentifiers) {
-      const list = identsMap.get(ident.personId) || [];
-      list.push(ident);
-      identsMap.set(ident.personId, list);
-    }
-
-    // Group contacts by normalized display name
-    const nameGroups = new Map<string, typeof allContacts>();
-    for (const contact of allContacts) {
-      const key = contact.displayName.toLowerCase().trim();
-      if (!key) continue;
-      const group = nameGroups.get(key) || [];
-      group.push(contact);
-      nameGroups.set(key, group);
-    }
+    const allContacts = await this.dbService.withCurrentUser((db) =>
+      userId ? db.select().from(people).where(eq(people.userId, userId)) : db.select().from(people),
+    );
+    const contactIds = allContacts.map((contact) => contact.id);
+    const allIdentifiers = await this.dbService.withCurrentUser((db) =>
+      contactIds.length
+        ? db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, contactIds))
+        : Promise.resolve([]),
+    );
+    const contactById = new Map(allContacts.map((contact) => [contact.id, contact]));
 
     const result = {
       merged: 0,
@@ -1966,89 +2364,126 @@ export class PeopleService {
       }>,
     };
 
-    // Track merged-away IDs to skip them in later processing
+    const byStrongIdentifier = new Map<string, Set<string>>();
+    for (const ident of allIdentifiers) {
+      if (!hasBudget()) return result;
+      const decryptedValue = this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue;
+      if (!isExactIdentifierAutoMergeEligible(ident.identifierType, decryptedValue)) continue;
+      const key = `${ident.identifierType}::${ident.identifierValueHash || ident.identifierValue}`;
+      const ids = byStrongIdentifier.get(key) ?? new Set<string>();
+      ids.add(ident.personId);
+      byStrongIdentifier.set(key, ids);
+    }
+
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      const current = parent.get(id) ?? id;
+      if (current === id) {
+        parent.set(id, id);
+        return id;
+      }
+      const root = find(current);
+      parent.set(id, root);
+      return root;
+    };
+    const union = (a: string, b: string) => {
+      parent.set(find(b), find(a));
+    };
+    for (const ids of byStrongIdentifier.values()) {
+      const [first, ...rest] = [...ids];
+      if (!first) continue;
+      find(first);
+      for (const id of rest) union(first, id);
+    }
+
+    const byExactDisplayName = new Map<string, string[]>();
+    for (const contact of allContacts) {
+      if (!hasBudget()) return result;
+      if (!isMergeSuggestionEligibleEntity(contact.entityType)) continue;
+      const displayName = this.crypto.decrypt(contact.displayName) ?? contact.displayName;
+      if (looksLikeGroupName(displayName)) continue;
+      const normalizedName = normalizeNameForMerge(displayName).join(' ');
+      if (!normalizedName) continue;
+      const ids = byExactDisplayName.get(normalizedName) ?? [];
+      ids.push(contact.id);
+      byExactDisplayName.set(normalizedName, ids);
+    }
+    for (const ids of byExactDisplayName.values()) {
+      const [first, ...rest] = ids;
+      if (!first || rest.length === 0) continue;
+      find(first);
+      for (const id of rest) union(first, id);
+    }
+
+    const directNamePairKeys = new Set<string>();
+    const directNameBuckets = new Map<string, typeof allContacts>();
+    for (const contact of allContacts) {
+      if (!hasBudget()) return result;
+      if (!isMergeSuggestionEligibleEntity(contact.entityType)) continue;
+      const displayName = this.crypto.decrypt(contact.displayName) ?? contact.displayName;
+      const tokens = normalizeNameForMerge(displayName);
+      if (tokens.length === 0 || looksLikeIdentifierLabel(displayName)) continue;
+      for (const token of new Set(tokens)) {
+        if (token.length < 3 || GENERIC_NAMES.has(token)) continue;
+        const bucket = directNameBuckets.get(token) ?? [];
+        bucket.push(contact);
+        directNameBuckets.set(token, bucket);
+      }
+    }
+    for (const bucket of directNameBuckets.values()) {
+      if (!hasBudget()) return result;
+      if (bucket.length < 2 || bucket.length > 100) continue;
+      for (let i = 0; i < bucket.length; i++) {
+        if (!hasBudget()) return result;
+        for (let j = i + 1; j < bucket.length; j++) {
+          if (!hasBudget()) return result;
+          const pairKey = [bucket[i].id, bucket[j].id].sort().join('::');
+          if (directNamePairKeys.has(pairKey)) continue;
+          directNamePairKeys.add(pairKey);
+          const nameA = this.crypto.decrypt(bucket[i].displayName) ?? bucket[i].displayName;
+          const nameB = this.crypto.decrypt(bucket[j].displayName) ?? bucket[j].displayName;
+          if (isDirectNameAutoMergeEligible(nameA, nameB)) {
+            union(bucket[i].id, bucket[j].id);
+          }
+        }
+      }
+    }
+
+    const identifierComponents = new Map<string, string[]>();
+    for (const id of contactById.keys()) {
+      if (!parent.has(id)) continue;
+      const root = find(id);
+      const ids = identifierComponents.get(root) ?? [];
+      ids.push(id);
+      identifierComponents.set(root, ids);
+    }
+
     const mergedAway = new Set<string>();
-
-    for (const [, group] of nameGroups) {
-      if (group.length < 2) continue;
-
-      // Filter out already-merged contacts
-      let active = group.filter((c) => !mergedAway.has(c.id));
+    for (const ids of identifierComponents.values()) {
+      if (!hasBudget()) return result;
+      const active = ids.filter((id) => !mergedAway.has(id) && contactById.has(id));
       if (active.length < 2) continue;
-
-      // --- Tier 1: Non-person exact name match ---
-      const nonPersonInGroup = active.filter((c) => {
-        const entityType = c.entityType || 'person';
-        return NON_PERSON_TYPES.has(entityType);
-      });
-
-      if (nonPersonInGroup.length >= 2) {
-        // Pick the one with the most identifiers as target
-        nonPersonInGroup.sort((a, b) => {
-          const aCount = (identsMap.get(a.id) || []).length;
-          const bCount = (identsMap.get(b.id) || []).length;
-          return bCount - aCount;
-        });
-        const target = nonPersonInGroup[0];
-        for (let i = 1; i < nonPersonInGroup.length; i++) {
-          const source = nonPersonInGroup[i];
-          try {
-            await this.mergePeople(target.id, source.id);
-            mergedAway.add(source.id);
-            result.merged++;
-            result.byRule.nonPerson++;
-            result.details.push({
-              targetId: target.id,
-              sourceId: source.id,
-              targetName: target.displayName,
-              rule: 'nonPerson',
-            });
-          } catch {
-            // Concurrent merge or already merged — continue
-          }
-        }
-        // Refresh active list after Tier 1
-        active = active.filter((c) => !mergedAway.has(c.id));
-      }
-
-      if (active.length < 2) continue;
-
-      // --- Tier 2: Sparse-to-rich exact name match ---
-      const isSparse = (c: (typeof active)[0]): boolean => {
-        const idents = identsMap.get(c.id) || [];
-        return idents.every((i) => i.identifierType === 'name');
-      };
-      const isRich = (c: (typeof active)[0]): boolean => {
-        const idents = identsMap.get(c.id) || [];
-        return idents.some((i) => i.identifierType !== 'name');
-      };
-
-      const sparseContacts = active.filter(isSparse);
-      const richContacts = active.filter(isRich);
-
-      if (sparseContacts.length > 0 && richContacts.length === 1) {
-        // Exactly one rich contact — merge all sparse into it
-        const target = richContacts[0];
-        for (const sparse of sparseContacts) {
-          try {
-            await this.mergePeople(target.id, sparse.id);
-            mergedAway.add(sparse.id);
-            result.merged++;
-            result.byRule.sparseToRich++;
-            result.details.push({
-              targetId: target.id,
-              sourceId: sparse.id,
-              targetName: target.displayName,
-              rule: 'sparseToRich',
-            });
-          } catch {
-            // Concurrent merge or already merged — continue
-          }
+      const targetId = active[0];
+      const target = contactById.get(targetId)!;
+      for (const sourceId of active.slice(1)) {
+        if (!hasBudget()) return result;
+        const source = contactById.get(sourceId);
+        if (!source) continue;
+        try {
+          await this.mergePeople(targetId, sourceId);
+          mergedAway.add(sourceId);
+          result.merged++;
+          result.byRule.sparseToRich++;
+          result.details.push({
+            targetId,
+            sourceId,
+            targetName: this.crypto.decrypt(target.displayName) ?? target.displayName,
+            rule: 'strongIdentifier',
+          });
+        } catch {
+          // Concurrent merge or already merged — continue
         }
       }
-      // If multiple rich contacts match, skip (ambiguous)
-
-      // --- Tier 3: Person-to-person — skip (manual review) ---
     }
 
     return result;

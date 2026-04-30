@@ -16,6 +16,16 @@ vi.mock('@whiskeysockets/baileys', () => ({
     connectionReplaced: 440,
     timedOut: 408,
   },
+  Browsers: {
+    macOS: vi.fn((browser: string) => ['Mac OS', browser, '14.4.1']),
+  },
+  USyncQuery: vi.fn(function (this: any) {
+    this.withContactProtocol = vi.fn(() => this);
+    this.withUser = vi.fn(() => this);
+  }),
+  USyncUser: vi.fn(function (this: any) {
+    this.withPhone = vi.fn(() => this);
+  }),
   proto: {
     HistorySync: { decode: vi.fn() },
     Message: { IHistorySyncNotification: {} },
@@ -119,6 +129,10 @@ async function triggerProcessEvent(
   }
 }
 
+function hasMessageSourceId(event: { sourceId: string }, messageId: string): boolean {
+  return event.sourceId === `wa-msg:${messageId}`;
+}
+
 describe('sync module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -151,6 +165,31 @@ describe('sync module', () => {
         signal: new AbortController().signal,
       };
       await expect(syncWhatsApp(ctx as any, vi.fn())).rejects.toThrow('No WhatsApp session found');
+    });
+
+    it('resolves legacy relative session dirs from API cwd to repo root', async () => {
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/repo/apps/api');
+      mockExistsSync.mockImplementation(
+        (path: string) =>
+          path === '/repo/data/whatsapp/wa-session-live' ||
+          path === '/repo/data/whatsapp/wa-session-live/creds.json',
+      );
+      const { makeWASocket } = await import('@whiskeysockets/baileys');
+      const { sock, eventHandlers } = createMockSock();
+      vi.mocked(makeWASocket).mockReturnValueOnce(sock as any);
+
+      const { startWhatsAppRealtime } = await import('../sync.js');
+      const handlePromise = startWhatsAppRealtime('./data/whatsapp/wa-session-live', {
+        onEvent: vi.fn(),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      triggerOnEvent(eventHandlers, 'connection.update', { connection: 'open' });
+      const handle = await handlePromise;
+      await handle.stop();
+
+      expect(makeWASocket).toHaveBeenCalled();
+      cwdSpy.mockRestore();
+      mockExistsSync.mockReturnValue(false);
     });
 
     it('reuses existing socket when provided', async () => {
@@ -594,7 +633,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const imgEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'img1');
+      const imgEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'img1'));
       expect(imgEmit).toBeDefined();
       expect(imgEmit![0].content.text).toBe('Check this out');
       expect(imgEmit![0].content.metadata.messageType).toBe('image');
@@ -659,7 +698,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const ccEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'cc1');
+      const ccEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'cc1'));
       expect(ccEmit).toBeDefined();
       expect(ccEmit![0].content.text).toContain('shared contact');
       expect(ccEmit![0].content.text).toContain('Carol');
@@ -726,7 +765,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const locEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'loc1');
+      const locEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'loc1'));
       expect(locEmit).toBeDefined();
       expect(locEmit![0].content.text).toContain('shared location');
       expect(locEmit![0].content.text).toContain('Burj Khalifa');
@@ -854,7 +893,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const meEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'me1');
+      const meEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'me1'));
       expect(meEmit).toBeDefined();
       expect(meEmit![0].content.metadata.fromMe).toBe(true);
       expect(meEmit![0].content.metadata.senderPhone).toBe('1234567890');
@@ -994,7 +1033,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const extEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'ext1');
+      const extEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'ext1'));
       expect(extEmit).toBeDefined();
       expect(extEmit![0].content.text).toContain('Check out this link');
       expect(extEmit![0].content.metadata.mentions).toBeDefined();
@@ -1056,7 +1095,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const vidEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'vid1');
+      const vidEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'vid1'));
       expect(vidEmit).toBeDefined();
       expect(vidEmit![0].content.text).toBe('sent a video');
     });
@@ -1117,7 +1156,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const audEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'aud1');
+      const audEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'aud1'));
       expect(audEmit).toBeDefined();
       expect(audEmit![0].content.text).toBe('sent a voice message');
     });
@@ -1178,7 +1217,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const stkEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'stk1');
+      const stkEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'stk1'));
       expect(stkEmit).toBeDefined();
       expect(stkEmit![0].content.text).toBe('sent a sticker');
     });
@@ -1242,7 +1281,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const docEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'doc1');
+      const docEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'doc1'));
       expect(docEmit).toBeDefined();
       expect(docEmit![0].content.text).toContain('report.pdf');
     });
@@ -1315,7 +1354,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const lidEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'lid1');
+      const lidEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'lid1'));
       expect(lidEmit).toBeDefined();
       // LID should resolve to phone 5557777
       expect(lidEmit![0].content.metadata.senderPhone).toBe('5557777');
@@ -1379,6 +1418,7 @@ describe('sync module', () => {
         c[0].content.text.includes('UpdatedAlice'),
       );
       expect(aliceContact).toBeDefined();
+      expect(aliceContact?.[0].sourceType).toBe('contact');
     });
 
     it('handles group-participants.update events', async () => {
@@ -1450,6 +1490,7 @@ describe('sync module', () => {
           c[0].content?.metadata?.isGroup === true && c[0].content?.metadata?.type === 'contact',
       );
       expect(groupEmits.length).toBeGreaterThanOrEqual(1);
+      expect(groupEmits[0]?.[0].sourceType).toBe('contact');
     });
 
     it('handles groupFetchAllParticipating failure gracefully', async () => {
@@ -1561,7 +1602,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const dwcEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'dwc1');
+      const dwcEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'dwc1'));
       expect(dwcEmit).toBeDefined();
       expect(dwcEmit![0].content.text).toContain('doc.pdf');
       expect(dwcEmit![0].content.text).toContain('Here is the file');
@@ -1634,7 +1675,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const caEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'ca1');
+      const caEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'ca1'));
       expect(caEmit).toBeDefined();
       expect(caEmit![0].content.text).toContain('shared contacts');
       expect(caEmit![0].content.text).toContain('Carol');
@@ -2036,7 +2077,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const locEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'lloc1');
+      const locEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'lloc1'));
       expect(locEmit).toBeDefined();
       expect(locEmit![0].content.text).toContain('shared location');
       expect(locEmit![0].content.text).toContain('40.7128');
@@ -2109,12 +2150,12 @@ describe('sync module', () => {
 
       await promise;
       // Check fromMe DM has other party in participants
-      const dm1 = emit.mock.calls.find((c: any) => c[0].sourceId === 'dm1');
+      const dm1 = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'dm1'));
       expect(dm1).toBeDefined();
       expect(dm1![0].content.participants).toContain('5557777');
 
       // Check received DM has self in participants
-      const dm2 = emit.mock.calls.find((c: any) => c[0].sourceId === 'dm2');
+      const dm2 = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'dm2'));
       expect(dm2).toBeDefined();
       expect(dm2![0].content.participants).toContain('1234567890');
     });
@@ -2175,7 +2216,7 @@ describe('sync module', () => {
       await promise;
       const noIdEmit = emit.mock.calls.find((c: any) => c[0].content?.text === 'No key ID');
       expect(noIdEmit).toBeDefined();
-      expect(noIdEmit![0].sourceId).toMatch(/^wa:/);
+      expect(noIdEmit![0].sourceId).toMatch(/^wa-msg:/);
     });
 
     it('loads saved identity maps when available', async () => {
@@ -2290,7 +2331,7 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       await promise;
-      const imgEmit = emit.mock.calls.find((c: any) => c[0].sourceId === 'imgnocap1');
+      const imgEmit = emit.mock.calls.find((c: any) => hasMessageSourceId(c[0], 'imgnocap1'));
       expect(imgEmit).toBeDefined();
       expect(imgEmit![0].content.text).toBe('sent an image');
     });
@@ -2337,7 +2378,7 @@ describe('sync module', () => {
       expect(mockFlushPendingWrites).toHaveBeenCalled();
     });
 
-    it('uses ev.process for messaging-history.set instead of ev.on', async () => {
+    it('uses both ev.process and documented event listeners for history/message handlers', async () => {
       const { syncWhatsApp } = await import('../sync.js');
       const emit = vi.fn();
 
@@ -2376,13 +2417,13 @@ describe('sync module', () => {
 
       await promise;
 
-      // ev.process should have been called for history/message handlers
+      // ev.process handles consolidated buffered events, while .on follows
+      // Baileys' documented message/history event surface.
       expect(mockSock.ev.process).toHaveBeenCalledWith(expect.any(Function));
 
-      // messaging-history.set and messages.upsert should NOT be registered via .on
       const onCalls = mockSock.ev.on.mock.calls.map((c: any[]) => c[0]);
-      expect(onCalls).not.toContain('messaging-history.set');
-      expect(onCalls).not.toContain('messages.upsert');
+      expect(onCalls).toContain('messaging-history.set');
+      expect(onCalls).toContain('messages.upsert');
 
       // connection.update should still use .on
       expect(onCalls).toContain('connection.update');

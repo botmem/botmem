@@ -34,7 +34,28 @@ import { createCorsOriginChecker } from './cors.util';
 
 const logger = new Logger('Bootstrap');
 
+async function assertPortAvailable(port: number) {
+  await new Promise<void>((resolveReady, rejectReady) => {
+    const probe = net.createServer();
+    probe.once('error', (err) => {
+      rejectReady(err);
+    });
+    probe.once('listening', () => {
+      probe.close(() => resolveReady());
+    });
+    probe.listen(port);
+  });
+}
+
 async function bootstrap() {
+  const port = Number(process.env.PORT || 12412);
+  try {
+    await assertPortAvailable(port);
+  } catch {
+    logger.error(`Port ${port} is already in use; aborting before connector startup`);
+    process.exit(1);
+  }
+
   const express = (await import('express')).default;
   const server = express();
   const isDev = process.env.NODE_ENV !== 'production';
@@ -282,9 +303,8 @@ async function bootstrap() {
     });
   }
 
-  const port = config.port;
-  await app.listen(port);
-  logger.log(`botmem running on http://localhost:${port}`);
+  await app.listen(config.port);
+  logger.log(`botmem running on http://localhost:${config.port}`);
 }
 
 bootstrap();

@@ -283,6 +283,7 @@ describe('ImmichConnector', () => {
       const nextCursor = JSON.parse(result.cursor!);
       expect(nextCursor.page).toBe(2);
       expect(nextCursor.takenAfter).toBeUndefined();
+      expect(nextCursor.highWater).toBe('2026-01-15T18:30:00.000Z');
     });
 
     it('returns hasMore=false and stores timestamp when sweep completes', async () => {
@@ -320,6 +321,35 @@ describe('ImmichConnector', () => {
       const nextCursor = JSON.parse(result.cursor!);
       expect(nextCursor.page).toBe(4);
       expect(nextCursor.takenAfter).toBe('2026-01-01T00:00:00.000Z');
+      expect(nextCursor.highWater).toBe('2026-01-15T18:30:00.000Z');
+    });
+
+    it('stores the newest sweep timestamp when paginated sync completes', async () => {
+      vi.stubGlobal(
+        'fetch',
+        mockFetchForSync([
+          makeAsset({
+            id: 'older-asset',
+            fileCreatedAt: '2026-01-10T00:00:00.000Z',
+            localDateTime: '2026-01-10T00:00:00.000Z',
+            createdAt: '2026-01-10T00:00:00.000Z',
+          }),
+        ]),
+      );
+
+      connector.on('data', () => {});
+      const cursor = JSON.stringify({
+        takenAfter: '2026-01-01T00:00:00.000Z',
+        highWater: '2026-01-20T00:00:00.000Z',
+        page: 3,
+      });
+      const result = await connector.sync(makeSyncCtx({ cursor }));
+
+      expect(result.hasMore).toBe(false);
+      const nextCursor = JSON.parse(result.cursor!);
+      expect(nextCursor.page).toBe(1);
+      expect(nextCursor.takenAfter).toBe('2026-01-20T00:00:00.000Z');
+      expect(nextCursor.highWater).toBeUndefined();
     });
 
     it('handles asset with minimal EXIF (no location, no people, no tags)', async () => {

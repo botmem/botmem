@@ -70,7 +70,13 @@ export class MemoryController {
       this.memoryQueue.getDelayedCount(),
       this.memoryQueue.getCompletedCount(),
     ]);
-    return { memory: { waiting, active, failed, delayed, completed } };
+    const counts = { waiting, active, failed, delayed, completed };
+    return {
+      memory: counts,
+      clean: counts,
+      embed: counts,
+      enrich: counts,
+    };
   }
 
   @Get('graph')
@@ -180,6 +186,104 @@ export class MemoryController {
   }
 
   @RequiresJwt()
+  @Get('raw-events/debt')
+  async rawEventDebt(
+    @CurrentUser() user: { id: string },
+    @Query('connectorType') connectorType?: string,
+    @Query('sourceType') sourceType?: string,
+  ) {
+    const filters = [
+      sql`a.user_id = ${user.id}`,
+      sql`re.processing_state = 'pending'`,
+      sql`re.source_type NOT IN ('contact', 'group')`,
+      sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
+      sql`NOT EXISTS (
+        SELECT 1 FROM memories m
+        WHERE m.source_id = re.source_id AND m.connector_type = re.connector_type
+      )`,
+    ];
+    if (connectorType) filters.push(sql`re.connector_type = ${connectorType}`);
+    if (sourceType) filters.push(sql`re.source_type = ${sourceType}`);
+
+    const result = await this.dbService.db.execute(sql`
+      SELECT
+        re.connector_type AS "connectorType",
+        re.source_type AS "sourceType",
+        re.processing_state AS "processingState",
+        count(*)::int AS count
+      FROM raw_events re
+      INNER JOIN accounts a ON a.id = re.account_id
+      WHERE ${sql.join(filters, sql` AND `)}
+      GROUP BY re.connector_type, re.source_type, re.processing_state
+      ORDER BY count DESC
+    `);
+
+    const groups = result.rows as Array<{
+      connectorType: string;
+      sourceType: string;
+      processingState: string;
+      count: number;
+    }>;
+    return {
+      total: groups.reduce((sum, row) => sum + Number(row.count || 0), 0),
+      groups,
+    };
+  }
+
+  @RequiresJwt()
+  @Post('raw-events/repair')
+  async repairRawEventDebt(
+    @CurrentUser() user: { id: string },
+    @Query('limit') limitParam?: string,
+    @Query('connectorType') connectorType?: string,
+    @Query('sourceType') sourceType?: string,
+  ) {
+    const limit = Math.min(parseInt(limitParam || '200', 10) || 200, 2000);
+    const filters = [
+      sql`a.user_id = ${user.id}`,
+      sql`re.processing_state = 'pending'`,
+      sql`re.source_type NOT IN ('contact', 'group')`,
+      sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
+      sql`NOT EXISTS (
+        SELECT 1 FROM memories m
+        WHERE m.source_id = re.source_id AND m.connector_type = re.connector_type
+      )`,
+    ];
+    if (connectorType) filters.push(sql`re.connector_type = ${connectorType}`);
+    if (sourceType) filters.push(sql`re.source_type = ${sourceType}`);
+
+    const result = await this.dbService.db.execute(sql`
+      SELECT re.id
+      FROM raw_events re
+      INNER JOIN accounts a ON a.id = re.account_id
+      WHERE ${sql.join(filters, sql` AND `)}
+      ORDER BY re.created_at ASC
+      LIMIT ${limit}
+    `);
+
+    let enqueued = 0;
+    for (const row of result.rows as Array<{ id: string }>) {
+      await this.memoryQueue.add(
+        'process',
+        { rawEventId: row.id },
+        {
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 5000 },
+          jobId: `repair:${row.id}`,
+        },
+      );
+      enqueued++;
+    }
+
+    return {
+      enqueued,
+      limit,
+      connectorType: connectorType ?? null,
+      sourceType: sourceType ?? null,
+    };
+  }
+
+  @RequiresJwt()
   @Get('typesense-info')
   async getTypesenseInfo() {
     return this.typesense.getCollectionInfo();
@@ -216,6 +320,7 @@ export class MemoryController {
 
   @Get('entities/search')
   async searchEntities(
+    @CurrentUser() user: { id: string },
     @Query('q') q: string,
     @Query('limit') limit?: string,
     @Query('type') type?: string,
@@ -227,7 +332,12 @@ export class MemoryController {
           .map((t) => t.trim())
           .filter(Boolean)
       : undefined;
-    return this.memoryService.searchEntities(q, limit ? parseInt(limit, 10) : undefined, types);
+    return this.memoryService.searchEntities(
+      q,
+      limit ? parseInt(limit, 10) : undefined,
+      types,
+      user.id,
+    );
   }
 
   @Get('entities/:value/graph')
@@ -329,6 +439,45 @@ export class MemoryController {
     return this.memoryService.getRelated(id, limit ? parseInt(limit, 10) : undefined);
   }
 
+  @ReadOnly()
+  @Get(':id/raw')
+  async getRaw(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
+  ) {
+    return this.memoryService.getRawById(id, user.id, user.memoryBankIds);
+  }
+
+  @ReadOnly()
+  @Get(':id/raw/file')
+  async getRawFile(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
+    @Query('variant') variant: string | undefined,
+    @Res() res: Response,
+  ) {
+    try {
+      const asset = await this.memoryService.getRawAssetById(
+        id,
+        user.id,
+        user.memoryBankIds,
+        variant === 'thumbnail' ? 'thumbnail' : 'original',
+      );
+      if (!asset) return res.status(HttpStatus.NOT_FOUND).json({ error: 'not found' });
+      res.setHeader('Content-Type', asset.contentType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${asset.fileName.replace(/"/g, '')}"`,
+      );
+      if (asset.contentLength != null) res.setHeader('Content-Length', String(asset.contentLength));
+      return res.send(asset.buffer);
+    } catch (err) {
+      return res.status(HttpStatus.BAD_GATEWAY).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string, @CurrentUser() user: { id: string }) {
     return this.memoryService.getById(id, user.id);
@@ -343,10 +492,14 @@ export class MemoryController {
     @Body() dto: SearchMemoriesDto,
   ) {
     if (await this.memoryService.needsRecoveryKey(user.id))
-      return { results: [], needsRecoveryKey: true };
+      return { items: [], fallback: false, needsRecoveryKey: true };
 
     // Map typed DTO to SearchFilters
     const filters: Record<string, unknown> = {};
+    if (dto.filters && typeof dto.filters === 'object') Object.assign(filters, dto.filters);
+    if (dto.connectorType) filters.connectorType = dto.connectorType;
+    if (dto.sourceType) filters.sourceType = dto.sourceType;
+    if (dto.contactId) filters.contactId = dto.contactId;
     if (dto.connectorTypes?.length) filters.connectorTypes = dto.connectorTypes;
     if (dto.sourceTypes?.length) filters.sourceTypes = dto.sourceTypes;
     if (dto.factualityLabels?.length) filters.factualityLabels = dto.factualityLabels;
@@ -359,11 +512,11 @@ export class MemoryController {
       dto.query,
       filters as any,
       dto.limit,
-      dto.rerank,
       user.id,
       dto.memoryBankId,
       user.memoryBankIds,
       dto.diversityFactor,
+      { debug: dto.debug },
     );
     this.analytics.capture(
       'server_search',
@@ -371,7 +524,6 @@ export class MemoryController {
         query_length: dto.query.length,
         result_count: result.items.length,
         has_filters: !!(dto.connectorTypes?.length || dto.sourceTypes?.length || dto.timeRange),
-        rerank: dto.rerank ?? false,
         memory_bank_id: dto.memoryBankId,
       },
       user.id,
@@ -387,6 +539,18 @@ export class MemoryController {
       }
     }
     return result;
+  }
+
+  @RequiresJwt()
+  @Get('index/schema')
+  async getSearchIndexSchema() {
+    return this.typesense.getSchemaStatus();
+  }
+
+  @RequiresJwt()
+  @Post('index/reindex')
+  async reindexSearch(@CurrentUser() user: { id: string }, @Query('force') force?: string) {
+    return this.migrationService.startMigration(user.id, force === 'true');
   }
 
   @ReadOnly()
@@ -419,20 +583,26 @@ export class MemoryController {
 
   @RequiresJwt()
   @Post('relabel-unknown')
-  async relabelUnknown() {
+  async relabelUnknown(@CurrentUser() user: { id: string }) {
     return this.dbService.withCurrentUser(async (db) => {
       // Replace "Unknown:" with "A member:" and "Unknown sent" with "A member sent" in WhatsApp memories
       const result1 = await db.execute(sql`
-        UPDATE ${memories} SET text = REPLACE(text, 'Unknown:', 'A member:')
-        WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown:%'
+        UPDATE memories m SET text = REPLACE(text, 'Unknown:', 'A member:')
+        FROM accounts a
+        WHERE m.account_id = a.id AND a.user_id = ${user.id}
+          AND m.connector_type = 'whatsapp' AND m.text LIKE '%Unknown:%'
       `);
       const result2 = await db.execute(sql`
-        UPDATE ${memories} SET text = REPLACE(text, 'Unknown sent', 'A member sent')
-        WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown sent%'
+        UPDATE memories m SET text = REPLACE(text, 'Unknown sent', 'A member sent')
+        FROM accounts a
+        WHERE m.account_id = a.id AND a.user_id = ${user.id}
+          AND m.connector_type = 'whatsapp' AND m.text LIKE '%Unknown sent%'
       `);
       const result3 = await db.execute(sql`
-        UPDATE ${memories} SET text = REPLACE(text, 'Unknown shared', 'A member shared')
-        WHERE ${memories.connectorType} = 'whatsapp' AND text LIKE '%Unknown shared%'
+        UPDATE memories m SET text = REPLACE(text, 'Unknown shared', 'A member shared')
+        FROM accounts a
+        WHERE m.account_id = a.id AND a.user_id = ${user.id}
+          AND m.connector_type = 'whatsapp' AND m.text LIKE '%Unknown shared%'
       `);
 
       return {

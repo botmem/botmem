@@ -24,7 +24,10 @@ describe('CLI config management', () => {
     // loadConfig returns {} if file doesn't exist
     let result: Record<string, unknown> = {};
     try {
-      result = JSON.parse(readFileSync(join(tempDir, 'nonexistent.json'), 'utf-8')) as Record<string, unknown>;
+      result = JSON.parse(readFileSync(join(tempDir, 'nonexistent.json'), 'utf-8')) as Record<
+        string,
+        unknown
+      >;
     } catch {
       // expected — file doesn't exist
     }
@@ -49,7 +52,9 @@ describe('parseGlobalArgs logic', () => {
   ) {
     const DEFAULT_API_URL = 'https://api.botmem.xyz/api';
     let apiUrl = envVars['BOTMEM_API_URL'] || storedCfg.apiUrl || DEFAULT_API_URL;
-    let token = envVars['BOTMEM_API_KEY'] || envVars['BOTMEM_TOKEN'] || '';
+    let token = '';
+    let explicitApiKey = '';
+    let explicitJwt = '';
     let json = false;
     let toon = false;
     let help = false;
@@ -60,9 +65,11 @@ describe('parseGlobalArgs logic', () => {
       if (a === '--api-url') {
         apiUrl = argv[++i];
       } else if (a === '--api-key') {
-        token = argv[++i];
+        explicitApiKey = argv[++i];
+        token = explicitApiKey;
       } else if (a === '--token') {
-        token = argv[++i];
+        explicitJwt = argv[++i];
+        token = explicitJwt;
       } else if (a === '--json') {
         json = true;
       } else if (a === '--toon') {
@@ -75,9 +82,17 @@ describe('parseGlobalArgs logic', () => {
       }
     }
 
-    if (!token) token = storedCfg.apiKey || storedCfg.token || '';
+    const apiKeyToken = explicitApiKey || envVars['BOTMEM_API_KEY'] || storedCfg.apiKey || '';
+    const jwtToken = explicitJwt || envVars['BOTMEM_TOKEN'] || storedCfg.token || '';
+    if (!token)
+      token =
+        envVars['BOTMEM_API_KEY'] ||
+        envVars['BOTMEM_TOKEN'] ||
+        storedCfg.apiKey ||
+        storedCfg.token ||
+        '';
 
-    return { apiUrl, token, json, toon, help, rest };
+    return { apiUrl, token, apiKeyToken, jwtToken, json, toon, help, rest };
   }
 
   it('should use default API URL when nothing specified', () => {
@@ -134,6 +149,12 @@ describe('parseGlobalArgs logic', () => {
   it('should fall back to stored token', () => {
     const result = parseArgs([], {}, { token: 'jwt-stored' });
     expect(result.token).toBe('jwt-stored');
+  });
+
+  it('keeps stored jwt available when stored api key is selected for reads', () => {
+    const result = parseArgs([], {}, { apiKey: 'bm_sk_stored', token: 'jwt-stored' });
+    expect(result.token).toBe('bm_sk_stored');
+    expect(result.jwtToken).toBe('jwt-stored');
   });
 
   it('should set json=true for --json flag', () => {

@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
-import { eq, desc, inArray, sql, and, lt, isNull } from 'drizzle-orm';
+import { Job as BullJob, Queue } from 'bullmq';
+import { eq, desc, inArray, sql, and, lt, isNull, or, gt } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { jobs, accounts } from '../db/schema';
@@ -11,6 +11,7 @@ import { QuotaService } from '../billing/quota.service';
 
 /** How long a job can stay "running" with no progress before being marked stale */
 const STALE_JOB_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+const WHATSAPP_HISTORY_CURSOR = 'whatsapp-history-v1';
 
 @Injectable()
 export class JobsService implements OnApplicationBootstrap {
@@ -25,46 +26,128 @@ export class JobsService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    await this.recoverStaleState();
+    await this.reconcileCompletedBullJobs();
+    if (process.env.BOTMEM_SKIP_JOB_RECOVERY !== '1') {
+      await this.recoverStaleState();
+    }
     await this.cleanOrphanedRepeatJobs();
   }
 
-  /** Reset accounts stuck in 'syncing' and jobs stuck in 'running' after a crash/restart. */
+  /**
+   * Recover work interrupted by a process restart.
+   *
+   * Older startup logic marked these rows failed, which made the UI truthful but stranded
+   * retryable work. A restart is not a connector failure, so keep the original job row and
+   * requeue it with the same BullMQ id.
+   */
   private async recoverStaleState() {
-    // Reset syncing accounts → connected
-    const staleAccounts = await this.dbService.db
-      .update(accounts)
-      .set({ status: 'connected' })
-      .where(eq(accounts.status, 'syncing'))
-      .returning({ id: accounts.id });
+    const recentRestartCutoff = new Date(Date.now() - 15 * 60 * 1000);
+    const candidates = await this.dbService.db
+      .select({
+        id: jobs.id,
+        accountId: jobs.accountId,
+        connectorType: jobs.connectorType,
+        memoryBankId: jobs.memoryBankId,
+        status: jobs.status,
+        error: jobs.error,
+      })
+      .from(jobs)
+      .where(
+        or(
+          inArray(jobs.status, ['queued', 'running']),
+          and(
+            eq(jobs.status, 'failed'),
+            eq(jobs.error, 'Server restarted'),
+            gt(jobs.completedAt, recentRestartCutoff),
+          ),
+        ),
+      )
+      .orderBy(desc(jobs.createdAt))
+      .limit(100);
 
-    if (staleAccounts.length > 0) {
-      this.logger.log(
-        `[startup] Reset ${staleAccounts.length} stale syncing account(s) to connected`,
+    const activeAccounts = new Set(
+      candidates
+        .filter((job) => job.status === 'queued' || job.status === 'running')
+        .map((job) => job.accountId),
+    );
+    const recoveredFailedAccounts = new Set<string>();
+    let requeued = 0;
+    for (const job of candidates) {
+      if (
+        job.connectorType === 'whatsapp' &&
+        (await this.hasCompletedWhatsAppHistory(job.accountId))
+      ) {
+        const now = new Date();
+        await this.dbService.db
+          .update(jobs)
+          .set({
+            status: 'cancelled',
+            error: 'Cancelled stale WhatsApp sync; realtime handles updates after initial history',
+            completedAt: now,
+          })
+          .where(eq(jobs.id, job.id));
+        await this.dbService.db
+          .update(accounts)
+          .set({ status: 'connected', lastError: null, updatedAt: now })
+          .where(eq(accounts.id, job.accountId));
+        continue;
+      }
+
+      // For previously failed restart rows, only recover the latest one per account. Queued/running
+      // rows are already unique in normal operation and should all be restored.
+      if (job.status === 'failed') {
+        if (activeAccounts.has(job.accountId)) continue;
+        if (recoveredFailedAccounts.has(job.accountId)) continue;
+        recoveredFailedAccounts.add(job.accountId);
+      }
+
+      const existingBullJob = await this.syncQueue.getJob(job.id);
+      if (existingBullJob) {
+        const state = await existingBullJob.getState().catch(() => 'unknown');
+        if (state === 'active' || state === 'waiting' || state === 'delayed') continue;
+        await existingBullJob.remove().catch(() => undefined);
+      }
+
+      await this.dbService.db
+        .update(jobs)
+        .set({
+          status: 'queued',
+          error: null,
+          startedAt: null,
+          completedAt: null,
+        })
+        .where(eq(jobs.id, job.id));
+
+      await this.dbService.db
+        .update(accounts)
+        .set({ status: 'connected', lastError: null })
+        .where(eq(accounts.id, job.accountId));
+
+      await this.syncQueue.add(
+        'sync',
+        {
+          accountId: job.accountId,
+          connectorType: job.connectorType,
+          jobId: job.id,
+          memoryBankId: job.memoryBankId || undefined,
+        },
+        { jobId: job.id },
       );
+      requeued++;
     }
 
-    // Reset running jobs → failed
-    const staleJobs = await this.dbService.db
-      .update(jobs)
-      .set({ status: 'failed', error: 'Server restarted', completedAt: new Date() })
-      .where(eq(jobs.status, 'running'))
-      .returning({ id: jobs.id });
-
-    if (staleJobs.length > 0) {
-      this.logger.log(`[startup] Reset ${staleJobs.length} stale running job(s) to failed`);
+    if (requeued > 0) {
+      this.logger.log(`[startup] Requeued ${requeued} restart-interrupted sync job(s)`);
     }
+  }
 
-    // Also reset queued jobs — BullMQ queue was likely flushed on restart
-    const queuedJobs = await this.dbService.db
-      .update(jobs)
-      .set({ status: 'failed', error: 'Server restarted', completedAt: new Date() })
-      .where(eq(jobs.status, 'queued'))
-      .returning({ id: jobs.id });
-
-    if (queuedJobs.length > 0) {
-      this.logger.log(`[startup] Reset ${queuedJobs.length} stale queued job(s) to failed`);
-    }
+  private async hasCompletedWhatsAppHistory(accountId: string): Promise<boolean> {
+    const [account] = await this.dbService.db
+      .select({ lastCursor: accounts.lastCursor })
+      .from(accounts)
+      .where(eq(accounts.id, accountId))
+      .limit(1);
+    return account?.lastCursor === WHATSAPP_HISTORY_CURSOR;
   }
 
   /** Remove BullMQ repeat jobs whose accounts no longer exist. */
@@ -180,6 +263,100 @@ export class JobsService implements OnApplicationBootstrap {
     return job ? this.decryptJob(job) : job;
   }
 
+  async startScheduledSync(accountId: string, connectorType: string) {
+    const [existing] = await this.dbService.db
+      .select({ id: jobs.id, status: jobs.status })
+      .from(jobs)
+      .where(and(eq(jobs.accountId, accountId), inArray(jobs.status, ['queued', 'running'])))
+      .limit(1);
+
+    const [account] = await this.dbService.db
+      .select({
+        identifier: accounts.identifier,
+        userId: accounts.userId,
+        lastCursor: accounts.lastCursor,
+      })
+      .from(accounts)
+      .where(eq(accounts.id, accountId))
+      .limit(1);
+
+    if (connectorType === 'whatsapp' && account?.lastCursor === WHATSAPP_HISTORY_CURSOR) {
+      const id = crypto.randomUUID();
+      const now = new Date();
+      const error = 'Skipped scheduled sync; WhatsApp uses realtime after initial history sync';
+      await this.dbService.db.insert(jobs).values({
+        id,
+        accountId,
+        connectorType,
+        accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
+        memoryBankId: null,
+        status: 'cancelled',
+        priority: 0,
+        progress: 0,
+        total: 0,
+        error,
+        createdAt: now,
+        completedAt: now,
+      });
+      this.logger.log(`Skipping scheduled sync for account ${accountId} — ${error}`);
+      const [row] = await this.dbService.db.select().from(jobs).where(eq(jobs.id, id));
+      return { skipped: true, job: row ? this.decryptJob(row) : row };
+    }
+
+    if (existing) {
+      const id = crypto.randomUUID();
+      const now = new Date();
+      const error = `Skipped scheduled sync because job ${existing.id} is already ${existing.status}`;
+      await this.dbService.db.insert(jobs).values({
+        id,
+        accountId,
+        connectorType,
+        accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
+        memoryBankId: null,
+        status: 'cancelled',
+        priority: 0,
+        progress: 0,
+        total: 0,
+        error,
+        createdAt: now,
+        completedAt: now,
+      });
+      this.logger.log(`Skipping scheduled sync for account ${accountId} — ${error}`);
+      const [row] = await this.dbService.db.select().from(jobs).where(eq(jobs.id, id));
+      return { skipped: true, job: row ? this.decryptJob(row) : row };
+    }
+
+    if (account?.userId) {
+      const quota = await this.quotaService.canCreateMemory(account.userId);
+      if (!quota.allowed) {
+        this.events.emitToChannel(`user:${account.userId}`, 'quota:warning', {
+          accountId,
+          connectorType,
+          used: quota.used,
+          limit: quota.limit,
+        });
+      }
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date();
+    await this.dbService.db.insert(jobs).values({
+      id,
+      accountId,
+      connectorType,
+      accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
+      memoryBankId: null,
+      status: 'queued',
+      priority: 0,
+      progress: 0,
+      total: 0,
+      createdAt: now,
+    });
+
+    const [row] = await this.dbService.db.select().from(jobs).where(eq(jobs.id, id));
+    return { skipped: false, job: row ? this.decryptJob(row) : row };
+  }
+
   async getAll(filters?: { accountId?: string; connectorType?: string }) {
     const results = (
       await this.dbService.withCurrentUser((db) =>
@@ -238,7 +415,7 @@ export class JobsService implements OnApplicationBootstrap {
       status: string;
       progress: number;
       total: number;
-      error: string;
+      error: string | null;
       startedAt: Date | string;
       completedAt: Date | string;
     }>,
@@ -249,10 +426,67 @@ export class JobsService implements OnApplicationBootstrap {
     if (data.completedAt)
       toSet.completedAt =
         data.completedAt instanceof Date ? data.completedAt : new Date(data.completedAt);
+    if (data.completedAt === null) toSet.completedAt = null;
+    if (data.status === 'queued' || data.status === 'running') {
+      toSet.completedAt = null;
+    }
     // updateJob is called from BullMQ processors (outside HTTP context) — use unscoped db
     // since the job row is already validated to belong to the correct user via the processor's
     // withUserId() scope. Direct db access is intentional here for cross-context compatibility.
     await this.dbService.db.update(jobs).set(toSet).where(eq(jobs.id, id));
+  }
+
+  async getQueueStats(queues: Record<string, Queue>) {
+    const stats: Record<
+      string,
+      {
+        waiting: number;
+        active: number;
+        completed: number;
+        failed: number;
+        delayed: number;
+        contradictions?: Array<{
+          jobId: string;
+          dbStatus?: string;
+          bullState: string;
+          action: string;
+        }>;
+      }
+    > = {};
+    for (const [name, queue] of Object.entries(queues)) {
+      const counts = await queue.getJobCounts(
+        'waiting',
+        'active',
+        'completed',
+        'failed',
+        'delayed',
+      );
+      stats[name] = {
+        waiting: counts.waiting ?? 0,
+        active: counts.active ?? 0,
+        completed: counts.completed ?? 0,
+        failed: counts.failed ?? 0,
+        delayed: counts.delayed ?? 0,
+      };
+    }
+    if (queues.sync) {
+      const contradictions = await this.findSyncContradictions(queues.sync, true);
+      if (contradictions.length) stats.sync.contradictions = contradictions;
+    }
+    for (const legacyName of ['embed', 'enrich']) {
+      const legacy = stats[legacyName];
+      if (!legacy) continue;
+      if (legacy.waiting || legacy.active || legacy.failed || legacy.delayed) {
+        legacy.contradictions = [
+          {
+            jobId: '*',
+            bullState: 'legacy_work_present',
+            action: 'legacy queue work should be migrated to memory',
+          },
+        ];
+      }
+    }
+    return stats;
   }
 
   async deleteJob(id: string) {
@@ -283,7 +517,12 @@ export class JobsService implements OnApplicationBootstrap {
       .where(eq(jobs.id, jobId));
 
     const [job] = await this.dbService.db
-      .select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
+      .select({
+        accountId: jobs.accountId,
+        progress: jobs.progress,
+        total: jobs.total,
+        status: jobs.status,
+      })
       .from(jobs)
       .where(eq(jobs.id, jobId));
 
@@ -302,7 +541,12 @@ export class JobsService implements OnApplicationBootstrap {
    */
   async tryCompleteJob(jobId: string): Promise<boolean> {
     const [job] = await this.dbService.db
-      .select({ progress: jobs.progress, total: jobs.total, status: jobs.status })
+      .select({
+        accountId: jobs.accountId,
+        progress: jobs.progress,
+        total: jobs.total,
+        status: jobs.status,
+      })
       .from(jobs)
       .where(eq(jobs.id, jobId));
 
@@ -317,6 +561,11 @@ export class JobsService implements OnApplicationBootstrap {
         completedAt: new Date(),
       })
       .where(eq(jobs.id, jobId));
+
+    await this.dbService.db
+      .update(accounts)
+      .set({ status: 'connected', lastError: null, updatedAt: new Date() })
+      .where(and(eq(accounts.id, job.accountId), eq(accounts.status, 'syncing')));
 
     return true;
   }
@@ -340,10 +589,13 @@ export class JobsService implements OnApplicationBootstrap {
    * and mark them as failed. Called periodically from SyncProcessor.onModuleInit.
    */
   async reapStaleJobs(): Promise<number> {
+    await this.reconcileCompletedBullJobs();
+
     const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS);
     const stale = await this.dbService.db
       .select({
         id: jobs.id,
+        accountId: jobs.accountId,
         connectorType: jobs.connectorType,
         progress: jobs.progress,
         total: jobs.total,
@@ -357,6 +609,10 @@ export class JobsService implements OnApplicationBootstrap {
         .update(jobs)
         .set({ status: 'failed', error, completedAt: new Date() })
         .where(eq(jobs.id, job.id));
+      await this.dbService.db
+        .update(accounts)
+        .set({ status: 'failed', lastError: error, updatedAt: new Date() })
+        .where(eq(accounts.id, job.accountId));
       this.logger.warn(`[reaper] Marked stale job ${job.id} (${job.connectorType}) as failed`);
       this.events.emitToChannel(`job:${job.id}`, 'job:complete', {
         jobId: job.id,
@@ -369,6 +625,94 @@ export class JobsService implements OnApplicationBootstrap {
     }
 
     return stale.length;
+  }
+
+  async reconcileCompletedBullJobs(): Promise<number> {
+    const cleaned = await this.findSyncContradictions(this.syncQueue, true);
+    if (cleaned.length > 0) {
+      this.logger.warn(`[reconciler] Found ${cleaned.length} DB/BullMQ contradiction(s)`);
+    }
+
+    const activeRowsResult = await this.dbService.db
+      .select({
+        id: jobs.id,
+        accountId: jobs.accountId,
+        progress: jobs.progress,
+        total: jobs.total,
+      })
+      .from(jobs)
+      .where(and(eq(jobs.status, 'running'), isNull(jobs.completedAt)));
+    const activeRows = Array.isArray(activeRowsResult) ? activeRowsResult : [];
+
+    let reconciled = 0;
+    for (const row of activeRows) {
+      const bullJob = (await this.syncQueue.getJob(row.id)) as BullJob | null;
+      if (!bullJob) continue;
+      const state = await bullJob.getState();
+      if (state !== 'completed') continue;
+      if (row.total > 0 && row.progress < row.total) continue;
+
+      await this.dbService.db
+        .update(jobs)
+        .set({
+          status: 'done',
+          progress: row.total > 0 ? row.total : row.progress,
+          completedAt: new Date(),
+          error: null,
+        })
+        .where(eq(jobs.id, row.id));
+      await this.dbService.db
+        .update(accounts)
+        .set({ status: 'connected', lastError: null, updatedAt: new Date() })
+        .where(and(eq(accounts.id, row.accountId), eq(accounts.status, 'syncing')));
+      this.events.emitToChannel(`job:${row.id}`, 'job:complete', {
+        jobId: row.id,
+        status: 'done',
+      });
+      reconciled++;
+    }
+
+    if (reconciled > 0) {
+      this.logger.log(`[reconciler] Marked ${reconciled} completed BullMQ job(s) done in DB`);
+    }
+    return reconciled;
+  }
+
+  private async findSyncContradictions(
+    queue: Queue,
+    repair: boolean,
+  ): Promise<Array<{ jobId: string; dbStatus?: string; bullState: string; action: string }>> {
+    const terminalRowsResult = await this.dbService.db
+      .select({ id: jobs.id, status: jobs.status })
+      .from(jobs)
+      .where(inArray(jobs.status, ['done', 'failed', 'cancelled']));
+    const terminalRows = Array.isArray(terminalRowsResult) ? terminalRowsResult : [];
+    const contradictions: Array<{
+      jobId: string;
+      dbStatus?: string;
+      bullState: string;
+      action: string;
+    }> = [];
+    const now = Date.now();
+    for (const row of terminalRows) {
+      const bullJob = (await queue.getJob(row.id)) as BullJob | null;
+      if (!bullJob) continue;
+      const state = await bullJob.getState();
+      if (!['active', 'waiting', 'delayed'].includes(state)) continue;
+      const processedOn = typeof bullJob.processedOn === 'number' ? bullJob.processedOn : 0;
+      const oldEnough = state !== 'active' || processedOn === 0 || now - processedOn > 30_000;
+      let action = 'reported';
+      if (repair && oldEnough) {
+        try {
+          await bullJob.remove();
+          action = 'removed_bullmq_entry';
+        } catch (err) {
+          action = `remove_failed:${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+      contradictions.push({ jobId: row.id, dbStatus: row.status, bullState: state, action });
+    }
+    return contradictions;
   }
 
   /** Remove all BullMQ repeatable jobs for a given account. Called when an account is deleted. */

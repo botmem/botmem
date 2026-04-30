@@ -15,19 +15,23 @@ function mockAccountsService() {
 }
 
 function mockDbService() {
-  const dbChain = {
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        groupBy: vi.fn().mockResolvedValue([]),
-        where: vi.fn().mockResolvedValue([]),
-        innerJoin: vi.fn().mockReturnValue({
-          innerJoin: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-              groupBy: vi.fn().mockResolvedValue([]),
-            }),
-          }),
+  const fromResult = {
+    groupBy: vi.fn().mockResolvedValue([]),
+    where: vi.fn().mockReturnValue({
+      orderBy: vi.fn().mockResolvedValue([]),
+      groupBy: vi.fn().mockResolvedValue([]),
+    }),
+    innerJoin: vi.fn().mockReturnValue({
+      innerJoin: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          groupBy: vi.fn().mockResolvedValue([]),
         }),
       }),
+    }),
+  };
+  const dbChain = {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue(fromResult),
     }),
   };
   return {
@@ -46,6 +50,7 @@ const fakeRow = {
   schedule: 'manual',
   lastSyncAt: null,
   itemsSynced: 10,
+  lastError: null,
 };
 
 describe('AccountsController', () => {
@@ -57,6 +62,7 @@ describe('AccountsController', () => {
     controller = new AccountsController(
       service as unknown as AccountsService,
       mockDbService() as unknown as DbService,
+      { isConnected: vi.fn().mockReturnValue(false) } as never,
     );
   });
 
@@ -66,7 +72,7 @@ describe('AccountsController', () => {
     expect(result.accounts).toHaveLength(1);
     expect(result.accounts[0].type).toBe('gmail');
     expect(result.accounts[0].memoriesIngested).toBe(0);
-    expect(service.getAll).toHaveBeenCalledWith('user-1');
+    expect(service.getAll).toHaveBeenCalledWith('user-1', { includeArchived: false });
   });
 
   it('get returns single mapped account', async () => {
@@ -74,6 +80,23 @@ describe('AccountsController', () => {
     const result = await controller.get({ id: 'user-1' }, 'a1');
     expect(result.id).toBe('a1');
     expect(result.type).toBe('gmail');
+  });
+
+  it('maps iMessage bridge recovery text with the concrete account id', async () => {
+    vi.mocked(service.getById).mockResolvedValue({
+      ...fakeRow,
+      id: 'imsg-1',
+      connectorType: 'imessage',
+      status: 'failed',
+      lastError:
+        'iMessage bridge not connected. Start the Botmem iMessage bridge from connector setup, then run `botmem sync <account-id>`.',
+      userId: 'user-1',
+    });
+
+    const result = await controller.get({ id: 'user-1' }, 'imsg-1');
+
+    expect(result.lastError).toContain('botmem sync imsg-1');
+    expect(result.syncHealth?.recoveryReason).toContain('botmem sync imsg-1');
   });
 
   it('create calls service and maps result', async () => {

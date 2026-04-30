@@ -113,7 +113,7 @@ Correct workflow for person-specific queries:
 
 ## API Notes
 
-- Search uses POST \`/api/memories/search\` with \`{ query, filters?, limit?, rerank? }\`
+- Search uses POST \`/api/memories/search\` with \`{ query, filters?, limit? }\`
 - Default API host is api.botmem.xyz (port 12412 for local dev)
 - Search returns \`{ items, fallback, resolvedEntities? }\`
 - **All timestamps are UTC** — temporal queries ("last week", "yesterday") are parsed and converted to UTC ranges

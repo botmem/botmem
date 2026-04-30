@@ -19,6 +19,20 @@ import { DemoService } from '../demo/demo.service';
 import { OAuthStateService } from './oauth-state.service';
 import { connectorCredentials } from '../db/schema';
 
+function getBridgeToken(authContext: string | null | undefined): string | null {
+  if (!authContext) return null;
+  try {
+    const parsed = JSON.parse(authContext) as {
+      raw?: { bridgeToken?: unknown };
+      bridgeToken?: unknown;
+    };
+    const token = parsed.raw?.bridgeToken ?? parsed.bridgeToken;
+    return typeof token === 'string' && token ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
@@ -212,29 +226,53 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    // iMessage bridge mode: generate token, create account, DON'T auto-sync
+    // iMessage bridge mode: reuse token if present, upsert account, DON'T auto-sync
     if (connectorType === 'imessage' && mergedConfig.authMethod === 'bridge') {
-      const { randomBytes } = await import('node:crypto');
-      const bridgeToken = 'imsg_bt_' + randomBytes(32).toString('hex');
       const myIdentifier = String(mergedConfig.myIdentifier || '');
+      const identifier = myIdentifier || 'imessage';
 
-      const authContext = {
-        raw: { myIdentifier, tunnelMode: true, bridgeToken },
-      };
+      const lockKey = `${connectorType}:${identifier}`;
+      const acquired = await this.oauthState.acquireCreateLock(lockKey);
+      if (!acquired) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
 
-      const account = await this.accountsService.create({
-        connectorType,
-        identifier: myIdentifier || 'imessage',
-        authContext: JSON.stringify(authContext),
-        userId,
-        tunnelMode: true,
-        status: 'disconnected',
-      });
+      try {
+        const existing = await this.accountsService.findByTypeAndIdentifier(
+          connectorType,
+          identifier,
+          userId,
+        );
+        const { randomBytes } = await import('node:crypto');
+        const bridgeToken =
+          getBridgeToken(existing?.authContext) ?? 'imsg_bt_' + randomBytes(32).toString('hex');
+        const authContext = {
+          raw: { myIdentifier, tunnelMode: true, bridgeToken },
+        };
+        const account = existing
+          ? await this.accountsService.update(existing.id, {
+              identifier,
+              authContext: JSON.stringify(authContext),
+              tunnelMode: true,
+              status: 'disconnected',
+              lastError: null,
+            })
+          : await this.accountsService.create({
+              connectorType,
+              identifier,
+              authContext: JSON.stringify(authContext),
+              userId,
+              tunnelMode: true,
+              status: 'disconnected',
+            });
 
-      return {
-        type: 'complete' as const,
-        account: { ...this.redactAccount(account), bridgeToken },
-      };
+        return {
+          type: 'complete' as const,
+          account: { ...this.redactAccount(account), bridgeToken },
+        };
+      } finally {
+        if (acquired) await this.oauthState.releaseCreateLock(lockKey);
+      }
     }
 
     let result;

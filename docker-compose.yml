@@ -26,6 +26,7 @@ services:
       OLLAMA_VL_MODEL: ${OLLAMA_VL_MODEL:-qwen3-vl:2b}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:12412}
       SYNC_DEBUG_LIMIT: ${SYNC_DEBUG_LIMIT:-0}
+      DB_POOL_MAX: ${DB_POOL_MAX:-500}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +44,7 @@ services:
   postgres:
     image: postgres:17-alpine
     shm_size: '256m'
+    command: ['postgres', '-c', 'max_connections=600']
     ports:
       - '5432:5432'
     environment:
@@ -100,24 +102,6 @@ services:
       retries: 5
       start_period: 5s
 
-  reranker:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
-    profiles:
-      - reranker
-    ports:
-      - '8080:80'
-    volumes:
-      - reranker-data:/data
-    command: --model-id BAAI/bge-reranker-v2-m3 --port 80
-    environment:
-      HF_HUB_CACHE: /data
-    healthcheck:
-      test: ['CMD-SHELL', "bash -c 'echo > /dev/tcp/localhost/80'"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-
   jaeger:
     image: jaegertracing/all-in-one:latest
     profiles:
@@ -139,4 +123,3 @@ volumes:
   redis-data:
   ollama-data:
   typesense-data:
-  reranker-data:

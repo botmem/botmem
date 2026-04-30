@@ -82,19 +82,25 @@ export function ConnectorsPage() {
     }
   }, []);
 
-  // Subscribe to connector warning notifications (e.g. WhatsApp decrypt failures)
+  // Subscribe to connector and job events so CLI-triggered syncs update this page too.
   const accessToken = useAuthStore((s) => s.accessToken);
   useEffect(() => {
     if (!accessToken) return;
-    const handler = (msg: { event: string }) => {
-      if (msg.event === 'connector:warning') {
+    const handler = (msg: { event: string; channel?: string }) => {
+      if (
+        msg.event === 'connector:warning' ||
+        msg.event === 'job:complete' ||
+        (msg.channel === 'dashboard' && msg.event === 'dashboard:jobs')
+      ) {
         fetchAccounts();
       }
     };
     sharedWs.subscribe('notifications', accessToken);
+    sharedWs.subscribe('dashboard', accessToken);
     sharedWs.onMessage(handler);
     return () => {
       sharedWs.unsubscribe('notifications');
+      sharedWs.unsubscribe('dashboard');
       sharedWs.offMessage(handler);
     };
   }, [fetchAccounts, accessToken]);
@@ -176,9 +182,8 @@ export function ConnectorsPage() {
                   <div className="text-left">
                     <div className="flex items-center">
                       <h3 className="font-display text-sm font-bold uppercase">{cfg.label}</h3>
-                      {manifests.find((m) => m.id === cfg.type)?.authType === 'qr-code' && (
-                        <ConnectorStatusDot type={cfg.type} />
-                      )}
+                      {manifests.find((m) => m.id === cfg.type)?.authType === 'qr-code' &&
+                        typeAccounts.length === 0 && <ConnectorStatusDot type={cfg.type} />}
                     </div>
                     <p className="font-mono text-xs text-nb-muted">
                       {typeAccounts.length} accounts

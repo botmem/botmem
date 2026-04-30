@@ -252,7 +252,6 @@ Tips:
                 contactId: params.contact_id,
               },
               params.limit,
-              false,
               userId,
             );
           });

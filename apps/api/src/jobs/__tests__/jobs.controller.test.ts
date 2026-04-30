@@ -4,7 +4,6 @@ import { JobsService } from '../jobs.service';
 import { AccountsService } from '../../accounts/accounts.service';
 import { MemoryBanksService } from '../../memory-banks/memory-banks.service';
 import type { DbService } from '../../db/db.service';
-import type { EventsService } from '../../events/events.service';
 import type { Queue } from 'bullmq';
 
 function createMocks() {
@@ -12,6 +11,7 @@ function createMocks() {
     getAll: vi.fn(),
     getAllForUser: vi.fn(),
     getById: vi.fn(),
+    getQueueStats: vi.fn(),
     triggerSync: vi.fn(),
     cancel: vi.fn(),
   } as unknown as JobsService;
@@ -34,12 +34,9 @@ function createMocks() {
     },
   } as unknown as DbService;
 
-  const events = {
-    emitToChannel: vi.fn(),
-  } as unknown as EventsService;
-
   const syncQueue = {} as unknown as Queue;
-  const cleanQueue = {} as unknown as Queue;
+  const memoryQueue = {} as unknown as Queue;
+  const maintenanceQueue = {} as unknown as Queue;
   const embedQueue = {} as unknown as Queue;
   const enrichQueue = {} as unknown as Queue;
   return {
@@ -47,9 +44,9 @@ function createMocks() {
     accountsService,
     memoryBanksService,
     dbService,
-    events,
     syncQueue,
-    cleanQueue,
+    memoryQueue,
+    maintenanceQueue,
     embedQueue,
     enrichQueue,
   };
@@ -75,9 +72,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     } = createMocks();
@@ -88,9 +85,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     );
@@ -107,9 +104,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     } = createMocks();
@@ -120,9 +117,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     );
@@ -131,15 +128,54 @@ describe('JobsController', () => {
     expect(jobsService.getAllForUser).toHaveBeenCalledWith('u1', { accountId: 'a1' });
   });
 
+  it('queues returns queue stats from service', async () => {
+    const {
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    } = createMocks();
+    vi.mocked(jobsService.getQueueStats).mockResolvedValue({
+      sync: { waiting: 0, active: 1, completed: 2, failed: 0, delayed: 3 },
+    });
+
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    );
+
+    const result = await controller.queues();
+    expect(result.sync.active).toBe(1);
+    expect(jobsService.getQueueStats).toHaveBeenCalledWith({
+      sync: syncQueue,
+      memory: memoryQueue,
+      embed: embedQueue,
+      enrich: enrichQueue,
+      maintenance: maintenanceQueue,
+    });
+  });
+
   it('get returns mapped job', async () => {
     const {
       jobsService,
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     } = createMocks();
@@ -150,9 +186,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     );
@@ -167,9 +203,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     } = createMocks();
@@ -180,9 +216,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     );
@@ -196,9 +232,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     } = createMocks();
@@ -215,9 +251,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     );
@@ -239,9 +275,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     } = createMocks();
@@ -253,9 +289,9 @@ describe('JobsController', () => {
       accountsService,
       memoryBanksService,
       dbService,
-      events,
       syncQueue,
-      cleanQueue,
+      memoryQueue,
+      maintenanceQueue,
       embedQueue,
       enrichQueue,
     );

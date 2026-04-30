@@ -57,6 +57,7 @@ describe('AccountsService', () => {
     syncQueue = {
       getRepeatableJobs: vi.fn().mockResolvedValue([]),
       removeRepeatableByKey: vi.fn().mockResolvedValue(undefined),
+      getJob: vi.fn().mockResolvedValue(null),
     };
     service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
   });
@@ -93,11 +94,10 @@ describe('AccountsService', () => {
   describe('getAll', () => {
     it('returns all accounts with decrypted authContext', async () => {
       const rows = [
-        { id: '1', authContext: 'enc:ctx1' },
-        { id: '2', authContext: null },
+        { id: '1', authContext: 'enc:ctx1', identifier: 'enc:first' },
+        { id: '2', authContext: null, identifier: 'enc:second' },
       ];
-      // getAll doesn't use where() when no userId, it returns from select().from()
-      mockDb.from = vi.fn(() => Promise.resolve(rows));
+      mockDb.where = vi.fn(() => Promise.resolve(rows));
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
 
@@ -214,18 +214,13 @@ describe('AccountsService', () => {
   });
 
   describe('remove', () => {
-    it('deletes account and related data', async () => {
+    it('archives account and preserves related data', async () => {
       const account = { id: 'a1', connectorType: 'gmail', authContext: '{"token":"abc"}' };
       mockDb = createChainDb([
         [account], // getById
-        [{ id: 'mem-1' }, { id: 'mem-2' }], // select memory ids
-        undefined,
-        undefined,
-        undefined, // delete memoryContacts, memoryLinks x2
-        undefined, // delete memories
-        undefined, // delete rawEvents
-        undefined, // delete jobs
-        undefined, // delete accounts
+        [{ id: 'job-1' }], // active jobs
+        undefined, // cancel jobs
+        undefined, // archive account
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
       service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
@@ -233,6 +228,10 @@ describe('AccountsService', () => {
       await service.remove('a1');
       expect(connectors.get).toHaveBeenCalledWith('gmail');
       expect(syncQueue.getRepeatableJobs).toHaveBeenCalled();
+      expect(mockDb.delete).not.toHaveBeenCalled();
+      expect(mockDb.set).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'archived', authContext: null }),
+      );
     });
 
     it('handles revokeAuth failure gracefully', async () => {

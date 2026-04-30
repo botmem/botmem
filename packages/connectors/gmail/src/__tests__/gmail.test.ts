@@ -21,6 +21,7 @@ vi.mock('../oauth.js', () => ({
 }));
 
 vi.mock('../sync.js', () => ({
+  isGmailContinuationCursor: vi.fn().mockReturnValue(false),
   syncGmail: vi
     .fn()
     .mockImplementation(
@@ -250,11 +251,15 @@ describe('GmailConnector', () => {
 
       const sender = result.entities.find((e: Entity) => e.role === 'sender');
       expect(sender).toBeDefined();
-      expect(sender!.id).toContain('email:alice@test.com');
-      expect(sender!.id).toContain('name:Alice');
+      expect(sender!.id).toBe('email:alice@test.com');
 
       const recipients = result.entities.filter((e: Entity) => e.role === 'recipient');
       expect(recipients.length).toBe(3); // Bob, carol, Dave
+      expect(recipients.map((e) => e.id)).toEqual([
+        'email:bob@test.com',
+        'email:carol@test.com',
+        'email:dave@test.com',
+      ]);
 
       const thread = result.entities.find((e: Entity) => e.type === 'message');
       expect(thread!.id).toBe('thread:thread-123');

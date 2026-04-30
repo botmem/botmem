@@ -31,6 +31,8 @@ import { BillingModule } from '../billing/billing.module';
     }),
     BullModule.registerQueue({ name: 'sync' }),
     BullModule.registerQueue({ name: 'memory' }),
+    BullModule.registerQueue({ name: 'embed' }),
+    BullModule.registerQueue({ name: 'enrich' }),
     BullModule.registerQueue({ name: 'maintenance' }),
     AccountsModule,
     forwardRef(() => AuthModule),

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { eq, sql, and, or, inArray, type SQLWrapper } from 'drizzle-orm';
+import { desc, eq, sql, and, or, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { AiService } from './ai.service';
 import { TypesenseService } from './typesense.service';
@@ -16,6 +16,7 @@ import {
   people,
   personIdentifiers,
   accounts,
+  rawEvents,
   settings,
 } from '../db/schema';
 import { parseNlq } from './nlq-parser';
@@ -115,6 +116,33 @@ interface SearchFilters {
   pinned?: boolean;
 }
 
+type SearchIntent =
+  | 'broad_topic'
+  | 'person_lookup'
+  | 'conversation'
+  | 'location'
+  | 'transaction'
+  | 'recent_activity';
+
+interface SearchDiagnostics {
+  intent: SearchIntent;
+  resolvedEntities: {
+    contacts: { id: string; displayName: string }[];
+    mode: 'hint' | 'filter';
+    topicWords: string[];
+  };
+  candidateLanes: Record<string, number>;
+  appliedFilters: string[];
+  skippedUndecryptableResultIds: string[];
+  topScoreComponents: Array<{
+    id: string;
+    score: number;
+    semantic: number;
+    lanes: string[];
+  }>;
+  schemaStatus?: Awaited<ReturnType<TypesenseService['getSchemaStatus']>>;
+}
+
 /** Strip accents/diacritics for fuzzy matching (amélie → amelie) */
 function stripAccents(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -136,7 +164,6 @@ export interface SearchResult {
   score: number;
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;
@@ -179,6 +206,14 @@ export interface SearchResponse {
   parsed?: ParsedQuery;
   facetCounts?: FacetCounts;
   found?: number;
+  diagnostics?: SearchDiagnostics;
+}
+
+export interface RawMemoryAsset {
+  contentType: string;
+  fileName: string;
+  contentLength: number | null;
+  buffer: Buffer;
 }
 
 /** Check if candidate words match as whole-word boundaries in a contact name.
@@ -193,6 +228,33 @@ function nameWordsMatch(contactName: string, candidateWords: string[]): boolean 
       if (cw.length >= 5 && nw.startsWith(cw) && cw.length / nw.length >= 0.8) return true;
       return false;
     }),
+  );
+}
+
+function planSearchIntent(query: string): SearchIntent {
+  const q = query.toLowerCase();
+  if (/\b(where|location|located|last seen|near|at)\b/.test(q)) return 'location';
+  if (/\b(sent|from|to|conversation|chat|dm|message|messages|thread|with)\b/.test(q)) {
+    return 'conversation';
+  }
+  if (
+    /\b(card|top ?up|credited|debited|transfer|amount|aed|usd|eur|bank|wio|payment|invoice)\b/.test(
+      q,
+    )
+  ) {
+    return 'transaction';
+  }
+  if (/\b(recent|latest|last|yesterday|today|this week|this month)\b/.test(q))
+    return 'recent_activity';
+  if (q.trim().split(/\s+/).length <= 3) return 'person_lookup';
+  return 'broad_topic';
+}
+
+function extractTransactionTokens(query: string): string[] {
+  return (
+    query
+      .toLowerCase()
+      .match(/[a-z0-9]+(?:[._-][a-z0-9]+)*|\b(?:aed|usd|eur|gbp|sar|egp)\b|\d+(?:[.,]\d+)?/g) ?? []
   );
 }
 
@@ -263,17 +325,20 @@ export class MemoryService {
   /** Check if user has encrypted memories but no decryption key available. */
   async needsRecoveryKey(userId?: string): Promise<boolean> {
     if (!userId) return false;
+    const sample = await this.findEncryptedMemorySample(userId);
+    if (!sample) return false;
+
     const dek = await this.userKeyService.getDek(userId);
-    if (dek) return false;
-    // Flag if there are any memories for this user
-    const [row] = await this.dbService.db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(memories)
-      .where(
-        eq(memories.accountId, sql`(SELECT id FROM accounts WHERE user_id = ${userId} LIMIT 1)`),
-      )
-      .limit(1);
-    return (row?.count ?? 0) > 0;
+    if (!dek) return true;
+
+    try {
+      this.crypto.decryptWithKeyStrict(sample.text, dek);
+      return false;
+    } catch {
+      this.logger.warn(`needsRecoveryKey: stale DEK for user ${userId} — clearing cache tiers`);
+      await this.userKeyService.clearDek(userId);
+      return true;
+    }
   }
 
   /**
@@ -283,30 +348,7 @@ export class MemoryService {
    */
   async validateDek(userId?: string): Promise<boolean> {
     if (!userId) return false;
-    const dek = await this.userKeyService.getDek(userId);
-    if (!dek) return await this.needsRecoveryKey(userId);
-
-    // Grab one encrypted memory to test the DEK
-    const [sample] = await this.dbService.db
-      .select({ text: memories.text })
-      .from(memories)
-      .where(
-        eq(memories.accountId, sql`(SELECT id FROM accounts WHERE user_id = ${userId} LIMIT 1)`),
-      )
-      .limit(1);
-
-    if (!sample) return false; // no memories — nothing to decrypt
-
-    if (!this.crypto.isEncrypted(sample.text)) return false; // plaintext — no DEK needed
-
-    try {
-      this.crypto.decryptWithKeyStrict(sample.text, dek);
-      return false; // DEK works
-    } catch {
-      this.logger.warn(`validateDek: stale DEK for user ${userId} — evicting`);
-      this.userKeyService.removeKey(userId);
-      return true; // needs recovery key
-    }
+    return this.needsRecoveryKey(userId);
   }
 
   /** @deprecated Use needsRecoveryKey instead */
@@ -359,12 +401,37 @@ export class MemoryService {
    * Returns account IDs for a user. null = no user filter (internal/system calls).
    * Empty array = user exists but has no accounts (should see zero data).
    */
-  async getUserAccountIds(userId?: string): Promise<string[] | null> {
+  async getUserAccountIds(userId?: string, connectorTypes?: string[]): Promise<string[] | null> {
     if (!userId) return null;
+    const connectorTypeSet = connectorTypes
+      ? Array.from(new Set(connectorTypes.filter(Boolean)))
+      : undefined;
+    const conditions = [eq(accounts.userId, userId)];
+    if (connectorTypeSet?.length) {
+      conditions.push(inArray(accounts.connectorType, connectorTypeSet));
+    }
     const rows = await this.dbService.withCurrentUser((db) =>
-      db.select({ id: accounts.id }).from(accounts).where(eq(accounts.userId, userId)),
+      db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(and(...conditions)),
     );
     return rows.map((r) => r.id);
+  }
+
+  private async findEncryptedMemorySample(userId: string): Promise<{ text: string } | null> {
+    const userAccountIds = await this.getUserAccountIds(userId);
+    if (!userAccountIds?.length) return null;
+
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ text: memories.text })
+        .from(memories)
+        .where(and(inArray(memories.accountId, userAccountIds), sql`${memories.text} LIKE '%:%:%'`))
+        .limit(10),
+    );
+
+    return rows.find((row) => this.crypto.isEncrypted(row.text)) ?? null;
   }
 
   private async getCachedContacts(
@@ -476,7 +543,7 @@ export class MemoryService {
     }
   }
 
-  private diversityRerank(
+  private diversifyResults(
     candidates: Array<{ id: string; row: any; score: number; weights: any }>,
     limit: number,
     diversityFactor = DIVERSITY_FACTOR_DEFAULT,
@@ -574,6 +641,11 @@ export class MemoryService {
           const nameWordsRaw = stripAccents((c.displayName || '').toLowerCase()).split(/\s+/);
           const nameWordCount = nameWordsRaw.length;
           if (candidateWords.length === 1 && nameWordCount > 1) {
+            const prevWord = i > 0 ? remaining[i - 1] : '';
+            const hasPersonCue = ['with', 'from', 'to', 'sent', 'by', 'where', 'is'].includes(
+              prevWord,
+            );
+            if (remaining.length > 1 && i > 0 && !hasPersonCue) continue;
             // Only match first real word of multi-word names (prevents "insurance" → "Osama Insurance")
             const nameWordsClean = nameWordsRaw.filter((w) => !TITLE_PREFIXES.has(w));
             const firstNameWord = nameWordsClean[0] || nameWordsRaw[0];
@@ -613,23 +685,44 @@ export class MemoryService {
     query: string,
     filters?: SearchFilters,
     limit = 20,
-    rerank?: boolean,
     userId?: string,
     memoryBankId?: string,
     memoryBankIds?: string[],
     diversityFactor?: number,
+    options?: { debug?: boolean },
   ): Promise<SearchResponse> {
     if (!query.trim()) return { items: [], fallback: false };
 
     // Pre-resolve user decryption key (async 2-tier: memory → Redis)
     const resolvedKey = await this.resolveUserKey(userId);
 
-    // --- User isolation: resolve account IDs ---
-    const userAccountIds = await this.getUserAccountIds(userId);
-
     // --- NLQ parsing (pure, synchronous) ---
     const nlq = parseNlq(query);
+    const plannedIntent = planSearchIntent(query);
     const effectiveFilters: SearchFilters = { ...filters };
+    const diagnostics: SearchDiagnostics | undefined = options?.debug
+      ? {
+          intent: plannedIntent,
+          resolvedEntities: { contacts: [], mode: 'hint', topicWords: [] },
+          candidateLanes: {},
+          appliedFilters: [],
+          skippedUndecryptableResultIds: [],
+          topScoreComponents: [],
+        }
+      : undefined;
+
+    // --- User isolation: resolve account IDs ---
+    // Narrow account scope before Typesense when connector filters are present.
+    // A full account_id list combined with connector_type filters can exceed the
+    // Typesense client timeout even when the matching connector has one account.
+    const connectorScope = [
+      ...(filters?.connectorTypes ?? []),
+      ...(filters?.connectorType ? [filters.connectorType] : []),
+    ];
+    const userAccountIds = await this.getUserAccountIds(
+      userId,
+      connectorScope.length ? connectorScope : undefined,
+    );
     if (userAccountIds !== null) {
       if (userAccountIds.length === 0) return { items: [], fallback: false };
       effectiveFilters.accountIds = userAccountIds;
@@ -692,6 +785,10 @@ export class MemoryService {
       : '';
     const combinedFilter =
       [legacyFilterStr, tsFilterString].filter(Boolean).join(' && ') || undefined;
+    if (diagnostics) {
+      diagnostics.appliedFilters = [legacyFilterStr, tsFilterString].filter(Boolean);
+      diagnostics.schemaStatus = await this.typesense.getSchemaStatus().catch(() => undefined);
+    }
 
     const FACET_FIELDS = 'connector_type,source_type,factuality_label,people';
 
@@ -708,7 +805,46 @@ export class MemoryService {
     );
     const typesenseResults = hybridResult.results;
     const semanticScores = new Map<string, number>();
-    for (const point of typesenseResults) semanticScores.set(point.id, point.score);
+    const candidateLanes = new Map<string, Set<string>>();
+    const noteLane = (id: string, lane: string) => {
+      const lanes = candidateLanes.get(id) ?? new Set<string>();
+      lanes.add(lane);
+      candidateLanes.set(id, lanes);
+    };
+    for (const point of typesenseResults) {
+      semanticScores.set(point.id, point.score);
+      noteLane(point.id, 'vector_semantic');
+    }
+
+    const lexicalResults = await this.typesense.textSearch(
+      embeddingQuery,
+      hybridK,
+      combinedFilter,
+      'text,entities_text,people,locations,location_text,organizations',
+    );
+    for (const point of lexicalResults) {
+      semanticScores.set(point.id, Math.max(semanticScores.get(point.id) ?? 0, point.score, 0.72));
+      noteLane(point.id, 'lexical_exact');
+    }
+
+    if (plannedIntent === 'transaction') {
+      const txQuery = extractTransactionTokens(query).join(' ');
+      if (txQuery) {
+        const txResults = await this.typesense.textSearch(
+          txQuery,
+          hybridK,
+          combinedFilter,
+          'transaction_tokens,text',
+        );
+        for (const point of txResults) {
+          semanticScores.set(
+            point.id,
+            Math.max(semanticScores.get(point.id) ?? 0, point.score, 0.76),
+          );
+          noteLane(point.id, 'transaction_tokens');
+        }
+      }
+    }
 
     // --- Contact boost: identify which results belong to resolved contacts ---
     const contactMatchIds = new Set<string>();
@@ -719,6 +855,13 @@ export class MemoryService {
     const isPureContactQuery = hasContacts && topicWords.length === 0;
     let allContactMemoryIds = new Set<string>();
     if (hasContacts) {
+      if (diagnostics) {
+        diagnostics.resolvedEntities = {
+          contacts: resolvedContacts,
+          mode: effectiveFilters.contactId ? 'filter' : 'hint',
+          topicWords,
+        };
+      }
       const linked = await this.dbService.withCurrentUser((db) =>
         db
           .select({ memoryId: memoryPeople.memoryId, personId: memoryPeople.personId })
@@ -729,11 +872,111 @@ export class MemoryService {
       // Count how many resolved contacts each memory is linked to
       for (const r of linked) {
         contactMatchCount.set(r.memoryId, (contactMatchCount.get(r.memoryId) || 0) + 1);
+        if (
+          plannedIntent === 'conversation' ||
+          plannedIntent === 'person_lookup' ||
+          plannedIntent === 'location' ||
+          plannedIntent === 'transaction'
+        ) {
+          semanticScores.set(r.memoryId, Math.max(semanticScores.get(r.memoryId) ?? 0, 0.68));
+          noteLane(r.memoryId, 'structured_person_role');
+        }
       }
       for (const point of typesenseResults) {
         if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
       }
       topicMatchCount = contactMatchIds.size;
+    }
+
+    // A bare person-name query should behave like opening that person's timeline.
+    // Most chat messages do not repeat the participant's name, so ranking literal
+    // name matches first hides the recent conversation the user is asking for.
+    if (isPureContactQuery && contactIds.length > 0) {
+      const contactConditions: SQLWrapper[] = [
+        inArray(memoryPeople.personId, contactIds),
+        eq(memories.pipelineComplete, true),
+      ];
+      if (effectiveFilters.accountIds?.length) {
+        contactConditions.push(inArray(memories.accountId, effectiveFilters.accountIds));
+      }
+      if (effectiveFilters.memoryBankId) {
+        contactConditions.push(eq(memories.memoryBankId, effectiveFilters.memoryBankId));
+      } else if (effectiveFilters.memoryBankIds?.length) {
+        contactConditions.push(inArray(memories.memoryBankId, effectiveFilters.memoryBankIds));
+      }
+      if (effectiveFilters.connectorType) {
+        contactConditions.push(eq(memories.connectorType, effectiveFilters.connectorType));
+      }
+      if (effectiveFilters.connectorTypes?.length) {
+        contactConditions.push(inArray(memories.connectorType, effectiveFilters.connectorTypes));
+      }
+      if (effectiveFilters.sourceType) {
+        contactConditions.push(eq(memories.sourceType, effectiveFilters.sourceType));
+      }
+      if (effectiveFilters.sourceTypes?.length) {
+        contactConditions.push(inArray(memories.sourceType, effectiveFilters.sourceTypes));
+      }
+      if (effectiveFilters.from) {
+        contactConditions.push(sql`${memories.eventTime} >= ${effectiveFilters.from}`);
+      }
+      if (effectiveFilters.to) {
+        contactConditions.push(sql`${memories.eventTime} <= ${effectiveFilters.to}`);
+      }
+      if (effectiveFilters.factualityLabels?.length) {
+        contactConditions.push(
+          inArray(memories.factualityLabel, effectiveFilters.factualityLabels),
+        );
+      }
+      if (effectiveFilters.pinned !== undefined) {
+        contactConditions.push(eq(memories.pinned, effectiveFilters.pinned));
+      }
+
+      const recentRows = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ memory: memories, accountIdentifier: accounts.identifier })
+          .from(memoryPeople)
+          .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+          .leftJoin(accounts, eq(memories.accountId, accounts.id))
+          .where(and(...contactConditions)!)
+          .orderBy(desc(memories.eventTime))
+          .limit(effectiveLimit * Math.max(contactIds.length, 1) * 3),
+      );
+
+      const seen = new Set<string>();
+      const items: SearchResult[] = [];
+      for (const row of recentRows) {
+        if (seen.has(row.memory.id)) continue;
+        seen.add(row.memory.id);
+        const { score, weights } = this.computeWeights(0.9, row.memory, nlq.intent);
+        items.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
+        if (items.length >= effectiveLimit) break;
+      }
+
+      void this.pluginRegistry.fireHook('afterSearch', {
+        query,
+        resultCount: items.length,
+        topScore: items[0]?.score,
+      });
+
+      return {
+        items: items.filter((item) => {
+          if (item.text.startsWith('[Encrypted')) {
+            diagnostics?.skippedUndecryptableResultIds.push(item.id);
+            return false;
+          }
+          return true;
+        }),
+        fallback: false,
+        resolvedEntities: { contacts: resolvedContacts, topicWords, topicMatchCount },
+        parsed: {
+          temporal: nlq.temporal,
+          entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
+          intent: nlq.intent,
+          cleanQuery: nlq.cleanQuery,
+          sourceType: nlq.sourceTypeHint ?? undefined,
+        },
+        diagnostics,
+      };
     }
 
     // If filtering by contactId directly, filter Typesense results to that contact's memories
@@ -753,7 +996,7 @@ export class MemoryService {
         if (!linkedMemoryIds.has(point.id)) continue;
         const row = await this.fetchMemoryRow(point.id);
         if (!row) continue;
-        const { score, weights } = this.computeWeights(point.score, 0, row.memory, nlq.intent);
+        const { score, weights } = this.computeWeights(point.score, row.memory, nlq.intent);
         contactResults.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
         if (contactResults.length >= effectiveLimit) break;
       }
@@ -764,7 +1007,13 @@ export class MemoryService {
         topScore: sorted[0]?.score,
       });
       return {
-        items: sorted,
+        items: sorted.filter((item) => {
+          if (item.text.startsWith('[Encrypted')) {
+            diagnostics?.skippedUndecryptableResultIds.push(item.id);
+            return false;
+          }
+          return true;
+        }),
         fallback: false,
         parsed: {
           temporal: nlq.temporal,
@@ -773,12 +1022,15 @@ export class MemoryService {
           cleanQuery: nlq.cleanQuery,
           sourceType: nlq.sourceTypeHint ?? undefined,
         },
+        diagnostics,
       };
     }
 
     // --- Collect candidate IDs from Typesense results ---
     const allCandidateIds = new Set<string>();
     for (const point of typesenseResults) allCandidateIds.add(point.id);
+    for (const point of lexicalResults) allCandidateIds.add(point.id);
+    for (const [id] of candidateLanes) allCandidateIds.add(id);
 
     // For pure contact queries, inject top contact-linked memories that Typesense may have missed
     if (isPureContactQuery && allContactMemoryIds.size > 0) {
@@ -815,6 +1067,7 @@ export class MemoryService {
           cleanQuery: nlq.cleanQuery,
           sourceType: nlq.sourceTypeHint ?? undefined,
         },
+        diagnostics,
       };
     }
 
@@ -834,23 +1087,6 @@ export class MemoryService {
       candidateRows.push({ id, row });
     }
 
-    // Optional rerank pass on top 15 candidates
-    const rerankScores = new Map<string, number>();
-    const shouldRerank = rerank ?? candidateRows.length <= 15;
-    if (shouldRerank) {
-      const sortedCandidates = [...candidateRows].sort(
-        (a, b) => (semanticScores.get(b.id) ?? 0) - (semanticScores.get(a.id) ?? 0),
-      );
-      const rerankCandidates = sortedCandidates.slice(0, 15);
-      if (rerankCandidates.length > 0) {
-        const rerankTexts = rerankCandidates.map((c) => c.row.memory.text);
-        const scores = await this.ai.rerank(query, rerankTexts);
-        for (let i = 0; i < rerankCandidates.length; i++) {
-          rerankScores.set(rerankCandidates[i].id, scores[i]);
-        }
-      }
-    }
-
     // Score all candidates with contact boost
     const scoredCandidates: Array<{
       id: string;
@@ -860,7 +1096,6 @@ export class MemoryService {
     }> = [];
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
-      const rerankScore = rerankScores.get(id) ?? 0;
       // Multi-contact boost: memories linked to ALL resolved contacts get strongest boost
       // For mixed queries (contacts + keywords), use a softer boost so keyword-matching
       // memories (e.g. messages mentioning "sick") aren't drowned out by photos that
@@ -880,23 +1115,52 @@ export class MemoryService {
               ? 0.5 // pure contact query but memory isn't linked to any — demote
               : 1.0;
 
-      const { score, weights } = this.computeWeights(
-        semanticScore,
-        rerankScore,
-        row.memory,
-        nlq.intent,
+      const { score, weights } = this.computeWeights(semanticScore, row.memory, nlq.intent);
+      const locationMultiplier =
+        plannedIntent === 'location' && ['location', 'photo'].includes(row.memory.sourceType)
+          ? 1.22
+          : 1.0;
+      const recencyMultiplier = plannedIntent === 'recent_activity' ? 1.08 : 1.0;
+      const boostedScore = Math.min(
+        score * contactMultiplier * locationMultiplier * recencyMultiplier,
+        1.0,
       );
-      const boostedScore = Math.min(score * contactMultiplier, 1.0);
       const boostedWeights = { ...weights, final: boostedScore };
 
       scoredCandidates.push({ id, row, score: boostedScore, weights: boostedWeights });
     }
 
-    const filtered = scoredCandidates.filter((c) => c.score >= MIN_SCORE);
-    const topCandidates = this.diversityRerank(filtered, effectiveLimit, diversityFactor);
-    const returnItems = topCandidates.map((c) =>
-      this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey),
+    const exactLaneIds = new Set(
+      [...candidateLanes.entries()]
+        .filter(([, lanes]) => lanes.has('lexical_exact') || lanes.has('transaction_tokens'))
+        .map(([id]) => id),
     );
+    const scoreFiltered = scoredCandidates.filter(
+      (c) => c.score >= MIN_SCORE || exactLaneIds.has(c.id),
+    );
+    const topCandidates = this.diversifyResults(scoreFiltered, effectiveLimit, diversityFactor);
+    const returnItems = topCandidates
+      .map((c) => this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey))
+      .filter((item) => {
+        if (item.text.startsWith('[Encrypted')) {
+          diagnostics?.skippedUndecryptableResultIds.push(item.id);
+          return false;
+        }
+        return true;
+      });
+    if (diagnostics) {
+      for (const [, lanes] of candidateLanes) {
+        for (const lane of lanes) {
+          diagnostics.candidateLanes[lane] = (diagnostics.candidateLanes[lane] ?? 0) + 1;
+        }
+      }
+      diagnostics.topScoreComponents = topCandidates.slice(0, 10).map((c) => ({
+        id: c.id,
+        score: c.score,
+        semantic: semanticScores.get(c.id) ?? 0,
+        lanes: [...(candidateLanes.get(c.id) ?? new Set())],
+      }));
+    }
 
     // Fire afterSearch hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterSearch', {
@@ -934,6 +1198,7 @@ export class MemoryService {
       },
       facetCounts,
       found: hybridResult.found,
+      diagnostics,
     };
   }
 
@@ -982,7 +1247,7 @@ export class MemoryService {
     for (const point of result.results) {
       const row = batchRows.get(point.id);
       if (!row) continue;
-      const { score, weights } = this.computeWeights(point.score, 0, row.memory, 'recall');
+      const { score, weights } = this.computeWeights(point.score, row.memory, 'recall');
       citations.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
     }
 
@@ -1092,6 +1357,149 @@ export class MemoryService {
     const mem = this.decryptMemoryAuto(rows[0], userId, resolvedKey);
     const peopleMap = await this.getPeopleForMemories([id]);
     return { ...mem, people: peopleMap.get(id) || [] };
+  }
+
+  async getRawById(id: string, userId?: string | null, memoryBankIds?: string[]) {
+    const memory = await this.getById(id, userId);
+    if (!memory) return null;
+    if (memoryBankIds?.length && !memoryBankIds.includes(memory.memoryBankId ?? '')) return null;
+
+    const rawRows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select()
+        .from(rawEvents)
+        .where(
+          and(
+            eq(rawEvents.accountId, memory.accountId!),
+            eq(rawEvents.connectorType, memory.connectorType),
+            eq(rawEvents.sourceId, memory.sourceId),
+          ),
+        )
+        .limit(1),
+    );
+    const rawEvent = rawRows[0] ?? null;
+    const payload = rawEvent
+      ? this.parseMaybeJson(this.crypto.decrypt(rawEvent.payload) || rawEvent.payload)
+      : null;
+
+    const memoryMetadata = this.stripLargeInlineData(this.parseMaybeJson(memory.metadata));
+
+    return {
+      memory: {
+        id: memory.id,
+        accountId: memory.accountId,
+        connectorType: memory.connectorType,
+        sourceType: memory.sourceType,
+        sourceId: memory.sourceId,
+        eventTime: memory.eventTime,
+        ingestTime: memory.ingestTime,
+        metadata: memoryMetadata,
+      },
+      rawEvent: rawEvent
+        ? {
+            id: rawEvent.id,
+            accountId: rawEvent.accountId,
+            connectorType: rawEvent.connectorType,
+            sourceType: rawEvent.sourceType,
+            sourceId: rawEvent.sourceId,
+            sourceHash: rawEvent.sourceHash,
+            processingState: rawEvent.processingState,
+            timestamp: rawEvent.timestamp,
+            jobId: rawEvent.jobId,
+            createdAt: rawEvent.createdAt,
+            payload,
+          }
+        : null,
+      connectorRaw:
+        memory.connectorType === 'photos'
+          ? await this.getPhotosRawMetadata(memory.accountId, memory.sourceId)
+          : null,
+      asset:
+        memory.connectorType === 'photos'
+          ? {
+              originalUrl: `/api/memories/${encodeURIComponent(memory.id)}/raw/file?variant=original`,
+              thumbnailUrl: `/api/memories/${encodeURIComponent(memory.id)}/raw/file?variant=thumbnail`,
+            }
+          : null,
+    };
+  }
+
+  async getRawAssetById(
+    id: string,
+    userId?: string | null,
+    memoryBankIds?: string[],
+    variant: 'original' | 'thumbnail' = 'original',
+  ): Promise<RawMemoryAsset | null> {
+    const memory = await this.getById(id, userId);
+    if (!memory) return null;
+    if (memoryBankIds?.length && !memoryBankIds.includes(memory.memoryBankId ?? '')) return null;
+    if (memory.connectorType !== 'photos') {
+      throw new Error(`Raw asset streaming is not implemented for ${memory.connectorType}`);
+    }
+
+    const auth = await this.getAccountAuth(memory.accountId);
+    const connector = this.connectors.get(memory.connectorType);
+    const asset = await connector.getRawAsset(memory.sourceId, auth, variant);
+    if (!asset)
+      throw new Error(`Raw asset streaming is not implemented for ${memory.connectorType}`);
+
+    return {
+      contentType: asset.contentType,
+      fileName: asset.fileName,
+      contentLength: asset.contentLength,
+      buffer: asset.buffer,
+    };
+  }
+
+  private async getPhotosRawMetadata(accountId: string | null, sourceId: string) {
+    if (!accountId) return null;
+    const auth = await this.getAccountAuth(accountId);
+    const connector = this.connectors.get('photos');
+    const raw = await connector.getRaw(sourceId, auth);
+    return this.stripLargeInlineData(raw);
+  }
+
+  private async getAccountAuth(accountId: string | null) {
+    if (!accountId) throw new Error('Memory is not linked to a connector account');
+    const [account] = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ authContext: accounts.authContext })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1),
+    );
+    const authContext = this.parseMaybeJson(this.crypto.decrypt(account?.authContext) || null);
+    if (!authContext || typeof authContext !== 'object') {
+      throw new Error('Connector credentials are unavailable');
+    }
+    return authContext as {
+      accessToken?: string;
+      refreshToken?: string;
+      raw?: Record<string, unknown>;
+    };
+  }
+
+  private parseMaybeJson(value: unknown): unknown {
+    if (typeof value !== 'string') return value ?? null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  private stripLargeInlineData(value: unknown): unknown {
+    if (!value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map((item) => this.stripLargeInlineData(item));
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'thumbnailBase64') {
+        out.hasThumbnailBase64 = typeof child === 'string' && child.length > 0;
+      } else {
+        out[key] = this.stripLargeInlineData(child);
+      }
+    }
+    return out;
   }
 
   async list(
@@ -1822,7 +2230,6 @@ export class MemoryService {
 
   private computeWeights(
     semanticScore: number,
-    rerankScore: number,
     mem: {
       pinned: boolean | null;
       recallCount: number | null;
@@ -1836,7 +2243,6 @@ export class MemoryService {
     score: number;
     weights: {
       semantic: number;
-      rerank: number;
       recency: number;
       importance: number;
       trust: number;
@@ -1872,33 +2278,21 @@ export class MemoryService {
     const semScale = connectorWeights.semantic / 0.4;
     const recScale = connectorWeights.recency / 0.25;
 
-    // When reranker is available, use the full 5-weight formula.
-    // When unavailable (rerankScore === 0), redistribute rerank weight to semantic.
+    // The semantic score already includes Typesense hybrid rank fusion.
     // Browse intent boosts recency weight significantly.
     let final: number;
     if (intent === 'browse') {
       const p = SCORING_PROFILES.browse;
       final =
-        rerankScore > 0
-          ? Math.min(p.semantic * semScale, p.semanticCap) * semanticScore +
-            0.2 * rerankScore +
-            Math.min(p.recency * recScale, p.recencyCap) * recency +
-            p.importance * importance +
-            p.trust * trust
-          : Math.min(
-              SCORING_PROFILES.recall.semantic * semScale,
-              SCORING_PROFILES.recall.semanticCap,
-            ) *
-              semanticScore +
-            Math.min(p.recency * recScale, p.recencyCap) * recency +
-            0.15 * importance +
-            p.trust * trust;
+        Math.min(SCORING_PROFILES.recall.semantic * semScale, SCORING_PROFILES.recall.semanticCap) *
+          semanticScore +
+        Math.min(p.recency * recScale, p.recencyCap) * recency +
+        0.15 * importance +
+        p.trust * trust;
     } else {
-      const p =
-        rerankScore > 0 ? SCORING_PROFILES.recallRerank : SCORING_PROFILES.recallRerankNoSemantic;
+      const p = SCORING_PROFILES.recallHybrid;
       final =
         Math.min(p.semantic * semScale, p.semanticCap) * semanticScore +
-        p.rerank * rerankScore +
         Math.min(p.recency * recScale, p.recencyCap) * recency +
         p.importance * importance +
         p.trust * trust;
@@ -1912,7 +2306,6 @@ export class MemoryService {
         try {
           pluginBonus += scorer.score(mem, {
             semantic: semanticScore,
-            rerank: rerankScore,
             recency,
             importance,
             trust,
@@ -1930,7 +2323,7 @@ export class MemoryService {
 
     return {
       score: final,
-      weights: { semantic: semanticScore, rerank: rerankScore, recency, importance, trust, final },
+      weights: { semantic: semanticScore, recency, importance, trust, final },
     };
   }
 
@@ -2100,7 +2493,7 @@ export class MemoryService {
   }
 
   /** Phase 10: Search entities across all memories */
-  async searchEntities(query: string, limit = 50, types?: string[]) {
+  async searchEntities(query: string, limit = 50, types?: string[], userId?: string) {
     const queryLower = query.toLowerCase();
 
     // Search in entities JSON column
@@ -2114,8 +2507,10 @@ export class MemoryService {
           eventTime: memories.eventTime,
         })
         .from(memories)
+        .innerJoin(accounts, eq(memories.accountId, accounts.id))
         .where(
           and(
+            userId ? eq(accounts.userId, userId) : undefined,
             eq(memories.pipelineComplete, true),
             sql`LOWER(${memories.entities}) LIKE ${'%' + escapeLike(queryLower) + '%'}`,
           ),

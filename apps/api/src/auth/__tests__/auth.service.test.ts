@@ -252,6 +252,44 @@ describe('AuthService', () => {
       expect((result as unknown as { qrData: string }).qrData).toBe('data:image/png');
       expect((result as unknown as { wsChannel: string }).wsChannel).toBe('auth:session-1');
     });
+
+    it('reuses an existing iMessage bridge account for the same identifier', async () => {
+      const deps = createMockDeps();
+      vi.mocked(deps.accountsService.findByTypeAndIdentifier).mockResolvedValueOnce({
+        id: 'existing-imsg',
+        connectorType: 'imessage',
+        identifier: 'amroessams@gmail.com',
+        status: 'failed',
+        authContext: JSON.stringify({ raw: { bridgeToken: 'imsg_bt_existing' } }),
+      } as never);
+      vi.mocked(deps.accountsService.update).mockResolvedValueOnce({
+        id: 'existing-imsg',
+        connectorType: 'imessage',
+        identifier: 'amroessams@gmail.com',
+        status: 'disconnected',
+      } as never);
+
+      const service = makeService(deps);
+      const result = await service.initiate(
+        'imessage',
+        { authMethod: 'bridge', myIdentifier: 'amroessams@gmail.com' },
+        'user-1',
+      );
+
+      expect(result.type).toBe('complete');
+      expect(deps.accountsService.create).not.toHaveBeenCalled();
+      expect(deps.accountsService.update).toHaveBeenCalledWith(
+        'existing-imsg',
+        expect.objectContaining({
+          identifier: 'amroessams@gmail.com',
+          tunnelMode: true,
+          status: 'disconnected',
+          lastError: null,
+        }),
+      );
+      expect((result.account as { id: string; bridgeToken: string }).id).toBe('existing-imsg');
+      expect((result.account as { bridgeToken: string }).bridgeToken).toBe('imsg_bt_existing');
+    });
   });
 
   describe('getSavedCredentials', () => {

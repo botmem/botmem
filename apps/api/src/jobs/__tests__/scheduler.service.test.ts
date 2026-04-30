@@ -57,7 +57,7 @@ describe('SchedulerService', () => {
       await service.setSchedule('acc-1', 'gmail', 'hourly');
       expect(syncQueue.add).toHaveBeenCalledWith(
         'scheduled:acc-1',
-        expect.objectContaining({ accountId: 'acc-1', connectorType: 'gmail' }),
+        { accountId: 'acc-1', connectorType: 'gmail', scheduled: true },
         { repeat: { pattern: '0 * * * *' } },
       );
     });

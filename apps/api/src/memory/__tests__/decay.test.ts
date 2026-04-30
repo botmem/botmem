@@ -25,7 +25,6 @@ function computeDecayWeights(
   final: number;
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;
@@ -50,12 +49,8 @@ function computeDecayWeights(
   const trust = getTrustScore(mem.connectorType);
 
   // Weights is now a JSONB object -- no JSON.parse needed
-  const { semantic = 0, rerank = 0 } = mem.weights || {};
-
-  let final =
-    rerank > 0
-      ? 0.4 * semantic + 0.3 * rerank + 0.15 * recency + 0.1 * importance + 0.05 * trust
-      : 0.7 * semantic + 0.15 * recency + 0.1 * importance + 0.05 * trust;
+  const { semantic = 0 } = mem.weights || {};
+  let final = 0.7 * semantic + 0.15 * recency + 0.1 * importance + 0.05 * trust;
 
   if (isPinned) final = Math.max(final, 0.75);
 
@@ -64,7 +59,7 @@ function computeDecayWeights(
     importance,
     trust,
     final,
-    weights: { semantic, rerank, recency, importance, trust, final },
+    weights: { semantic, recency, importance, trust, final },
   };
 }
 
@@ -78,7 +73,6 @@ describe('DecayProcessor logic', () => {
       entities: '[]',
       weights: {
         semantic: 0.8,
-        rerank: 0,
         recency: 1.0,
         importance: 0.5,
         trust: 0.7,
@@ -102,7 +96,6 @@ describe('DecayProcessor logic', () => {
       entities: '[]',
       weights: {
         semantic: 0.5,
-        rerank: 0,
         recency: 0.1,
         importance: 0.5,
         trust: 0.7,
@@ -134,7 +127,7 @@ describe('DecayProcessor logic', () => {
     expect(batches[2]).toBe(200);
   });
 
-  it('Test 4: preserves existing semantic and rerank scores from weights', () => {
+  it('Test 4: preserves existing semantic score from weights', () => {
     const mem = {
       eventTime: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
       pinned: false,
@@ -143,7 +136,6 @@ describe('DecayProcessor logic', () => {
       entities: '[]',
       weights: {
         semantic: 0.92,
-        rerank: 0.85,
         recency: 1.0,
         importance: 0.5,
         trust: 0.7,
@@ -152,9 +144,8 @@ describe('DecayProcessor logic', () => {
     };
 
     const result = computeDecayWeights(mem);
-    // Must preserve the original semantic and rerank scores
+    // Must preserve the original semantic score
     expect(result.weights.semantic).toBe(0.92);
-    expect(result.weights.rerank).toBe(0.85);
     // But recency should be recalculated
     expect(result.weights.recency).not.toBe(1.0);
     expect(result.weights.recency).toBeCloseTo(Math.exp(-0.015 * 10), 3);
@@ -168,7 +159,6 @@ describe('DecayProcessor logic', () => {
       entities: '[]',
       weights: {
         semantic: 0.5,
-        rerank: 0,
         recency: 0.9,
         importance: 0.5,
         trust: 0.7,

@@ -12,7 +12,7 @@ import { formatStatus, toonify } from './format.js';
 import { runSearch, searchHelp } from './commands/search.js';
 import { runMemories, runMemory, runStats } from './commands/memories.js';
 import { runContacts, runContact } from './commands/contacts.js';
-import { runJobs, runSync, runRetry, runAccounts } from './commands/jobs.js';
+import { runJobs, runSync, runRetry, runAccounts, runPipeline } from './commands/jobs.js';
 import { runTimeline, timelineHelp } from './commands/timeline.js';
 import { runEntities, runRelated, entitiesHelp, relatedHelp } from './commands/entities.js';
 import { runVersion, versionHelp } from './commands/version.js';
@@ -32,6 +32,17 @@ interface StoredConfig {
   recoveryKey?: string;
 }
 
+interface ParsedGlobalArgs {
+  apiUrl: string;
+  token: string;
+  apiKeyToken: string;
+  jwtToken: string;
+  json: boolean;
+  toon: boolean;
+  help: boolean;
+  rest: string[];
+}
+
 function loadConfig(): StoredConfig {
   try {
     return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
@@ -45,15 +56,78 @@ function saveConfig(cfg: StoredConfig) {
   writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 }
 
-function loadStoredToken(): string | null {
-  const cfg = loadConfig();
-  return cfg.apiKey || cfg.token || null;
+function isJwtLike(token: string | undefined): token is string {
+  return !!token && token.split('.').length === 3;
+}
+
+function isExpiredJwt(token: string): boolean {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as {
+      exp?: number;
+    };
+    return typeof payload.exp === 'number' && payload.exp <= Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
+}
+
+function requiresFullAuth(command: string | undefined, args: string[]): boolean {
+  if (!command) return false;
+  if (command === 'sync') return !!args[0];
+  if (command === 'memory' && args[1] === 'delete') return true;
+  if (command === 'memory-banks' && ['create', 'rename', 'delete'].includes(args[0] || '')) {
+    return true;
+  }
+  if (command === 'pipeline' && args[0] === 'repair') return true;
+  return false;
+}
+
+function requireFullAuthToken(command: string, token: string) {
+  if (!isJwtLike(token)) {
+    console.error(`Error: botmem ${command} requires full authentication.`);
+    console.error('Run `botmem login`, then retry this command.');
+    process.exit(1);
+  }
+
+  if (isExpiredJwt(token)) {
+    console.error(
+      `Error: botmem ${command} requires a fresh login token, but the stored token is expired.`,
+    );
+    console.error('Run `botmem login`, then retry this command.');
+    process.exit(1);
+  }
 }
 
 function storeToken(token: string) {
   const cfg = loadConfig();
   cfg.token = token;
   saveConfig(cfg);
+}
+
+async function restoreRecoveryKey(
+  apiUrl: string,
+  token: string | undefined,
+  recoveryKey: string | undefined,
+) {
+  if (!token || !recoveryKey) return;
+
+  const unlockClient = new BotmemClient(apiUrl);
+  unlockClient.setToken(token);
+  await unlockClient.submitRecoveryKey(recoveryKey);
+}
+
+function warnRecoveryKeyRestoreFailure(err: unknown) {
+  const detail =
+    err instanceof BotmemApiError && err.body && typeof err.body === 'object'
+      ? (err.body as { message?: string }).message
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  console.error(`Warning: stored recovery key was not accepted${detail ? ` (${detail})` : ''}.`);
+  console.error(
+    'Login succeeded, but encrypted memories may stay hidden until you run `botmem config set-recovery-key <key>`.',
+  );
+  console.error('Run `botmem config clear-recovery-key` to remove the invalid saved recovery key.');
 }
 
 const HELP = `
@@ -83,6 +157,7 @@ const HELP = `
     jobs                    List sync/pipeline jobs
     sync <accountId>        Trigger a connector sync
     retry                   Retry all failed jobs and memories
+    pipeline                Raw-event debt, repair, and log summaries
     accounts                List connected accounts
     install-skill           Install Claude Code skill in current project
 
@@ -144,6 +219,9 @@ const COMMAND_HELP: Record<string, string> = {
   USAGE
     botmem memory <id>           Get a memory by ID
     botmem memory <id> delete    Delete a memory
+    botmem memory <id> raw       Fetch raw event metadata via Botmem
+    botmem memory <id> raw --out <path> [--variant original|thumbnail]
+                                  Download connector-backed raw asset via Botmem
 `.trim(),
   stats: `
   botmem stats -- Memory count breakdown
@@ -200,12 +278,22 @@ const COMMAND_HELP: Record<string, string> = {
   USAGE
     botmem accounts [--json]
 `.trim(),
+  pipeline: `
+  botmem pipeline -- Inspect and repair pipeline state
+
+  USAGE
+    botmem pipeline debt [--connector <type>] [--source <type>] [--json]
+    botmem pipeline repair [--limit <n>] [--connector <type>] [--source <type>] [--json]
+    botmem pipeline logs [--json]
+`.trim(),
 };
 
-function parseGlobalArgs(argv: string[]) {
+function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
   const storedCfg = loadConfig();
   let apiUrl = process.env['BOTMEM_API_URL'] || storedCfg.apiUrl || DEFAULT_API_URL;
-  let token = process.env['BOTMEM_API_KEY'] || process.env['BOTMEM_TOKEN'] || '';
+  let token = '';
+  let explicitApiKey = '';
+  let explicitJwt = '';
   let json = false;
   let toon = false;
   let help = false;
@@ -216,9 +304,11 @@ function parseGlobalArgs(argv: string[]) {
     if (a === '--api-url') {
       apiUrl = argv[++i];
     } else if (a === '--api-key') {
-      token = argv[++i];
+      explicitApiKey = argv[++i];
+      token = explicitApiKey;
     } else if (a === '--token') {
-      token = argv[++i];
+      explicitJwt = argv[++i];
+      token = explicitJwt;
     } else if (a === '--json') {
       json = true;
     } else if (a === '--toon') {
@@ -231,10 +321,21 @@ function parseGlobalArgs(argv: string[]) {
     }
   }
 
-  // Resolve: explicit flag > env var > stored config
-  if (!token) token = loadStoredToken() || '';
+  const apiKeyToken = explicitApiKey || process.env['BOTMEM_API_KEY'] || storedCfg.apiKey || '';
+  const jwtToken = explicitJwt || process.env['BOTMEM_TOKEN'] || storedCfg.token || '';
 
-  return { apiUrl, token, json, toon, help, rest };
+  // Resolve read-token order: explicit flag > env var > stored config.
+  // API keys are preferred for read-only agent use; JWTs are selected later for full-auth commands.
+  if (!token) {
+    token =
+      process.env['BOTMEM_API_KEY'] ||
+      process.env['BOTMEM_TOKEN'] ||
+      storedCfg.apiKey ||
+      storedCfg.token ||
+      '';
+  }
+
+  return { apiUrl, token, apiKeyToken, jwtToken, json, toon, help, rest };
 }
 
 const configHelp = `
@@ -245,6 +346,7 @@ const configHelp = `
     botmem config set-host <url>        Set API host (e.g. localhost:12412, api.botmem.xyz)
     botmem config set-key <key>         Store API key (bm_sk_...)
     botmem config set-recovery-key <k>  Store recovery key for E2EE
+    botmem config clear-recovery-key    Remove saved recovery key
     botmem config clear                 Reset config to defaults
 
   EXAMPLES
@@ -252,6 +354,7 @@ const configHelp = `
     botmem config set-host api.botmem.xyz
     botmem config set-key bm_sk_abc123def456
     botmem config set-recovery-key oasULlqb...
+    botmem config clear-recovery-key
     botmem config show
 `.trim();
 
@@ -318,6 +421,14 @@ function runConfig(args: string[]) {
     cfg.recoveryKey = key;
     saveConfig(cfg);
     console.log('Recovery key stored');
+    return;
+  }
+
+  if (sub === 'clear-recovery-key') {
+    const cfg = loadConfig();
+    delete cfg.recoveryKey;
+    saveConfig(cfg);
+    console.log('Recovery key cleared');
     return;
   }
 
@@ -406,7 +517,7 @@ function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
   return { codeVerifier, codeChallenge };
 }
 
-async function runLogin(client: BotmemClient, _args: string[]) {
+async function runLogin(client: BotmemClient, _args: string[], apiUrl: string) {
   // Browser-based OAuth login
   const { codeVerifier, codeChallenge } = generatePKCE();
   const state = randomBytes(16).toString('base64url');
@@ -452,6 +563,15 @@ async function runLogin(client: BotmemClient, _args: string[]) {
     });
 
     storeToken(result.accessToken);
+    const cfg = loadConfig();
+    if (cfg.recoveryKey) {
+      try {
+        await restoreRecoveryKey(apiUrl, result.accessToken, cfg.recoveryKey);
+        console.log('Recovery key submitted for E2EE decryption');
+      } catch (err) {
+        warnRecoveryKeyRestoreFailure(err);
+      }
+    }
     console.log(`\nLogged in as ${result.user.name} (${result.user.email})`);
     console.log(`Token stored in ${CONFIG_FILE}`);
   } finally {
@@ -533,7 +653,7 @@ function startCallbackServer(): Promise<{
 
 async function main() {
   const argv = process.argv.slice(2);
-  const { apiUrl, token, json, toon, help, rest } = parseGlobalArgs(argv);
+  const { apiUrl, token, jwtToken, json, toon, help, rest } = parseGlobalArgs(argv);
 
   // --toon: intercept JSON output and flatten for LLM consumption
   if (toon) {
@@ -554,6 +674,7 @@ async function main() {
 
   const command = rest[0];
   const commandArgs = rest.slice(1);
+  const fullAuthRequired = requiresFullAuth(command, commandArgs);
 
   if (help && !command) {
     console.log(HELP);
@@ -582,15 +703,23 @@ async function main() {
   }
 
   const client = new BotmemClient(apiUrl);
-  if (token) client.setToken(token);
+  const selectedToken = fullAuthRequired ? jwtToken : token;
+  if (fullAuthRequired) requireFullAuthToken(command, selectedToken);
+  if (selectedToken) client.setToken(selectedToken);
 
   // Auto-submit recovery key if stored (needed for E2EE decryption)
   const storedCfg = loadConfig();
-  if (token && storedCfg.recoveryKey) {
-    try {
-      await client.submitRecoveryKey(storedCfg.recoveryKey);
-    } catch {
-      // Non-fatal — key may already be cached server-side
+  const unlockTokens = [storedCfg.token, storedCfg.apiKey, token].filter(
+    (value, index, values): value is string => !!value && values.indexOf(value) === index,
+  );
+  if (storedCfg.recoveryKey) {
+    for (const unlockToken of unlockTokens) {
+      try {
+        await restoreRecoveryKey(apiUrl, unlockToken, storedCfg.recoveryKey);
+        break;
+      } catch {
+        // Non-fatal — token may be expired or key may already be cached server-side
+      }
     }
   }
 
@@ -604,7 +733,7 @@ async function main() {
         runConfig(commandArgs);
         return;
       case 'login':
-        await runLogin(client, commandArgs);
+        await runLogin(client, commandArgs, apiUrl);
         return;
       case 'version':
         await runVersion(client, json);
@@ -654,6 +783,9 @@ async function main() {
         break;
       case 'accounts':
         await runAccounts(client, json);
+        break;
+      case 'pipeline':
+        await runPipeline(client, commandArgs, json);
         break;
       case 'timeline':
         await runTimeline(client, commandArgs, json);

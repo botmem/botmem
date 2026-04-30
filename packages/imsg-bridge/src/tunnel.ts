@@ -193,7 +193,12 @@ export class TunnelClient extends EventEmitter {
       }>(this.sessionKey, encrypted);
 
       // Dispatch to RPC handler
+      const startedAt = Date.now();
       const response = this.opts.rpcHandler.handle(request);
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs >= 1000) {
+        this.emit('log', `RPC ${request.method} (id=${request.id}) completed in ${elapsedMs}ms`);
+      }
 
       // Encrypt and send response
       const encryptedResponse = encryptJson(this.sessionKey, response);

@@ -13,6 +13,7 @@
 ### Task 1: Slack Contact Enrichment — Expand fetchUserMap
 
 **Files:**
+
 - Modify: `packages/connectors/slack/src/sync.ts:9-25`
 - Test: `packages/connectors/slack/src/__tests__/sync.test.ts`
 
@@ -25,7 +26,8 @@ it('emits participantProfiles with email, phone, title in metadata', async () =>
   mockUsersList.mockResolvedValue({
     members: [
       {
-        id: 'U1', name: 'alice',
+        id: 'U1',
+        name: 'alice',
         real_name: 'Alice Smith',
         profile: {
           email: 'alice@example.com',
@@ -36,7 +38,8 @@ it('emits participantProfiles with email, phone, title in metadata', async () =>
         },
       },
       {
-        id: 'U2', name: 'bob',
+        id: 'U2',
+        name: 'bob',
         real_name: 'Bob Jones',
         profile: {
           email: 'bob@example.com',
@@ -53,9 +56,7 @@ it('emits participantProfiles with email, phone, title in metadata', async () =>
   });
 
   mockConversationsHistory.mockResolvedValue({
-    messages: [
-      { ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 },
-    ],
+    messages: [{ ts: '1700000000.000', text: 'Hello', user: 'U1', reply_count: 0 }],
   });
 
   const events: any[] = [];
@@ -184,6 +185,7 @@ git commit -m "feat(slack): emit full user profiles in sync metadata for cross-c
 ### Task 2: Slack Contact Enrichment — Update resolveSlackContacts
 
 **Files:**
+
 - Modify: `apps/api/src/memory/embed.processor.ts:245-259`
 - Test: `apps/api/src/memory/__tests__/embed.processor.test.ts` (create if missing)
 
@@ -252,9 +254,7 @@ describe('resolveSlackContacts identifier building', () => {
       }
     }
 
-    expect(allIdentifiers).toEqual([
-      { type: 'slack_id', value: 'unknown_user' },
-    ]);
+    expect(allIdentifiers).toEqual([{ type: 'slack_id', value: 'unknown_user' }]);
   });
 });
 ```
@@ -324,6 +324,7 @@ git commit -m "feat(contacts): resolve Slack contacts with email, phone, name fo
 ### Task 3: Weight Breakdown — Compute and Store in Enrich Processor
 
 **Files:**
+
 - Modify: `apps/api/src/memory/enrich.processor.ts:122-129`
 - Modify: `apps/api/src/memory/memory.service.ts:31-39,362-374`
 
@@ -332,10 +333,13 @@ git commit -m "feat(contacts): resolve Slack contacts with email, phone, name fo
 The `TRUST_SCORES` map exists in `memory.service.ts:31-39`. Export it so enrich processor can use it too:
 
 In `apps/api/src/memory/memory.service.ts`, change line 31 from:
+
 ```typescript
 const TRUST_SCORES: Record<string, number> = {
 ```
+
 to:
+
 ```typescript
 export const TRUST_SCORES: Record<string, number> = {
 ```
@@ -343,6 +347,7 @@ export const TRUST_SCORES: Record<string, number> = {
 **Step 2: Add weight computation to enrich processor**
 
 In `apps/api/src/memory/enrich.processor.ts`, add import at top:
+
 ```typescript
 import { TRUST_SCORES } from './memory.service';
 ```
@@ -355,7 +360,7 @@ const ageDays = (Date.now() - new Date(memory.eventTime).getTime()) / (1000 * 60
 const recency = Math.exp(-0.015 * ageDays);
 const importance = 0.5 + Math.min(entities.length * 0.1, 0.4);
 const trust = TRUST_SCORES[memory.connectorType] || 0.7;
-const weights = { semantic: 0, rerank: 0, recency, importance, trust, final: 0 };
+const weights = { semantic: 0: 0, recency, importance, trust, final: 0 };
 
 await this.dbService.db
   .update(memories)
@@ -381,7 +386,6 @@ export interface SearchResult {
   score: number;
   weights: {
     semantic: number;
-    rerank: number;
     recency: number;
     importance: number;
     trust: number;
@@ -395,7 +399,6 @@ Change `computeScore` (lines 362-374) to return the full breakdown:
 ```typescript
 private computeWeights(semanticScore: number, mem: any): {
   score: number;
-  weights: { semantic: number; rerank: number; recency: number; importance: number; trust: number; final: number };
 } {
   const ageDays = (Date.now() - new Date(mem.eventTime).getTime()) / (1000 * 60 * 60 * 24);
   const recency = Math.exp(-0.015 * ageDays);
@@ -410,7 +413,7 @@ private computeWeights(semanticScore: number, mem: any): {
 
   return {
     score: final,
-    weights: { semantic: semanticScore, rerank: 0, recency, importance, trust, final },
+    weights: { semantic: semanticScore: 0, recency, importance, trust, final },
   };
 }
 ```
@@ -451,6 +454,7 @@ git commit -m "feat(weights): compute base weights at enrich time, return breakd
 ### Task 4: File Pipeline — Create FileProcessor
 
 **Files:**
+
 - Create: `apps/api/src/memory/file.processor.ts`
 - Modify: `apps/api/src/memory/memory.module.ts`
 - Modify: `apps/api/package.json` (add pdf-parse)
@@ -508,10 +512,7 @@ export class FileProcessor extends WorkerHost {
   async process(job: Job<FileJobData>) {
     const { memoryId } = job.data;
 
-    const rows = await this.dbService.db
-      .select()
-      .from(memories)
-      .where(eq(memories.id, memoryId));
+    const rows = await this.dbService.db.select().from(memories).where(eq(memories.id, memoryId));
 
     if (!rows.length) return;
     const memory = rows[0];
@@ -523,13 +524,21 @@ export class FileProcessor extends WorkerHost {
     const fileName = (metadata.fileName as string) || 'unknown';
 
     if (!fileUrl) {
-      this.addLog(memory.connectorType, memory.accountId, 'warn',
-        `[file:skip] ${mid} no fileUrl in metadata`);
+      this.addLog(
+        memory.connectorType,
+        memory.accountId,
+        'warn',
+        `[file:skip] ${mid} no fileUrl in metadata`,
+      );
       return;
     }
 
-    this.addLog(memory.connectorType, memory.accountId, 'info',
-      `[file:start] ${mid} ${fileName} (${mimetype})`);
+    this.addLog(
+      memory.connectorType,
+      memory.accountId,
+      'info',
+      `[file:start] ${mid} ${fileName} (${mimetype})`,
+    );
 
     const t0 = Date.now();
 
@@ -558,14 +567,22 @@ export class FileProcessor extends WorkerHost {
       } else if (mimetype.startsWith('text/') && !fileName.endsWith('.csv')) {
         extractedContent = this.processPlainText(buffer, fileName);
       } else {
-        this.addLog(memory.connectorType, memory.accountId, 'warn',
-          `[file:skip] ${mid} unsupported MIME type: ${mimetype}`);
+        this.addLog(
+          memory.connectorType,
+          memory.accountId,
+          'warn',
+          `[file:skip] ${mid} unsupported MIME type: ${mimetype}`,
+        );
         return;
       }
 
       if (!extractedContent.trim()) {
-        this.addLog(memory.connectorType, memory.accountId, 'warn',
-          `[file:empty] ${mid} no content extracted from ${fileName}`);
+        this.addLog(
+          memory.connectorType,
+          memory.accountId,
+          'warn',
+          `[file:empty] ${mid} no content extracted from ${fileName}`,
+        );
         return;
       }
 
@@ -602,13 +619,20 @@ export class FileProcessor extends WorkerHost {
       );
 
       const ms = Date.now() - t0;
-      this.addLog(memory.connectorType, memory.accountId, 'info',
-        `[file:done] ${mid} ${fileName} in ${ms}ms (${extractedContent.length} chars extracted)`);
-
+      this.addLog(
+        memory.connectorType,
+        memory.accountId,
+        'info',
+        `[file:done] ${mid} ${fileName} in ${ms}ms (${extractedContent.length} chars extracted)`,
+      );
     } catch (err: any) {
       const ms = Date.now() - t0;
-      this.addLog(memory.connectorType, memory.accountId, 'error',
-        `[file:fail] ${mid} ${fileName} after ${ms}ms: ${err?.message || err}`);
+      this.addLog(
+        memory.connectorType,
+        memory.accountId,
+        'error',
+        `[file:fail] ${mid} ${fileName} after ${ms}ms: ${err?.message || err}`,
+      );
       throw err;
     }
   }
@@ -617,10 +641,7 @@ export class FileProcessor extends WorkerHost {
 
   private async processImage(buffer: Buffer, existingText: string): Promise<string> {
     const base64 = buffer.toString('base64');
-    const description = await this.ollama.generate(
-      photoDescriptionPrompt(existingText),
-      [base64],
-    );
+    const description = await this.ollama.generate(photoDescriptionPrompt(existingText), [base64]);
     return description.trim();
   }
 
@@ -631,7 +652,8 @@ export class FileProcessor extends WorkerHost {
     // Format as markdown with filename header
     let md = `# ${fileName}\n\n${raw}`;
     if (md.length > MAX_CONTENT_LENGTH) {
-      md = md.slice(0, MAX_CONTENT_LENGTH) + `\n\n---\n*[Truncated — ${data.numpages} pages total]*`;
+      md =
+        md.slice(0, MAX_CONTENT_LENGTH) + `\n\n---\n*[Truncated — ${data.numpages} pages total]*`;
     }
     return md;
   }
@@ -691,16 +713,20 @@ export class FileProcessor extends WorkerHost {
   // --- Helpers ---
 
   private isDocx(mimetype: string, fileName: string): boolean {
-    return mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      || fileName.endsWith('.docx');
+    return (
+      mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      fileName.endsWith('.docx')
+    );
   }
 
   private isSpreadsheet(mimetype: string, fileName: string): boolean {
-    return mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      || mimetype === 'application/vnd.ms-excel'
-      || fileName.endsWith('.xlsx')
-      || fileName.endsWith('.xls')
-      || fileName.endsWith('.csv');
+    return (
+      mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimetype === 'application/vnd.ms-excel' ||
+      fileName.endsWith('.xlsx') ||
+      fileName.endsWith('.xls') ||
+      fileName.endsWith('.csv')
+    );
   }
 
   private async buildAuthHeaders(
@@ -726,8 +752,21 @@ export class FileProcessor extends WorkerHost {
 
   private addLog(connectorType: string, accountId: string | null, level: string, message: string) {
     const stage = 'file';
-    this.logsService.add({ connectorType, accountId: accountId ?? undefined, stage, level, message });
-    this.events.emitToChannel('logs', 'log', { connectorType, accountId, stage, level, message, timestamp: new Date().toISOString() });
+    this.logsService.add({
+      connectorType,
+      accountId: accountId ?? undefined,
+      stage,
+      level,
+      message,
+    });
+    this.events.emitToChannel('logs', 'log', {
+      connectorType,
+      accountId,
+      stage,
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 ```
@@ -741,11 +780,13 @@ import { FileProcessor } from './file.processor';
 ```
 
 Add to imports array:
+
 ```typescript
 BullModule.registerQueue({ name: 'file' }),
 ```
 
 Add to providers array:
+
 ```typescript
 FileProcessor,
 ```
@@ -753,6 +794,7 @@ FileProcessor,
 **Step 4: Add 'file' to PipelineStage type**
 
 In `packages/shared/src/types/index.ts`, update line 54:
+
 ```typescript
 export type PipelineStage = 'sync' | 'embed' | 'enrich' | 'backfill' | 'file';
 ```
@@ -774,6 +816,7 @@ git commit -m "feat(pipeline): add shared FileProcessor for image/document/PDF c
 ### Task 5: File Pipeline — Route file events from embed processor
 
 **Files:**
+
 - Modify: `apps/api/src/memory/embed.processor.ts:34,56,96-131`
 
 **Step 1: Add file queue injection**
@@ -802,8 +845,12 @@ After creating the memory record (after line 81), add routing logic. If `sourceT
 ```typescript
 // Route file events to the file processor
 if (event.sourceType === 'file') {
-  this.addLog(rawEvent.connectorType, rawEvent.accountId, 'info',
-    `[embed:file-route] ${mid} → file queue for content extraction`);
+  this.addLog(
+    rawEvent.connectorType,
+    rawEvent.accountId,
+    'info',
+    `[embed:file-route] ${mid} → file queue for content extraction`,
+  );
   await this.fileQueue.add(
     'file',
     { memoryId },
@@ -832,6 +879,7 @@ git commit -m "feat(embed): route file-type events to shared file processing que
 ### Task 6: File Pipeline — Emit file events from Slack sync
 
 **Files:**
+
 - Modify: `packages/connectors/slack/src/sync.ts:151-172`
 - Test: `packages/connectors/slack/src/__tests__/sync.test.ts`
 
@@ -890,7 +938,9 @@ it('emits separate file events for message attachments', async () => {
   expect(fileEvents.length).toBe(2);
   expect(fileEvents[0].content.metadata.fileName).toBe('report.pdf');
   expect(fileEvents[0].content.metadata.mimetype).toBe('application/pdf');
-  expect(fileEvents[0].content.metadata.fileUrl).toBe('https://files.slack.com/files-pri/T123/report.pdf');
+  expect(fileEvents[0].content.metadata.fileUrl).toBe(
+    'https://files.slack.com/files-pri/T123/report.pdf',
+  );
   expect(fileEvents[0].content.metadata.parentMessageId).toBe('C1:1700000000.000');
   expect(fileEvents[1].content.metadata.fileName).toBe('photo.png');
   expect(fileEvents[1].content.metadata.mimetype).toBe('image/png');
@@ -951,16 +1001,20 @@ git commit -m "feat(slack): emit separate file events for message attachments"
 ### Task 7: File Pipeline — Migrate Immich photo processing
 
 **Files:**
+
 - Modify: `packages/connectors/photos-immich/src/index.ts:166-210`
 - Modify: `apps/api/src/memory/enrich.processor.ts:59-101`
 
 **Step 1: Change Immich sourceType from 'photo' to 'file'**
 
 In `packages/connectors/photos-immich/src/index.ts`, line 167, change:
+
 ```typescript
 sourceType: 'photo',
 ```
+
 to:
+
 ```typescript
 sourceType: 'file',
 ```
@@ -968,6 +1022,7 @@ sourceType: 'file',
 Also add `fileUrl` and `mimetype` to metadata so the FileProcessor can download it:
 
 In the metadata block (line 179-208), add:
+
 ```typescript
 fileUrl: `${host}/api/assets/${asset.id}/thumbnail?size=preview`,
 mimetype: asset.originalMimeType ?? 'image/jpeg',
@@ -985,6 +1040,7 @@ Remove `photoDescriptionPrompt` from the imports at line 12 (it's now only used 
 **Step 3: Update shared SourceType to include 'file'**
 
 In `packages/shared/src/types/index.ts`, line 65:
+
 ```typescript
 export type SourceType = 'email' | 'message' | 'photo' | 'location' | 'file';
 ```
@@ -1006,6 +1062,7 @@ git commit -m "refactor: migrate Immich photo processing to shared FileProcessor
 ### Task 8: Integration test — full file pipeline
 
 **Files:**
+
 - Create: `apps/api/src/memory/__tests__/file.processor.test.ts`
 
 **Step 1: Write integration test for FileProcessor**
@@ -1034,11 +1091,19 @@ describe('FileProcessor MIME routing', () => {
   function classifyMime(mimetype: string, fileName: string): string {
     if (mimetype.startsWith('image/')) return 'image';
     if (mimetype === 'application/pdf') return 'pdf';
-    if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        || fileName.endsWith('.docx')) return 'docx';
-    if (mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        || mimetype === 'application/vnd.ms-excel'
-        || fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) return 'spreadsheet';
+    if (
+      mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      fileName.endsWith('.docx')
+    )
+      return 'docx';
+    if (
+      mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimetype === 'application/vnd.ms-excel' ||
+      fileName.endsWith('.xlsx') ||
+      fileName.endsWith('.xls') ||
+      fileName.endsWith('.csv')
+    )
+      return 'spreadsheet';
     if (mimetype.startsWith('text/') || mimetype === 'application/csv') return 'text';
     return 'unsupported';
   }
@@ -1053,12 +1118,22 @@ describe('FileProcessor MIME routing', () => {
   });
 
   it('routes DOCX to mammoth', () => {
-    expect(classifyMime('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'doc.docx')).toBe('docx');
+    expect(
+      classifyMime(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'doc.docx',
+      ),
+    ).toBe('docx');
     expect(classifyMime('application/octet-stream', 'doc.docx')).toBe('docx');
   });
 
   it('routes spreadsheets to xlsx', () => {
-    expect(classifyMime('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'data.xlsx')).toBe('spreadsheet');
+    expect(
+      classifyMime(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'data.xlsx',
+      ),
+    ).toBe('spreadsheet');
     expect(classifyMime('application/vnd.ms-excel', 'data.xls')).toBe('spreadsheet');
     expect(classifyMime('text/csv', 'data.csv')).toBe('spreadsheet');
   });
@@ -1107,15 +1182,15 @@ Expected: Build succeeds
 
 ## Summary of changes by file
 
-| File | Change |
-|------|--------|
-| `packages/connectors/slack/src/sync.ts` | Expand fetchUserMap to full profiles, emit participantProfiles in metadata, emit file events |
-| `packages/connectors/slack/src/__tests__/sync.test.ts` | Tests for profile emission, file event emission |
-| `apps/api/src/memory/embed.processor.ts` | Add file queue injection, route file events, update resolveSlackContacts for multi-identifier |
-| `apps/api/src/memory/enrich.processor.ts` | Remove describePhoto, add weight computation |
-| `apps/api/src/memory/file.processor.ts` | NEW — shared FileProcessor for images/PDFs/text |
-| `apps/api/src/memory/memory.module.ts` | Register file queue and FileProcessor |
-| `apps/api/src/memory/memory.service.ts` | Export TRUST_SCORES, return weight breakdown from search |
-| `packages/connectors/photos-immich/src/index.ts` | Change sourceType to 'file', add fileUrl/mimetype to metadata |
-| `packages/shared/src/types/index.ts` | Add 'file' to SourceType and PipelineStage |
-| `apps/api/package.json` | Add pdf-parse, mammoth, xlsx dependencies |
+| File                                                   | Change                                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `packages/connectors/slack/src/sync.ts`                | Expand fetchUserMap to full profiles, emit participantProfiles in metadata, emit file events  |
+| `packages/connectors/slack/src/__tests__/sync.test.ts` | Tests for profile emission, file event emission                                               |
+| `apps/api/src/memory/embed.processor.ts`               | Add file queue injection, route file events, update resolveSlackContacts for multi-identifier |
+| `apps/api/src/memory/enrich.processor.ts`              | Remove describePhoto, add weight computation                                                  |
+| `apps/api/src/memory/file.processor.ts`                | NEW — shared FileProcessor for images/PDFs/text                                               |
+| `apps/api/src/memory/memory.module.ts`                 | Register file queue and FileProcessor                                                         |
+| `apps/api/src/memory/memory.service.ts`                | Export TRUST_SCORES, return weight breakdown from search                                      |
+| `packages/connectors/photos-immich/src/index.ts`       | Change sourceType to 'file', add fileUrl/mimetype to metadata                                 |
+| `packages/shared/src/types/index.ts`                   | Add 'file' to SourceType and PipelineStage                                                    |
+| `apps/api/package.json`                                | Add pdf-parse, mammoth, xlsx dependencies                                                     |

@@ -57,8 +57,8 @@ export class PeopleController {
 
   @RequiresJwt()
   @Post('auto-merge')
-  async autoMerge(@CurrentUser() _user: { id: string }) {
-    return this.peopleService.autoMerge();
+  async autoMerge(@CurrentUser() user: { id: string }) {
+    return this.peopleService.autoMerge(user.id);
   }
 
   @RequiresJwt()
@@ -237,7 +237,7 @@ export class PeopleController {
   ) {
     // IDOR fix: verify contact belongs to user
     await this.peopleService.getByIdForUser(id, user.id);
-    return this.peopleService.splitPerson(id, dto.identifierIds);
+    return this.peopleService.splitPerson(id, dto.identifierIds, user.id);
   }
 
   @ReadOnly()

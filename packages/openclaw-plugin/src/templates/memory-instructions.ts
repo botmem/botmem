@@ -23,7 +23,7 @@ You have access to the user's personal memory system (Botmem). It contains their
 
 ### Understanding results
 
-Results are scored using: 40% semantic similarity + 30% rerank + 15% recency + 10% importance + 5% trust.
+Results are scored using: 70% semantic similarity + 15% recency + 10% importance + 5% trust.
 
 Factuality labels:
 - **FACT** — corroborated by multiple sources or high-trust connectors

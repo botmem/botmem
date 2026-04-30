@@ -9,6 +9,8 @@ vi.mock('telegram', () => {
   const MockTelegramClient = vi.fn().mockImplementation(() => ({
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn().mockResolvedValue(undefined),
+    addEventHandler: vi.fn(),
+    removeEventHandler: vi.fn(),
     sendCode: vi.fn().mockResolvedValue({ phoneCodeHash: 'mock-hash' }),
     getMe: vi.fn().mockResolvedValue({
       id: BigInt(123456),
@@ -28,6 +30,10 @@ vi.mock('telegram', () => {
   return { TelegramClient: MockTelegramClient };
 });
 
+vi.mock('telegram/events/index.js', () => ({
+  NewMessage: vi.fn().mockImplementation((params: unknown) => ({ params })),
+}));
+
 vi.mock('telegram/sessions/index.js', () => ({
   StringSession: vi.fn().mockImplementation((s: string) => ({ _session: s })),
 }));
@@ -38,20 +44,16 @@ vi.mock('telegram/tl/index.js', () => ({
       SignIn: vi
         .fn()
         .mockImplementation((params: unknown) => ({ ...(params as object), _: 'auth.SignIn' })),
-      CheckPassword: vi
-        .fn()
-        .mockImplementation((params: unknown) => ({
-          ...(params as object),
-          _: 'auth.CheckPassword',
-        })),
+      CheckPassword: vi.fn().mockImplementation((params: unknown) => ({
+        ...(params as object),
+        _: 'auth.CheckPassword',
+      })),
     },
     contacts: {
-      GetContacts: vi
-        .fn()
-        .mockImplementation((params: unknown) => ({
-          ...(params as object),
-          _: 'contacts.GetContacts',
-        })),
+      GetContacts: vi.fn().mockImplementation((params: unknown) => ({
+        ...(params as object),
+        _: 'contacts.GetContacts',
+      })),
     },
     account: {
       GetPassword: vi.fn().mockImplementation(() => ({ _: 'account.GetPassword' })),
@@ -107,6 +109,64 @@ describe('TelegramConnector', () => {
     const connector = new TelegramConnector();
     const valid = await connector.validateAuth({ raw: { session: 'mock-session' } });
     expect(valid).toBe(true);
+  });
+
+  it('supports realtime messages from GramJS updates', async () => {
+    const { TelegramClient } = await import('telegram');
+    const connector = new TelegramConnector();
+    const emitData = vi.fn();
+    const onConnected = vi.fn();
+    const abort = new AbortController();
+
+    const handle = await connector.startRealtime({
+      accountId: 'acc1',
+      auth: { raw: { session: 'mock-session' } },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      signal: abort.signal,
+      emitData,
+      onConnected,
+    });
+
+    const client = vi.mocked(TelegramClient).mock.results.at(-1)!.value;
+    const handler = client.addEventHandler.mock.calls[0][0];
+    await handler({
+      chatId: { toString: () => '123' },
+      isGroup: false,
+      isChannel: false,
+      getChat: vi.fn().mockResolvedValue({ firstName: 'Alice' }),
+      message: {
+        id: 456,
+        message: 'Live hello',
+        date: 1777540000,
+        out: false,
+        getSender: vi.fn().mockResolvedValue({
+          id: 789,
+          firstName: 'Alice',
+          username: 'alice',
+        }),
+      },
+    });
+
+    expect(onConnected).toHaveBeenCalled();
+    expect(emitData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: 'message',
+        sourceId: 'telegram:123:456',
+        content: expect.objectContaining({
+          text: 'Live hello',
+          metadata: expect.objectContaining({
+            chatId: '123',
+            senderId: '789',
+            senderName: 'Alice',
+            senderUsername: 'alice',
+          }),
+        }),
+      }),
+    );
+
+    await handle.stop();
+    expect(client.removeEventHandler).toHaveBeenCalled();
+    expect(client.disconnect).toHaveBeenCalled();
   });
 
   it('embed extracts phone-based sender entity', () => {

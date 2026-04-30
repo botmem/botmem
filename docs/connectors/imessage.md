@@ -56,7 +56,13 @@ The bridge will:
 
 ### 4. Start Syncing
 
-Once the dashboard shows **Bridge Connected**, click **Start Sync**. The bridge relays encrypted JSON-RPC queries from the server to your local iMessage database.
+Once the dashboard shows **Bridge Connected**, sync the account with the Botmem CLI:
+
+```bash
+botmem sync <imessage-account-id>
+```
+
+The bridge relays encrypted JSON-RPC queries from the server to your local iMessage database.
 
 ### Security
 
@@ -82,14 +88,12 @@ The bridge auto-reconnects with exponential backoff if the connection drops.
 
 ## Local Setup (Advanced)
 
-If the Botmem server runs on the same Mac as iMessage, you can use the local TCP mode:
+The legacy local TCP bridge is no longer the recommended path. Use the dashboard-generated
+Botmem iMessage bridge command, wait for **Bridge Connected**, then run:
 
-1. Navigate to **Connectors** and configure:
-   - **Your Email or Phone**: your iMessage identifier
-   - **Bridge Host**: `localhost` (default)
-   - **Bridge Port**: `19876` (default)
-2. Start the bridge: `socat TCP-LISTEN:19876,reuseaddr,fork EXEC:"imsg rpc"`
-3. Click **Connect**
+```bash
+botmem sync <imessage-account-id>
+```
 
 ## How Sync Works
 
