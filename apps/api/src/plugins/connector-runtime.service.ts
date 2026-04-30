@@ -30,6 +30,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
   private readonly logger = new Logger(ConnectorRuntimeService.name);
   private readonly sessions = new Map<string, RuntimeSession>();
   private scanTimer: ReturnType<typeof setInterval> | null = null;
+  private scanInProgress = false;
 
   constructor(
     private dbService: DbService,
@@ -45,7 +46,11 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
       return;
     }
 
-    await this.ensureRealtimeSessions();
+    setTimeout(() => {
+      this.ensureRealtimeSessions().catch((err) =>
+        this.logger.warn(`Connector runtime initial scan failed: ${err.message}`),
+      );
+    }, 0);
     this.scanTimer = setInterval(() => {
       this.ensureRealtimeSessions().catch((err) =>
         this.logger.warn(`Connector runtime scan failed: ${err.message}`),
@@ -59,6 +64,16 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
   }
 
   private async ensureRealtimeSessions() {
+    if (this.scanInProgress) return;
+    this.scanInProgress = true;
+    try {
+      await this.ensureRealtimeSessionsOnce();
+    } finally {
+      this.scanInProgress = false;
+    }
+  }
+
+  private async ensureRealtimeSessionsOnce() {
     const realtimeConnectorTypes = this.connectors
       .list()
       .map((manifest) => manifest.id)
@@ -162,7 +177,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     this.sessions.set(accountId, session);
 
     try {
-      const handle = await connector.startRealtime({
+      const handle = await this.startRealtimeWithTimeout(connector, session, {
         accountId,
         auth,
         signal: session.abortController.signal,
@@ -226,6 +241,28 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
         message: `${connector.manifest.name}: ${message}. Please reconnect.`,
         action: 'reauth',
       });
+    }
+  }
+
+  private async startRealtimeWithTimeout(
+    connector: BaseConnector,
+    session: RuntimeSession,
+    ctx: Parameters<BaseConnector['startRealtime']>[0],
+  ): Promise<ConnectorRealtimeHandle> {
+    const timeoutMs = Number(process.env.BOTMEM_CONNECTOR_RUNTIME_START_TIMEOUT_MS ?? 20_000);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        connector.startRealtime(ctx),
+        new Promise<ConnectorRealtimeHandle>((_, reject) => {
+          timeout = setTimeout(() => {
+            session.abortController.abort();
+            reject(new Error(`Realtime start timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 
