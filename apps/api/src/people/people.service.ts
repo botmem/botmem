@@ -11,6 +11,7 @@ import {
   memoryContacts as memoryPeople,
   memories,
   mergeDismissals,
+  personRelationships,
   settings,
 } from '../db/schema';
 
@@ -18,6 +19,17 @@ export interface IdentifierInput {
   type: string;
   value: string;
   connectorType?: string;
+}
+
+export interface PersonRelationshipInput {
+  sourcePersonId: string;
+  targetPersonId: string;
+  relationshipType: string;
+  connectorType?: string;
+  sourceId: string;
+  userId?: string | null;
+  confidence?: number;
+  metadata?: Record<string, unknown>;
 }
 
 /** Normalize an email: lowercase, trim, strip plus-addressing. */
@@ -857,6 +869,46 @@ export class PeopleService {
       throw new Error(`Contact ${personId} was deleted during resolution`);
     }
     return result;
+  }
+
+  async upsertRelationship(input: PersonRelationshipInput): Promise<void> {
+    if (input.sourcePersonId === input.targetPersonId) return;
+
+    const now = new Date();
+    const values = {
+      id: randomUUID(),
+      userId: input.userId || null,
+      sourcePersonId: input.sourcePersonId,
+      targetPersonId: input.targetPersonId,
+      relationshipType: input.relationshipType,
+      connectorType: input.connectorType || null,
+      sourceId: input.sourceId,
+      confidence: input.confidence ?? 1.0,
+      metadata: input.metadata || {},
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.dbService.withCurrentUser((db) =>
+      db
+        .insert(personRelationships)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [
+            personRelationships.sourcePersonId,
+            personRelationships.targetPersonId,
+            personRelationships.relationshipType,
+            personRelationships.connectorType,
+            personRelationships.sourceId,
+          ],
+          set: {
+            userId: values.userId,
+            confidence: values.confidence,
+            metadata: values.metadata,
+            updatedAt: now,
+          },
+        }),
+    );
   }
 
   async getById(id: string): Promise<PersonWithIdentifiers | null> {

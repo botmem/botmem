@@ -120,6 +120,13 @@
       "when": 1777550000000,
       "tag": "0021_reconcile_raw_event_processing_state",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777600000000,
+      "tag": "0022_add_person_relationships",
+      "breakpoints": true
     }
   ]
 }

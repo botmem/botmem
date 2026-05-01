@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldMergeEntityResolutionBucket } from '../memory.processor';
+import { buildWhatsAppGroupIdentity, shouldMergeEntityResolutionBucket } from '../memory.processor';
 
 describe('shouldMergeEntityResolutionBucket', () => {
   it('never fuses person entities before person resolution', () => {
@@ -49,5 +49,44 @@ describe('shouldMergeEntityResolutionBucket', () => {
         [{ type: 'whatsapp_group_jid', value: '120363', connectorType: 'whatsapp' }],
       ),
     ).toBe(false);
+  });
+});
+
+describe('buildWhatsAppGroupIdentity', () => {
+  it('preserves WhatsApp group members as people and the group as a group', () => {
+    const result = buildWhatsAppGroupIdentity({
+      sourceType: 'contact',
+      sourceId: 'wa-group:120363000000000000@g.us',
+      timestamp: new Date().toISOString(),
+      content: {
+        text: 'WhatsApp group: Friends',
+        metadata: {
+          name: 'Friends',
+          groupJid: '120363000000000000@g.us',
+          memberPhones: ['971500000001'],
+          memberLids: ['123456789'],
+          memberJids: ['971500000002@s.whatsapp.net', '987654321@lid'],
+        },
+      },
+    });
+
+    expect(result?.groupIdentifiers).toContainEqual({
+      type: 'whatsapp_group_jid',
+      value: '120363000000000000@g.us',
+      connectorType: 'whatsapp',
+    });
+    expect(result?.groupIdentifiers).toContainEqual({
+      type: 'name',
+      value: 'Friends',
+      connectorType: 'whatsapp',
+    });
+    expect(result?.members.map((m) => m.identifiers[0])).toEqual(
+      expect.arrayContaining([
+        { type: 'phone', value: '+971500000001', connectorType: 'whatsapp' },
+        { type: 'phone', value: '+971500000002', connectorType: 'whatsapp' },
+        { type: 'whatsapp_lid', value: '123456789', connectorType: 'whatsapp' },
+        { type: 'whatsapp_lid', value: '987654321', connectorType: 'whatsapp' },
+      ]),
+    );
   });
 });
