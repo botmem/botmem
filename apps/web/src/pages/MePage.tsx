@@ -1,19 +1,15 @@
 import { useEffect, useReducer, useCallback } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { AnimatedNumber } from '../components/ui/AnimatedNumber';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { api } from '../lib/api';
+import { formatCompactNumber, formatIntegerNumber } from '../lib/formatNumber';
 import { Avatar } from '../components/ui/Avatar';
-import {
-  CONNECTOR_COLORS,
-  CONNECTOR_LABELS,
-  getConnectorColor,
-  getConnectorIcon,
-} from '../lib/connectorMeta';
+import { CONNECTOR_LABELS, getConnectorColor, getConnectorIcon } from '../lib/connectorMeta';
 
 /* ---------- connector display config ---------- */
 
@@ -23,28 +19,6 @@ function connectorMeta(type: string) {
     color: getConnectorColor(type),
     label: CONNECTOR_LABELS[type] ?? type,
   };
-}
-
-/* ---------- helper: truncate text ---------- */
-
-function truncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  return text.slice(0, max) + '...';
-}
-
-/* ---------- helper: relative time ---------- */
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
 }
 
 /* ---------- helper: format date ---------- */
@@ -86,14 +60,6 @@ interface MeData {
     oldestMemory: string | null;
     newestMemory: string | null;
   };
-  topEntities: Array<{ name: string; count: number }>;
-  recentMemories: Array<{
-    id: string;
-    connectorType: string;
-    sourceType: string;
-    text: string;
-    eventTime: string;
-  }>;
 }
 
 interface ContactOption {
@@ -201,30 +167,45 @@ function IdentityHeader({
   onChangePicker: () => void;
 }) {
   const selectedAvatar = identity.avatars?.[selectedAvatarIndex] ?? identity.avatars?.[0];
+  const avatarCount = identity.avatars.length;
 
   return (
     <Card className="p-0 overflow-hidden mb-6" data-tour="me-identity">
-      <div className="bg-nb-lime h-2" />
-      <div className="p-6 flex items-center gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] border-b-3 border-nb-border">
+        <div className="bg-nb-lime px-4 py-2 font-display text-xs font-bold uppercase tracking-wider text-black">
+          ME / COMMAND CENTER
+        </div>
+        <div className="hidden lg:block bg-nb-black px-4 py-2 font-display text-xs font-bold uppercase tracking-wider text-white">
+          {avatarCount} AVATAR{avatarCount === 1 ? '' : 'S'} INDEXED
+        </div>
+      </div>
+      <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-5 lg:items-center">
         <Avatar
           contactId={identity.contactId ?? undefined}
           src={selectedAvatar?.url}
           fallbackInitials={(identity.name ?? '?')[0]?.toUpperCase() ?? '?'}
           isSelf
           size="lg"
-          className="size-24 shrink-0"
+          className="size-24 sm:size-28 shrink-0"
         />
 
         <div className="flex-1 min-w-0">
-          <h1 className="font-display text-3xl font-bold uppercase tracking-wider text-nb-text truncate">
+          <p className="font-display text-xs font-bold uppercase text-nb-muted mb-1">
+            PRIMARY IDENTITY
+          </p>
+          <h1 className="font-display text-3xl sm:text-5xl font-bold uppercase text-nb-text truncate">
             {identity.name ?? 'Unknown'}
           </h1>
           <div className="mt-2 flex flex-wrap gap-3">
             {identity.email && (
-              <span className="font-mono text-sm text-nb-muted">{identity.email}</span>
+              <span className="font-mono text-xs sm:text-sm text-nb-muted border-2 border-nb-border px-2 py-1">
+                {identity.email}
+              </span>
             )}
             {identity.phone && (
-              <span className="font-mono text-sm text-nb-muted">{identity.phone}</span>
+              <span className="font-mono text-xs sm:text-sm text-nb-muted border-2 border-nb-border px-2 py-1">
+                {identity.phone}
+              </span>
             )}
           </div>
           {identity.avatars.length > 1 && (
@@ -253,9 +234,11 @@ function IdentityHeader({
           )}
         </div>
 
-        <Button variant="secondary" size="sm" onClick={onChangePicker}>
-          CHANGE
-        </Button>
+        <div className="lg:self-start">
+          <Button variant="secondary" size="sm" onClick={onChangePicker}>
+            CHANGE ID
+          </Button>
+        </div>
       </div>
     </Card>
   );
@@ -265,13 +248,17 @@ function StatsGrid({ stats }: { stats: MeData['stats'] }) {
   const statCards = [
     {
       label: 'TOTAL MEMORIES',
-      value: stats.totalMemories.toLocaleString(),
+      value: stats.totalMemories,
+      exactValue: formatIntegerNumber(stats.totalMemories),
       color: 'var(--color-nb-lime)',
+      animated: true,
     },
     {
       label: 'TOTAL CONTACTS',
-      value: stats.totalContacts.toLocaleString(),
+      value: stats.totalContacts,
+      exactValue: formatIntegerNumber(stats.totalContacts),
       color: 'var(--color-nb-blue)',
+      animated: true,
     },
     {
       label: 'OLDEST MEMORY',
@@ -296,7 +283,18 @@ function StatsGrid({ stats }: { stats: MeData['stats'] }) {
             {s.label}
           </div>
           <div className="px-4 py-4">
-            <p className="font-display text-3xl font-bold text-nb-text">{s.value}</p>
+            {s.animated ? (
+              <AnimatedNumber
+                value={s.value}
+                className="font-display text-3xl font-bold text-nb-text"
+                style={{ display: 'block' }}
+              />
+            ) : (
+              <p className="font-display text-3xl font-bold text-nb-text">{s.value}</p>
+            )}
+            {'exactValue' in s && (
+              <p className="font-mono text-[11px] text-nb-muted mt-1">{s.exactValue} exact</p>
+            )}
           </div>
         </Card>
       ))}
@@ -310,17 +308,22 @@ function MemoriesByConnector({
   memoriesByConnector: Record<string, number>;
 }) {
   if (Object.keys(memoriesByConnector).length === 0) return null;
+  const entries = Object.entries(memoriesByConnector).sort(([, a], [, b]) => b - a);
 
   return (
     <Card className="mb-6 p-0 overflow-hidden">
       <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase">
-        MEMORIES BY CONNECTOR
+        CONNECTOR MEMORY MIX
       </div>
       <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {Object.entries(memoriesByConnector).map(([type, count]) => {
+        {entries.map(([type, count]) => {
           const meta = connectorMeta(type);
           return (
-            <div key={type} className="border-3 border-nb-border p-3 flex items-center gap-3">
+            <div
+              key={type}
+              className="border-3 border-nb-border p-3 flex items-center gap-3 min-w-0"
+              title={`${formatIntegerNumber(count)} memories`}
+            >
               <div
                 className="size-10 border-3 border-nb-border flex items-center justify-center font-display text-lg font-bold text-black shrink-0"
                 style={{ backgroundColor: meta.color }}
@@ -331,133 +334,9 @@ function MemoriesByConnector({
                 <p className="font-display text-xs font-bold uppercase text-nb-text">
                   {meta.label}
                 </p>
-                <p className="font-mono text-lg font-bold text-nb-text">{count.toLocaleString()}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-function ConnectedAccountsList({ accounts }: { accounts: MeData['accounts'] }) {
-  return (
-    <Card className="p-0 overflow-hidden">
-      <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase">
-        CONNECTED ACCOUNTS
-      </div>
-      <div className="p-3 flex flex-col gap-2">
-        {accounts.length === 0 && (
-          <p className="font-mono text-sm text-nb-muted p-2">No accounts connected</p>
-        )}
-        {accounts.map((acct) => {
-          const meta = connectorMeta(acct.connectorType);
-          const isActive = acct.status === 'connected' || acct.status === 'syncing';
-          return (
-            <div key={acct.id} className="border-2 border-nb-border p-3 flex items-center gap-3">
-              <div
-                className="size-8 border-2 border-nb-border flex items-center justify-center font-display text-sm font-bold text-black shrink-0"
-                style={{ backgroundColor: meta.color }}
-              >
-                {meta.icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-display text-xs font-bold uppercase text-nb-text">
-                  {meta.label}
+                <p className="font-mono text-lg font-bold text-nb-text">
+                  {formatCompactNumber(count)}
                 </p>
-                <p className="font-mono text-[11px] text-nb-muted truncate">{acct.identifier}</p>
-              </div>
-              <div className="text-right shrink-0">
-                <Badge color={isActive ? 'var(--color-nb-green)' : 'var(--color-nb-muted)'}>
-                  {acct.status}
-                </Badge>
-                <p className="font-mono text-[11px] text-nb-muted mt-1">
-                  {(acct.memoriesCount ?? acct.itemsSynced ?? 0).toLocaleString()} memories
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-function TopEntitiesCloud({ topEntities }: { topEntities: MeData['topEntities'] }) {
-  return (
-    <Card className="p-0 overflow-hidden">
-      <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase">
-        TOP ENTITIES
-      </div>
-      <div className="p-4">
-        {topEntities.length === 0 ? (
-          <p className="font-mono text-sm text-nb-muted">No entities extracted yet</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {topEntities.map((e) => {
-              const maxCount = topEntities[0]?.count ?? 1;
-              const ratio = Math.max(0.5, e.count / maxCount);
-              const fontSize = 10 + Math.round(ratio * 10);
-              return (
-                <span
-                  key={e.name}
-                  className="border-2 border-nb-border px-2 py-1 font-mono font-bold text-nb-text hover:bg-nb-lime hover:text-black transition-colors cursor-default"
-                  style={{ fontSize: `${fontSize}px` }}
-                  title={`${e.count} mentions`}
-                >
-                  {e.name}
-                  <span className="text-nb-muted ml-1" style={{ fontSize: '10px' }}>
-                    {e.count}
-                  </span>
-                </span>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function RecentActivity({ recentMemories }: { recentMemories: MeData['recentMemories'] }) {
-  return (
-    <Card className="p-0 overflow-hidden">
-      <div className="bg-nb-black text-white px-4 py-2 font-display text-sm font-bold uppercase">
-        RECENT ACTIVITY
-      </div>
-      <div className="divide-y divide-nb-border/30">
-        {recentMemories.length === 0 && (
-          <p className="font-mono text-sm text-nb-muted p-4">No recent memories linked to you</p>
-        )}
-        {recentMemories.map((mem) => {
-          const meta = connectorMeta(mem.connectorType);
-          return (
-            <div
-              key={mem.id}
-              className="px-4 py-3 flex items-start gap-3 hover:bg-nb-surface-hover transition-colors"
-            >
-              <div
-                className="size-7 border-2 border-nb-border flex items-center justify-center font-display text-xs font-bold text-black shrink-0 mt-0.5"
-                style={{ backgroundColor: meta.color }}
-              >
-                {meta.icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-mono text-sm text-nb-text leading-snug">
-                  {truncate(mem.text, 200)}
-                </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge
-                    color={CONNECTOR_COLORS[mem.sourceType] ?? 'var(--color-nb-muted)'}
-                    className="text-[11px] py-0"
-                  >
-                    {mem.sourceType}
-                  </Badge>
-                  <span className="font-mono text-[11px] text-nb-muted">
-                    {relativeTime(mem.eventTime)}
-                  </span>
-                </div>
               </div>
             </div>
           );
@@ -648,7 +527,7 @@ export function MePage() {
 
   /* ---------- identified — full page ---------- */
 
-  const { identity, accounts: connectedAccounts, stats, topEntities, recentMemories } = data!;
+  const { identity, stats } = data!;
 
   // Filter contacts for picker
   const filteredContacts = contactOptions.filter((c) => {
@@ -672,13 +551,6 @@ export function MePage() {
       <StatsGrid stats={stats} />
 
       <MemoriesByConnector memoriesByConnector={stats.memoriesByConnector} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <ConnectedAccountsList accounts={connectedAccounts} />
-        <TopEntitiesCloud topEntities={topEntities} />
-      </div>
-
-      <RecentActivity recentMemories={recentMemories} />
 
       {/* ---- PICKER MODAL ---- */}
       <ContactPickerModal

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/Button';
 import { api } from '../../lib/api';
+import { formatCompactNumber, formatIntegerNumber } from '../../lib/formatNumber';
 
 interface BillingData {
   enabled: boolean;
@@ -189,7 +190,9 @@ function QuotaBar({ used, limit }: { used: number; limit: number }) {
           MEMORY USAGE
         </span>
         <span className={cn('font-mono text-xs', atLimit ? 'text-nb-red' : 'text-nb-muted')}>
-          {used.toLocaleString()} / {limit.toLocaleString()}
+          <span title={`${formatIntegerNumber(used)} used`}>{formatCompactNumber(used)}</span>
+          {' / '}
+          <span title={`${formatIntegerNumber(limit)} limit`}>{formatCompactNumber(limit)}</span>
         </span>
       </div>
       <div className="w-full h-2 bg-nb-bg border border-nb-border">

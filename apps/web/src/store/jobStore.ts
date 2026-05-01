@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from './authStore';
+import { formatCompactNumber } from '../lib/formatNumber';
 
 export interface Notification {
   id: string;
@@ -22,8 +23,8 @@ interface JobState {
 let wsConnected = false;
 
 function quotaWarningMessage(data: { used?: number; limit?: number; connectorType?: string }) {
-  const limitText = typeof data.limit === 'number' ? data.limit.toLocaleString() : 'free plan';
-  const usedText = typeof data.used === 'number' ? `${data.used.toLocaleString()} / ` : '';
+  const limitText = typeof data.limit === 'number' ? formatCompactNumber(data.limit) : 'free plan';
+  const usedText = typeof data.used === 'number' ? `${formatCompactNumber(data.used)} / ` : '';
   const connector = data.connectorType ? ` ${data.connectorType}` : '';
   return `Memory limit reached (${usedText}${limitText}).${connector} sync will continue, but new memories require Pro.`;
 }

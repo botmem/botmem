@@ -1,6 +1,7 @@
 import type { ConnectorAccount } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, cn } from '@botmem/shared';
 import { useConnectors } from '../../hooks/useConnectors';
+import { formatCompactNumber, formatIntegerNumber } from '../../lib/formatNumber';
 
 const statusConfig: Record<string, { label: string; color: string; pulse?: boolean }> = {
   syncing: { label: 'SYNCING', color: 'var(--color-nb-lime)', pulse: true },
@@ -29,8 +30,14 @@ function ConnectorRow({ account }: { account: ConnectorAccount }) {
 
         {/* Center: stats */}
         <div className="hidden sm:flex items-center gap-3 font-mono text-xs text-nb-muted shrink-0">
-          <span>{account.memoriesIngested.toLocaleString()} mem</span>
-          {account.contactsCount > 0 && <span>{account.contactsCount.toLocaleString()} ppl</span>}
+          <span title={`${formatIntegerNumber(account.memoriesIngested)} memories`}>
+            {formatCompactNumber(account.memoriesIngested)} mem
+          </span>
+          {account.contactsCount > 0 && (
+            <span title={`${formatIntegerNumber(account.contactsCount)} contacts`}>
+              {formatCompactNumber(account.contactsCount)} ppl
+            </span>
+          )}
         </div>
 
         {/* Right: status + last sync */}
