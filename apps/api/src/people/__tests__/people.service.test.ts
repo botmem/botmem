@@ -15,6 +15,8 @@ import {
   looksLikeCombinedPersonName,
   isDirectNameAutoMergeEligible,
   shouldUpdateDisplayName,
+  hasDurablePersonIdentifier,
+  isCompatiblePersonAlias,
 } from '../people.service';
 
 describe('normalizePhone', () => {
@@ -389,6 +391,45 @@ describe('shouldUpdateDisplayName', () => {
   it('does not replace display names with identifier labels', () => {
     expect(shouldUpdateDisplayName('Amr Essam', 'amr@example.com')).toBe(false);
     expect(shouldUpdateDisplayName('Amr Essam', '+971502284498')).toBe(false);
+  });
+});
+
+describe('hasDurablePersonIdentifier', () => {
+  it('rejects bare names as automatic person creation evidence', () => {
+    expect(hasDurablePersonIdentifier([{ type: 'name', value: 'Mohammed Aziz' }])).toBe(false);
+  });
+
+  it('accepts durable person identifiers', () => {
+    expect(hasDurablePersonIdentifier([{ type: 'phone', value: '+16282448544' }])).toBe(true);
+    expect(hasDurablePersonIdentifier([{ type: 'email', value: 'person@example.com' }])).toBe(true);
+    expect(hasDurablePersonIdentifier([{ type: 'whatsapp_lid', value: '158226779779147' }])).toBe(
+      true,
+    );
+    expect(hasDurablePersonIdentifier([{ type: 'immich_person_id', value: 'abc123' }])).toBe(true);
+  });
+
+  it('rejects group-scoped identifiers for person creation', () => {
+    expect(
+      hasDurablePersonIdentifier([{ type: 'whatsapp_group_jid', value: '120363410677585590' }]),
+    ).toBe(false);
+  });
+});
+
+describe('isCompatiblePersonAlias', () => {
+  it('rejects different established person names', () => {
+    expect(isCompatiblePersonAlias('Amr Essam', 'Mohammed Aziz')).toBe(false);
+  });
+
+  it('accepts clear upgrades and compatible variants', () => {
+    expect(isCompatiblePersonAlias('Unknown', 'Mohammed Aziz')).toBe(true);
+    expect(isCompatiblePersonAlias('+16282448544', 'Mohammed Aziz')).toBe(true);
+    expect(isCompatiblePersonAlias('Amr', 'Amr Essam')).toBe(true);
+    expect(isCompatiblePersonAlias('Eugenie Gerard', 'Eugenie Gerrard')).toBe(true);
+  });
+
+  it('rejects identifier-shaped aliases for established people', () => {
+    expect(isCompatiblePersonAlias('Amr Essam', 'amr@example.com')).toBe(false);
+    expect(isCompatiblePersonAlias('Amr Essam', '+971502284498')).toBe(false);
   });
 });
 

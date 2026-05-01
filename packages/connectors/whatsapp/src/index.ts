@@ -398,6 +398,14 @@ export class WhatsAppConnector extends BaseConnector {
     const handledPhones = new Set([
       senderIdentity.type === 'phone' ? senderIdentity.value : '',
       selfPhone,
+      ...entities
+        .filter((entity) => entity.type === 'person' && entity.role === 'recipient')
+        .flatMap((entity) =>
+          entity.id
+            .split('|')
+            .filter((part) => part.startsWith('phone:'))
+            .map((part) => part.slice('phone:'.length)),
+        ),
       ...mentions.map((m) => m.phone),
       ...sharedContacts.flatMap((sc) => sc.phones),
     ]);
