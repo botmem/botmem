@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type {
   AuthContext,
@@ -97,6 +97,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
         and(
           inArray(accounts.connectorType, realtimeConnectorTypes),
           inArray(accounts.status, ['connected', 'degraded', 'reconnect_required']),
+          ne(accounts.schedule, 'manual'),
         ),
       );
 
@@ -294,6 +295,11 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     if (session.reconnectTimer) return;
     session.reconnectTimer = setTimeout(async () => {
       session.reconnectTimer = null;
+      const shouldReconnect = await this.shouldReconnectSession(session);
+      if (!shouldReconnect) {
+        await this.stopSession(session);
+        return;
+      }
       await this.stopSession(session);
       await this.startSession(
         connector,
@@ -303,7 +309,25 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
         auth,
         session.sessionKey,
       );
-    }, 5000);
+    }, 60_000);
+  }
+
+  private async shouldReconnectSession(session: RuntimeSession): Promise<boolean> {
+    const rows = await this.dbService.db
+      .select({
+        id: accounts.id,
+      })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.id, session.accountId),
+          inArray(accounts.status, ['connected', 'degraded', 'reconnect_required']),
+          ne(accounts.schedule, 'manual'),
+        ),
+      )
+      .limit(1);
+
+    return rows.length > 0;
   }
 
   private async stopSession(session: RuntimeSession) {
