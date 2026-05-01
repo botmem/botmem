@@ -252,10 +252,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     event.sourceId = rawEvent.sourceId;
     const connector = this.connectors.get(rawEvent.connectorType);
 
-    // Skip contact/group events — these are handled by PeopleService, not as memories.
+    // Most connector contact/group events are metadata only. Gmail contact events
+    // are the exception: their connector embed step turns Google Contacts fields
+    // into person identifiers (email, phone, names) and organization links.
     // Also skip legacy WhatsApp metadata rows that were emitted as sourceType=message.
     if (
-      (event.sourceType as string) === 'contact' ||
+      ((event.sourceType as string) === 'contact' && rawEvent.connectorType !== 'gmail') ||
       (event.sourceType as string) === 'group' ||
       (rawEvent.connectorType === 'whatsapp' &&
         (rawEvent.sourceId.startsWith('wa-contact:') ||

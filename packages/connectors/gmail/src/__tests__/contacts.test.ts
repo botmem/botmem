@@ -173,7 +173,26 @@ describe('syncContacts', () => {
     expect(events).toHaveLength(2);
   });
 
-  it('skips contacts without email addresses', async () => {
+  it('syncs contacts with phone numbers even without email addresses', async () => {
+    const phoneOnly = {
+      resourceName: 'people/c3',
+      names: [{ displayName: 'Phone Person' }],
+      phoneNumbers: [{ value: '+971501234567', type: 'mobile' }],
+    };
+    mockConnectionsList
+      .mockResolvedValueOnce({ data: { totalPeople: 1 } })
+      .mockResolvedValueOnce({ data: { connections: [phoneOnly], nextPageToken: undefined } });
+
+    const events: ConnectorDataEvent[] = [];
+    await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
+
+    expect(events).toHaveLength(1);
+    expect(events[0].content.text).toContain('Contact: Phone Person');
+    expect(events[0].content.text).toContain('Phone: +971501234567 (mobile)');
+    expect(events[0].content.participants).toContain('+971501234567 (mobile)');
+  });
+
+  it('skips contacts without any useful identifiers', async () => {
     const minimal = {
       resourceName: 'people/c3',
       names: [{ displayName: 'Unknown' }],

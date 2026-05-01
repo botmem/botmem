@@ -154,14 +154,16 @@ export class GmailConnector extends BaseConnector {
     if (metadata.type === 'contact') {
       const parts: string[] = [];
       const emails = ((metadata.emails as string[]) || []).map((e) => e.trim()).filter(Boolean);
-      if (emails.length) {
+      const phones = ((metadata.phones as string[]) || [])
+        .map((phone) => phone.replace(/\s*\(.*\)/, '').trim())
+        .filter(Boolean);
+      if (emails.length || phones.length || metadata.name) {
         if (metadata.name) parts.push(`name:${metadata.name}`);
         for (const nick of (metadata.nicknames as string[]) || []) {
           if (nick) parts.push(`name:${nick}`);
         }
         for (const email of emails) parts.push(`email:${email}`);
-        for (const phone of (metadata.phones as string[]) || [])
-          parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
+        for (const phone of phones) parts.push(`phone:${phone}`);
         entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
       }
 

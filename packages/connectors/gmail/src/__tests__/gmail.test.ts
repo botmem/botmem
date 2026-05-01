@@ -231,7 +231,7 @@ describe('GmailConnector', () => {
       expect(result.metadata?.isContact).toBe(true);
     });
 
-    it('does not create contact entities from Gmail contact names without email', () => {
+    it('creates contact entities from Gmail contact phone numbers without email', () => {
       const event = {
         sourceType: 'contact' as const,
         sourceId: 'c1',
@@ -253,7 +253,9 @@ describe('GmailConnector', () => {
         'Contact: Mostafa Mohamed Saleh Al-Ghamdi',
         {} as unknown as PipelineContext,
       );
-      expect(result.entities.filter((e: Entity) => e.type === 'person')).toEqual([]);
+      expect(result.entities[0].id).toContain('name:Mostafa Mohamed Saleh Al-Ghamdi');
+      expect(result.entities[0].id).toContain('name:Mostafa');
+      expect(result.entities[0].id).toContain('phone:+1234');
     });
 
     it('extracts sender and recipient from email headers', () => {
