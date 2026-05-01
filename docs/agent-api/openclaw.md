@@ -60,6 +60,21 @@ botmem config set-key bm_sk_...      # API key
 
 Then ask your agent to "refresh skills" or restart the OpenClaw gateway. This gives your agent both the plugin tools (programmatic) and the CLI skill (terminal).
 
+For Hermes Agent, install the same published skill into Hermes' local skill directory:
+
+```bash
+npm install -g @botmem/cli
+mkdir -p ~/.hermes/skills/botmem-cli
+curl -fsSL https://raw.githubusercontent.com/botmem/botmem/main/.claude/skills/botmem-cli/SKILL.md \
+  -o ~/.hermes/skills/botmem-cli/SKILL.md
+```
+
+Restart Hermes or ask it to refresh skills, then verify the skill was loaded:
+
+```bash
+rg -n "botmem-cli|toon-fields|Contact Attribution" ~/.hermes/skills/botmem-cli/SKILL.md
+```
+
 ## Configure
 
 Enable the plugin in `~/.openclaw/openclaw.json` under `plugins.entries`:
