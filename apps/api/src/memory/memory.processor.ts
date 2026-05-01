@@ -60,6 +60,23 @@ function compactStrings(values: unknown[]): string[] {
   return [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))];
 }
 
+export function shouldMergeEntityResolutionBucket(
+  entityType: string,
+  role: string,
+  bucket: { entityType: string; role: string; identifiers: IdentifierInput[] },
+  identifiers: IdentifierInput[],
+): boolean {
+  if (bucket.entityType !== entityType || bucket.role !== role) return false;
+
+  // Person entities must stay isolated. A single memory can mention several
+  // people that share weak labels like "Amr" or "me"; fusing identifiers here
+  // pollutes the person graph before PeopleService can evaluate evidence.
+  if (entityType === 'person') return false;
+
+  const bucketKeys = new Set(bucket.identifiers.map((id) => `${id.type}:${id.value}`));
+  return identifiers.some((id) => bucketKeys.has(`${id.type}:${id.value}`));
+}
+
 @Processor('memory', {
   lockDuration: 900_000,
   lockRenewTime: 300_000,
@@ -442,9 +459,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           }
           let merged = false;
           for (const bucket of buckets) {
-            if (bucket.entityType !== entity.type || bucket.role !== entity.role) continue;
-            const bucketValues = new Set(bucket.identifiers.map((i) => i.value));
-            if (identifiers.some((id) => bucketValues.has(id.value))) {
+            if (shouldMergeEntityResolutionBucket(entity.type, entity.role, bucket, identifiers)) {
               bucket.identifiers.push(...identifiers);
               merged = true;
               break;
@@ -493,7 +508,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         });
         if (contact) {
           const nameIdent = identifiers.find((i) => i.type === 'name');
-          resolvedContacts.push({ contactId: contact.id, role, name: nameIdent?.value });
+          if (!resolvedContacts.some((c) => c.contactId === contact.id && c.role === role)) {
+            resolvedContacts.push({ contactId: contact.id, role, name: nameIdent?.value });
+          }
 
           // Gmail avatar
           if (gmailPhotoUrl) {

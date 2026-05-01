@@ -29,6 +29,16 @@ interface WarmSession {
 const WHATSAPP_DATA_DIR = path.resolve('./data/whatsapp');
 const RECONNECTABLE_CODES = new Set([408, 428, 440, 515]);
 
+function jidIdentity(jid: string | undefined): {
+  type: 'phone' | 'whatsapp_lid' | null;
+  value: string;
+} {
+  if (!jid) return { type: null, value: '' };
+  const value = jid.replace(/@.*$/, '').split(':')[0];
+  if (!value || value.includes('-')) return { type: null, value: '' };
+  return jid.endsWith('@lid') ? { type: 'whatsapp_lid', value } : { type: 'phone', value };
+}
+
 function assertSafeSessionDir(sessionDir: string): string {
   const resolved = path.resolve(sessionDir);
   if (!resolved.startsWith(WHATSAPP_DATA_DIR + path.sep) && resolved !== WHATSAPP_DATA_DIR) {
@@ -301,7 +311,6 @@ export class WhatsAppConnector extends BaseConnector {
 
     const senderPhone = metadata.senderPhone as string | undefined;
     const senderName = metadata.senderName as string | undefined;
-    // senderLid intentionally unused — LIDs are opaque and unresolvable
     const selfPhone = metadata.selfPhone as string | undefined;
     const fromMe = metadata.fromMe as boolean | undefined;
     const isGroup = metadata.isGroup as boolean | undefined;
@@ -318,22 +327,50 @@ export class WhatsAppConnector extends BaseConnector {
       entities.push({ type: 'group', id: groupParts.join('|'), role: 'group' });
     }
 
-    // Sender — use phone as primary identifier, skip LIDs (opaque, unresolvable)
-    const phone = senderPhone || (participants[0] || '').replace(/@.*$/, '').split(':')[0];
-    if (phone && !phone.includes('-')) {
-      const senderParts = [`phone:${phone}`];
-      if (senderName && senderName !== 'me' && senderName !== 'Me' && senderName !== phone) {
+    const senderLid = metadata.senderLid as string | undefined;
+    const chatIdentity = jidIdentity(chatId);
+    const senderIdentity =
+      senderPhone && !senderPhone.includes('-')
+        ? { type: 'phone' as const, value: senderPhone }
+        : !fromMe && senderLid
+          ? { type: 'whatsapp_lid' as const, value: senderLid }
+          : fromMe && selfPhone
+            ? { type: 'phone' as const, value: selfPhone }
+            : { type: null, value: '' };
+
+    // Sender — use phone when available; for realtime LID-only DMs use the LID
+    // as a stable account-local identifier. Never fall back to participants[0]:
+    // for incoming DMs that is often the self phone.
+    if (senderIdentity.type && senderIdentity.value) {
+      const senderParts = [`${senderIdentity.type}:${senderIdentity.value}`];
+      if (
+        senderName &&
+        senderName !== 'me' &&
+        senderName !== 'Me' &&
+        senderName !== senderIdentity.value
+      ) {
         senderParts.push(`name:${senderName}`);
       }
       entities.push({ type: 'person', id: senderParts.join('|'), role: 'sender' });
     }
-    // Skip LID-only senders — they can't be resolved to a real identity
 
     // DM recipient
     if (!isGroup && selfPhone) {
-      const otherPhone = fromMe ? phone : selfPhone;
-      if (otherPhone && otherPhone !== phone) {
-        entities.push({ type: 'person', id: `phone:${otherPhone}`, role: 'recipient' });
+      if (fromMe) {
+        const otherPhone = participants
+          .map((p) => p.replace(/@.*$/, '').split(':')[0])
+          .find((p) => p && p !== selfPhone && p !== senderPhone && !p.includes('-'));
+        if (otherPhone) {
+          entities.push({ type: 'person', id: `phone:${otherPhone}`, role: 'recipient' });
+        } else if (chatIdentity.type && chatIdentity.value && chatIdentity.value !== selfPhone) {
+          entities.push({
+            type: 'person',
+            id: `${chatIdentity.type}:${chatIdentity.value}`,
+            role: 'recipient',
+          });
+        }
+      } else if (senderIdentity.value !== selfPhone) {
+        entities.push({ type: 'person', id: `phone:${selfPhone}`, role: 'recipient' });
       }
     }
 
@@ -359,7 +396,7 @@ export class WhatsAppConnector extends BaseConnector {
 
     // Remaining participants
     const handledPhones = new Set([
-      phone,
+      senderIdentity.type === 'phone' ? senderIdentity.value : '',
       selfPhone,
       ...mentions.map((m) => m.phone),
       ...sharedContacts.flatMap((sc) => sc.phones),
