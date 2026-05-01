@@ -77,12 +77,14 @@ export async function syncContacts(
       const givenName = person.names?.[0]?.givenName;
       const familyName = person.names?.[0]?.familyName;
       const emails = (person.emailAddresses || []).map((e) => e.value).filter(Boolean) as string[];
-      if (emails.length === 0) {
-        continue;
-      }
       const phones = (person.phoneNumbers || [])
         .map((p) => `${p.value} (${p.type || 'other'})`)
         .filter(Boolean);
+      const hasUsefulIdentifier =
+        emails.length > 0 || phones.length > 0 || (name && name !== 'Unknown');
+      if (!hasUsefulIdentifier) {
+        continue;
+      }
       const orgs = (person.organizations || [])
         .map((o) => ({
           name: o.name || undefined,
@@ -158,7 +160,7 @@ export async function syncContacts(
         timestamp: person.metadata?.sources?.[0]?.updateTime || new Date().toISOString(),
         content: {
           text: textParts.join('\n'),
-          participants: [name, ...emails],
+          participants: [name, ...emails, ...phones],
           metadata: {
             type: 'contact',
             name,
