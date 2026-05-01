@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useJobStore } from '../jobStore';
+import { useAuthStore } from '../authStore';
+import { sharedWs } from '../../lib/ws';
 
 vi.mock('../../lib/ws', () => ({
   sharedWs: {
@@ -14,6 +16,10 @@ vi.mock('../../lib/ws', () => ({
 describe('jobStore', () => {
   beforeEach(() => {
     useJobStore.setState({ notifications: [] });
+    vi.spyOn(useAuthStore, 'getState').mockReturnValue({
+      user: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
+      accessToken: 'token-1',
+    } as ReturnType<typeof useAuthStore.getState>);
     vi.clearAllMocks();
   });
 
@@ -65,6 +71,34 @@ describe('jobStore', () => {
       const id = useJobStore.getState().notifications[0].id;
       useJobStore.getState().dismissNotification(id);
       expect(useJobStore.getState().notifications).toHaveLength(0);
+    });
+  });
+
+  describe('connectWs', () => {
+    it('subscribes to the private user channel and surfaces quota warnings', () => {
+      let handler: ((msg: { channel: string; event: string; data: unknown }) => void) | undefined;
+      vi.mocked(sharedWs.onMessage).mockImplementation((cb) => {
+        handler = cb;
+      });
+
+      useJobStore.getState().connectWs();
+
+      expect(sharedWs.subscribe).toHaveBeenCalledWith('dashboard', 'token-1');
+      expect(sharedWs.subscribe).toHaveBeenCalledWith('notifications', 'token-1');
+      expect(sharedWs.subscribe).toHaveBeenCalledWith('user:user-1', 'token-1');
+
+      handler?.({
+        channel: 'user:user-1',
+        event: 'quota:warning',
+        data: { used: 500, limit: 500, connectorType: 'gmail' },
+      });
+
+      expect(useJobStore.getState().notifications[0]).toMatchObject({
+        level: 'warn',
+        message:
+          'Memory limit reached (500 / 500). gmail sync will continue, but new memories require Pro.',
+        read: false,
+      });
     });
   });
 });

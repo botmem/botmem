@@ -155,6 +155,35 @@ describe('EventsGateway WebSocket Auth', () => {
     expect(client.send).toHaveBeenCalledTimes(1); // only the auth ok
   });
 
+  it('should allow subscribe to the authenticated user channel', async () => {
+    const client = mockClient();
+    const req = mockReq('/events');
+    jwtService.verify.mockReturnValue({ sub: 'user-1' });
+
+    gateway.handleConnection(client, req);
+    await gateway.handleAuth(client, { token: 'valid-jwt' });
+    await gateway.handleSubscribe(client, { channel: 'user:user-1' });
+
+    expect(client.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('should reject subscribe to another user channel', async () => {
+    const client = mockClient();
+    const req = mockReq('/events');
+    jwtService.verify.mockReturnValue({ sub: 'user-1' });
+
+    gateway.handleConnection(client, req);
+    await gateway.handleAuth(client, { token: 'valid-jwt' });
+    await gateway.handleSubscribe(client, { channel: 'user:user-2' });
+
+    expect(client.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: 'error',
+        data: { message: 'Access denied for channel: user:user-2' },
+      }),
+    );
+  });
+
   it('should reject auth message without token', async () => {
     const client = mockClient();
     const req = mockReq('/events');

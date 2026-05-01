@@ -21,6 +21,13 @@ interface JobState {
 
 let wsConnected = false;
 
+function quotaWarningMessage(data: { used?: number; limit?: number; connectorType?: string }) {
+  const limitText = typeof data.limit === 'number' ? data.limit.toLocaleString() : 'free plan';
+  const usedText = typeof data.used === 'number' ? `${data.used.toLocaleString()} / ` : '';
+  const connector = data.connectorType ? ` ${data.connectorType}` : '';
+  return `Memory limit reached (${usedText}${limitText}).${connector} sync will continue, but new memories require Pro.`;
+}
+
 export const useJobStore = create<JobState>((set, get) => ({
   notifications: [],
 
@@ -57,8 +64,13 @@ export const useJobStore = create<JobState>((set, get) => ({
     if (wsConnected) return;
     wsConnected = true;
 
-    const token = useAuthStore.getState().accessToken ?? undefined;
+    const auth = useAuthStore.getState();
+    const token = auth.accessToken ?? undefined;
     sharedWs.subscribe('dashboard', token);
+    sharedWs.subscribe('notifications', token);
+    if (auth.user?.id) {
+      sharedWs.subscribe(`user:${auth.user.id}`, token);
+    }
 
     sharedWs.onMessage((msg) => {
       if (msg.event === 'job:complete') {
@@ -66,6 +78,9 @@ export const useJobStore = create<JobState>((set, get) => ({
       }
       if (msg.event === 'connector:warning') {
         get().addNotification(msg.data?.message || 'Connector warning', 'warn');
+      }
+      if (msg.event === 'quota:warning') {
+        get().addNotification(quotaWarningMessage(msg.data || {}), 'warn');
       }
     });
   },
