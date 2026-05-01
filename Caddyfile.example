@@ -9,13 +9,6 @@
 #
 # To use: cp Caddyfile.example Caddyfile && edit with your domain
 
-# Global: hide Caddy server header
-{
-	servers {
-		name off
-	}
-}
-
 yourdomain.com {
 	# Block TRACE/TRACK methods (CASA finding #1 — Proxy Disclosure)
 	@trace method TRACE TRACK
@@ -28,12 +21,21 @@ yourdomain.com {
 	# Security headers
 	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
 	header X-Content-Type-Options "nosniff"
-	header X-Frame-Options "DENY"
 	header Referrer-Policy "strict-origin-when-cross-origin"
+
+	# Firebase Auth uses /__/auth/iframe for redirect/session flows.
+	# Keep app pages non-embeddable, but allow same-origin Firebase helper frames.
+	@not_firebase_auth {
+		not path /__/auth/*
+	}
+	header @not_firebase_auth X-Frame-Options "DENY"
+
+	@firebase_auth path /__/auth/*
+	header @firebase_auth X-Frame-Options "SAMEORIGIN"
 
 	# Cache-Control for HTML pages (CASA finding #8/#9)
 	@html {
-		not path /api/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
+		not path /api/* /__/auth/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
 	}
 	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
 	header @html Pragma "no-cache"

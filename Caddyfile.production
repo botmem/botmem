@@ -6,11 +6,18 @@ botmem.xyz {
 	header -X-Powered-By
 	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
 	header X-Content-Type-Options "nosniff"
-	header X-Frame-Options "DENY"
 	header Referrer-Policy "strict-origin-when-cross-origin"
 
+	@not_firebase_auth {
+		not path /__/auth/*
+	}
+	header @not_firebase_auth X-Frame-Options "DENY"
+
+	@firebase_auth path /__/auth/*
+	header @firebase_auth X-Frame-Options "SAMEORIGIN"
+
 	@html {
-		not path /api/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
+		not path /api/* /__/auth/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
 	}
 	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
 	header @html Pragma "no-cache"
