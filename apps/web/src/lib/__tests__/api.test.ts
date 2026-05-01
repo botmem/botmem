@@ -167,16 +167,55 @@ describe('api', () => {
         expect.objectContaining({ method: 'POST' }),
       );
     });
+
+    it('includes all provided filters', async () => {
+      mockOk({ items: [], fallback: false });
+      await api.searchMemories(
+        'hello',
+        {
+          connectorTypes: ['gmail'],
+          sourceTypes: ['email'],
+          factualityLabels: ['FACT'],
+          personNames: ['Amr'],
+          timeRange: { from: '2026-01-01', to: '2026-02-01' },
+          pinned: false,
+        },
+        25,
+        'bank-1',
+      );
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        query: 'hello',
+        connectorTypes: ['gmail'],
+        sourceTypes: ['email'],
+        factualityLabels: ['FACT'],
+        personNames: ['Amr'],
+        timeRange: { from: '2026-01-01', to: '2026-02-01' },
+        pinned: false,
+        limit: 25,
+        memoryBankId: 'bank-1',
+      });
+    });
   });
 
   describe('listMemories', () => {
     it('builds query params', async () => {
       mockOk({ items: [], total: 0 });
-      await api.listMemories({ limit: 50, offset: 10, sourceType: 'email', memoryBankId: 'b1' });
+      await api.listMemories({
+        limit: 50,
+        offset: 10,
+        connectorType: 'gmail',
+        sourceType: 'email',
+        sortBy: 'eventTime',
+        memoryBankId: 'b1',
+      });
       const url = mockFetch.mock.calls[0][0];
       expect(url).toContain('limit=50');
       expect(url).toContain('offset=10');
+      expect(url).toContain('connectorType=gmail');
       expect(url).toContain('sourceType=email');
+      expect(url).toContain('sortBy=eventTime');
       expect(url).toContain('memoryBankId=b1');
     });
   });
@@ -215,8 +254,11 @@ describe('api', () => {
   describe('contacts', () => {
     it('listContacts with entityType', async () => {
       mockOk({ items: [], total: 0 });
-      await api.listContacts({ limit: 100, entityType: 'person' });
-      expect(mockFetch.mock.calls[0][0]).toContain('entityType=person');
+      await api.listContacts({ limit: 100, offset: 20, entityType: 'person' });
+      const url = mockFetch.mock.calls[0][0];
+      expect(url).toContain('limit=100');
+      expect(url).toContain('offset=20');
+      expect(url).toContain('entityType=person');
     });
 
     it('searchContacts via POST', async () => {
@@ -284,6 +326,12 @@ describe('api', () => {
   });
 
   describe('graph data', () => {
+    it('getGraphData without params uses base endpoint', async () => {
+      mockOk({ nodes: [], links: [] });
+      await api.getGraphData();
+      expect(mockFetch.mock.calls[0][0]).toBe('/api/memories/graph');
+    });
+
     it('getGraphData with params', async () => {
       mockOk({ nodes: [], links: [] });
       await api.getGraphData({ memoryLimit: 100, linkLimit: 500, memoryBankId: 'b1' });
