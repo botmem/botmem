@@ -18,6 +18,7 @@ import {
   accounts,
   rawEvents,
   settings,
+  users,
 } from '../db/schema';
 import { parseNlq } from './nlq-parser';
 import {
@@ -326,9 +327,13 @@ export class MemoryService {
   async needsRecoveryKey(userId?: string): Promise<boolean> {
     if (!userId) return false;
     const sample = await this.findEncryptedMemorySample(userId);
-    if (!sample) return false;
-
     const dek = await this.userKeyService.getDek(userId);
+
+    if (!sample) {
+      if (dek) return false;
+      return this.hasRawEventPipelineDebt(userId);
+    }
+
     if (!dek) return true;
 
     try {
@@ -432,6 +437,36 @@ export class MemoryService {
     );
 
     return rows.find((row) => this.crypto.isEncrypted(row.text)) ?? null;
+  }
+
+  private async hasRawEventPipelineDebt(userId: string): Promise<boolean> {
+    const userAccountIds = await this.getUserAccountIds(userId);
+    if (!userAccountIds?.length) return false;
+
+    const [userRow] = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ recoveryKeyHash: users.recoveryKeyHash })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1),
+    );
+    if (!userRow?.recoveryKeyHash) return false;
+
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ id: rawEvents.id })
+        .from(rawEvents)
+        .where(
+          and(
+            inArray(rawEvents.accountId, userAccountIds),
+            inArray(rawEvents.processingState, ['pending', 'failed']),
+            sql`${rawEvents.sourceType} NOT IN ('contact', 'group')`,
+          ),
+        )
+        .limit(1),
+    );
+
+    return rows.length > 0;
   }
 
   private async getCachedContacts(

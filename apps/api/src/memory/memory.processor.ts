@@ -433,6 +433,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           entity.type === 'organization'
         ) {
           const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
+          if (
+            rawEvent.connectorType === 'gmail' &&
+            entity.type === 'person' &&
+            !identifiers.some((id) => id.type === 'email')
+          ) {
+            continue;
+          }
           let merged = false;
           for (const bucket of buckets) {
             if (bucket.entityType !== entity.type || bucket.role !== entity.role) continue;
@@ -874,6 +881,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const alreadyLinked = new Set(resolvedContacts.map((c) => c.contactId));
     for (const entity of enrichEntities) {
       if (entity.type !== 'person' || !entity.value) continue;
+      if (rawEvent.connectorType === 'gmail') continue;
       try {
         const person = await this.contactsService.resolvePerson(
           [{ type: 'name', value: entity.value, connectorType: rawEvent.connectorType }],

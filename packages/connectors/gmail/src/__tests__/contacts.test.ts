@@ -173,7 +173,7 @@ describe('syncContacts', () => {
     expect(events).toHaveLength(2);
   });
 
-  it('handles minimal contact (no optional fields)', async () => {
+  it('skips contacts without email addresses', async () => {
     const minimal = {
       resourceName: 'people/c3',
       names: [{ displayName: 'Unknown' }],
@@ -185,12 +185,11 @@ describe('syncContacts', () => {
     const events: ConnectorDataEvent[] = [];
     await syncContacts(makeCtx(), (e) => events.push(e), vi.fn());
 
-    expect(events[0].content.text).toBe('Contact: Unknown');
-    expect(events[0].content.metadata.emails).toEqual([]);
+    expect(events).toEqual([]);
   });
 
   it('handles contact with no name (falls back to Unknown)', async () => {
-    const noName = { resourceName: 'people/c4' };
+    const noName = { resourceName: 'people/c4', emailAddresses: [{ value: 'unknown@test.com' }] };
     mockConnectionsList
       .mockResolvedValueOnce({ data: { totalPeople: 1 } })
       .mockResolvedValueOnce({ data: { connections: [noName], nextPageToken: undefined } });

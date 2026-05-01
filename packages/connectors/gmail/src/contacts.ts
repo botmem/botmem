@@ -77,6 +77,9 @@ export async function syncContacts(
       const givenName = person.names?.[0]?.givenName;
       const familyName = person.names?.[0]?.familyName;
       const emails = (person.emailAddresses || []).map((e) => e.value).filter(Boolean) as string[];
+      if (emails.length === 0) {
+        continue;
+      }
       const phones = (person.phoneNumbers || [])
         .map((p) => `${p.value} (${p.type || 'other'})`)
         .filter(Boolean);
