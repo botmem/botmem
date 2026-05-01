@@ -39,12 +39,12 @@ This writes `.agents/skills/botmem-cli/SKILL.md` and links `.claude/skills/botme
 
 ### Hermes Agent
 
-Hermes can install the published Botmem skill through its own skills CLI. The skill is published through skills.sh from this repository.
+Hermes can install the published Botmem skill through its own skills CLI. The canonical skill source is `.agents/skills/botmem-cli/SKILL.md` in this repository and is published through skills.sh.
 
 ```bash
 npm install -g @botmem/cli
-hermes skills inspect skills-sh/botmem/botmem/.claude/skills/botmem-cli
-hermes skills install skills-sh/botmem/botmem/.claude/skills/botmem-cli --yes --force
+hermes skills inspect skills-sh/botmem/botmem/.agents/skills/botmem-cli
+hermes skills install skills-sh/botmem/botmem/.agents/skills/botmem-cli --yes --force
 ```
 
 Hermes may flag the skill with a `CAUTION` supply-chain warning because the skill instructs agents to install `@botmem/cli` from npm. Review the inspect output first, then use `--force` if you trust the package.
