@@ -60,19 +60,18 @@ botmem config set-key bm_sk_...      # API key
 
 Then ask your agent to "refresh skills" or restart the OpenClaw gateway. This gives your agent both the plugin tools (programmatic) and the CLI skill (terminal).
 
-For Hermes Agent, install the same published skill into Hermes' local skill directory:
+For Hermes Agent, install the same published skill through Hermes' skills CLI:
 
 ```bash
 npm install -g @botmem/cli
-mkdir -p ~/.hermes/skills/botmem-cli
-curl -fsSL https://raw.githubusercontent.com/botmem/botmem/main/.claude/skills/botmem-cli/SKILL.md \
-  -o ~/.hermes/skills/botmem-cli/SKILL.md
+hermes skills inspect skills-sh/botmem/botmem/.claude/skills/botmem-cli
+hermes skills install skills-sh/botmem/botmem/.claude/skills/botmem-cli --yes --force
 ```
 
-Restart Hermes or ask it to refresh skills, then verify the skill was loaded:
+Hermes may flag this as a `CAUTION` supply-chain finding because the skill uses the npm-published Botmem CLI. Inspect first, then use `--force` if you trust `@botmem/cli`. Start a new Hermes session or use `/reset`, then verify:
 
 ```bash
-rg -n "botmem-cli|toon-fields|Contact Attribution" ~/.hermes/skills/botmem-cli/SKILL.md
+hermes skills list | grep botmem-cli
 ```
 
 ## Configure
