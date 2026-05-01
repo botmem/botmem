@@ -40,7 +40,10 @@ export function DashboardPage() {
   } = useMemories();
   const timelineMemories = useMemoryStore((s) => s.memories);
   const timelineLoading = useMemoryStore((s) => s.loading);
+  const timelineLoadingMore = useMemoryStore((s) => s.loadingMore);
+  const timelineHasMore = useMemoryStore((s) => s.hasMore);
   const loadMemories = useMemoryStore((s) => s.loadMemories);
+  const loadMoreMemories = useMemoryStore((s) => s.loadMoreMemories);
   const [activeTab, setActiveTab] = useState('overview');
 
   // Connect WebSocket for notifications
@@ -267,6 +270,9 @@ export function DashboardPage() {
             <TimelineView
               memories={searchTimelineMemories ?? timelineMemories}
               loading={graphSearch.pending || (!searchTimelineMemories && timelineLoading)}
+              loadingMore={searchTimelineMemories ? graphSearch.pendingMore : timelineLoadingMore}
+              hasMore={searchTimelineMemories ? graphSearch.hasMore : timelineHasMore}
+              onLoadMore={searchTimelineMemories ? graphSearch.loadMore : loadMoreMemories}
             />
           </Suspense>
         )}
