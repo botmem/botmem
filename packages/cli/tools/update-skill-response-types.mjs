@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -90,8 +90,10 @@ function escapeForTemplateLiteral(markdown) {
 
 const generated = responseTypesMarkdown();
 
-const skill = readFileSync(skillPath, 'utf8');
-writeFileSync(skillPath, replaceMarkdownSection(skill, generated));
+if (existsSync(skillPath)) {
+  const skill = readFileSync(skillPath, 'utf8');
+  writeFileSync(skillPath, replaceMarkdownSection(skill, generated));
+}
 
 const installSkill = readFileSync(installSkillPath, 'utf8');
 writeFileSync(installSkillPath, replaceMarkdownSection(installSkill, escapeForTemplateLiteral(generated)));
