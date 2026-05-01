@@ -217,8 +217,16 @@ export function isGroupScopedIdentifier(identifierType: string): boolean {
   );
 }
 
-function hasPersonScopedIdentifier(identifiers: IdentifierInput[]): boolean {
+export function hasDurablePersonIdentifier(identifiers: IdentifierInput[]): boolean {
   return identifiers.some((ident) => ident.type !== 'name' && !isGroupScopedIdentifier(ident.type));
+}
+
+export function isCompatiblePersonAlias(currentName: string, newName: string): boolean {
+  const current = currentName.trim();
+  const next = newName.trim();
+  if (!current || current === 'Unknown' || looksLikeIdentifierLabel(current)) return true;
+  if (!next || looksLikeIdentifierLabel(next)) return false;
+  return shouldUpdateDisplayName(current, next) || isDirectNameAutoMergeEligible(current, next);
 }
 
 export function normalizeNameForMerge(name: string): string[] {
@@ -562,7 +570,7 @@ export class PeopleService {
   ): Promise<PersonWithIdentifiers> {
     // Normalize + deduplicate identifiers
     const seen = new Set<string>();
-    const identifiers: IdentifierInput[] = [];
+    let identifiers: IdentifierInput[] = [];
     for (const raw of rawIdentifiers) {
       const norm = normalizeIdentifier(raw);
       if (!norm) continue;
@@ -607,8 +615,13 @@ export class PeopleService {
 
     const matchedIds = Array.from(matchedContactIds);
     let personId: string;
+    const resolvingPerson = !entityType || entityType === 'person';
 
     if (matchedIds.length === 0) {
+      if (resolvingPerson && !hasDurablePersonIdentifier(identifiers)) {
+        throw new Error('Refusing to create person without a durable identifier');
+      }
+
       // Create new contact
       personId = randomUUID();
       const now = new Date();
@@ -642,7 +655,11 @@ export class PeopleService {
         );
         const rawName = existing[0]?.displayName || '';
         const currentName = this.crypto.decrypt(rawName) ?? rawName;
-        if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
+        if (!isCompatiblePersonAlias(currentName, nameIdent.value)) {
+          identifiers = identifiers.filter(
+            (ident) => !(ident.type === 'name' && ident.value === nameIdent.value),
+          );
+        } else if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
           await this.dbService.withCurrentUser((db) =>
             db
               .update(people)
@@ -756,7 +773,11 @@ export class PeopleService {
       );
       const rawName = existing[0]?.displayName || '';
       const currentName = this.crypto.decrypt(rawName) ?? rawName;
-      if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
+      if (!isCompatiblePersonAlias(currentName, nameIdent.value)) {
+        identifiers = identifiers.filter(
+          (ident) => !(ident.type === 'name' && ident.value === nameIdent.value),
+        );
+      } else if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
         await this.dbService.withCurrentUser((db) =>
           db
             .update(people)
@@ -771,7 +792,7 @@ export class PeopleService {
     }
 
     // Update entityType if caller provides a non-person type and contact is currently person-typed
-    if (entityType && entityType !== 'person' && !hasPersonScopedIdentifier(identifiers)) {
+    if (entityType && entityType !== 'person' && !hasDurablePersonIdentifier(identifiers)) {
       const current = await this.dbService.withCurrentUser((db) =>
         db.select({ entityType: people.entityType }).from(people).where(eq(people.id, personId)),
       );
