@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import type { Memory } from '@botmem/shared';
 import { formatDate } from '@botmem/shared';
 import { StreamGraph } from './StreamGraph';
@@ -8,10 +8,21 @@ import { MemoryDetailSidebar } from './MemoryDetailSidebar';
 interface TimelineViewProps {
   memories: Memory[];
   loading: boolean;
+  loadingMore?: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void | Promise<void>;
 }
 
-export function TimelineView({ memories, loading }: TimelineViewProps) {
+export function TimelineView({
+  memories,
+  loading,
+  loadingMore = false,
+  hasMore = false,
+  onLoadMore,
+}: TimelineViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const scrollRootRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const selectedMemory = memories.find((m) => m.id === selectedId) || null;
 
   // Group memories by day
@@ -26,6 +37,24 @@ export function TimelineView({ memories, loading }: TimelineViewProps) {
     return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [memories]);
 
+  useEffect(() => {
+    const root = scrollRootRef.current;
+    const target = loadMoreRef.current;
+    if (!root || !target || !hasMore || loading || loadingMore || !onLoadMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void onLoadMore();
+        }
+      },
+      { root, rootMargin: '480px 0px', threshold: 0 },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, onLoadMore, memories.length]);
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Stream Graph — full width, above the list+sidebar row */}
@@ -36,7 +65,7 @@ export function TimelineView({ memories, loading }: TimelineViewProps) {
       {/* Timeline list + Detail sidebar row */}
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Left: Day-grouped Timeline */}
-        <div className="flex-1 overflow-y-auto min-w-0">
+        <div ref={scrollRootRef} className="flex-1 overflow-y-auto min-w-0">
           {loading && (
             <div className="p-4 font-mono text-xs text-nb-muted uppercase">Loading...</div>
           )}
@@ -61,6 +90,18 @@ export function TimelineView({ memories, loading }: TimelineViewProps) {
               ))}
             </div>
           ))}
+          <div ref={loadMoreRef} className="min-h-10">
+            {loadingMore && (
+              <div className="border-t-2 border-nb-border px-3 py-3 font-mono text-xs uppercase text-nb-muted">
+                Loading more...
+              </div>
+            )}
+            {!loading && !loadingMore && hasMore && (
+              <div className="border-t-2 border-nb-border px-3 py-3 font-mono text-[11px] uppercase text-nb-muted">
+                More memories queued
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right: Detail Panel — only beside the timeline list, not the stream graph */}

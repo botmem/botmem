@@ -60,7 +60,7 @@ export class SearchMemoriesDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(250)
   limit?: number;
 
   @IsOptional()
