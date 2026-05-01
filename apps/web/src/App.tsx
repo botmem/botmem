@@ -1,6 +1,6 @@
 import { useEffect, lazy, Suspense } from 'react';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { Logo } from './components/ui/Logo';
+import { LoadingScreen } from './components/ui/LoadingScreen';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
@@ -106,17 +106,6 @@ function ScrollToTop() {
     window.scrollTo(0, 0);
   }, [pathname]);
   return null;
-}
-
-export function LoadingScreen() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-nb-bg">
-      <div className="text-center">
-        <Logo variant="full" height={40} className="mx-auto mb-4" />
-        <div className="font-mono text-sm text-nb-muted">Loading...</div>
-      </div>
-    </div>
-  );
 }
 
 function LandingOrApp() {

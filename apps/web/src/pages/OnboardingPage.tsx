@@ -1,12 +1,14 @@
 import { Navigate } from 'react-router-dom';
 import { OnboardingSteps } from '../components/auth/OnboardingSteps';
 import { useAuth } from '../hooks/useAuth';
+import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 
 export function OnboardingPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
+  if (isLoading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.onboarded) return <Navigate to="/dashboard" replace />;
 

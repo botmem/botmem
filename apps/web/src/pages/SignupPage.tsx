@@ -1,6 +1,7 @@
 import { SignupForm } from '../components/auth/SignupForm';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -12,8 +13,9 @@ export function SignupPage() {
       'Create a free Botmem account. Connect Gmail, Slack, WhatsApp, iMessage, photos, and locations into one searchable AI-powered personal memory. Open source, self-hosted, privacy-first.',
   });
 
-  const { user } = useAuth();
-  if (user) return <Navigate to="/dashboard" replace />;
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <LoadingScreen />;
+  if (user) return <Navigate to={user.onboarded ? '/dashboard' : '/onboarding'} replace />;
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row">

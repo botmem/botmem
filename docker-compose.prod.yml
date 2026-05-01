@@ -18,6 +18,9 @@ services:
     image: ghcr.io/botmem/botmem:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.prod
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     environment:
