@@ -231,6 +231,40 @@ export const memoryPeople = pgTable(
 /** @deprecated Use `memoryPeople` instead */
 export const memoryContacts = memoryPeople;
 
+export const personRelationships = pgTable(
+  'person_relationships',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id'),
+    sourcePersonId: text('source_person_id')
+      .notNull()
+      .references(() => people.id),
+    targetPersonId: text('target_person_id')
+      .notNull()
+      .references(() => people.id),
+    relationshipType: text('relationship_type').notNull(),
+    connectorType: text('connector_type'),
+    sourceId: text('source_id').notNull(),
+    confidence: doublePrecision('confidence').notNull().default(1.0),
+    metadata: jsonb('metadata').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index('idx_person_relationships_user_id').on(table.userId),
+    index('idx_person_relationships_source').on(table.sourcePersonId),
+    index('idx_person_relationships_target').on(table.targetPersonId),
+    index('idx_person_relationships_type').on(table.relationshipType),
+    uniqueIndex('idx_person_relationships_unique').on(
+      table.sourcePersonId,
+      table.targetPersonId,
+      table.relationshipType,
+      table.connectorType,
+      table.sourceId,
+    ),
+  ],
+);
+
 export const mergeDismissals = pgTable(
   'merge_dismissals',
   {

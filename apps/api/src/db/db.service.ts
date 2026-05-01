@@ -124,6 +124,19 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
     'created_at',
   ],
   memory_people: ['id', 'memory_id', 'person_id', 'role'],
+  person_relationships: [
+    'id',
+    'user_id',
+    'source_person_id',
+    'target_person_id',
+    'relationship_type',
+    'connector_type',
+    'source_id',
+    'confidence',
+    'metadata',
+    'created_at',
+    'updated_at',
+  ],
   merge_dismissals: ['id', 'person_id_1', 'person_id_2', 'created_at'],
   memory_banks: ['id', 'user_id', 'name', 'is_default', 'created_at', 'updated_at'],
   api_keys: [
@@ -470,7 +483,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
 
         -- =====================================================================
         -- TABLES VIA people
-        -- person_identifiers, merge_dismissals
+        -- person_identifiers, merge_dismissals, person_relationships
         -- =====================================================================
 
         ALTER TABLE person_identifiers ENABLE ROW LEVEL SECURITY;
@@ -494,6 +507,17 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         CREATE POLICY rls_merge_dismissals_insert ON merge_dismissals FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
         CREATE POLICY rls_merge_dismissals_update ON merge_dismissals FOR UPDATE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
         CREATE POLICY rls_merge_dismissals_delete ON merge_dismissals FOR DELETE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = merge_dismissals.person_id_1 AND p.user_id = current_setting('app.current_user_id', true)));
+
+        ALTER TABLE person_relationships ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE person_relationships FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_person_relationships_select ON person_relationships;
+        DROP POLICY IF EXISTS rls_person_relationships_insert ON person_relationships;
+        DROP POLICY IF EXISTS rls_person_relationships_update ON person_relationships;
+        DROP POLICY IF EXISTS rls_person_relationships_delete ON person_relationships;
+        CREATE POLICY rls_person_relationships_select ON person_relationships FOR SELECT USING (EXISTS (SELECT 1 FROM people p WHERE p.id = person_relationships.source_person_id AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_person_relationships_insert ON person_relationships FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM people p WHERE p.id = person_relationships.source_person_id AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_person_relationships_update ON person_relationships FOR UPDATE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = person_relationships.source_person_id AND p.user_id = current_setting('app.current_user_id', true)));
+        CREATE POLICY rls_person_relationships_delete ON person_relationships FOR DELETE USING (EXISTS (SELECT 1 FROM people p WHERE p.id = person_relationships.source_person_id AND p.user_id = current_setting('app.current_user_id', true)));
       `);
       this.logger.log('RLS policies applied on all user-owned tables');
     } finally {

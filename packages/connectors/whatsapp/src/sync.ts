@@ -2021,27 +2021,36 @@ function emitContactEvents(
 
     const members = groupParticipants.get(groupJid);
     const memberPhones: string[] = [];
+    const memberLids: string[] = [];
+    const memberJids: string[] = [];
     if (members) {
       for (const jid of members) {
+        memberJids.push(jid);
+        if (isLid(jid)) memberLids.push(phoneFromJid(jid));
         const identity = resolveIdentity(jid, lidToPhone, phoneToLid, phoneToName, lidToName);
         if (identity.phone) memberPhones.push(identity.phone);
       }
     }
+    const uniqueMemberPhones = [...new Set(memberPhones)];
+    const uniqueMemberLids = [...new Set(memberLids)];
+    const uniqueMemberJids = [...new Set(memberJids)];
 
     emit({
       sourceType: 'contact',
       sourceId: `wa-group:${groupJid}`,
       timestamp: new Date().toISOString(),
       content: {
-        text: `WhatsApp group: ${groupName} (${memberPhones.length} known members)`,
-        participants: memberPhones,
+        text: `WhatsApp group: ${groupName} (${uniqueMemberPhones.length} known phone members, ${uniqueMemberLids.length} LID members)`,
+        participants: uniqueMemberPhones,
         metadata: {
           type: 'contact',
           name: groupName,
           isGroup: true,
           groupJid,
-          memberCount: memberPhones.length,
-          memberPhones,
+          memberCount: uniqueMemberJids.length || uniqueMemberPhones.length,
+          memberPhones: uniqueMemberPhones,
+          memberLids: uniqueMemberLids,
+          memberJids: uniqueMemberJids,
           connectorType: 'whatsapp',
           selfPhone,
         },
