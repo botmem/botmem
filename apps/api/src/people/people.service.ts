@@ -191,8 +191,22 @@ export function isExactIdentifierAutoMergeEligible(
   identifierValue: string,
 ): boolean {
   if (!identifierValue.trim()) return false;
+  if (isGroupScopedIdentifier(identifierType)) return false;
   if (identifierType !== 'name') return true;
   return normalizeNameForMerge(identifierValue).length > 0;
+}
+
+export function isGroupScopedIdentifier(identifierType: string): boolean {
+  return (
+    identifierType === 'whatsapp_group_jid' ||
+    identifierType === 'imessage_group_id' ||
+    identifierType === 'slack_channel_id' ||
+    identifierType === 'telegram_group_id'
+  );
+}
+
+function hasPersonScopedIdentifier(identifiers: IdentifierInput[]): boolean {
+  return identifiers.some((ident) => ident.type !== 'name' && !isGroupScopedIdentifier(ident.type));
 }
 
 export function normalizeNameForMerge(name: string): string[] {
@@ -725,7 +739,7 @@ export class PeopleService {
     }
 
     // Update entityType if caller provides a non-person type and contact is currently person-typed
-    if (entityType && entityType !== 'person') {
+    if (entityType && entityType !== 'person' && !hasPersonScopedIdentifier(identifiers)) {
       const current = await this.dbService.withCurrentUser((db) =>
         db.select({ entityType: people.entityType }).from(people).where(eq(people.id, personId)),
       );

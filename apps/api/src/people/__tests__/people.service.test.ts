@@ -10,6 +10,7 @@ import {
   isMergeSuggestionEligibleEntity,
   looksLikeGroupName,
   isExactIdentifierAutoMergeEligible,
+  isGroupScopedIdentifier,
   looksLikeIdentifierLabel,
   looksLikeCombinedPersonName,
   isDirectNameAutoMergeEligible,
@@ -319,6 +320,14 @@ describe('isExactIdentifierAutoMergeEligible', () => {
     expect(isExactIdentifierAutoMergeEligible('email', 'amelie@example.com')).toBe(true);
     expect(isExactIdentifierAutoMergeEligible('phone', '+971501234567')).toBe(true);
     expect(isExactIdentifierAutoMergeEligible('whatsapp_id', '971501234567@c.us')).toBe(true);
+  });
+
+  it('rejects group-scoped identifiers as person auto-merge evidence', () => {
+    expect(isGroupScopedIdentifier('whatsapp_group_jid')).toBe(true);
+    expect(isExactIdentifierAutoMergeEligible('whatsapp_group_jid', '120363410677585590')).toBe(
+      false,
+    );
+    expect(isExactIdentifierAutoMergeEligible('slack_channel_id', 'C123456')).toBe(false);
   });
 
   it('rejects empty identifiers only', () => {
