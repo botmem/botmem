@@ -7,7 +7,14 @@ else
   pnpm turbo typecheck test --filter='!@botmem/e2e'
 fi
 
-# 2. Run Playwright e2e tests if the API server is running (advisory — failures don't block push)
+# 2. Confirm the CLI publish path. The CLI build runs the skill response-type generator first.
+pnpm --filter @botmem/cli build
+pnpm --filter @botmem/cli test
+
+# 3. Confirm web coverage thresholds before CI.
+pnpm --filter @botmem/web test:coverage
+
+# 4. Run Playwright e2e tests if the API server is running (advisory — failures don't block push)
 if curl -sf http://localhost:12412/api/version > /dev/null 2>&1; then
   echo "API server detected — running Playwright e2e tests..."
   cd e2e && npx playwright test --reporter=line || echo "⚠ Playwright tests had failures (non-blocking — CI is the gate)"

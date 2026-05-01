@@ -82,4 +82,23 @@ describe('themeStore', () => {
     useThemeStore.getState().setTheme('light');
     expect(setAttrSpy).toHaveBeenCalledWith('data-theme', 'light');
   });
+
+  it('updates resolved theme when system preference changes in system mode', () => {
+    useThemeStore.setState({ theme: 'system', resolvedTheme: 'dark' });
+
+    matchMediaListeners.forEach((listener) => listener({ matches: false }));
+
+    const state = useThemeStore.getState();
+    expect(state.resolvedTheme).toBe('light');
+    expect(setAttrSpy).toHaveBeenCalledWith('data-theme', 'light');
+  });
+
+  it('ignores system preference changes when a fixed theme is selected', () => {
+    useThemeStore.setState({ theme: 'dark', resolvedTheme: 'dark' });
+
+    matchMediaListeners.forEach((listener) => listener({ matches: false }));
+
+    const state = useThemeStore.getState();
+    expect(state.resolvedTheme).toBe('dark');
+  });
 });
