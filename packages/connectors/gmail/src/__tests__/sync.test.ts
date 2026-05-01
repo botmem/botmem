@@ -100,6 +100,47 @@ describe('syncGmail', () => {
     expect(progressEvents[0].total).toBe(100);
   });
 
+  it('skips unavailable messages without failing the sync', async () => {
+    mockList.mockResolvedValue({
+      data: {
+        messages: [{ id: 'msg-1' }, { id: 'msg-deleted' }, { id: 'msg-2' }],
+        nextPageToken: null,
+      },
+    });
+
+    mockGet.mockImplementation(async (opts: { id: string }) => {
+      if (opts.id === 'msg-deleted') {
+        const err = new Error('Requested entity was not found.') as Error & { code: number };
+        err.code = 404;
+        throw err;
+      }
+      return {
+        data: {
+          id: opts.id,
+          payload: {
+            headers: [
+              { name: 'Subject', value: `Email ${opts.id}` },
+              { name: 'From', value: 'sender@test.com' },
+              { name: 'To', value: 'receiver@test.com' },
+            ],
+          },
+          labelIds: ['INBOX'],
+        },
+      };
+    });
+
+    const ctx = makeCtx();
+    const events: ConnectorDataEvent[] = [];
+
+    const result = await syncGmail(ctx, (e) => events.push(e), vi.fn());
+
+    expect(result.processed).toBe(2);
+    expect(events.map((event) => event.sourceId)).toEqual(['msg-1', 'msg-2']);
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping unavailable Gmail message msg-deleted'),
+    );
+  });
+
   it('handles empty message list', async () => {
     mockList.mockResolvedValue({ data: { messages: [], nextPageToken: null } });
 
