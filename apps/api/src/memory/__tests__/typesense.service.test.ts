@@ -276,6 +276,51 @@ describe('TypesenseService', () => {
     });
   });
 
+  describe('filter building', () => {
+    it('converts public timeRange filters to event_time epoch seconds', () => {
+      const filter = service.buildFilterString({
+        timeRange: {
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-05-01T00:00:00.000Z',
+        },
+      });
+
+      expect(filter).toBe('event_time:>=1775001600 && event_time:<=1777593600');
+    });
+
+    it('converts legacy event_time range filters to epoch seconds', () => {
+      const filter = (
+        service as unknown as {
+          buildTypesenseFilter: (filter: Record<string, unknown>) => string;
+        }
+      ).buildTypesenseFilter({
+        must: [
+          {
+            key: 'event_time',
+            range: {
+              gte: '2026-04-01T00:00:00.000Z',
+              lte: '2026-05-01T00:00:00.000Z',
+            },
+          },
+        ],
+      });
+
+      expect(filter).toBe('event_time:>=1775001600 && event_time:<=1777593600');
+    });
+
+    it('skips invalid event_time values instead of emitting an invalid Typesense filter', () => {
+      const filter = (
+        service as unknown as {
+          buildTypesenseFilter: (filter: Record<string, unknown>) => string;
+        }
+      ).buildTypesenseFilter({
+        must: [{ key: 'event_time', range: { gte: 'not-a-date' } }],
+      });
+
+      expect(filter).toBe('');
+    });
+  });
+
   describe('recommend', () => {
     it('returns recommendations for a memory', async () => {
       // First call: retrieve the source document's embedding

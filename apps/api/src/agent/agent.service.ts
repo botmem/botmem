@@ -72,7 +72,13 @@ export class AgentService {
   async ask(
     query: string,
     options?: {
-      filters?: { sourceType?: string; connectorType?: string; contactId?: string };
+      filters?: {
+        sourceType?: string;
+        connectorType?: string;
+        contactId?: string;
+        from?: string;
+        to?: string;
+      };
       limit?: number;
       userId?: string;
       conversationId?: string;
@@ -529,6 +535,8 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     sourceType?: string;
     connectorType?: string;
     contactId?: string;
+    from?: string;
+    to?: string;
   }): Record<string, unknown> {
     const must: Array<Record<string, unknown>> = [];
     if (filters.sourceType) {
@@ -536,6 +544,12 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     }
     if (filters.connectorType) {
       must.push({ key: 'connector_type', match: { value: filters.connectorType } });
+    }
+    if (filters.from || filters.to) {
+      const range: Record<string, string> = {};
+      if (filters.from) range.gte = filters.from;
+      if (filters.to) range.lte = filters.to;
+      must.push({ key: 'event_time', range });
     }
     // contactId filtering not supported at vector level — handled post-search
     return must.length ? { must } : {};
