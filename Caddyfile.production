@@ -48,6 +48,22 @@ botmem.xyz {
 	}
 }
 
+api.botmem.xyz {
+	@trace method TRACE TRACK
+	respond @trace 405
+
+	header -Server
+	header -X-Powered-By
+	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+	header X-Frame-Options "DENY"
+
+	reverse_proxy api:12412 {
+		header_down -Content-Security-Policy
+	}
+}
+
 www.botmem.xyz {
 	redir https://botmem.xyz{uri} permanent
 }
