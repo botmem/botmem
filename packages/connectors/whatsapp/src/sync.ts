@@ -423,6 +423,7 @@ const ON_DEMAND_WAIT_MS = 2500; // wait for messages to arrive after fetch
 const ON_DEMAND_FETCH_TIMEOUT_MS = 15_000;
 const PHONE_LOOKUP_BATCH_SIZE = 50;
 const WHATSAPP_HISTORY_CURSOR = 'whatsapp-history-v1';
+const REALTIME_STARTUP_QUARANTINE_MS = 2 * 60_000;
 
 type WaSock = ReturnType<typeof makeWASocket>;
 
@@ -825,6 +826,7 @@ export async function startWhatsAppRealtime(
   const groupParticipants = new Map<string, Set<string>>();
   const log = callbacks.onLog;
   const emittedSourceIds = new Set<string>();
+  const realtimeStartedAt = Date.now();
   const rememberEmitted = (sourceId: string) => {
     emittedSourceIds.add(sourceId);
     if (emittedSourceIds.size > MESSAGE_STORE_MAX) {
@@ -843,12 +845,18 @@ export async function startWhatsAppRealtime(
     sourceOverride?: string,
   ) => {
     const source = sourceOverride ?? (upsert.type === 'notify' ? 'realtime' : 'append');
+    const isStartupReplay =
+      source === 'realtime' && Date.now() - realtimeStartedAt < REALTIME_STARTUP_QUARANTINE_MS;
     log?.(
       'info',
       `WhatsApp realtime messages.upsert: ${upsert.messages?.length || 0} msgs, type=${upsert.type}`,
     );
     for (const msg of upsert.messages || []) {
       storeMessage(msg.key, msg.message);
+      if (isStartupReplay) {
+        log?.('info', `WhatsApp realtime startup replay filtered: ${summarizeMessageForLog(msg)}`);
+        continue;
+      }
       await emitRealtimeEvent(
         buildMessageEvent(
           msg,
@@ -1691,6 +1699,13 @@ export async function syncWhatsApp(
         const msgs = upsert.messages || [];
         const type = upsert.type === 'notify' ? 'realtime' : 'append';
         ctx.logger.info(`messages.upsert: ${msgs.length} msgs, type=${upsert.type}`);
+        if (type === 'realtime') {
+          ctx.logger.info(
+            `Skipping ${msgs.length} realtime WhatsApp upsert messages during history sync; they can be stale reconnect replays`,
+          );
+          resetIdle();
+          return;
+        }
         for (const msg of msgs) {
           // Store message for decrypt retry callback
           storeMessage(msg.key, msg.message);

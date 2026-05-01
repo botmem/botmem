@@ -289,7 +289,7 @@ describe('sync module', () => {
       expect(msgEmits.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('processes real-time messages from messages.upsert', async () => {
+    it('skips realtime messages.upsert during history sync', async () => {
       const { syncWhatsApp } = await import('../sync.js');
       const emit = vi.fn();
 
@@ -344,7 +344,16 @@ describe('sync module', () => {
       await vi.advanceTimersByTimeAsync(35_000);
 
       const result = await promise;
-      expect(result.processed).toBeGreaterThanOrEqual(1);
+      expect(result.processed).toBe(0);
+      expect(emit).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceType: 'message',
+          sourceId: 'wa-msg:rt1',
+        }),
+      );
+      expect(ctx.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Skipping 1 realtime WhatsApp upsert messages during history sync'),
+      );
     });
 
     it('handles disconnection during sync', async () => {
