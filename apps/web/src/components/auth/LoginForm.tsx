@@ -22,7 +22,8 @@ export function LoginForm() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/dashboard');
+      const user = useAuthStore.getState().user;
+      navigate(user?.onboarded ? '/dashboard' : '/onboarding');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -34,7 +35,6 @@ export function LoginForm() {
     setFbLoading(provider);
     try {
       await loginWithFirebase(provider);
-      navigate('/dashboard');
     } catch {
       // error already set in store
     } finally {
