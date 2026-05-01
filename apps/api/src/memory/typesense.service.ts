@@ -598,12 +598,12 @@ export class TypesenseService implements OnModuleInit {
       parts.push(`people:[${escaped.join(',')}]`);
     }
     if (filters.timeRange?.from) {
-      const ts = Math.floor(new Date(filters.timeRange.from).getTime() / 1000);
-      if (!isNaN(ts)) parts.push(`event_time:>=${ts}`);
+      const ts = this.toEpochSeconds(filters.timeRange.from);
+      if (ts !== null) parts.push(`event_time:>=${ts}`);
     }
     if (filters.timeRange?.to) {
-      const ts = Math.floor(new Date(filters.timeRange.to).getTime() / 1000);
-      if (!isNaN(ts)) parts.push(`event_time:<=${ts}`);
+      const ts = this.toEpochSeconds(filters.timeRange.to);
+      if (ts !== null) parts.push(`event_time:<=${ts}`);
     }
     if (filters.pinned === true) {
       parts.push('pinned:=true');
@@ -769,21 +769,34 @@ export class TypesenseService implements OnModuleInit {
         if (!key) continue;
 
         // Match filter: { key: 'field', match: { value: 'val' } }
-        const match = clause.match as { value?: unknown } | undefined;
+        const match = clause.match as { value?: unknown; any?: unknown[] } | undefined;
         if (match?.value !== undefined) {
           parts.push(`${key}:=${match.value}`);
+          continue;
+        }
+        if (Array.isArray(match?.any) && match.any.length) {
+          parts.push(`${key}:[${match.any.join(',')}]`);
           continue;
         }
 
         // Range filter: { key: 'field', range: { gte: '...', lte: '...' } }
         const range = clause.range as
-          | { gte?: string; lte?: string; gt?: string; lt?: string }
+          | {
+              gte?: string | number;
+              lte?: string | number;
+              gt?: string | number;
+              lt?: string | number;
+            }
           | undefined;
         if (range) {
-          if (range.gte) parts.push(`${key}:>=${range.gte}`);
-          if (range.lte) parts.push(`${key}:<=${range.lte}`);
-          if (range.gt) parts.push(`${key}:>${range.gt}`);
-          if (range.lt) parts.push(`${key}:<${range.lt}`);
+          const gte = this.toFilterRangeValue(key, range.gte);
+          const lte = this.toFilterRangeValue(key, range.lte);
+          const gt = this.toFilterRangeValue(key, range.gt);
+          const lt = this.toFilterRangeValue(key, range.lt);
+          if (gte !== null) parts.push(`${key}:>=${gte}`);
+          if (lte !== null) parts.push(`${key}:<=${lte}`);
+          if (gt !== null) parts.push(`${key}:>${gt}`);
+          if (lt !== null) parts.push(`${key}:<${lt}`);
         }
       }
     }
@@ -804,6 +817,23 @@ export class TypesenseService implements OnModuleInit {
     }
 
     return parts.join(' && ');
+  }
+
+  private toFilterRangeValue(
+    key: string,
+    value: string | number | undefined,
+  ): string | number | null {
+    if (value === undefined || value === null || value === '') return null;
+    if (key !== 'event_time') return value;
+    return this.toEpochSeconds(value);
+  }
+
+  private toEpochSeconds(value: string | number): number | null {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? Math.floor(value) : null;
+    }
+    const ts = Math.floor(new Date(value).getTime() / 1000);
+    return Number.isFinite(ts) ? ts : null;
   }
 
   private flattenPayload(payload: Record<string, unknown>): Record<string, unknown> {

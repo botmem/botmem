@@ -807,7 +807,6 @@ export class MemoryService {
       sourceTypes: effectiveFilters.sourceTypes,
       factualityLabels: effectiveFilters.factualityLabels,
       personNames: effectiveFilters.personNames,
-      timeRange: { from: effectiveFilters.from, to: effectiveFilters.to },
       pinned: effectiveFilters.pinned,
       accountIds: effectiveFilters.accountIds,
       memoryBankId: effectiveFilters.memoryBankId,
