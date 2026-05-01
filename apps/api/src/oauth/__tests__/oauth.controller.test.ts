@@ -6,6 +6,7 @@ import { FirebaseAuthService } from '../../user-auth/firebase-auth.service';
 import { UserKeyService } from '../../crypto/user-key.service';
 import { ConfigService } from '../../config/config.service';
 import { JwtService } from '@nestjs/jwt';
+import { IS_PUBLIC_KEY } from '../../user-auth/decorators/public.decorator';
 import type { Request } from 'express';
 
 function makeReq(overrides: Partial<Request> = {}): Request {
@@ -167,5 +168,11 @@ describe('OAuthController.authorizeComplete', () => {
     await expect(controller.authorizeComplete(req, baseBody)).rejects.toThrow(
       'Provide email/password or Authorization header',
     );
+  });
+});
+
+describe('OAuthController route metadata', () => {
+  it('keeps dynamic client registration public so remote MCP clients can start OAuth', () => {
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, OAuthController.prototype.register)).toBe(true);
   });
 });
