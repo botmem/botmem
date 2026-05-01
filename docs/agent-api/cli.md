@@ -22,6 +22,48 @@ pnpm build
 npx botmem --help
 ```
 
+## Agent Skill Installation
+
+The CLI package includes a `botmem-cli` skill for agents that read `SKILL.md` files. The skill teaches agents to use `--toon`, `--toon-fields`, contact-scoped searches, and connector verification before making claims from memory results.
+
+### Claude Code / Codex-style agents
+
+From the workspace where you want the skill installed:
+
+```bash
+npm install -g @botmem/cli
+botmem install-skill
+```
+
+This writes `.agents/skills/botmem-cli/SKILL.md` and links `.claude/skills/botmem-cli/SKILL.md` to it.
+
+### Hermes Agent
+
+Hermes scans local skills from `~/.hermes/skills/`. Install the published Botmem CLI, then copy the published skill file into Hermes' skill directory:
+
+```bash
+npm install -g @botmem/cli
+mkdir -p ~/.hermes/skills/botmem-cli
+curl -fsSL https://raw.githubusercontent.com/botmem/botmem/main/.claude/skills/botmem-cli/SKILL.md \
+  -o ~/.hermes/skills/botmem-cli/SKILL.md
+```
+
+Then restart Hermes or ask it to refresh/reload skills. To verify:
+
+```bash
+test -f ~/.hermes/skills/botmem-cli/SKILL.md
+rg -n "toon-fields|Contact Attribution|Response Types" ~/.hermes/skills/botmem-cli/SKILL.md
+```
+
+Configure the CLI for Hermes' shell environment:
+
+```bash
+botmem config set-host botmem.xyz
+botmem config set-key bm_sk_...
+botmem config set-recovery-key <base64-key> # required for encrypted memories
+botmem version --toon-fields buildTime,gitHash,uptime
+```
+
 ## Global Options
 
 | Flag              | Description                                                                 |
@@ -29,6 +71,8 @@ npx botmem --help
 | `--api-url <url>` | API base URL (env: `BOTMEM_API_URL`, default: `http://localhost:12412/api`) |
 | `--api-key <key>` | API key for authentication (env: `BOTMEM_API_KEY`)                          |
 | `--json`          | Output raw JSON for piping to `jq` or scripts                               |
+| `--toon`          | Output compact TOON for LLM agents                                          |
+| `--toon-fields`   | Select comma-separated dot paths before TOON encoding                       |
 | `-h, --help`      | Show help                                                                   |
 
 ## Authentication
