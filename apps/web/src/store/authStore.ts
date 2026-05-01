@@ -269,7 +269,9 @@ export const useAuthStore = create<AuthState>()(
       },
 
       initialize: async () => {
-        set({ isLoading: true });
+        // Do not trust persisted partial users during boot. Firebase/local refresh must
+        // establish a fresh token before protected routes render and call APIs.
+        set({ isLoading: true, user: null, accessToken: null });
         try {
           if (isFirebaseMode) {
             await ensureFirebase();
@@ -321,8 +323,9 @@ export const useAuthStore = create<AuthState>()(
               console.warn('[authStore] getRedirectResult error:', err);
             }
 
-            // Then check current auth state (session persistence / already logged in)
-            if (!get().user) {
+            // Then check current auth state (session persistence / already logged in).
+            // A persisted partial user can exist without an access token, so gate on token.
+            if (!get().accessToken) {
               await new Promise<void>((resolve) => {
                 const unsubscribe = firebaseAuth!.onAuthStateChanged(async (firebaseUser) => {
                   unsubscribe();
@@ -390,9 +393,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'botmem-auth',
-      partialize: (state) => ({
-        user: state.user ? { id: state.user.id } : null,
-      }),
+      version: 2,
+      migrate: () => ({}),
+      partialize: () => ({}),
     },
   ),
 );
