@@ -113,7 +113,6 @@ botmem accounts --toon
 **When analyzing conversations with a specific person, ALWAYS use `--contact <id>` to filter results.** Without this filter, search results include `fromMe: true` messages from ALL chats, not just the conversation with that person. This leads to misattribution — messages sent to other people get incorrectly treated as messages to the target contact.
 
 Correct workflow for person-specific queries:
-
 1. `botmem contacts search "Name" --toon` — get the contact UUID
 2. `botmem search "topic" --contact <uuid> --toon` — filtered to that conversation only
 
@@ -126,7 +125,6 @@ Treat `fromMe: true` carefully. A message sent by the user is only attributable 
 ## Response Types
 
 <!-- BEGIN GENERATED RESPONSE TYPES -->
-
 Generated from `packages/cli/src/client.ts`. Run `pnpm --filter @botmem/cli update-skill-types` after changing CLI response types.
 
 ```ts
@@ -249,9 +247,7 @@ botmem jobs --toon-fields jobs.id,jobs.connector,jobs.status,jobs.progress,jobs.
 ```
 
 Use `ask` for synthesis, not primary verification. Prefer `search --debug` first when evidence quality matters.
-
 <!-- END GENERATED RESPONSE TYPES -->
-
 ## API Notes
 
 - Search uses POST `/api/memories/search` with `{ query, filters?, limit? }`

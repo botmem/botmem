@@ -64,8 +64,8 @@ For Hermes Agent, install the same published skill through Hermes' skills CLI:
 
 ```bash
 npm install -g @botmem/cli
-hermes skills inspect skills-sh/botmem/botmem/.claude/skills/botmem-cli
-hermes skills install skills-sh/botmem/botmem/.claude/skills/botmem-cli --yes --force
+hermes skills inspect skills-sh/botmem/botmem/.agents/skills/botmem-cli
+hermes skills install skills-sh/botmem/botmem/.agents/skills/botmem-cli --yes --force
 ```
 
 Hermes may flag this as a `CAUTION` supply-chain finding because the skill uses the npm-published Botmem CLI. Inspect first, then use `--force` if you trust `@botmem/cli`. Start a new Hermes session or use `/reset`, then verify:
