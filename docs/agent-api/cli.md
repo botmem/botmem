@@ -39,20 +39,20 @@ This writes `.agents/skills/botmem-cli/SKILL.md` and links `.claude/skills/botme
 
 ### Hermes Agent
 
-Hermes scans local skills from `~/.hermes/skills/`. Install the published Botmem CLI, then copy the published skill file into Hermes' skill directory:
+Hermes can install the published Botmem skill through its own skills CLI. The skill is published through skills.sh from this repository.
 
 ```bash
 npm install -g @botmem/cli
-mkdir -p ~/.hermes/skills/botmem-cli
-curl -fsSL https://raw.githubusercontent.com/botmem/botmem/main/.claude/skills/botmem-cli/SKILL.md \
-  -o ~/.hermes/skills/botmem-cli/SKILL.md
+hermes skills inspect skills-sh/botmem/botmem/.claude/skills/botmem-cli
+hermes skills install skills-sh/botmem/botmem/.claude/skills/botmem-cli --yes --force
 ```
 
-Then restart Hermes or ask it to refresh/reload skills. To verify:
+Hermes may flag the skill with a `CAUTION` supply-chain warning because the skill instructs agents to install `@botmem/cli` from npm. Review the inspect output first, then use `--force` if you trust the package.
+
+Installed skills take effect in new Hermes sessions. Use `/reset` in the current chat or start a new session. To verify:
 
 ```bash
-test -f ~/.hermes/skills/botmem-cli/SKILL.md
-rg -n "toon-fields|Contact Attribution|Response Types" ~/.hermes/skills/botmem-cli/SKILL.md
+hermes skills list | grep botmem-cli
 ```
 
 Configure the CLI for Hermes' shell environment:
