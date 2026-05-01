@@ -79,7 +79,7 @@ RUN find /tmp/connectors-build -mindepth 1 -maxdepth 1 -type d | while read dir;
 RUN echo "shamefully-hoist=true" > .npmrc && \
     pnpm install --frozen-lockfile --prod --ignore-scripts 2>/dev/null || pnpm install --prod --ignore-scripts
 
-RUN mkdir -p /data
+RUN mkdir -p /app/data/whatsapp /data
 EXPOSE 12412
 ENV NODE_ENV=production
 ENV PORT=12412
