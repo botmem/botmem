@@ -107,7 +107,9 @@ if [ "$HEALTHY" = false ]; then
   exit 1
 fi
 
-# ── Clean up old images ─────────────────────────────────────────────────────
-docker image prune -af --filter "until=24h" 2>/dev/null || true
+# ── Clean up unused images ──────────────────────────────────────────────────
+# The VPS has limited disk and app images are large. This runs only after the
+# new container is healthy; Docker keeps images used by running containers.
+docker image prune -af 2>/dev/null || true
 
 echo "==> Deployed: ${IMAGE_TAG}"
