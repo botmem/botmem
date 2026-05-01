@@ -153,14 +153,17 @@ export class GmailConnector extends BaseConnector {
     // Contact events — extract identifiers (compound ID per person)
     if (metadata.type === 'contact') {
       const parts: string[] = [];
-      if (metadata.name) parts.push(`name:${metadata.name}`);
-      for (const nick of (metadata.nicknames as string[]) || []) {
-        if (nick) parts.push(`name:${nick}`);
+      const emails = ((metadata.emails as string[]) || []).map((e) => e.trim()).filter(Boolean);
+      if (emails.length) {
+        if (metadata.name) parts.push(`name:${metadata.name}`);
+        for (const nick of (metadata.nicknames as string[]) || []) {
+          if (nick) parts.push(`name:${nick}`);
+        }
+        for (const email of emails) parts.push(`email:${email}`);
+        for (const phone of (metadata.phones as string[]) || [])
+          parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
+        entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
       }
-      for (const email of (metadata.emails as string[]) || []) parts.push(`email:${email}`);
-      for (const phone of (metadata.phones as string[]) || [])
-        parts.push(`phone:${phone.replace(/\s*\(.*\)/, '').trim()}`);
-      if (parts.length) entities.push({ type: 'person', id: parts.join('|'), role: 'participant' });
 
       // Extract organizations as separate entities
       for (const org of (metadata.organizations as Array<{ name?: string; title?: string }>) ||

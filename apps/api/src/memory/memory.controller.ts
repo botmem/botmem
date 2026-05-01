@@ -194,7 +194,7 @@ export class MemoryController {
   ) {
     const filters = [
       sql`a.user_id = ${user.id}`,
-      sql`re.processing_state = 'pending'`,
+      sql`re.processing_state IN ('pending', 'failed')`,
       sql`re.source_type NOT IN ('contact', 'group')`,
       sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
       sql`NOT EXISTS (
@@ -238,10 +238,10 @@ export class MemoryController {
     @Query('connectorType') connectorType?: string,
     @Query('sourceType') sourceType?: string,
   ) {
-    const limit = Math.min(parseInt(limitParam || '200', 10) || 200, 2000);
+    const limit = Math.min(parseInt(limitParam || '200', 10) || 200, 10000);
     const filters = [
       sql`a.user_id = ${user.id}`,
-      sql`re.processing_state = 'pending'`,
+      sql`re.processing_state IN ('pending', 'failed')`,
       sql`re.source_type NOT IN ('contact', 'group')`,
       sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
       sql`NOT EXISTS (

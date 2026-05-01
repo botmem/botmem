@@ -231,6 +231,31 @@ describe('GmailConnector', () => {
       expect(result.metadata?.isContact).toBe(true);
     });
 
+    it('does not create contact entities from Gmail contact names without email', () => {
+      const event = {
+        sourceType: 'contact' as const,
+        sourceId: 'c1',
+        timestamp: '2026-01-01T00:00:00Z',
+        content: {
+          text: 'Contact: Mostafa Mohamed Saleh Al-Ghamdi',
+          participants: ['Mostafa Mohamed Saleh Al-Ghamdi'],
+          metadata: {
+            type: 'contact',
+            name: 'Mostafa Mohamed Saleh Al-Ghamdi',
+            nicknames: ['Mostafa'],
+            emails: [],
+            phones: ['+1234'],
+          },
+        },
+      };
+      const result = connector.embed(
+        event,
+        'Contact: Mostafa Mohamed Saleh Al-Ghamdi',
+        {} as unknown as PipelineContext,
+      );
+      expect(result.entities.filter((e: Entity) => e.type === 'person')).toEqual([]);
+    });
+
     it('extracts sender and recipient from email headers', () => {
       const event = {
         sourceType: 'email' as const,

@@ -4,7 +4,6 @@ import { Card } from '../components/ui/Card';
 import { AnimatedNumber } from '../components/ui/AnimatedNumber';
 import { Tabs } from '../components/ui/Tabs';
 import { SearchInput } from '../components/ui/SearchInput';
-import { ReauthModal } from '../components/ui/ReauthModal';
 const MemoryGraph = lazy(() =>
   import('../components/memory/MemoryGraph').then((m) => ({ default: m.MemoryGraph })),
 );
@@ -19,6 +18,7 @@ import { useJobStore } from '../store/jobStore';
 import { useMemoryStore, apiMemoryToShared } from '../store/memoryStore';
 import { useMemoryBankStore } from '../store/memoryBankStore';
 import { useTourStore } from '../store/tourStore';
+import { useAuthStore } from '../store/authStore';
 import { api } from '../lib/api';
 import { Button } from '../components/ui/Button';
 
@@ -42,17 +42,11 @@ export function DashboardPage() {
   const timelineLoading = useMemoryStore((s) => s.loading);
   const loadMemories = useMemoryStore((s) => s.loadMemories);
   const [activeTab, setActiveTab] = useState('overview');
-  const [reauthOpen, setReauthOpen] = useState(false);
 
   // Connect WebSocket for notifications
   useEffect(() => {
     useJobStore.getState().connectWs();
   }, []);
-
-  // Auto-open ReauthModal when server detects stale/missing DEK
-  useEffect(() => {
-    if (memoryStats?.needsRecoveryKey) setReauthOpen(true);
-  }, [memoryStats?.needsRecoveryKey]);
 
   // Demo data banner
   const demoMode = useTourStore((s) => s.demoMode);
@@ -149,7 +143,6 @@ export function DashboardPage() {
 
   return (
     <PageContainer>
-      <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} />
       <Tabs tabs={dashTabs} active={activeTab} onChange={setActiveTab} />
 
       {/* Persistent search — visible on overview + timeline tabs */}
@@ -211,7 +204,7 @@ export function DashboardPage() {
                     Enter your recovery key to access your data
                   </p>
                   <button
-                    onClick={() => setReauthOpen(true)}
+                    onClick={() => useAuthStore.setState({ needsRecoveryKey: true })}
                     aria-label="Unlock encryption key"
                     className="px-4 py-2 border-2 border-nb-lime bg-nb-lime/20 font-display text-xs font-bold uppercase tracking-wider text-nb-lime hover:bg-nb-lime/40 cursor-pointer transition-colors"
                   >

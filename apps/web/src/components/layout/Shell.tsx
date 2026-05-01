@@ -1,14 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 
 import { RecoveryKeyModal } from '../ui/RecoveryKeyModal';
+import { ReauthModal } from '../ui/ReauthModal';
 import { TourManager } from '../tour/TourManager';
+import { api } from '../../lib/api';
+import { useAuthStore } from '../../store/authStore';
+import { useMemoryStore } from '../../store/memoryStore';
 
 export function Shell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const needsRecoveryKey = useAuthStore((s) => s.needsRecoveryKey);
+
+  useEffect(() => {
+    if (needsRecoveryKey) setReauthOpen(true);
+  }, [needsRecoveryKey]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    const checkRecoveryStatus = async () => {
+      try {
+        const stats = await api.getMemoryStats();
+        if (cancelled) return;
+        useMemoryStore.setState({ memoryStats: stats });
+        if (stats.needsRecoveryKey) {
+          useAuthStore.setState({ needsRecoveryKey: true });
+        }
+      } catch {
+        // Auth refresh and route-level requests handle visible failures.
+      }
+    };
+    void checkRecoveryStatus();
+    const interval = window.setInterval(checkRecoveryStatus, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [accessToken]);
 
   return (
     <div className="flex min-h-screen">
@@ -47,6 +81,7 @@ export function Shell() {
         </main>
       </div>
       <RecoveryKeyModal />
+      <ReauthModal open={reauthOpen && needsRecoveryKey} onClose={() => setReauthOpen(false)} />
       <TourManager />
     </div>
   );
