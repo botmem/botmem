@@ -14,6 +14,7 @@ import {
   looksLikeIdentifierLabel,
   looksLikeCombinedPersonName,
   isDirectNameAutoMergeEligible,
+  shouldUpdateDisplayName,
 } from '../people.service';
 
 describe('normalizePhone', () => {
@@ -367,6 +368,27 @@ describe('isDirectNameAutoMergeEligible', () => {
 
   it('does not auto-merge repeated-token labels against real names', () => {
     expect(isDirectNameAutoMergeEligible('Aly Aly', 'Aly Hossein')).toBe(false);
+  });
+});
+
+describe('shouldUpdateDisplayName', () => {
+  it('upgrades raw identifiers and unknown labels to real names', () => {
+    expect(shouldUpdateDisplayName('Unknown', 'Amr Essam')).toBe(true);
+    expect(shouldUpdateDisplayName('+971502284498', 'Amr Essam')).toBe(true);
+  });
+
+  it('allows a bare first name to become the matching full name', () => {
+    expect(shouldUpdateDisplayName('Amr', 'Amr Essam')).toBe(true);
+  });
+
+  it('does not replace an established person name with a different person name', () => {
+    expect(shouldUpdateDisplayName('Amr Essam', 'Ahmed Elsalmawy')).toBe(false);
+    expect(shouldUpdateDisplayName('Ahmed Elsalmawy', 'Harry')).toBe(false);
+  });
+
+  it('does not replace display names with identifier labels', () => {
+    expect(shouldUpdateDisplayName('Amr Essam', 'amr@example.com')).toBe(false);
+    expect(shouldUpdateDisplayName('Amr Essam', '+971502284498')).toBe(false);
   });
 });
 

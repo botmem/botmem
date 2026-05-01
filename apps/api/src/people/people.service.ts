@@ -480,6 +480,23 @@ export function looksLikeIdentifierLabel(name: string): boolean {
   return false;
 }
 
+export function shouldUpdateDisplayName(currentName: string, newName: string): boolean {
+  const current = currentName.trim();
+  const next = newName.trim();
+  if (!next || looksLikeIdentifierLabel(next)) return false;
+  if (!current || current === 'Unknown' || looksLikeIdentifierLabel(current)) return true;
+
+  const currentTokens = normalizeNameForMerge(current);
+  const nextTokens = normalizeNameForMerge(next);
+  if (!currentTokens.length || !nextTokens.length) return false;
+  if (currentTokens.join(' ') === nextTokens.join(' ')) return true;
+  if (isDirectNameAutoMergeEligible(current, next)) return true;
+
+  // Allow improving a bare first-name display label to the same person's full
+  // name, but never replace an established multi-token name with a different one.
+  return currentTokens.length === 1 && nextTokens[0] === currentTokens[0] && nextTokens.length > 1;
+}
+
 /** Determine if name is a multi-word real name (first + last) */
 export function isMultiWordName(name: string): boolean {
   const words = name.trim().split(/\s+/);
@@ -613,11 +630,7 @@ export class PeopleService {
         );
         const rawName = existing[0]?.displayName || '';
         const currentName = this.crypto.decrypt(rawName) ?? rawName;
-        const hasRawId = /\bU[A-Z0-9]{8,}\b/.test(currentName);
-        const newHasRawId = /\bU[A-Z0-9]{8,}\b/.test(nameIdent.value);
-        // Upgrade display name from phone/raw-id/unknown to a real name
-        const isPhoneNumber = /^\+?\d[\d\s-]{5,}$/.test(currentName.trim());
-        if ((hasRawId && !newHasRawId) || currentName === 'Unknown' || isPhoneNumber) {
+        if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
           await this.dbService.withCurrentUser((db) =>
             db
               .update(people)
@@ -723,19 +736,26 @@ export class PeopleService {
       }
     }
 
-    // Update display name if we have a name-type identifier
+    // Update display name only when the incoming label is clearly an improvement.
     const nameIdent = identifiers.find((i) => i.type === 'name');
     if (nameIdent) {
-      await this.dbService.withCurrentUser((db) =>
-        db
-          .update(people)
-          .set({
-            displayName: this.crypto.encrypt(nameIdent.value)!,
-            displayNameHash: this.crypto.hmac(nameIdent.value.toLowerCase()),
-            updatedAt: new Date(),
-          })
-          .where(eq(people.id, personId)),
+      const existing = await this.dbService.withCurrentUser((db) =>
+        db.select({ displayName: people.displayName }).from(people).where(eq(people.id, personId)),
       );
+      const rawName = existing[0]?.displayName || '';
+      const currentName = this.crypto.decrypt(rawName) ?? rawName;
+      if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
+        await this.dbService.withCurrentUser((db) =>
+          db
+            .update(people)
+            .set({
+              displayName: this.crypto.encrypt(nameIdent.value)!,
+              displayNameHash: this.crypto.hmac(nameIdent.value.toLowerCase()),
+              updatedAt: new Date(),
+            })
+            .where(eq(people.id, personId)),
+        );
+      }
     }
 
     // Update entityType if caller provides a non-person type and contact is currently person-typed
