@@ -152,6 +152,8 @@ jobs:
             VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
           tags: |
             ghcr.io/botmem/botmem:amd64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:latest
           platforms: linux/amd64
 
   build-arm64:
@@ -220,7 +222,7 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, create-manifest]
+    needs: [version, build-amd64]
 
     steps:
       - name: Checkout
