@@ -25,6 +25,10 @@ interface RuntimeSession {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
+function isRealtimeStartTimeout(message: string): boolean {
+  return /Realtime start timed out/i.test(message);
+}
+
 @Injectable()
 export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(ConnectorRuntimeService.name);
@@ -231,6 +235,21 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     } catch (err) {
       this.sessions.delete(accountId);
       const message = err instanceof Error ? err.message : String(err);
+
+      if (isRealtimeStartTimeout(message)) {
+        await this.dbService.db
+          .update(accounts)
+          .set({ status: 'degraded', lastError: message, updatedAt: new Date() })
+          .where(eq(accounts.id, accountId));
+        this.events.emitToChannel('dashboard', 'connector:runtime', {
+          connectorType,
+          accountId,
+          status: 'degraded',
+        });
+        this.scheduleReconnect(session, connector, userId, auth);
+        return;
+      }
+
       await this.dbService.db
         .update(accounts)
         .set({ status: 'reconnect_required', lastError: message, updatedAt: new Date() })
@@ -249,7 +268,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     session: RuntimeSession,
     ctx: Parameters<BaseConnector['startRealtime']>[0],
   ): Promise<ConnectorRealtimeHandle> {
-    const timeoutMs = Number(process.env.BOTMEM_CONNECTOR_RUNTIME_START_TIMEOUT_MS ?? 20_000);
+    const timeoutMs = Number(process.env.BOTMEM_CONNECTOR_RUNTIME_START_TIMEOUT_MS ?? 60_000);
     let timeout: ReturnType<typeof setTimeout> | null = null;
     try {
       return await Promise.race([
