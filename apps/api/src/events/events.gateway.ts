@@ -163,6 +163,7 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
    *   job:<jobId>      — job must belong to an account the user owns
    *   account:<id>     — account must belong to the user
    *   auth:<sessionId> — auth sessions are ephemeral, allow for authenticated users
+   *   user:<userId>    — authenticated user's private event stream
    *   dashboard, logs, memories, notifications — user-scoped global channels, always allowed
    */
   private async authorizeChannel(userId: string, channel: string): Promise<boolean> {
@@ -190,6 +191,10 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     // Auth session channels (e.g. auth:session-xxx) — allowed for any authenticated user
     if (channel.startsWith('auth:')) {
       return true;
+    }
+
+    if (channel.startsWith('user:')) {
+      return channel.slice(5) === userId;
     }
 
     // Global channels — allowed for any authenticated user

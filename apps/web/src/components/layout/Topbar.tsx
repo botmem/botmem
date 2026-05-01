@@ -1,4 +1,5 @@
 import { useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
 import { NotificationDropdown } from '../ui/NotificationDropdown';
 import { useJobStore } from '../../store/jobStore';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -18,9 +19,18 @@ interface TopbarProps {
 export function Topbar({ onMenuOpen }: TopbarProps) {
   const location = useLocation();
   const title = pageTitles[location.pathname] || 'BOTMEM';
-  const { notifications, markNotificationRead, markAllNotificationsRead, dismissNotification } =
-    useJobStore();
+  const {
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    dismissNotification,
+    connectWs,
+  } = useJobStore();
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) connectWs();
+  }, [connectWs, user]);
 
   return (
     <header className="border-b-4 border-nb-border bg-nb-surface">
