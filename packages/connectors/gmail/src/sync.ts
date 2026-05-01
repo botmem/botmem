@@ -131,14 +131,10 @@ export async function syncGmail(
 
     const batch = messages.slice(i, i + CONCURRENCY);
 
-    const details = await Promise.all(
-      batch.map((msg) =>
-        gmail.users.messages.get({
-          userId: 'me',
-          id: msg.id!,
-          format: 'full',
-        }),
-      ),
+    const details = await fetchMessageDetails(
+      gmail,
+      batch.map((msg) => msg.id).filter(Boolean) as string[],
+      ctx.logger,
     );
 
     for (const detail of details) {
@@ -235,15 +231,7 @@ async function syncGmailHistory({
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     if (signal.aborted) break;
     const batch = ids.slice(i, i + CONCURRENCY);
-    const details = await Promise.all(
-      batch.map((id) =>
-        gmail.users.messages.get({
-          userId: 'me',
-          id,
-          format: 'full',
-        }),
-      ),
-    );
+    const details = await fetchMessageDetails(gmail, batch, logger);
 
     for (const detail of details) {
       if (signal.aborted) break;
@@ -289,6 +277,48 @@ function isExpiredHistoryError(err: unknown): boolean {
   const maybe = err as { code?: number; response?: { status?: number }; message?: string };
   const code = maybe.code ?? maybe.response?.status;
   return code === 404 || (code === 400 && /history/i.test(maybe.message || ''));
+}
+
+async function fetchMessageDetails(
+  gmail: gmail_v1.Gmail,
+  ids: string[],
+  logger: SyncContext['logger'],
+): Promise<Array<GmailResponse<gmail_v1.Schema$Message>>> {
+  const settled = await Promise.allSettled(
+    ids.map((id) =>
+      gmail.users.messages.get({
+        userId: 'me',
+        id,
+        format: 'full',
+      }),
+    ),
+  );
+
+  const details: Array<GmailResponse<gmail_v1.Schema$Message>> = [];
+  settled.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      details.push(result.value as GmailResponse<gmail_v1.Schema$Message>);
+      return;
+    }
+    if (isMissingMessageError(result.reason)) {
+      logger.warn(
+        `Skipping unavailable Gmail message ${ids[index]}: ${errorMessage(result.reason)}`,
+      );
+      return;
+    }
+    throw result.reason;
+  });
+  return details;
+}
+
+function isMissingMessageError(err: unknown): boolean {
+  const maybe = err as { code?: number; response?: { status?: number }; message?: string };
+  const code = maybe.code ?? maybe.response?.status;
+  return code === 404 || /requested entity was not found/i.test(maybe.message || '');
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** Labels that indicate promotional/social noise — skip these */
