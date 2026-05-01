@@ -39,6 +39,7 @@ interface ParsedGlobalArgs {
   jwtToken: string;
   json: boolean;
   toon: boolean;
+  toonFields: string[];
   help: boolean;
   rest: string[];
 }
@@ -174,6 +175,8 @@ const HELP = `
     --api-url <url>   API base URL override (env: BOTMEM_API_URL, default: http://localhost:12412/api)
     --json            Output raw JSON (for piping to jq or scripts)
     --toon            Tool-optimized output: flattened JSON for LLM agents
+    --toon-fields <paths>
+                      Select comma-separated dot paths before TOON encoding
     -h, --help        Show help (use with any command for details)
 
   EXAMPLES
@@ -296,6 +299,7 @@ function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
   let explicitJwt = '';
   let json = false;
   let toon = false;
+  const toonFields: string[] = [];
   let help = false;
   const rest: string[] = [];
 
@@ -314,6 +318,18 @@ function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
     } else if (a === '--toon') {
       toon = true;
       json = true; // toon implies json
+    } else if (a === '--toon-fields' || a === '--toon-field') {
+      const value = argv[++i];
+      if (value) {
+        toonFields.push(
+          ...value
+            .split(',')
+            .map((field) => field.trim())
+            .filter(Boolean),
+        );
+      }
+      toon = true;
+      json = true; // selecting fields is only meaningful for machine output
     } else if (a === '--help' || a === '-h') {
       help = true;
     } else {
@@ -335,7 +351,7 @@ function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
       '';
   }
 
-  return { apiUrl, token, apiKeyToken, jwtToken, json, toon, help, rest };
+  return { apiUrl, token, apiKeyToken, jwtToken, json, toon, toonFields, help, rest };
 }
 
 const configHelp = `
@@ -653,7 +669,7 @@ function startCallbackServer(): Promise<{
 
 async function main() {
   const argv = process.argv.slice(2);
-  const { apiUrl, token, jwtToken, json, toon, help, rest } = parseGlobalArgs(argv);
+  const { apiUrl, token, jwtToken, json, toon, toonFields, help, rest } = parseGlobalArgs(argv);
 
   // --toon: intercept JSON output and flatten for LLM consumption
   if (toon) {
@@ -662,7 +678,7 @@ async function main() {
       if (args.length === 1 && typeof args[0] === 'string') {
         try {
           const parsed = JSON.parse(args[0]);
-          origLog(toonify(parsed));
+          origLog(toonify(parsed, toonFields));
           return;
         } catch {
           /* not JSON, pass through */

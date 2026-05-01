@@ -23,8 +23,10 @@
     "dist"
   ],
   "scripts": {
+    "prebuild": "node tools/update-skill-response-types.mjs",
     "build": "tsc",
-    "prepublishOnly": "tsc",
+    "update-skill-types": "node tools/update-skill-response-types.mjs",
+    "prepublishOnly": "pnpm run update-skill-types && tsc",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

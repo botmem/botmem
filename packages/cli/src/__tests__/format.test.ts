@@ -14,6 +14,7 @@ import {
   formatAgentContext,
   formatMemoryBanks,
   formatStatus,
+  selectFields,
   toonify,
   bold,
   dim,
@@ -491,6 +492,33 @@ describe('toonify', () => {
     const output = toonify(data);
     // Should contain the parsed value, not the raw JSON string
     expect(output).toContain('Google');
+  });
+
+  it('should select requested dot-path fields before encoding', () => {
+    const output = toonify(
+      {
+        items: [
+          { id: 'm1', text: 'hello', metadata: { chatId: 'c1' }, ignored: true },
+          { id: 'm2', text: 'world', metadata: { chatId: 'c2' }, ignored: true },
+        ],
+        resolvedEntities: { contacts: [{ id: 'p1', displayName: 'Amr' }] },
+      },
+      ['items.id', 'items.metadata.chatId', 'resolvedEntities.contacts.displayName'],
+    );
+    expect(output).toContain('m1');
+    expect(output).toContain('chatId');
+    expect(output).toContain('Amr');
+    expect(output).not.toContain('ignored');
+  });
+});
+
+describe('selectFields', () => {
+  it('preserves array structure while selecting nested fields', () => {
+    const selected = selectFields({ items: [{ id: 'm1', text: 'hello', score: 0.9 }] }, [
+      'items[].id',
+      'items.text',
+    ]);
+    expect(selected).toEqual({ items: [{ id: 'm1', text: 'hello' }] });
   });
 });
 

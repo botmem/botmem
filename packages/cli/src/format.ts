@@ -12,9 +12,75 @@ import { encode } from '@toon-format/toon';
  * Uses @toon-format/toon for 40-60% token savings.
  * Pre-parses JSON-encoded strings so they're included as real objects.
  */
-export function toonify(data: unknown): string {
+export function toonify(data: unknown, fields?: string[]): string {
   const cleaned = parseJsonStringsDeep(data);
-  return encode(cleaned);
+  const selected = fields?.length ? selectFields(cleaned, fields) : cleaned;
+  return encode(selected);
+}
+
+/**
+ * Select dot-path fields while preserving enough of the original structure for
+ * agents to reason about where values came from.
+ *
+ * Examples:
+ * - items.id
+ * - items.text
+ * - resolvedEntities.contacts.displayName
+ * - items[].metadata.chatId (same as items.metadata.chatId)
+ */
+export function selectFields(data: unknown, fields: string[]): unknown {
+  const target: unknown = Array.isArray(data) ? [] : {};
+  for (const field of fields) {
+    const segments = field
+      .split('.')
+      .map((part) => part.replace(/\[\]$/u, '').trim())
+      .filter(Boolean);
+    if (segments.length) assignSelected(data, target, segments);
+  }
+  return target;
+}
+
+function assignSelected(source: unknown, target: unknown, segments: string[]) {
+  if (source == null || target == null) return;
+
+  if (Array.isArray(source)) {
+    if (!Array.isArray(target)) return;
+    source.forEach((item, index) => {
+      if (item == null) return;
+      if (target[index] == null) target[index] = Array.isArray(item) ? [] : {};
+      assignSelected(item, target[index], segments);
+    });
+    return;
+  }
+
+  if (typeof source !== 'object' || typeof target !== 'object') return;
+
+  const [head, ...tail] = segments;
+  const sourceObj = source as Record<string, unknown>;
+  const targetObj = target as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(sourceObj, head)) return;
+
+  if (tail.length === 0) {
+    targetObj[head] = sourceObj[head];
+    return;
+  }
+
+  const nextSource = sourceObj[head];
+  if (Array.isArray(nextSource)) {
+    if (!Array.isArray(targetObj[head])) targetObj[head] = [];
+  } else if (nextSource != null && typeof nextSource === 'object') {
+    if (
+      targetObj[head] == null ||
+      typeof targetObj[head] !== 'object' ||
+      Array.isArray(targetObj[head])
+    ) {
+      targetObj[head] = {};
+    }
+  } else {
+    return;
+  }
+
+  assignSelected(nextSource, targetObj[head], tail);
 }
 
 function parseJsonStringsDeep(val: unknown): unknown {

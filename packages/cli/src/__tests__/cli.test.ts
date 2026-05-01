@@ -57,6 +57,7 @@ describe('parseGlobalArgs logic', () => {
     let explicitJwt = '';
     let json = false;
     let toon = false;
+    const toonFields: string[] = [];
     let help = false;
     const rest: string[] = [];
 
@@ -73,6 +74,18 @@ describe('parseGlobalArgs logic', () => {
       } else if (a === '--json') {
         json = true;
       } else if (a === '--toon') {
+        toon = true;
+        json = true;
+      } else if (a === '--toon-fields' || a === '--toon-field') {
+        const value = argv[++i];
+        if (value) {
+          toonFields.push(
+            ...value
+              .split(',')
+              .map((field) => field.trim())
+              .filter(Boolean),
+          );
+        }
         toon = true;
         json = true;
       } else if (a === '--help' || a === '-h') {
@@ -92,7 +105,7 @@ describe('parseGlobalArgs logic', () => {
         storedCfg.token ||
         '';
 
-    return { apiUrl, token, apiKeyToken, jwtToken, json, toon, help, rest };
+    return { apiUrl, token, apiKeyToken, jwtToken, json, toon, toonFields, help, rest };
   }
 
   it('should use default API URL when nothing specified', () => {
@@ -166,6 +179,14 @@ describe('parseGlobalArgs logic', () => {
     const result = parseArgs(['--toon', 'search', 'test']);
     expect(result.toon).toBe(true);
     expect(result.json).toBe(true);
+  });
+
+  it('should parse --toon-fields and imply toon output', () => {
+    const result = parseArgs(['--toon-fields', 'items.id,items.text', 'search', 'test']);
+    expect(result.toon).toBe(true);
+    expect(result.json).toBe(true);
+    expect(result.toonFields).toEqual(['items.id', 'items.text']);
+    expect(result.rest).toEqual(['search', 'test']);
   });
 
   it('should set help=true for --help flag', () => {
