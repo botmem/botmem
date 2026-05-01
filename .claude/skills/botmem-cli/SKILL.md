@@ -12,15 +12,25 @@ triggers:
 
 # Botmem CLI
 
-The `botmem` CLI provides access to the Botmem personal memory system. It lives in `packages/cli/`.
+The `botmem` CLI provides access to the Botmem personal memory system.
 
-**IMPORTANT: Always use `--toon` (not `--json`) for machine-readable output.** The `--toon` flag outputs flattened JSON optimized for LLM reasoning — nested objects become dot-notation keys (e.g. `factuality.label`, `metadata.chatId`) and JSON-encoded strings are parsed inline.
+**IMPORTANT: Always use `--toon` (not `--json`) for machine-readable output.** The `--toon` flag outputs compact TOON optimized for LLM reasoning and parses JSON-encoded strings inline.
+
+Use `--toon-fields <paths>` to select only specific dot-paths before TOON encoding. This implies `--toon`.
+
+```bash
+botmem search "project update" --contact <id> --toon-fields items.id,items.text,items.eventTime,items.connectorType
+botmem search "project update" --debug --toon-fields items.id,items.score,diagnostics,resolvedEntities.contacts.displayName
+botmem status --toon-fields memory.total,connectors,queues
+```
+
+Array paths can be written with or without `[]`: `items.id` and `items[].id` are equivalent.
 
 ## Setup
 
 ```bash
-# Install to a directory + set up skill
-/path/to/botmem/install-cli.sh /usr/local/bin
+# Install globally
+npm install -g @botmem/cli
 
 # Configure host (default: api.botmem.xyz)
 botmem config set-host localhost:12412     # local dev
@@ -103,14 +113,148 @@ botmem accounts --toon
 **When analyzing conversations with a specific person, ALWAYS use `--contact <id>` to filter results.** Without this filter, search results include `fromMe: true` messages from ALL chats, not just the conversation with that person. This leads to misattribution — messages sent to other people get incorrectly treated as messages to the target contact.
 
 Correct workflow for person-specific queries:
+
 1. `botmem contacts search "Name" --toon` — get the contact UUID
 2. `botmem search "topic" --contact <uuid> --toon` — filtered to that conversation only
 
 **Never** rely on `--connector whatsapp` or semantic search alone to isolate a single conversation. The `--connector` flag filters by platform, not by chat. Only `--contact` guarantees results are scoped to a specific person's conversation.
 
+For any person-specific or conversation-specific question, first resolve the person, then search with the contact UUID. If multiple contacts match, disambiguate using identifiers, platform, or recent memories. Do not silently choose. Never invent contacts for test queries; if a person does not appear in `contacts search`, mark that query as synthetic or unverified.
+
+Treat `fromMe: true` carefully. A message sent by the user is only attributable to the target conversation when the memory is linked to that contact/chat. Without `--contact`, `fromMe: true` messages from unrelated chats can contaminate results.
+
+## Response Types
+
+<!-- BEGIN GENERATED RESPONSE TYPES -->
+
+Generated from `packages/cli/src/client.ts`. Run `pnpm --filter @botmem/cli update-skill-types` after changing CLI response types.
+
+```ts
+export interface Memory {
+  id: string;
+  text: string;
+  sourceType: string;
+  connectorType: string;
+  sourceId: string;
+  eventTime: string;
+  ingestTime: string;
+  importance: number | null;
+  factuality: string | null;
+  entities: string | null;
+  claims: string | null;
+  weights: string | null;
+  metadata: string | null;
+  embeddingStatus: string;
+  createdAt: string;
+  accountIdentifier?: string | null;
+  [key: string]: unknown;
+}
+
+export interface SearchResult {
+  id: string;
+  text: string;
+  sourceType: string;
+  connectorType: string;
+  eventTime: string;
+  factuality: string;
+  entities: string;
+  metadata: string;
+  accountIdentifier: string | null;
+  score: number;
+  weights: {
+    semantic: number;
+    recency: number;
+    importance: number;
+    trust: number;
+    final: number;
+  };
+}
+
+export interface Contact {
+  id: string;
+  displayName: string;
+  avatars: string;
+  metadata: string;
+  createdAt: string;
+  updatedAt: string;
+  identifiers: Array<{
+    id: string;
+    identifierType: string;
+    identifierValue: string;
+    connectorType: string | null;
+    confidence: number;
+  }>;
+  [key: string]: unknown;
+}
+
+export interface ConnectorAccount {
+  id: string;
+  type: string;
+  identifier: string;
+  status: string;
+  schedule: string | null;
+  lastSync: string | null;
+  memoriesIngested: number | null;
+  lastError: string | null;
+}
+
+export interface Job {
+  id: string;
+  connector: string;
+  accountId: string;
+  accountIdentifier: string | null;
+  status: string;
+  priority: number;
+  progress: number | null;
+  total: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+}
+
+export interface QueueStats {
+  [queueName: string]: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+    contradictions?: Array<{ jobId: string; dbStatus?: string; bullState: string; action: string }>;
+  };
+}
+```
+
+### Command Response Map
+
+- `botmem search <query> --toon`: `{ items: SearchResult[]; fallback: boolean; resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] }; diagnostics?: unknown }`
+- `botmem memories --toon`: `{ items: Memory[]; total: number }`
+- `botmem memory <id> --toon`: `Memory`
+- `botmem contacts --toon`: `{ items: Contact[]; total: number }`
+- `botmem contacts search <name> --toon`: `Contact[]`
+- `botmem contact <id> --toon`: `Contact`
+- `botmem contact <id> memories --toon`: `Memory[]`
+- `botmem accounts --toon`: `{ accounts: ConnectorAccount[] }`
+- `botmem jobs --toon`: `{ jobs: Job[] }`
+- `botmem status --toon`: dashboard summary object with memory, connector, queue, and health fields
+- `botmem ask <query> --toon`: agent answer object, usually containing `answer`, optional `conversationId`, and source memory fields
+
+### Useful Selectors
+
+```bash
+botmem search "topic" --toon-fields items.id,items.text,items.eventTime,items.connectorType,items.sourceType
+botmem search "topic" --debug --toon-fields items.id,items.score,items.weights.final,diagnostics
+botmem contacts search "Name" --toon-fields id,displayName,identifiers.identifierType,identifiers.identifierValue
+botmem accounts --toon-fields accounts.id,accounts.type,accounts.status,accounts.lastSync,accounts.memoriesIngested
+botmem jobs --toon-fields jobs.id,jobs.connector,jobs.status,jobs.progress,jobs.total,jobs.error
+```
+
+Use `ask` for synthesis, not primary verification. Prefer `search --debug` first when evidence quality matters.
+
+<!-- END GENERATED RESPONSE TYPES -->
+
 ## API Notes
 
-- Search uses POST `/api/memories/search` with `{ query, filters?, limit?, rerank? }`
+- Search uses POST `/api/memories/search` with `{ query, filters?, limit? }`
 - Default API host is api.botmem.xyz (port 12412 for local dev)
 - Search returns `{ items, fallback, resolvedEntities? }`
 - **All timestamps are UTC** — temporal queries ("last week", "yesterday") are parsed and converted to UTC ranges
@@ -120,14 +264,15 @@ Correct workflow for person-specific queries:
 
 1. `botmem version --toon` - verify API is running
 2. `botmem status --toon` - check system health
-3. `botmem ask "topic" --toon` - natural language query (agent-powered)
-4. `botmem search "topic" --toon` - raw semantic search
-5. `botmem memory <id> --toon` - drill into a result
-6. `botmem related <id> --toon` - find connected memories
-7. `botmem context <contactId> --toon` - full person context
-8. `botmem contact <id> memories --toon` - see all their interactions
-9. `botmem timeline --from <date> --toon` - browse by date range
-10. `botmem memory-banks --toon` - manage memory organization
+3. `botmem accounts --toon` - check connector auth/sync coverage when source coverage matters
+4. `botmem contacts search "Name" --toon` - resolve people before person-specific queries
+5. `botmem search "topic" --contact <id> --debug --toon` - raw evidence search with scoped attribution
+6. `botmem memory <id> --toon` - drill into a result
+7. `botmem related <id> --toon` - find connected memories
+8. `botmem ask "topic" --toon` - synthesize only after retrieval looks sane
+9. `botmem context <contactId> --toon` - full person context
+10. `botmem contact <id> memories --toon` - see all their interactions
+11. `botmem timeline --from <date> --toon` - browse by date range
 
 ## Error Handling
 
