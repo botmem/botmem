@@ -36,15 +36,23 @@ import {
 import { normalizeEntities } from './entity-normalizer';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
-import type { ConnectorDataEvent, PipelineContext, ConnectorLogger } from '@botmem/connector-sdk';
+import type {
+  ConnectorDataEvent,
+  EmbedResult,
+  PipelineContext,
+  ConnectorLogger,
+} from '@botmem/connector-sdk';
 
 type RawEventProcessingState =
   | 'pending'
   | 'memory_created'
+  | 'contact_processed'
   | 'skipped_contact'
   | 'skipped_empty'
   | 'deduped'
   | 'failed';
+
+type LoadedRawEvent = typeof rawEvents.$inferSelect;
 
 /** Strip PostgreSQL-incompatible null bytes from strings */
 function stripNullBytes(s: string): string {
@@ -318,6 +326,19 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // Call connector.embed() for entity extraction
     const embedResult = await connector.embed(event, text, ctx);
     let embedText = embedResult.text || text;
+
+    if (rawEvent.connectorType === 'gmail' && (event.sourceType as string) === 'contact') {
+      await this.processGmailContactIdentityEvent(
+        rawEvent,
+        event,
+        embedResult,
+        metadata as Record<string, unknown>,
+        rawEventId,
+        parentJobId,
+        mid,
+      );
+      return;
+    }
 
     // Convert embed entities to normalized {type, value} format
     const embedEntities = normalizeEntities(
@@ -1052,6 +1073,102 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       }
     }
     return identifiers;
+  }
+
+  private async processGmailContactIdentityEvent(
+    rawEvent: LoadedRawEvent,
+    event: ConnectorDataEvent,
+    embedResult: EmbedResult,
+    metadata: Record<string, unknown>,
+    rawEventId: string,
+    parentJobId: string | null,
+    mid: string,
+  ) {
+    const ownerUserId = await this.getAccountOwnerUserId(rawEvent.accountId);
+    const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> = [];
+
+    for (const entity of embedResult.entities) {
+      if (entity.type !== 'person' && entity.type !== 'organization') continue;
+      const identifiers = this.parseEntityIdentifiers(entity, rawEvent.connectorType);
+      if (!identifiers.length) continue;
+
+      let merged = false;
+      for (const bucket of buckets) {
+        if (shouldMergeEntityResolutionBucket(entity.type, entity.role, bucket, identifiers)) {
+          bucket.identifiers.push(...identifiers);
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) {
+        buckets.push({
+          entityType: entity.type,
+          role: entity.role,
+          identifiers: [...identifiers],
+        });
+      }
+    }
+
+    let peopleResolved = 0;
+    const gmailPhotoUrl = metadata.photoUrl as string | undefined;
+    for (const { entityType, identifiers } of buckets) {
+      const resolveType = entityType === 'person' ? undefined : 'organization';
+      const contact = await Promise.race([
+        this.contactsService.resolvePerson(
+          identifiers,
+          resolveType as 'organization' | undefined,
+          ownerUserId || undefined,
+        ),
+        new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('Contact resolution timed out after 30s')), 30_000),
+        ),
+      ]).catch((err) => {
+        this.logger.warn(
+          `[contact] Gmail contact resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      });
+
+      if (!contact) continue;
+      peopleResolved++;
+      if (entityType === 'person' && gmailPhotoUrl) {
+        try {
+          await this.contactsService.updateAvatar(contact.id, {
+            url: gmailPhotoUrl,
+            source: 'gmail',
+          });
+        } catch (err) {
+          this.logger.warn(
+            `[contact] Gmail avatar update failed for ${contact.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
+
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[contact:done] ${mid} source=${event.sourceId.slice(0, 40)} people=${peopleResolved}`,
+      parentJobId,
+    );
+    await this.markRawEventState(rawEventId, 'contact_processed');
+    await this.advanceAndComplete(parentJobId);
+  }
+
+  private async getAccountOwnerUserId(accountId: string): Promise<string | null> {
+    try {
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, accountId));
+      return acct?.userId || null;
+    } catch (err) {
+      this.logger.warn(
+        `[contact] Account owner lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   private async linkThread(
