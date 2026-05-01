@@ -55,7 +55,7 @@ Installed skills take effect in new Hermes sessions. Use `/reset` in the current
 hermes skills list | grep botmem-cli
 ```
 
-Configure the CLI for Hermes' shell environment:
+After the skill is active, Hermes should install `@botmem/cli` automatically when the `botmem` command is missing, then walk the user through host, API key, and recovery-key configuration. You can also configure the CLI manually in Hermes' shell environment:
 
 ```bash
 botmem config set-host botmem.xyz

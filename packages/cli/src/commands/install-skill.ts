@@ -31,6 +31,22 @@ Array paths can be written with or without \`[]\`: \`items.id\` and \`items[].id
 
 ## Setup
 
+When this skill is invoked and the \`botmem\` command is unavailable, install it automatically before using Botmem:
+
+\`\`\`bash
+command -v botmem >/dev/null 2>&1 || npm install -g @botmem/cli
+\`\`\`
+
+After install, help the user onboard instead of assuming configuration exists:
+
+1. Run \`botmem config show\` and \`botmem version --toon-fields buildTime,gitHash,uptime\` to check local config and API reachability.
+2. If no API host is configured, ask whether they use Botmem Cloud (\`api.botmem.xyz\`) or a self-hosted URL, then run \`botmem config set-host <host>\`.
+3. If \`botmem status --toon-fields memory.total,connectors,queues\` fails with auth errors, ask the user for an API key or have them run \`botmem login\`; for agent use, prefer \`botmem config set-key bm_sk_...\`.
+4. If encrypted memories are locked or unreadable, ask the user for their recovery key and run \`botmem config set-recovery-key <base64-key>\`.
+5. Verify with \`botmem status --toon-fields memory.total,connectors,queues\` before answering memory questions.
+
+Do not invent credentials, recovery keys, hosts, contacts, or memory contents. Ask for missing secrets directly, and avoid printing them back after configuration.
+
 \`\`\`bash
 # Install globally
 npm install -g @botmem/cli
