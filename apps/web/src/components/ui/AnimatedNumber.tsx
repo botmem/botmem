@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-
-function formatCompact(n: number): string {
-  if (n < 10_000) return n.toLocaleString();
-  if (n < 1_000_000) return (n / 1_000).toFixed(n < 100_000 ? 1 : 0) + 'k';
-  if (n < 1_000_000_000) return (n / 1_000_000).toFixed(n < 100_000_000 ? 1 : 0) + 'M';
-  return (n / 1_000_000_000).toFixed(1) + 'B';
-}
+import { formatCompactNumber } from '../../lib/formatNumber';
 
 interface AnimatedNumberProps {
-  value: number;
+  value: number | string | null | undefined;
   duration?: number;
   className?: string;
   style?: React.CSSProperties;
 }
 
 export function AnimatedNumber({ value, duration = 600, className, style }: AnimatedNumberProps) {
-  const safeValue = Number.isFinite(value) ? value : 0;
+  const numericValue = typeof value === 'string' ? Number(value) : value;
+  const safeValue =
+    typeof numericValue === 'number' && Number.isFinite(numericValue) ? numericValue : 0;
   const [display, setDisplay] = useState(safeValue);
   const prevRef = useRef(safeValue);
   const rafRef = useRef<number>(0);
@@ -53,7 +49,7 @@ export function AnimatedNumber({ value, duration = 600, className, style }: Anim
 
   return (
     <span className={className} style={style}>
-      {formatCompact(display)}
+      {formatCompactNumber(display)}
     </span>
   );
 }
