@@ -23,6 +23,8 @@ services:
       - 8.8.8.8
     extra_hosts:
       - 'host.docker.internal:host-gateway'
+    volumes:
+      - api-data:/app/data
     environment:
       NODE_ENV: production
     depends_on:
@@ -96,6 +98,7 @@ services:
 
 volumes:
   postgres-data:
+  api-data:
   redis-data:
   typesense-data:
   caddy-data:
