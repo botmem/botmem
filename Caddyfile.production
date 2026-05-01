@@ -39,6 +39,7 @@ botmem.xyz {
 	handle /__/auth/* {
 		reverse_proxy https://botmem-app.firebaseapp.com {
 			header_up Host {http.reverse_proxy.upstream.hostport}
+			header_down X-Frame-Options "SAMEORIGIN"
 		}
 	}
 

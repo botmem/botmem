@@ -61,6 +61,7 @@ yourdomain.com {
 	handle /__/auth/* {
 		reverse_proxy https://YOUR_PROJECT_ID.firebaseapp.com {
 			header_up Host {http.reverse_proxy.upstream.hostport}
+			header_down X-Frame-Options "SAMEORIGIN"
 		}
 	}
 
