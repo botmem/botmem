@@ -53,7 +53,7 @@ CASA Tier 2 self-attestation for ASVS 1.1.4, 1.4.1, 1.14.6.
        v          v          v          v
                        DATA ZONE
   +-----------------------------------------------------------+
-  |  PostgreSQL 16    Redis 7.4     Typesense 30   Qdrant     |
+  |  PostgreSQL 16    Redis 7.4     PostgreSQL search index 30   Qdrant     |
   |  (Drizzle ORM)    (BullMQ +     (BM25 +       (Vector     |
   |                    DEK cache)    vector)        search)    |
   |                                                            |
@@ -137,7 +137,7 @@ Connector.sync(ctx)
   - Classifies factuality (FACT / UNVERIFIED / FICTION)
   - Computes importance baseline
   - Encrypts memory fields (text, entities, claims, metadata) with per-user DEK
-  - Upserts document to Typesense collection
+  - Upserts document to PostgreSQL search index collection
   - Marks memory as pipeline_complete
 ```
 
@@ -147,7 +147,7 @@ Queues registered in MemoryModule:
 
 - `clean` -- text extraction from raw events
 - `embed` -- embedding generation + contact resolution
-- `enrich` -- entity/claim extraction + encryption + Typesense upsert (48 attempts, exponential backoff)
+- `enrich` -- entity/claim extraction + encryption + PostgreSQL search index upsert (48 attempts, exponential backoff)
 - `maintenance` -- decay processor, periodic tasks
 
 Queues registered in JobsModule:

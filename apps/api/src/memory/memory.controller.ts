@@ -17,11 +17,10 @@ import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { MemoryService } from './memory.service';
-import { MigrationService } from './migration.service';
 import { DbService } from '../db/db.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { AiService } from './ai.service';
-import { TypesenseService } from './typesense.service';
+import { PgSearchService } from './pg-search.service';
 import { EventsService } from '../events/events.service';
 import { memories, memoryContacts, memoryLinks, rawEvents } from '../db/schema';
 import { eq, or, sql } from 'drizzle-orm';
@@ -44,11 +43,10 @@ export class MemoryController {
     private dbService: DbService,
     private accountsService: AccountsService,
     private ai: AiService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private events: EventsService,
     @InjectQueue('memory') private memoryQueue: Queue,
     private analytics: AnalyticsService,
-    private migrationService: MigrationService,
   ) {}
 
   @Get('stats')
@@ -284,9 +282,9 @@ export class MemoryController {
   }
 
   @RequiresJwt()
-  @Get('typesense-info')
-  async getTypesenseInfo() {
-    return this.typesense.getCollectionInfo();
+  @Get('search-index-info')
+  async getSearchIndexInfo() {
+    return this.searchIndex.getCollectionInfo();
   }
 
   @Get('timeline')
@@ -544,13 +542,7 @@ export class MemoryController {
   @RequiresJwt()
   @Get('index/schema')
   async getSearchIndexSchema() {
-    return this.typesense.getSchemaStatus();
-  }
-
-  @RequiresJwt()
-  @Post('index/reindex')
-  async reindexSearch(@CurrentUser() user: { id: string }, @Query('force') force?: string) {
-    return this.migrationService.startMigration(user.id, force === 'true');
+    return this.searchIndex.getSchemaStatus();
   }
 
   @ReadOnly()
@@ -662,18 +654,5 @@ export class MemoryController {
     if (!memory) return { error: 'not found' };
     await this.memoryService.delete(id);
     return { ok: true };
-  }
-
-  // TODO: Remove migration endpoints after data migration is complete — one-time use only
-  @RequiresJwt()
-  @Post('migrate')
-  async startMigration(@CurrentUser() user: { id: string }, @Query('force') force?: string) {
-    return this.migrationService.startMigration(user.id, force === 'true');
-  }
-
-  @RequiresJwt()
-  @Get('migrate/status')
-  getMigrationStatus() {
-    return this.migrationService.getProgress();
   }
 }

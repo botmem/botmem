@@ -204,15 +204,19 @@ export async function syncTelegram(
 
           // Build media metadata
           let fileBase64: string | undefined;
-          let fileMimeType: string | undefined;
+          let mimetype: string | undefined;
+          let fileName: string | undefined;
           if (msg.media) {
             try {
               const buffer = (await client.downloadMedia(msg.media, {})) as Buffer | undefined;
               if (buffer && buffer.length <= 20 * 1024 * 1024) {
                 fileBase64 = buffer.toString('base64');
-                fileMimeType =
+                mimetype =
                   ((msg.media as unknown as Record<string, unknown>)?.mimeType as string) ||
                   'application/octet-stream';
+                fileName =
+                  ((msg.media as unknown as Record<string, unknown>)?.fileName as string) ||
+                  undefined;
               }
             } catch {
               // Media download failed — skip
@@ -225,7 +229,7 @@ export async function syncTelegram(
             isGroup,
           });
           if (!event) continue;
-          if (fileBase64) Object.assign(event.content.metadata, { fileBase64, fileMimeType });
+          if (fileBase64) Object.assign(event.content.metadata, { fileBase64, mimetype, fileName });
 
           emitData(event);
           processed++;

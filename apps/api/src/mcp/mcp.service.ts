@@ -85,8 +85,33 @@ export class McpService {
     await this.handleStatelessRequest(req, res, userId, true);
   }
 
-  async handleSseRequest(req: Request, res: Response, userId: string): Promise<void> {
-    await this.handleStatelessRequest(req, res, userId, false);
+  handleSseStream(req: Request, res: Response, userId: string, clientId: string): void {
+    const startedAt = Date.now();
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    res.write(': botmem-ready\n\n');
+
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(': keepalive\n\n');
+    }, 25_000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      this.logger.debug(
+        JSON.stringify({
+          event: 'mcp.sse_closed',
+          method: req.method,
+          path: req.originalUrl,
+          userId,
+          clientId,
+          durationMs: Date.now() - startedAt,
+        }),
+      );
+    });
   }
 
   terminateSession(_req: Request, res: Response, _userId: string): void {
@@ -99,6 +124,7 @@ export class McpService {
     userId: string,
     enableJsonResponse: boolean,
   ): Promise<void> {
+    this.attachRequestLog(req, res, userId);
     const server = this.createServer(userId);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -121,6 +147,32 @@ export class McpService {
         res.status(500).json({ error: 'Internal MCP error' });
       }
     }
+  }
+
+  private attachRequestLog(req: Request, res: Response, userId: string): void {
+    const startedAt = Date.now();
+    const body = req.body as
+      | {
+          method?: string;
+          params?: { name?: string };
+        }
+      | undefined;
+
+    res.on('finish', () => {
+      this.logger.log(
+        JSON.stringify({
+          event: 'mcp.request',
+          method: req.method,
+          path: req.originalUrl,
+          rpcMethod: body?.method,
+          toolName: body?.params?.name,
+          status: res.statusCode,
+          durationMs: Date.now() - startedAt,
+          userId,
+          traceId: res.getHeader('x-trace-id'),
+        }),
+      );
+    });
   }
 
   private createServer(userId: string): McpServer {

@@ -30,7 +30,7 @@ Connector.sync()
   |-- 9.  Encrypt: single AES-256-GCM pass
   |-- 10. Compute search_tokens from plaintext (before encryption)
   |-- 11. Update memory: one DB write, pipelineComplete=true
-  |-- 12. Upsert document into Typesense
+  |-- 12. Upsert document into PostgreSQL search index
   |-- 13. Create links + corroborate factuality
 ```
 
@@ -67,35 +67,38 @@ Extracts the `ConnectorDataEvent` from JSON. Events with no text content are dis
 
 If the event has a file attachment, `ContentCleaner.parseFile()` extracts text content using `liteparse`:
 
-| Format | Library | Notes |
-| ------ | ------- | ----- |
-| PDF | liteparse | Replaces pdf-parse |
-| DOCX | liteparse | Replaces mammoth |
-| XLSX, XLS | liteparse | Spreadsheet to text |
-| PPTX | liteparse | Presentation slides |
-| ODS | liteparse | OpenDocument spreadsheets |
-| CSV, TSV | liteparse | Tabular data |
-| RTF | liteparse | Rich text |
-| Images | VL model / multimodal embedding | Description or direct embedding |
-| Plain text | Direct read | No conversion needed |
+| Format     | Library                         | Notes                           |
+| ---------- | ------------------------------- | ------------------------------- |
+| PDF        | liteparse                       | Replaces pdf-parse              |
+| DOCX       | liteparse                       | Replaces mammoth                |
+| XLSX, XLS  | liteparse                       | Spreadsheet to text             |
+| PPTX       | liteparse                       | Presentation slides             |
+| ODS        | liteparse                       | OpenDocument spreadsheets       |
+| CSV, TSV   | liteparse                       | Tabular data                    |
+| RTF        | liteparse                       | Rich text                       |
+| Images     | VL model / multimodal embedding | Description or direct embedding |
+| Plain text | Direct read                     | No conversion needed            |
 
 #### Step 4: Content Cleaning (ContentCleaner)
 
 `ContentCleaner.cleanText()` applies source-type-specific cleaning rules:
 
 **Email cleaning** (`sourceType: 'email'`):
+
 - HTML to plain text conversion via `html-to-text`
 - Signature stripping (`-- \n`, `Sent from my iPhone`, etc.) via `email-reply-parser`
 - Quoted reply chain removal (`> On Mar 15, John wrote:`)
 - Forwarded message header stripping
 
 **Message cleaning** (`sourceType: 'message'`):
+
 - Slack formatting: `<@U123456>` to `@user`, `<#C123|channel>` to `#channel`
 - WhatsApp formatting: `*bold*` to `bold`, `_italic_` to `italic`, `~strike~` to `strike`
 - System message filtering (joined, left, changed topic)
 - "shared contact:" noise removal
 
 **All source types**:
+
 - Sanitize control characters
 - Normalize whitespace
 - Collapse excessive line breaks
@@ -103,6 +106,7 @@ If the event has a file attachment, `ContentCleaner.parseFile()` extracts text c
 #### Step 5: Contact Resolution
 
 Connector-specific logic to extract and merge participants:
+
 - **Gmail:** parses From/To/CC headers; for Google Contacts, stores full metadata and avatars
 - **Slack:** looks up profiles from `participantProfiles` metadata
 - **WhatsApp:** resolves sender phone number and push name
@@ -141,13 +145,13 @@ Computes `search_tokens` from the plaintext (before encryption) for fast filtere
 
 A single DB write updates the memory with all enriched fields and sets `pipelineComplete=true`.
 
-#### Step 12: Typesense Upsert
+#### Step 12: PostgreSQL search index Upsert
 
-Upserts the document into the Typesense `memories` collection with embedding, metadata, and search fields.
+Upserts the document into the PostgreSQL search index `memories` collection with embedding, metadata, and search fields.
 
 #### Step 13: Link Creation + Factuality Corroboration
 
-1. **`createLinks()`** — queries Typesense for the top 5 similar memories by vector similarity. Creates `supports` links (similarity >= 0.92) and `contradicts` links (similarity >= 0.85 when one side is FICTION). Creates `related` links for any with similarity >= 0.8.
+1. **`createLinks()`** — queries PostgreSQL search index for the top 5 similar memories by vector similarity. Creates `supports` links (similarity >= 0.92) and `contradicts` links (similarity >= 0.85 when one side is FICTION). Creates `related` links for any with similarity >= 0.8.
 
 2. **`corroborateFactuality()`** — rule-based promotion from UNVERIFIED to FACT when cross-connector `supports` links exist. See [Memory Model: Factuality Corroboration](/architecture/memory-model#factuality-corroboration) for thresholds.
 

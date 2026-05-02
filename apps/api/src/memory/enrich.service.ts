@@ -5,7 +5,7 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
-import { TypesenseService } from './typesense.service';
+import { PgSearchService } from './pg-search.service';
 import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { memories, memoryLinks, accounts } from '../db/schema';
@@ -43,7 +43,7 @@ export class EnrichService {
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
     private ai: AiService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private logsService: LogsService,
     private events: EventsService,
     private connectors: ConnectorsService,
@@ -451,7 +451,7 @@ export class EnrichService {
 
   private async createLinks(memoryId: string): Promise<void> {
     try {
-      const results = await this.typesense.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
+      const results = await this.searchIndex.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
 
       const [srcMem] = await this.dbService.db
         .select({ claims: memories.claims, factuality: memories.factuality })

@@ -98,14 +98,6 @@ export class ConfigService implements OnModuleInit {
     return process.env.OLLAMA_PASSWORD || '';
   }
 
-  get typesenseUrl(): string {
-    return process.env.TYPESENSE_URL || 'http://localhost:8108';
-  }
-
-  get typesenseApiKey(): string {
-    return process.env.TYPESENSE_API_KEY || 'botmem-ts-key';
-  }
-
   get syncDebugLimit(): number {
     return Number.parseInt(process.env.SYNC_DEBUG_LIMIT || '0', 10);
   }

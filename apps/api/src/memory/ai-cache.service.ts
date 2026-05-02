@@ -55,8 +55,10 @@ export class AiCacheService implements OnModuleInit {
     try {
       const id = this.computeId(backend, operation, model, inputText);
       const legacyId = this.computeLegacyId(model, inputText);
-      const rows = await this.db.db.execute(
-        sql`SELECT output FROM llm_cache WHERE id IN (${id}, ${legacyId}) ORDER BY CASE WHEN id = ${id} THEN 0 ELSE 1 END LIMIT 1`,
+      const rows = await this.db.systemDb((db) =>
+        db.execute(
+          sql`SELECT output FROM llm_cache WHERE id IN (${id}, ${legacyId}) ORDER BY CASE WHEN id = ${id} THEN 0 ELSE 1 END LIMIT 1`,
+        ),
       );
 
       if (!rows.rows?.length) return { hit: false };
@@ -88,15 +90,17 @@ export class AiCacheService implements OnModuleInit {
       // eslint-disable-next-line no-control-regex
       const encryptedOutput = this.crypto.encrypt(output.replace(/\x00/g, ''));
 
-      await this.db.db.execute(sql`
-        INSERT INTO llm_cache (id, input_hash, model, backend, operation, input, output, input_tokens, output_tokens, latency_ms)
-        VALUES (${id}, ${inputHash}, ${model}, ${backend}, ${operation}, ${encryptedInput}, ${encryptedOutput}, ${meta?.inputTokens ?? null}, ${meta?.outputTokens ?? null}, ${meta?.latencyMs ?? null})
-        ON CONFLICT (id) DO UPDATE SET
-          output = ${encryptedOutput},
-          input_tokens = ${meta?.inputTokens ?? null},
-          output_tokens = ${meta?.outputTokens ?? null},
-          latency_ms = ${meta?.latencyMs ?? null}
-      `);
+      await this.db.systemDb((db) =>
+        db.execute(sql`
+          INSERT INTO llm_cache (id, input_hash, model, backend, operation, input, output, input_tokens, output_tokens, latency_ms)
+          VALUES (${id}, ${inputHash}, ${model}, ${backend}, ${operation}, ${encryptedInput}, ${encryptedOutput}, ${meta?.inputTokens ?? null}, ${meta?.outputTokens ?? null}, ${meta?.latencyMs ?? null})
+          ON CONFLICT (id) DO UPDATE SET
+            output = ${encryptedOutput},
+            input_tokens = ${meta?.inputTokens ?? null},
+            output_tokens = ${meta?.outputTokens ?? null},
+            latency_ms = ${meta?.latencyMs ?? null}
+        `),
+      );
     } catch (err) {
       this.logger.warn(`Cache set error: ${err}`);
     }
@@ -110,22 +114,26 @@ export class AiCacheService implements OnModuleInit {
     try {
       // Delete entries older than TTL
       const cutoff = new Date(Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const ttlResult = await this.db.db.execute(
-        sql`DELETE FROM llm_cache WHERE created_at < ${cutoff}`,
+      const ttlResult = await this.db.systemDb((db) =>
+        db.execute(sql`DELETE FROM llm_cache WHERE created_at < ${cutoff}`),
       );
       const ttlDeleted = (ttlResult as { rowCount?: number }).rowCount ?? 0;
 
       // Check total count
-      const countResult = await this.db.db.execute(sql`SELECT COUNT(*)::int AS cnt FROM llm_cache`);
+      const countResult = await this.db.systemDb((db) =>
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM llm_cache`),
+      );
       const totalCount = (countResult.rows[0] as { cnt: number })?.cnt ?? 0;
 
       if (totalCount > CACHE_MAX_ENTRIES) {
         // Delete oldest entries beyond the max
         const excess = totalCount - CACHE_MAX_ENTRIES;
-        await this.db.db.execute(
-          sql`DELETE FROM llm_cache WHERE id IN (
-            SELECT id FROM llm_cache ORDER BY created_at ASC LIMIT ${excess}
-          )`,
+        await this.db.systemDb((db) =>
+          db.execute(
+            sql`DELETE FROM llm_cache WHERE id IN (
+              SELECT id FROM llm_cache ORDER BY created_at ASC LIMIT ${excess}
+            )`,
+          ),
         );
         this.logger.log(
           `[LLM Cache] Evicted ${ttlDeleted} stale + ${excess} excess entries (total was ${totalCount})`,

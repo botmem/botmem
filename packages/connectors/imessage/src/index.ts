@@ -270,12 +270,26 @@ export class IMessageConnector extends BaseConnector {
             content: {
               text,
               participants: msg.participants || [msg.sender],
+              attachments: hasAttachments
+                ? msg.attachments.map((attachment) => ({
+                    uri: attachment.filename || attachment.transfer_name || '',
+                    mimeType: attachment.mime_type || 'application/octet-stream',
+                    filename: attachment.transfer_name || attachment.filename,
+                  }))
+                : undefined,
               metadata: {
                 chatId: msg.chat_id,
                 chatName: msg.chat_name,
                 service: 'iMessage',
                 isFromMe: msg.is_from_me,
                 isGroup: msg.is_group,
+                attachments: hasAttachments
+                  ? msg.attachments.map((attachment) => ({
+                      uri: attachment.filename || attachment.transfer_name || '',
+                      mimeType: attachment.mime_type || 'application/octet-stream',
+                      filename: attachment.transfer_name || attachment.filename,
+                    }))
+                  : undefined,
               },
             },
           });

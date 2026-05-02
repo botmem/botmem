@@ -18,7 +18,10 @@ describe('SettingsService', () => {
         { key: 'custom_key', value: 'custom_val' },
       ]),
     };
-    service = new SettingsService({ db: mockDb } as unknown as DbService);
+    service = new SettingsService({
+      db: mockDb,
+      systemDb: vi.fn().mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+    } as unknown as DbService);
   });
 
   describe('onModuleInit', () => {

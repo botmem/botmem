@@ -24,14 +24,16 @@ function createMocks() {
     getById: vi.fn(),
   } as unknown as MemoryBanksService;
 
-  const dbService = {
-    db: {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockResolvedValue([{ id: 'a1' }]),
-        }),
+  const rawDb = {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ id: 'a1' }]),
       }),
-    },
+    }),
+  };
+  const dbService = {
+    db: rawDb,
+    userDb: vi.fn((_userId: string, fn) => fn(rawDb)),
   } as unknown as DbService;
 
   const syncQueue = {} as unknown as Queue;

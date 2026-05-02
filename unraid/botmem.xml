@@ -8,7 +8,7 @@
     <Privileged>false</Privileged>
     <Support>https://forums.unraid.net/topic/XXXXX-botmem-personal-memory-rag/</Support>
     <Project>https://github.com/botmem/botmem</Project>
-    <Overview>Personal memory system that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Local-first, privacy-focused — your data stays on your server.[br][br]Requires PostgreSQL, Redis, and Typesense containers (auto-configured via this template's companion docker-compose, or point to existing instances).[br][br][b]Quick start:[/b] Install this container, then configure DATABASE_URL, REDIS_URL, and TYPESENSE_URL to point to your existing services or use the companion stack.</Overview>
+    <Overview>Personal memory system that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Local-first, privacy-focused — your data stays on your server.[br][br]Requires PostgreSQL with pgvector and Redis containers (auto-configured via this template's companion docker-compose, or point to existing instances).[br][br][b]Quick start:[/b] Install this container, then configure DATABASE_URL and REDIS_URL to point to your existing services or use the companion stack.</Overview>
     <Category>Productivity: Tools:Utilities</Category>
     <WebUI>http://[IP]:[PORT:12412]</WebUI>
     <TemplateURL>https://raw.githubusercontent.com/botmem/unraid-templates/main/botmem/botmem.xml</TemplateURL>
@@ -19,7 +19,7 @@
     <DonateLink>https://github.com/sponsors/botmem</DonateLink>
     <Beta>true</Beta>
     <ExtraSearchTerms>memory rag personal ai search email messages photos recall knowledge base vector</ExtraSearchTerms>
-    <Requires>PostgreSQL 16+, Redis 7+, Typesense 27+. Install these from Community Applications first, or use the companion docker-compose.</Requires>
+    <Requires>PostgreSQL 16+ with pgvector, Redis 7+. Install these from Community Applications first, or use the companion docker-compose.</Requires>
 
     <!-- === Ports === -->
     <Config
@@ -78,28 +78,6 @@
         Display="always"
         Required="true"
         Mask="false"/>
-
-    <Config
-        Name="Typesense URL"
-        Target="TYPESENSE_URL"
-        Default="http://host.docker.internal:8108"
-        Mode=""
-        Description="Typesense search engine URL. Point to your Typesense container."
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="Typesense API Key"
-        Target="TYPESENSE_API_KEY"
-        Default="botmem-ts-key"
-        Mode=""
-        Description="API key for Typesense. Must match the key configured in your Typesense container."
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="true"/>
 
     <Config
         Name="App Secret"
@@ -230,7 +208,7 @@
         Target="OPENAI_API_KEY"
         Default=""
         Mode=""
-        Description="Optional. Enables Typesense conversational RAG search (uses gpt-4.1-nano). Leave empty to disable."
+        Description="Optional API key for external LLM features. Leave empty to disable."
         Type="Variable"
         Display="advanced"
         Required="false"

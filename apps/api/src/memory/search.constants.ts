@@ -52,6 +52,6 @@ export const CORROBORATION_SINGLE_CONFIDENCE = 0.8;
 export const CORROBORATION_MULTI_CONFIDENCE = 0.9;
 export const SAME_CONNECTOR_BOOST_CONFIDENCE = 0.65;
 
-// ============ Typesense ============
+// ============ Search index ============
 export const HYBRID_ALPHA = 0.5;
 export const QUERY_BY_WEIGHTS = '3,1,1';

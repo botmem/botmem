@@ -27,9 +27,14 @@ function createMockDb(overrides: Record<string, unknown> = {}) {
 }
 
 function createService(db?: unknown) {
-  const dbService = { db: db ?? createMockDb() } as unknown as ConstructorParameters<
-    typeof ApiKeysService
-  >[0];
+  const mockDb = db ?? createMockDb();
+  const dbService = {
+    db: mockDb,
+    userDb: vi
+      .fn()
+      .mockImplementation((_userId: string, fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+    systemDb: vi.fn().mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+  } as unknown as ConstructorParameters<typeof ApiKeysService>[0];
   return new ApiKeysService(dbService);
 }
 

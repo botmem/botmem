@@ -31,7 +31,10 @@ describe('UsersService', () => {
       set: vi.fn().mockReturnThis(),
       delete: vi.fn().mockReturnThis(),
     };
-    service = new UsersService({ db: mockDb } as unknown as DbService);
+    service = new UsersService({
+      db: mockDb,
+      systemDb: vi.fn().mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+    } as unknown as DbService);
   });
 
   describe('createUser', () => {
@@ -189,11 +192,7 @@ describe('UsersService', () => {
     });
 
     it('accepts string expiresAt', async () => {
-      const result = await service.createPasswordReset(
-        'user-1',
-        'hash2',
-        '2026-12-31T00:00:00Z',
-      );
+      const result = await service.createPasswordReset('user-1', 'hash2', '2026-12-31T00:00:00Z');
       expect(result.userId).toBe('user-1');
       expect(mockDb.insert).toHaveBeenCalled();
     });

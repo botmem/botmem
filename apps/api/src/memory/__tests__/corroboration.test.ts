@@ -77,7 +77,7 @@ describe('corroborateFactuality', () => {
       /* crypto */ { encrypt: vi.fn((value: string) => `encrypted:${value}`) },
       /* userKeyService */ {},
       /* ai */ {},
-      /* typesense */ {},
+      /* search index */ {},
       /* logsService */ {},
       /* events */ {},
       /* connectors */ {},

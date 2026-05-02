@@ -97,8 +97,8 @@ export function IntegrationsTab() {
           </button>
         </div>
         <p className="font-mono text-[11px] text-nb-muted mt-1">
-          Use this URL for remote MCP connections (Streamable HTTP transport). Requires OAuth or API
-          key auth.
+          Use this URL for remote MCP connections (Streamable HTTP transport). Requires OAuth; API
+          keys are not accepted for MCP.
         </p>
       </div>
 

@@ -14,8 +14,6 @@ services:
     environment:
       DATABASE_URL: postgresql://botmem:botmem@postgres:5432/botmem
       REDIS_URL: redis://redis:6379
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: botmem-ts-key
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
       APP_SECRET: ${APP_SECRET}
@@ -39,8 +37,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      typesense:
-        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:12412/api/version || exit 1']
       interval: 10s
@@ -49,7 +45,7 @@ services:
       start_period: 15s
 
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     ports:
       - '25432:5432'
     environment:
@@ -93,23 +89,8 @@ services:
       retries: 3
       start_period: 10s
 
-  typesense:
-    image: typesense/typesense:30.1
-    ports:
-      - '28108:8108'
-    volumes:
-      - botmem_e2e_selfhosted_typesense:/data
-    command: --data-dir /data --api-key=botmem-ts-key --enable-cors --enable-search-analytics=true
-    healthcheck:
-      test: ['CMD-SHELL', "bash -c 'echo > /dev/tcp/localhost/8108'"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
-
 volumes:
   botmem_e2e_selfhosted_pg:
   botmem_e2e_selfhosted_redis:
-  botmem_e2e_selfhosted_typesense:
   botmem_e2e_selfhosted_api_data:
   botmem_e2e_selfhosted_ollama:

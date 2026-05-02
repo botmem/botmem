@@ -18,7 +18,7 @@ A production Botmem deployment consists of:
                   +----+----+
                     /  |  \
         +----------+  |  +----------+
-        | PostgreSQL|  |  | Typesense|
+        | PostgreSQL|  |  | PostgreSQL search index|
         |   :5432   |  |  |  :8108   |
         +-----------+  |  +----------+
                   +----+----+
@@ -58,7 +58,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      typesense:
+      PostgreSQL search index:
         condition: service_healthy
 
   postgres:
@@ -88,12 +88,12 @@ services:
       timeout: 3s
       retries: 5
 
-  typesense:
-    image: typesense/typesense:27.1
+  PostgreSQL search index:
+    image: PostgreSQL search index/PostgreSQL search index:27.1
     restart: unless-stopped
     volumes:
-      - typesense-data:/data
-    command: '--data-dir /data --api-key=${TYPESENSE_API_KEY}'
+      - PostgreSQL search index-data:/data
+    command: '--data-dir /data --api-key=${}'
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8108/health || exit 1']
       interval: 5s
@@ -114,7 +114,7 @@ services:
 volumes:
   postgres-data:
   redis-data:
-  typesense-data:
+  PostgreSQL search index-data:
   caddy-data:
   caddy-config:
 ```
@@ -147,7 +147,7 @@ BASE_URL=https://yourdomain.com
 
 # Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379
-TYPESENSE_URL=http://typesense:8108
+DATABASE_URL=http://PostgreSQL search index:8108
 
 # AI Backend
 AI_BACKEND=ollama

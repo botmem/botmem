@@ -12,7 +12,7 @@ Botmem solves this by:
 
 1. **Ingesting** data from multiple sources via pluggable connectors
 2. **Normalizing** everything into a common Memory schema with text, timestamps, participants, entities, and factuality labels
-3. **Embedding** each memory as a vector for semantic search via Typesense
+3. **Embedding** each memory as a vector for semantic search via PostgreSQL search index
 4. **Enriching** memories with entity extraction, factuality classification, and relationship graph links
 5. **Exposing** the entire memory store via REST API, WebSocket, and CLI for AI agents
 
@@ -53,7 +53,7 @@ The REST API and CLI expose tools that let AI agents search your memory, recall 
                         +--------+---------+
                           /      |       \
                +---------+  +---+---+  +--+--------+
-               |PostgreSQL|  | Redis |  | Typesense |
+               |PostgreSQL|  | Redis |  | PostgreSQL search index |
                | Drizzle  |  | BullMQ|  |  Search   |
                +---------+  +-------+  +-----------+
                                  |
@@ -65,16 +65,16 @@ The REST API and CLI expose tools that let AI agents search your memory, recall 
 
 ## Tech Stack
 
-| Layer    | Technology                                                            |
-| -------- | --------------------------------------------------------------------- |
-| Runtime  | Node.js, TypeScript (ES2022, strict)                                  |
-| Backend  | NestJS 11, Drizzle ORM + PostgreSQL 17                                |
-| Queue    | BullMQ on Redis                                                       |
-| Search   | Typesense (hybrid BM25 + vector search, cosine similarity)            |
-| AI       | Ollama (`mxbai-embed-large`, `qwen3:8b`, `qwen3-vl:4b`) or OpenRouter |
-| Auth     | JWT + optional Firebase, AES-256-GCM encryption                       |
-| Frontend | React 19, Vite 6, Zustand 5, Tailwind 4                               |
-| Tooling  | pnpm 9.15, Turbo 2.4, Vitest 3                                        |
+| Layer    | Technology                                                               |
+| -------- | ------------------------------------------------------------------------ |
+| Runtime  | Node.js, TypeScript (ES2022, strict)                                     |
+| Backend  | NestJS 11, Drizzle ORM + PostgreSQL 17                                   |
+| Queue    | BullMQ on Redis                                                          |
+| Search   | PostgreSQL search index (hybrid BM25 + vector search, cosine similarity) |
+| AI       | Ollama (`mxbai-embed-large`, `qwen3:8b`, `qwen3-vl:4b`) or OpenRouter    |
+| Auth     | JWT + optional Firebase, AES-256-GCM encryption                          |
+| Frontend | React 19, Vite 6, Zustand 5, Tailwind 4                                  |
+| Tooling  | pnpm 9.15, Turbo 2.4, Vitest 3                                           |
 
 ## Next Steps
 

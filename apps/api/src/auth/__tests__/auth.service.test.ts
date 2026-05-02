@@ -43,22 +43,24 @@ function createMockDeps() {
 
   const events = {} as EventsService;
 
+  const rawDb = {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
+        limit: vi.fn().mockResolvedValue([{ id: 'user-1' }]),
+      }),
+    }),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        onConflictDoUpdate: vi.fn().mockReturnValue({
+          run: vi.fn(),
+        }),
+      }),
+    }),
+  };
   const dbService = {
-    db: {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockResolvedValue([]),
-          limit: vi.fn().mockResolvedValue([{ id: 'user-1' }]),
-        }),
-      }),
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockReturnValue({
-          onConflictDoUpdate: vi.fn().mockReturnValue({
-            run: vi.fn(),
-          }),
-        }),
-      }),
-    },
+    db: rawDb,
+    systemDb: vi.fn((fn) => fn(rawDb)),
   } as unknown as DbService;
 
   const crypto = {

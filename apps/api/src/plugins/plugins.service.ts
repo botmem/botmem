@@ -134,15 +134,19 @@ export class PluginsService {
       wa.on('decrypt-failure', async ({ message }: { message: string }) => {
         this.logger.warn(message);
         // Update all WhatsApp accounts with the error
-        const waAccounts = await this.dbService.db
-          .select({ id: accounts.id })
-          .from(accounts)
-          .where(eq(accounts.connectorType, 'whatsapp'));
+        const waAccounts = await this.dbService.systemDb((db) =>
+          db
+            .select({ id: accounts.id })
+            .from(accounts)
+            .where(eq(accounts.connectorType, 'whatsapp')),
+        );
         for (const acc of waAccounts) {
-          await this.dbService.db
-            .update(accounts)
-            .set({ lastError: message, updatedAt: new Date() })
-            .where(eq(accounts.id, acc.id));
+          await this.dbService.systemDb((db) =>
+            db
+              .update(accounts)
+              .set({ lastError: message, updatedAt: new Date() })
+              .where(eq(accounts.id, acc.id)),
+          );
         }
         // Broadcast to frontend
         this.events.emitToChannel('notifications', 'connector:warning', {
@@ -161,15 +165,19 @@ export class PluginsService {
       const wa = this.connectors.get('whatsapp');
       wa.on('session-expired', async ({ message }: { message: string; code: number }) => {
         this.logger.warn(`WhatsApp session expired: ${message}`);
-        const waAccounts = await this.dbService.db
-          .select({ id: accounts.id })
-          .from(accounts)
-          .where(eq(accounts.connectorType, 'whatsapp'));
+        const waAccounts = await this.dbService.systemDb((db) =>
+          db
+            .select({ id: accounts.id })
+            .from(accounts)
+            .where(eq(accounts.connectorType, 'whatsapp')),
+        );
         for (const acc of waAccounts) {
-          await this.dbService.db
-            .update(accounts)
-            .set({ status: 'disconnected', lastError: message, updatedAt: new Date() })
-            .where(eq(accounts.id, acc.id));
+          await this.dbService.systemDb((db) =>
+            db
+              .update(accounts)
+              .set({ status: 'disconnected', lastError: message, updatedAt: new Date() })
+              .where(eq(accounts.id, acc.id)),
+          );
         }
         this.events.emitToChannel('notifications', 'connector:warning', {
           connectorType: 'whatsapp',

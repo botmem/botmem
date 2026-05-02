@@ -7,7 +7,7 @@ describe('MemoryBanksService', () => {
   let service: MemoryBanksService;
   let mockDb: Record<string, ReturnType<typeof vi.fn>>;
   let cryptoService: Record<string, ReturnType<typeof vi.fn>>;
-  let typesenseService: { remove: ReturnType<typeof vi.fn> };
+  let searchIndexService: { remove: ReturnType<typeof vi.fn> };
 
   const fakeBank = {
     id: 'bank-1',
@@ -37,14 +37,19 @@ describe('MemoryBanksService', () => {
       hmac: vi.fn((v: string) => `hmac:${v}`),
     };
 
-    typesenseService = {
+    searchIndexService = {
       remove: vi.fn().mockResolvedValue(undefined),
     };
 
     service = new MemoryBanksService(
-      { db: mockDb } as unknown as DbService,
+      {
+        db: mockDb,
+        userDb: vi
+          .fn()
+          .mockImplementation((_userId: string, fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+      } as unknown as DbService,
       cryptoService as unknown as CryptoService,
-      typesenseService as unknown as import('../../memory/typesense.service').TypesenseService,
+      searchIndexService as unknown as import('../../memory/pg-search.service').PgSearchService,
     );
   });
 
@@ -116,7 +121,7 @@ describe('MemoryBanksService', () => {
       const result = await service.remove('user-1', 'bank-1');
       expect(result.deleted).toBe(true);
       expect(result.memoriesDeleted).toBe(2);
-      expect(typesenseService.remove).toHaveBeenCalledTimes(2);
+      expect(searchIndexService.remove).toHaveBeenCalledTimes(2);
     });
 
     it('throws if trying to delete default bank', async () => {

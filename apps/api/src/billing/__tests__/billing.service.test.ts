@@ -7,6 +7,7 @@ vi.mock('stripe', () => {
   const MockStripe = vi.fn().mockImplementation(() => ({
     customers: {
       create: vi.fn().mockResolvedValue({ id: 'cus_test123' }),
+      retrieve: vi.fn().mockResolvedValue({ id: 'cus_existing' }),
     },
     checkout: {
       sessions: {
@@ -43,7 +44,11 @@ function createChainDb(results: unknown[][] = []) {
 describe('BillingService', () => {
   let service: BillingService;
   let mockDb: ReturnType<typeof createChainDb>;
-  let dbService: { db: ReturnType<typeof createChainDb> };
+  let dbService: {
+    db: ReturnType<typeof createChainDb>;
+    userDb: ReturnType<typeof vi.fn>;
+    systemDb: ReturnType<typeof vi.fn>;
+  };
   let config: {
     isSelfHosted: boolean;
     stripeSecretKey: string;
@@ -54,7 +59,11 @@ describe('BillingService', () => {
   describe('cloud mode', () => {
     beforeEach(() => {
       mockDb = createChainDb();
-      dbService = { db: mockDb };
+      dbService = {
+        db: mockDb,
+        userDb: vi.fn((_userId: string, fn) => fn(mockDb)),
+        systemDb: vi.fn((fn) => fn(mockDb)),
+      };
       config = {
         isSelfHosted: false,
         stripeSecretKey: 'sk_test_xxx',
@@ -71,6 +80,7 @@ describe('BillingService', () => {
       it('returns existing stripeCustomerId if present', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: 'cus_existing' }]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -83,6 +93,7 @@ describe('BillingService', () => {
       it('creates Stripe customer when none exists', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: null }]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -96,6 +107,7 @@ describe('BillingService', () => {
       it('creates Stripe customer when user has no record', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -111,6 +123,7 @@ describe('BillingService', () => {
         // First call: getOrCreateStripeCustomer select, second: update
         mockDb = createChainDb([[{ stripeCustomerId: 'cus_existing' }]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -125,6 +138,7 @@ describe('BillingService', () => {
       it('returns portal URL when customer exists', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: 'cus_existing' }]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -137,6 +151,7 @@ describe('BillingService', () => {
       it('re-creates customer when stripeCustomerId is null', async () => {
         mockDb = createChainDb([[{ stripeCustomerId: null, email: 'test@example.com' }]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -149,6 +164,7 @@ describe('BillingService', () => {
       it('throws when user not found', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -164,6 +180,7 @@ describe('BillingService', () => {
           [{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date('2026-04-01') }],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -186,6 +203,7 @@ describe('BillingService', () => {
           ],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -201,6 +219,7 @@ describe('BillingService', () => {
           [{ subscriptionStatus: 'canceled', subscriptionCurrentPeriodEnd: null }],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -217,6 +236,7 @@ describe('BillingService', () => {
           [{ subscriptionStatus: 'past_due', subscriptionCurrentPeriodEnd: null }],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -230,6 +250,7 @@ describe('BillingService', () => {
       it('returns free plan when no user found', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -246,6 +267,7 @@ describe('BillingService', () => {
           [{ subscriptionStatus: null, subscriptionCurrentPeriodEnd: null }],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -263,6 +285,7 @@ describe('BillingService', () => {
           [{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date() }],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -274,6 +297,7 @@ describe('BillingService', () => {
       it('returns free for non-subscribed user', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -289,6 +313,7 @@ describe('BillingService', () => {
           [{ subscriptionStatus: 'active', subscriptionCurrentPeriodEnd: new Date() }],
         ]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -300,6 +325,7 @@ describe('BillingService', () => {
       it('returns false for free user', async () => {
         mockDb = createChainDb([[]]);
         dbService.db = mockDb;
+        dbService.userDb.mockImplementation((_userId: string, fn) => fn(mockDb));
         service = new BillingService(
           dbService as unknown as import('../../db/db.service').DbService,
           config as unknown as ConfigService,
@@ -470,7 +496,11 @@ describe('BillingService', () => {
   describe('self-hosted mode', () => {
     beforeEach(() => {
       mockDb = createChainDb();
-      dbService = { db: mockDb };
+      dbService = {
+        db: mockDb,
+        userDb: vi.fn((_userId: string, fn) => fn(mockDb)),
+        systemDb: vi.fn((fn) => fn(mockDb)),
+      };
       config = {
         isSelfHosted: true,
         stripeSecretKey: '',

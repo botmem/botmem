@@ -98,7 +98,7 @@
 ### 15. No minimum hardware requirements documented
 
 **Where:** Nowhere in quickstart, configuration, or deployment docs
-**Impact:** A user doesn't know if their 1GB VPS can run this. The system needs PostgreSQL + Redis + Typesense + Ollama + the API. Realistically needs 4GB+ RAM minimum (8GB+ with Ollama). The deployment guide mentions nothing about resource requirements.
+**Impact:** A user doesn't know if their 1GB VPS can run this. The system needs PostgreSQL + pgvector + Redis + Ollama + the API. Realistically needs 4GB+ RAM minimum (8GB+ with Ollama). The deployment guide mentions nothing about resource requirements.
 
 ### 16. `.env.example` has commented-out sections with no clear "uncomment to enable" pattern
 

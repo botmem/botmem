@@ -27,7 +27,7 @@ describe('diversifyResults', () => {
     service = new (MemoryService as any)(
       /* dbService */ {},
       /* aiService */ {},
-      /* typesenseService */ {},
+      /* searchIndexService */ {},
       /* connectorsService */ {},
       /* pluginRegistry */ {},
       /* cryptoService */ {},

@@ -70,8 +70,10 @@ export class QuotaService {
       return cached.count;
     }
 
-    const result = await this.db.db.execute<{ count: string }>(
-      sql`SELECT COUNT(*)::int AS count FROM memories m WHERE m.account_id IN (SELECT id FROM accounts WHERE user_id = ${userId})`,
+    const result = await this.db.userDb(userId, (db) =>
+      db.execute<{ count: string }>(
+        sql`SELECT COUNT(*)::int AS count FROM memories m WHERE m.account_id IN (SELECT id FROM accounts WHERE user_id = ${userId})`,
+      ),
     );
     const count = Number(result.rows[0]?.count ?? 0);
 

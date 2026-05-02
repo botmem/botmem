@@ -6,16 +6,16 @@ Botmem is configured through environment variables. All variables have sensible 
 
 ### Core Infrastructure
 
-| Variable        | Default                  | Description                                                                            |
-| --------------- | ------------------------ | -------------------------------------------------------------------------------------- |
-| `PORT`          | `12412`                  | API server port                                                                        |
-| `DATABASE_URL`  | _(required)_             | PostgreSQL connection string (e.g. `postgresql://botmem:botmem@localhost:5432/botmem`) |
-| `REDIS_URL`     | `redis://localhost:6379` | Redis connection URL for BullMQ job queues                                             |
-| `TYPESENSE_URL` | `http://localhost:8108`  | Typesense search engine URL                                                            |
-| `FRONTEND_URL`  | `http://localhost:12412` | Frontend origin for CORS and OAuth redirects                                           |
-| `BASE_URL`      | _(same as FRONTEND_URL)_ | Public base URL (used for OAuth callbacks)                                             |
-| `PLUGINS_DIR`   | `./plugins`              | Directory for external connector plugins                                               |
-| `LOGS_PATH`     | `./data/logs.ndjson`     | Path for NDJSON log file output                                                        |
+| Variable       | Default                  | Description                                                                            |
+| -------------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| `PORT`         | `12412`                  | API server port                                                                        |
+| `DATABASE_URL` | _(required)_             | PostgreSQL connection string (e.g. `postgresql://botmem:botmem@localhost:5432/botmem`) |
+| `REDIS_URL`    | `redis://localhost:6379` | Redis connection URL for BullMQ job queues                                             |
+| `DATABASE_URL` | `http://localhost:8108`  | PostgreSQL search index search engine URL                                              |
+| `FRONTEND_URL` | `http://localhost:12412` | Frontend origin for CORS and OAuth redirects                                           |
+| `BASE_URL`     | _(same as FRONTEND_URL)_ | Public base URL (used for OAuth callbacks)                                             |
+| `PLUGINS_DIR`  | `./plugins`              | Directory for external connector plugins                                               |
+| `LOGS_PATH`    | `./data/logs.ndjson`     | Path for NDJSON log file output                                                        |
 
 ### AI Backend
 
@@ -113,9 +113,9 @@ In cloud mode (Stripe configured), free-plan users are limited to 500 memories t
 
 ### Conversation Search
 
-| Variable         | Default   | Description                                                                                                               |
-| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key for Typesense conversation model (`gpt-4.1-nano`). Optional — conversation search is skipped when not set. |
+| Variable         | Default   | Description                                                                                                                             |
+| ---------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key for PostgreSQL search index conversation model (`gpt-4.1-nano`). Optional — conversation search is skipped when not set. |
 
 ### Other
 
@@ -149,12 +149,12 @@ services:
     volumes:
       - redis-data:/data
 
-  typesense:
-    image: typesense/typesense:30.1
+  PostgreSQL search index:
+    image: PostgreSQL search index/PostgreSQL search index:30.1
     ports:
       - '8108:8108'
     volumes:
-      - typesense-data:/data
+      - PostgreSQL search index-data:/data
     command: '--data-dir /data --api-key=botmem-ts-key'
 
   # Optional: local Ollama instance
@@ -170,7 +170,7 @@ services:
 To start optional services, use Docker Compose profiles:
 
 ```bash
-# Core services only (PostgreSQL + Redis + Typesense)
+# Core services only (PostgreSQL + pgvector + Redis)
 docker compose up -d
 
 # Include local Ollama
@@ -187,7 +187,7 @@ Ollama can also run separately — either locally or on a dedicated GPU machine.
 DATABASE_URL=postgresql://botmem:botmem@localhost:5432/botmem
 PORT=12412
 REDIS_URL=redis://localhost:6379
-TYPESENSE_URL=http://localhost:8108
+DATABASE_URL=http://localhost:8108
 
 # AI Backend (choose one)
 AI_BACKEND=ollama
@@ -225,7 +225,7 @@ ollama pull qwen3:8b             # Text enrichment, entity extraction, factualit
 ollama pull qwen3-vl:4b          # Vision-language for photo descriptions
 ```
 
-The embed model produces 1024-dimensional vectors. Typesense auto-creates the collection on first use with the correct dimensionality.
+The embed model produces 1024-dimensional vectors. PostgreSQL search index auto-creates the collection on first use with the correct dimensionality.
 
 ### OpenRouter (cloud backend)
 
@@ -241,6 +241,6 @@ Botmem needs to reach:
 
 - **PostgreSQL** on `DATABASE_URL` (default: `localhost:5432`)
 - **Redis** on `REDIS_URL` (default: `localhost:6379`)
-- **Typesense** on `TYPESENSE_URL` (default: `localhost:8108`)
+- **PostgreSQL search index** on `DATABASE_URL` (default: `localhost:8108`)
 - **Ollama** on `OLLAMA_BASE_URL` (or OpenRouter API if using cloud backend)
 - External APIs for each connector (Gmail API, Slack API, etc.)

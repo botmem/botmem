@@ -29,13 +29,15 @@ export class OAuthService {
     const clientId = randomUUID();
     const grants = grantTypes ?? ['authorization_code', 'refresh_token'];
 
-    await this.db.db.insert(oauthClients).values({
-      clientId,
-      clientName: name,
-      redirectUris: JSON.stringify(redirectUris),
-      grantTypes: JSON.stringify(grants),
-      scope: 'read write',
-    });
+    await this.db.systemDb((db) =>
+      db.insert(oauthClients).values({
+        clientId,
+        clientName: name,
+        redirectUris: JSON.stringify(redirectUris),
+        grantTypes: JSON.stringify(grants),
+        scope: 'read write',
+      }),
+    );
 
     return {
       client_id: clientId,
@@ -46,11 +48,9 @@ export class OAuthService {
   }
 
   async getClient(clientId: string) {
-    const rows = await this.db.db
-      .select()
-      .from(oauthClients)
-      .where(eq(oauthClients.clientId, clientId))
-      .limit(1);
+    const rows = await this.db.systemDb((db) =>
+      db.select().from(oauthClients).where(eq(oauthClients.clientId, clientId)).limit(1),
+    );
     return rows[0] ?? null;
   }
 
@@ -65,16 +65,18 @@ export class OAuthService {
     const code = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    await this.db.db.insert(oauthCodes).values({
-      code,
-      userId,
-      clientId,
-      redirectUri,
-      scope,
-      codeChallenge,
-      codeChallengeMethod,
-      expiresAt,
-    });
+    await this.db.systemDb((db) =>
+      db.insert(oauthCodes).values({
+        code,
+        userId,
+        clientId,
+        redirectUri,
+        scope,
+        codeChallenge,
+        codeChallengeMethod,
+        expiresAt,
+      }),
+    );
 
     return code;
   }
@@ -85,11 +87,9 @@ export class OAuthService {
     redirectUri: string,
     codeVerifier: string,
   ): Promise<{ userId: string; scope: string }> {
-    const rows = await this.db.db
-      .select()
-      .from(oauthCodes)
-      .where(eq(oauthCodes.code, code))
-      .limit(1);
+    const rows = await this.db.systemDb((db) =>
+      db.select().from(oauthCodes).where(eq(oauthCodes.code, code)).limit(1),
+    );
 
     const codeRow = rows[0];
     if (!codeRow) {
@@ -118,10 +118,9 @@ export class OAuthService {
     }
 
     // Mark code as used
-    await this.db.db
-      .update(oauthCodes)
-      .set({ usedAt: new Date() })
-      .where(eq(oauthCodes.code, code));
+    await this.db.systemDb((db) =>
+      db.update(oauthCodes).set({ usedAt: new Date() }).where(eq(oauthCodes.code, code)),
+    );
 
     return { userId: codeRow.userId, scope: codeRow.scope };
   }
@@ -159,14 +158,16 @@ export class OAuthService {
     const tokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-    await this.db.db.insert(oauthRefreshTokens).values({
-      id: randomUUID(),
-      tokenHash,
-      userId,
-      clientId,
-      scope,
-      expiresAt,
-    });
+    await this.db.systemDb((db) =>
+      db.insert(oauthRefreshTokens).values({
+        id: randomUUID(),
+        tokenHash,
+        userId,
+        clientId,
+        scope,
+        expiresAt,
+      }),
+    );
 
     return {
       access_token: accessToken,
@@ -189,11 +190,13 @@ export class OAuthService {
   }> {
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
 
-    const rows = await this.db.db
-      .select()
-      .from(oauthRefreshTokens)
-      .where(eq(oauthRefreshTokens.tokenHash, tokenHash))
-      .limit(1);
+    const rows = await this.db.systemDb((db) =>
+      db
+        .select()
+        .from(oauthRefreshTokens)
+        .where(eq(oauthRefreshTokens.tokenHash, tokenHash))
+        .limit(1),
+    );
 
     const stored = rows[0];
     if (!stored) {
@@ -213,10 +216,12 @@ export class OAuthService {
     }
 
     // Revoke old token
-    await this.db.db
-      .update(oauthRefreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(eq(oauthRefreshTokens.id, stored.id));
+    await this.db.systemDb((db) =>
+      db
+        .update(oauthRefreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(oauthRefreshTokens.id, stored.id)),
+    );
 
     // Issue new pair
     return this.issueTokens(stored.userId, stored.scope, clientId);
@@ -225,12 +230,14 @@ export class OAuthService {
   async revokeToken(token: string): Promise<void> {
     const tokenHash = createHash('sha256').update(token).digest('hex');
 
-    await this.db.db
-      .update(oauthRefreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(
-        and(eq(oauthRefreshTokens.tokenHash, tokenHash), isNull(oauthRefreshTokens.revokedAt)),
-      );
+    await this.db.systemDb((db) =>
+      db
+        .update(oauthRefreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(eq(oauthRefreshTokens.tokenHash, tokenHash), isNull(oauthRefreshTokens.revokedAt)),
+        ),
+    );
   }
 
   verifyAccessToken(token: string): Record<string, unknown> {

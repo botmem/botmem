@@ -66,10 +66,12 @@ export class AuthService implements OnModuleInit {
 
   async getSavedCredentials(connectorType: string): Promise<Record<string, unknown> | null> {
     try {
-      const [row] = await this.dbService.db
-        .select()
-        .from(connectorCredentials)
-        .where(eq(connectorCredentials.connectorType, connectorType));
+      const [row] = await this.dbService.systemDb((db) =>
+        db
+          .select()
+          .from(connectorCredentials)
+          .where(eq(connectorCredentials.connectorType, connectorType)),
+      );
       if (!row) return null;
       const decrypted = this.crypto.decrypt(row.credentials) || row.credentials;
       const parsed = JSON.parse(decrypted);
@@ -95,13 +97,15 @@ export class AuthService implements OnModuleInit {
 
     const now = new Date();
     const encrypted = this.crypto.encrypt(JSON.stringify(toSave))!;
-    await this.dbService.db
-      .insert(connectorCredentials)
-      .values({ connectorType, credentials: encrypted, updatedAt: now })
-      .onConflictDoUpdate({
-        target: connectorCredentials.connectorType,
-        set: { credentials: encrypted, updatedAt: now },
-      });
+    await this.dbService.systemDb((db) =>
+      db
+        .insert(connectorCredentials)
+        .values({ connectorType, credentials: encrypted, updatedAt: now })
+        .onConflictDoUpdate({
+          target: connectorCredentials.connectorType,
+          set: { credentials: encrypted, updatedAt: now },
+        }),
+    );
   }
 
   /** Strip sensitive fields before returning account to client. */

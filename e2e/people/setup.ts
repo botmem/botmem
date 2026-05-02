@@ -1,14 +1,9 @@
 /**
  * Shared setup for people e2e tests.
  * Creates a test user and works with whatever people exist.
- * NO demo seed — Typesense can't handle 300 rapid sequential upserts in dev.
+ * NO demo seed — full demo import is too slow for this suite.
  */
-import {
-  ensureApiRunning,
-  registerUser,
-  authedRequest,
-  type TestUser,
-} from '../helpers/index.js';
+import { ensureApiRunning, registerUser, authedRequest, type TestUser } from '../helpers/index.js';
 
 let _user: TestUser | null = null;
 let _people: any[] = [];
@@ -38,14 +33,14 @@ export async function seedOnce(): Promise<{ user: TestUser; people: any[] }> {
   if (_people.length === 0) {
     try {
       const seedRes = await authedRequest(_user.accessToken).post('/api/demo/seed');
-      // Give Typesense a moment to settle
+      // Give the search index a moment to settle
       if ([200, 201].includes(seedRes.status)) {
         await new Promise((r) => setTimeout(r, 2000));
       }
       const res2 = await authedRequest(_user.accessToken).get('/api/people?limit=100').expect(200);
       _people = res2.body.items ?? [];
     } catch {
-      // Demo seed failed (Typesense overloaded) — continue with empty people
+      // Demo seed failed — continue with empty people
     }
   }
 
@@ -70,6 +65,8 @@ export async function cleanupSeed(): Promise<void> {
   if (_user?.accessToken) {
     try {
       await authedRequest(_user.accessToken).delete('/api/demo/seed');
-    } catch {}
+    } catch {
+      // Best-effort cleanup for tests.
+    }
   }
 }

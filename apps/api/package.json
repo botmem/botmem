@@ -9,6 +9,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
+    "search:backfill": "node scripts/backfill-pg-search-from-typesense.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -71,7 +72,6 @@
     "serve-static": "^2.2.1",
     "stopword": "^3.1.5",
     "stripe": "^20.4.1",
-    "typesense": "^3.0.3",
     "unzipper": "^0.12.3",
     "ws": "^8.19.0",
     "xlsx": "^0.18.5"
@@ -84,6 +84,7 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/bcryptjs": "^3.0.0",
     "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/html-to-text": "^9.0.4",
     "@types/nodemailer": "^6.4.23",

@@ -3,7 +3,14 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import supertest from 'supertest';
-import { ensureApiRunning, closeApp, getHttpServer, registerUser, uniqueEmail, request } from '../helpers/index.js';
+import {
+  ensureApiRunning,
+  closeApp,
+  getHttpServer,
+  registerUser,
+  uniqueEmail,
+  request,
+} from '../helpers/index.js';
 
 beforeAll(async () => {
   await ensureApiRunning();
@@ -68,6 +75,27 @@ describe('CORS & Rate Limiting (AUTH-102 → AUTH-110)', () => {
     if (exposed) {
       expect(exposed.toLowerCase()).toContain('mcp-session-id');
     }
+  });
+
+  it('AUTH-105b: Remote MCP preflight allows external HTTPS origins', async () => {
+    const res = await request()
+      .options('/mcp')
+      .set('Origin', 'https://claude.ai')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'authorization,content-type,mcp-session-id');
+
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('https://claude.ai');
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('AUTH-105c: Normal API preflight still rejects external HTTPS origins', async () => {
+    const res = await request()
+      .options('/api/user-auth/login')
+      .set('Origin', 'https://claude.ai')
+      .set('Access-Control-Request-Method', 'POST');
+
+    expect(res.headers['access-control-allow-origin']).not.toBe('https://claude.ai');
   });
 
   // -- Rate Limiting Tests --

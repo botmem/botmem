@@ -18,6 +18,16 @@ const tsvector = customType<{ data: string }>({
   },
 });
 
+/** Custom Drizzle type for pgvector columns */
+const vector = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return 'vector';
+  },
+  toDriver(value: number[]) {
+    return `[${value.join(',')}]`;
+  },
+});
+
 export const accounts = pgTable(
   'accounts',
   {
@@ -154,6 +164,49 @@ export const memoryLinks = pgTable('memory_links', {
   strength: doublePrecision('strength').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });
+
+export const memorySearchIndex = pgTable(
+  'memory_search_index',
+  {
+    memoryId: text('memory_id')
+      .primaryKey()
+      .references(() => memories.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    accountId: text('account_id'),
+    memoryBankId: text('memory_bank_id'),
+    connectorType: text('connector_type').notNull(),
+    sourceType: text('source_type').notNull(),
+    eventTime: timestamp('event_time', { withTimezone: true }).notNull(),
+    factualityLabel: text('factuality_label'),
+    pinned: boolean('pinned').notNull().default(false),
+    importance: doublePrecision('importance').notNull().default(0.5),
+    recallCount: integer('recall_count').notNull().default(0),
+    text: text('text').notNull().default(''),
+    entitiesText: text('entities_text').notNull().default(''),
+    people: jsonb('people').notNull().default([]),
+    personIds: jsonb('person_ids').notNull().default([]),
+    personAliases: jsonb('person_aliases').notNull().default([]),
+    locations: jsonb('locations').notNull().default([]),
+    locationText: text('location_text').notNull().default(''),
+    organizations: jsonb('organizations').notNull().default([]),
+    threadIds: jsonb('thread_ids').notNull().default([]),
+    transactionTokens: jsonb('transaction_tokens').notNull().default([]),
+    searchTokens: tsvector('search_tokens').notNull(),
+    embedding: vector('embedding'),
+    embeddingDimension: integer('embedding_dimension'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index('idx_memory_search_user_id').on(table.userId),
+    index('idx_memory_search_account_id').on(table.accountId),
+    index('idx_memory_search_memory_bank_id').on(table.memoryBankId),
+    index('idx_memory_search_event_time').on(table.eventTime),
+    index('idx_memory_search_connector_type').on(table.connectorType),
+    index('idx_memory_search_source_type').on(table.sourceType),
+    index('idx_memory_search_factuality_label').on(table.factualityLabel),
+    index('idx_memory_search_tokens').using('gin', table.searchTokens),
+  ],
+);
 
 // --- People tables (renamed from contacts by migration 0013) ---
 

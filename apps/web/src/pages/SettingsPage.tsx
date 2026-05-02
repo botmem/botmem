@@ -262,27 +262,6 @@ export function SettingsPage() {
                     {confirmPurge ? 'CONFIRM' : 'PURGE'}
                   </Button>
                 </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-3 border-nb-border p-3 bg-nb-surface-muted">
-                  <div>
-                    <p className="font-display text-sm font-bold uppercase text-nb-text">
-                      RESET VECTOR INDEX
-                    </p>
-                    <p className="font-mono text-xs text-nb-muted">
-                      Rebuild the Typesense collection from scratch.
-                    </p>
-                  </div>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => {
-                      trackEvent('vector_index_reset');
-                      api.resetVectorIndex().catch(() => {});
-                    }}
-                  >
-                    RESET
-                  </Button>
-                </div>
               </div>
             </Card>
           </>

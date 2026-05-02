@@ -11,7 +11,7 @@
 The current Memory Explorer is a functional search interface but lacks the depth expected from a personal memory system with 100k+ memories. Specific gaps:
 
 - **No faceted filtering** — only a row of source-type buttons (EMAIL, MESSAGE, etc.). No connector, factuality, people, or temporal filters.
-- **No conversation mode** — Typesense conversation/RAG is wired in the backend but has no frontend surface.
+- **No conversation mode** — PostgreSQL search index conversation/RAG is wired in the backend but has no frontend surface.
 - **Flat result display** — MemoryCard shows text excerpt + score bar but doesn't leverage entities, claims, people, or factuality in the result UI.
 - **No presets/quick filters** — the POC has presets (recent emails, pinned, facts only) that never made it to the React app.
 - **No autocomplete** — search starts only after 3 chars + 500ms debounce, no type-ahead. (The 500ms debounce is kept intentionally in this phase; autocomplete is deferred to a future phase.)
@@ -102,7 +102,7 @@ interface MemoryStoreExtensions {
   mode: 'search' | 'ask';
   setMode: (m: 'search' | 'ask') => void;
 
-  // Facets (from Typesense facet_counts in search response)
+  // Facets (from PostgreSQL search index facet_counts in search response)
   facets: {
     connectorType: FacetValue[]; // { value: string; count: number }
     sourceType: FacetValue[];
@@ -148,10 +148,10 @@ The `useMemories` hook reads `activeFilters` instead of the old `filters` object
 
 **Faceted search endpoint** — extend `POST /memories/search`:
 
-The Typesense search already supports `facet_by` — we need to:
+The PostgreSQL search index search already supports `facet_by` — we need to:
 
-1. Add `facet_by: 'connector_type,source_type,factuality_label,people'` to the Typesense search params
-2. Add `factuality_label` as a new top-level `string` facet field to the Typesense collection schema (requires migration script to backfill from existing memories' factuality JSON)
+1. Add `facet_by: 'connector_type,source_type,factuality_label,people'` to the PostgreSQL search index search params
+2. Add `factuality_label` as a new top-level `string` facet field to the PostgreSQL search index collection schema (requires migration script to backfill from existing memories' factuality JSON)
 3. Return `facet_counts` in the API response (currently stripped)
 4. Replace the loose `filters?: Record<string, string>` DTO with a typed DTO:
 
@@ -188,25 +188,25 @@ The Typesense search already supports `facet_by` — we need to:
 }
 ```
 
-This wraps the existing `TypesenseService.conversationSearch()` which already supports conversation model + multi-turn via `conversationId`.
+This wraps the existing `PostgreSQL search indexService.conversationSearch()` which already supports conversation model + multi-turn via `conversationId`.
 
-**Streaming**: The ask endpoint uses SSE (Server-Sent Events) to stream the RAG answer token-by-token. The existing WebSocket gateway (`/events`) is used for job progress — SSE is simpler for this request/response pattern. If Typesense returns the full answer at once (non-streaming), we return it as a single SSE event. Frontend displays a pulsing indicator until the first token arrives.
+**Streaming**: The ask endpoint uses SSE (Server-Sent Events) to stream the RAG answer token-by-token. The existing WebSocket gateway (`/events`) is used for job progress — SSE is simpler for this request/response pattern. If PostgreSQL search index returns the full answer at once (non-streaming), we return it as a single SSE event. Frontend displays a pulsing indicator until the first token arrives.
 
 **Error handling for Ask mode**:
 
-- Typesense unreachable: return `{ error: 'Search service unavailable', code: 'SEARCH_DOWN' }`, frontend shows inline error with retry button
+- PostgreSQL search index unreachable: return `{ error: 'Search service unavailable', code: 'SEARCH_DOWN' }`, frontend shows inline error with retry button
 - Conversation model not configured: return `{ error: 'Conversation mode not available', code: 'NO_CONV_MODEL' }`, frontend disables Ask toggle with tooltip
 - Empty results (no relevant memories): return answer explaining no relevant memories found, with empty citations
 
 ### 3.6 Facet Definitions
 
-| Facet       | Source                                                                              | Type                      | Behavior                      |
-| ----------- | ----------------------------------------------------------------------------------- | ------------------------- | ----------------------------- |
-| Connector   | Typesense `connector_type` facet                                                    | Checkbox list             | Multi-select, OR within group |
-| Source Type | Typesense `source_type` facet                                                       | Checkbox list             | Multi-select, OR within group |
-| Factuality  | Typesense `factuality_label` field (new, requires schema migration + backfill)      | Checkbox list             | Multi-select                  |
-| People      | Typesense `people` field (already exists as string array — use `facet_by` directly) | Checkbox list with avatar | Multi-select                  |
-| Time Range  | `event_time` field                                                                  | Date range (from/to)      | AND filter                    |
+| Facet       | Source                                                                                            | Type                      | Behavior                      |
+| ----------- | ------------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------- |
+| Connector   | PostgreSQL search index `connector_type` facet                                                    | Checkbox list             | Multi-select, OR within group |
+| Source Type | PostgreSQL search index `source_type` facet                                                       | Checkbox list             | Multi-select, OR within group |
+| Factuality  | PostgreSQL search index `factuality_label` field (new, requires schema migration + backfill)      | Checkbox list             | Multi-select                  |
+| People      | PostgreSQL search index `people` field (already exists as string array — use `facet_by` directly) | Checkbox list with avatar | Multi-select                  |
+| Time Range  | `event_time` field                                                                                | Date range (from/to)      | AND filter                    |
 
 Facets with zero matches for current query are shown greyed out (not hidden) to maintain spatial stability.
 
@@ -294,7 +294,7 @@ User types query
   → 500ms debounce
   → searchStore: set query + activeFilters
   → API call: POST /memories/search { query, filters: { connectorType, sourceType, ... }, limit: 20 }
-  → Typesense: hybrid search with facet_by
+  → PostgreSQL search index: hybrid search with facet_by
   → Response: { items, facet_counts, resolvedEntities, parsed }
   → searchStore: update results + facets
   → UI: render facet counts, result list, auto-select first result
@@ -306,7 +306,7 @@ User types query
 User types question
   → searchStore.sendMessage(query)
   → API call: POST /memories/ask { query, conversationId? }
-  → Typesense: conversationSearch (hybrid + RAG)
+  → PostgreSQL search index: conversationSearch (hybrid + RAG)
   → Response: { answer, conversationId, citations }
   → searchStore: append to conversation.messages
   → UI: render AI answer with inline citations
@@ -324,7 +324,7 @@ User clicks facet checkbox (e.g. "gmail")
 
 ### 6.4 Pagination
 
-Typesense facet counts reflect the full query result set regardless of pagination — they are not limited to the current page. Items are paginated with `page` parameter (1-based). Infinite scroll increments `page` and appends results. Facet counts do NOT change on page load — they only update when the query or filters change.
+PostgreSQL search index facet counts reflect the full query result set regardless of pagination — they are not limited to the current page. Items are paginated with `page` parameter (1-based). Infinite scroll increments `page` and appends results. Facet counts do NOT change on page load — they only update when the query or filters change.
 
 ## 7. File Structure
 
@@ -361,7 +361,7 @@ pages/
 api/ (backend)
   memory.controller.ts       — add POST /memories/ask endpoint
   memory.service.ts          — add facet_by to search, expose facet_counts
-  typesense.service.ts       — add facet fields to search params
+  PostgreSQL search index.service.ts       — add facet fields to search params
   dto/                       — add AskMemoriesDto
 ```
 
@@ -385,4 +385,4 @@ api/ (backend)
 - Geo/location facet with map (future — backend supports it, UI deferred)
 - Saved searches / custom presets (future)
 - Search history / recent queries (future)
-- Autocomplete / type-ahead suggestions (deferred — requires new Typesense endpoint)
+- Autocomplete / type-ahead suggestions (deferred — requires new PostgreSQL search index endpoint)

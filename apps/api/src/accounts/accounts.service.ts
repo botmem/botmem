@@ -5,7 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { ConnectorsService } from '../connectors/connectors.service';
-import { TypesenseService } from '../memory/typesense.service';
+import { PgSearchService } from '../memory/pg-search.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { accounts, jobs } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
@@ -18,7 +18,7 @@ export class AccountsService {
     private dbService: DbService,
     private crypto: CryptoService,
     private connectors: ConnectorsService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private analytics: AnalyticsService,
     @InjectQueue('sync') private syncQueue: Queue,
   ) {}

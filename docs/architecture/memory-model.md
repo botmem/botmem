@@ -43,12 +43,12 @@ final = 0.40 * semantic + 0.40 * recency + 0.15 * importance + 0.05 * trust
 
 ### Weight Components (recall intent)
 
-| Weight | Factor       | Range     | Description                                                            |
-| ------ | ------------ | --------- | ---------------------------------------------------------------------- |
-| 0.40   | `semantic`   | 0.0 - 1.0 | Typesense vector similarity between query and memory embeddings        |
-| 0.25   | `recency`    | 0.0 - 1.0 | Exponential decay from event time: `exp(-0.005 * age_days)` in search  |
-| 0.20   | `importance` | 0.0 - 1.0 | Base 0.5, boosted by entity count: `0.5 + min(entityCount * 0.1, 0.4)` |
-| 0.15   | `trust`      | 0.0 - 1.0 | Connector-specific base trust score                                    |
+| Weight | Factor       | Range     | Description                                                                   |
+| ------ | ------------ | --------- | ----------------------------------------------------------------------------- |
+| 0.40   | `semantic`   | 0.0 - 1.0 | PostgreSQL search index vector similarity between query and memory embeddings |
+| 0.25   | `recency`    | 0.0 - 1.0 | Exponential decay from event time: `exp(-0.005 * age_days)` in search         |
+| 0.20   | `importance` | 0.0 - 1.0 | Base 0.5, boosted by entity count: `0.5 + min(entityCount * 0.1, 0.4)`        |
+| 0.15   | `trust`      | 0.0 - 1.0 | Connector-specific base trust score                                           |
 
 ### Recency Decay
 
@@ -192,11 +192,11 @@ Each memory is embedded using the configured AI backend:
 - **Ollama** (default): `mxbai-embed-large` — 1024-dimensional vectors
 - **OpenRouter**: `google/gemini-embedding-001` — 3072-dimensional vectors
 
-Vectors are stored in Typesense with a cosine similarity index. The embedding text is truncated to 8,000 characters to stay within model context limits.
+Vectors are stored in PostgreSQL search index with a cosine similarity index. The embedding text is truncated to 8,000 characters to stay within model context limits.
 
-### Typesense Document
+### PostgreSQL search index Document
 
-Each document in Typesense carries metadata for filtered search:
+Each document in PostgreSQL search index carries metadata for filtered search:
 
 ```json
 {
@@ -254,16 +254,16 @@ Pass `diversityFactor` in the `POST /memories/search` request body.
 
 All magic numbers for scoring, linking, and search are centralized in `apps/api/src/memory/search.constants.ts`. Key values:
 
-| Constant                   | Value | Purpose                               |
-| -------------------------- | ----- | ------------------------------------- |
-| `MIN_SCORE`                | 0.35  | Minimum score to include in results   |
-| `HYBRID_K_MULTIPLIER`      | 3     | Overfetch factor for Typesense        |
-| `HYBRID_K_CAP`             | 250   | Max k for Typesense queries           |
-| `RECENCY_DECAY_RATE`       | 0.005 | Search recency decay                  |
-| `DIVERSITY_FACTOR_DEFAULT` | 0.15  | Default diversity threshold           |
-| `SUPPORTS_THRESHOLD`       | 0.92  | Min similarity for `supports` link    |
-| `CONTRADICTS_THRESHOLD`    | 0.85  | Min similarity for `contradicts` link |
-| `MAX_EMBED_CHARS`          | 6000  | Truncate text before embedding        |
+| Constant                   | Value | Purpose                                      |
+| -------------------------- | ----- | -------------------------------------------- |
+| `MIN_SCORE`                | 0.35  | Minimum score to include in results          |
+| `HYBRID_K_MULTIPLIER`      | 3     | Overfetch factor for PostgreSQL search index |
+| `HYBRID_K_CAP`             | 250   | Max k for PostgreSQL search index queries    |
+| `RECENCY_DECAY_RATE`       | 0.005 | Search recency decay                         |
+| `DIVERSITY_FACTOR_DEFAULT` | 0.15  | Default diversity threshold                  |
+| `SUPPORTS_THRESHOLD`       | 0.92  | Min similarity for `supports` link           |
+| `CONTRADICTS_THRESHOLD`    | 0.85  | Min similarity for `contradicts` link        |
+| `MAX_EMBED_CHARS`          | 6000  | Truncate text before embedding               |
 
 ## Content Cleaning
 

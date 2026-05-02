@@ -156,7 +156,7 @@ Create a manual memory. Body: `{ "text": "...", "sourceType": "manual", "connect
 
 ### DELETE /api/memories/:id
 
-Delete a memory from PostgreSQL and Typesense.
+Delete a memory from PostgreSQL and PostgreSQL search index.
 
 ### GET /api/memories/stats
 

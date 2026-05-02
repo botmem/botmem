@@ -5,10 +5,12 @@ import { DbService } from '../../db/db.service';
 import { CryptoService } from '../../crypto/crypto.service';
 
 function createMockDbService() {
+  const rawDb = {
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+  };
   return {
-    db: {
-      execute: vi.fn().mockResolvedValue({ rows: [] }),
-    },
+    db: rawDb,
+    systemDb: vi.fn((fn) => fn(rawDb)),
   } as unknown as DbService;
 }
 
@@ -44,9 +46,8 @@ describe('AiCacheService', () => {
       service.onModuleInit();
 
       // Verify the timer is set
-      const timer = (
-        service as unknown as { evictionTimer: ReturnType<typeof setInterval> | null }
-      ).evictionTimer;
+      const timer = (service as unknown as { evictionTimer: ReturnType<typeof setInterval> | null })
+        .evictionTimer;
       expect(timer).not.toBeNull();
     });
   });
@@ -152,10 +153,12 @@ describe('AiCacheService', () => {
   describe('computeId determinism', () => {
     it('generates the same ID for the same model+input', async () => {
       const calls: unknown[][] = [];
-      (dbService.db.execute as ReturnType<typeof vi.fn>).mockImplementation((...args: unknown[]) => {
-        calls.push(args);
-        return Promise.resolve({ rows: [] });
-      });
+      (dbService.db.execute as ReturnType<typeof vi.fn>).mockImplementation(
+        (...args: unknown[]) => {
+          calls.push(args);
+          return Promise.resolve({ rows: [] });
+        },
+      );
 
       await service.get('model-x', 'same input', 'embed');
       await service.get('model-x', 'same input', 'embed');

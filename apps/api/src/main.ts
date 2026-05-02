@@ -30,7 +30,7 @@ import { PostHogLoggerService } from './analytics/posthog-logger.service';
 import { TraceContext } from './tracing/trace.context';
 import { HttpAdapterHost } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { createCorsOriginChecker } from './cors.util';
+import { createCorsOptionsDelegate } from './cors.util';
 
 const logger = new Logger('Bootstrap');
 
@@ -183,13 +183,7 @@ async function bootstrap() {
   const traceContext = app.get(TraceContext);
   phLogger.setTraceContext(traceContext);
 
-  app.enableCors({
-    origin: createCorsOriginChecker(config.frontendUrl),
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
-    exposedHeaders: ['Mcp-Session-Id'],
-  });
+  app.enableCors(createCorsOptionsDelegate(config.frontendUrl));
 
   // Global validation: reject invalid input, strip unknown properties
   app.useGlobalPipes(

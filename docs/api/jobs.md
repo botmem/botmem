@@ -122,7 +122,7 @@ GET /api/logs
     "accountId": "account-uuid",
     "stage": "embed",
     "level": "info",
-    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(1024d) typesense=45ms",
+    "message": "[embed:done] a1b2c3d4 in 450ms -- db=5ms contacts=120ms(3) ollama=280ms(1024d) PostgreSQL search index=45ms",
     "timestamp": "2026-02-15T10:15:30Z"
   }
 ]
@@ -130,7 +130,7 @@ GET /api/logs
 
 ### Log Stages
 
-| Stage    | Description                                          |
-| -------- | ---------------------------------------------------- |
-| `sync`   | Connector sync operations                            |
-| `memory` | Memory processing (parsing, embedding, enrichment)   |
+| Stage    | Description                                        |
+| -------- | -------------------------------------------------- |
+| `sync`   | Connector sync operations                          |
+| `memory` | Memory processing (parsing, embedding, enrichment) |

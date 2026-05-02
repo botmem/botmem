@@ -7,7 +7,10 @@ import type { ConfigService } from '../../config/config.service';
 
 describe('QuotaService', () => {
   let service: QuotaService;
-  let mockDbService: { db: { execute: ReturnType<typeof vi.fn> } };
+  let mockDbService: {
+    db: { execute: ReturnType<typeof vi.fn> };
+    userDb: ReturnType<typeof vi.fn>;
+  };
   let mockBilling: { isProUser: ReturnType<typeof vi.fn> };
   let mockConfig: { isSelfHosted: boolean };
 
@@ -24,6 +27,11 @@ describe('QuotaService', () => {
       db: {
         execute: vi.fn().mockResolvedValue({ rows: [{ count: 0 }] }),
       },
+      userDb: vi
+        .fn()
+        .mockImplementation((_userId: string, fn: (db: typeof mockDbService.db) => unknown) =>
+          fn(mockDbService.db),
+        ),
     };
     mockBilling = { isProUser: vi.fn().mockResolvedValue(false) };
     mockConfig = { isSelfHosted: false };

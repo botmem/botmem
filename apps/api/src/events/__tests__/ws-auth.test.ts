@@ -14,7 +14,7 @@ describe('EventsGateway WebSocket Auth', () => {
   let jwtService: { verify: ReturnType<typeof vi.fn> };
   let configService: { jwtAccessSecret: string; authProvider: string };
   let eventsService: EventsService;
-  let dbService: { db: Record<string, unknown> };
+  let dbService: { db: Record<string, unknown>; userDb: ReturnType<typeof vi.fn> };
   let firebaseAuthService: {
     verifyIdToken: ReturnType<typeof vi.fn>;
     findOrCreateUser: ReturnType<typeof vi.fn>;
@@ -24,7 +24,7 @@ describe('EventsGateway WebSocket Auth', () => {
     jwtService = { verify: vi.fn() };
     configService = { jwtAccessSecret: 'test-secret', authProvider: 'local' };
     eventsService = new EventsService();
-    dbService = { db: {} };
+    dbService = { db: {}, userDb: vi.fn((_userId: string, fn) => fn({})) };
     firebaseAuthService = {
       verifyIdToken: vi.fn(),
       findOrCreateUser: vi.fn(),

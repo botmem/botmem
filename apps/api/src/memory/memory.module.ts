@@ -15,12 +15,11 @@ import { OpenRouterService } from './openrouter.service';
 import { AiCacheService } from './ai-cache.service';
 import { AiService } from './ai.service';
 import { GeminiEmbedService } from './gemini-embed.service';
-import { TypesenseService } from './typesense.service';
+import { PgSearchService } from './pg-search.service';
 import { EnrichService } from './enrich.service';
 import { ContentCleaner } from './content-cleaner';
 import { DecayProcessor } from './decay.processor';
 import { MemoryProcessor } from './memory.processor';
-import { MigrationService } from './migration.service';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
 
@@ -46,14 +45,13 @@ import { MemoryController } from './memory.controller';
     GeminiEmbedService,
     AiCacheService,
     AiService,
-    TypesenseService,
+    PgSearchService,
     EnrichService,
     ContentCleaner,
     DecayProcessor,
     MemoryProcessor,
-    MigrationService,
     MemoryService,
   ],
-  exports: [OllamaService, AiService, TypesenseService, EnrichService, MemoryService],
+  exports: [OllamaService, AiService, PgSearchService, EnrichService, MemoryService],
 })
 export class MemoryModule {}

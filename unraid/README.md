@@ -7,7 +7,7 @@ Template and supporting files for publishing Botmem to [Unraid Community Applica
 | File                        | Purpose                                                         |
 | --------------------------- | --------------------------------------------------------------- |
 | `botmem.xml`                | Unraid CA Docker template (the main listing)                    |
-| `docker-compose.unraid.yml` | Companion stack for dependencies (PostgreSQL, Redis, Typesense) |
+| `docker-compose.unraid.yml` | Companion stack for dependencies (PostgreSQL + pgvector, Redis) |
 | `botmem-icon.png`           | App icon (TODO: create 512x512 PNG)                             |
 
 ## Publishing Checklist
@@ -54,7 +54,7 @@ Users need to configure at minimum:
 
 - `DATABASE_URL` — PostgreSQL connection string
 - `REDIS_URL` — Redis connection string
-- `TYPESENSE_URL` + `TYPESENSE_API_KEY` — Typesense search
+- `DATABASE_URL` + `` — PostgreSQL search index search
 - `APP_SECRET` — encryption key (generate with `openssl rand -base64 48`)
 - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — JWT signing keys
 - `OLLAMA_BASE_URL` — Ollama endpoint (if using local AI)

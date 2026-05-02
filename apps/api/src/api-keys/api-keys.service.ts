@@ -21,40 +21,44 @@ export class ApiKeysService {
   }
 
   async create(userId: string, name: string, expiresAt?: string, memoryBankIds?: string[]) {
-    const db = this.dbService.db;
-
     // Check key count
-    const countResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.apiKeys)
-      .where(and(eq(schema.apiKeys.userId, userId), isNull(schema.apiKeys.revokedAt)));
+    const countResult = await this.dbService.userDb(userId, (db) =>
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.apiKeys)
+        .where(and(eq(schema.apiKeys.userId, userId), isNull(schema.apiKeys.revokedAt))),
+    );
     const count = countResult[0]?.count ?? 0;
     if (count >= MAX_KEYS_PER_USER) {
       throw new BadRequestException(`Maximum ${MAX_KEYS_PER_USER} API keys per user`);
     }
 
     // Check name uniqueness
-    const existing = await db
-      .select({ id: schema.apiKeys.id })
-      .from(schema.apiKeys)
-      .where(
-        and(
-          eq(schema.apiKeys.userId, userId),
-          eq(schema.apiKeys.name, name),
-          isNull(schema.apiKeys.revokedAt),
-        ),
-      )
-      .limit(1);
+    const existing = await this.dbService.userDb(userId, (db) =>
+      db
+        .select({ id: schema.apiKeys.id })
+        .from(schema.apiKeys)
+        .where(
+          and(
+            eq(schema.apiKeys.userId, userId),
+            eq(schema.apiKeys.name, name),
+            isNull(schema.apiKeys.revokedAt),
+          ),
+        )
+        .limit(1),
+    );
     if (existing.length > 0) {
       throw new ConflictException(`API key with name "${name}" already exists`);
     }
 
     // Validate memory bank ownership if provided
     if (memoryBankIds && memoryBankIds.length > 0) {
-      const validBanks = await db
-        .select({ id: memoryBanks.id })
-        .from(memoryBanks)
-        .where(and(eq(memoryBanks.userId, userId), inArray(memoryBanks.id, memoryBankIds)));
+      const validBanks = await this.dbService.userDb(userId, (db) =>
+        db
+          .select({ id: memoryBanks.id })
+          .from(memoryBanks)
+          .where(and(eq(memoryBanks.userId, userId), inArray(memoryBanks.id, memoryBankIds))),
+      );
       if (validBanks.length !== memoryBankIds.length) {
         throw new BadRequestException('One or more memory bank IDs are invalid');
       }
@@ -64,54 +68,59 @@ export class ApiKeysService {
     const id = randomBytes(16).toString('hex');
     const now = new Date();
 
-    await db.insert(schema.apiKeys).values({
-      id,
-      userId,
-      name,
-      keyHash: hash,
-      lastFour,
-      memoryBankIds: memoryBankIds?.length ? JSON.stringify(memoryBankIds) : null,
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
-      revokedAt: null,
-      createdAt: now,
-    });
+    await this.dbService.userDb(userId, (db) =>
+      db.insert(schema.apiKeys).values({
+        id,
+        userId,
+        name,
+        keyHash: hash,
+        lastFour,
+        memoryBankIds: memoryBankIds?.length ? JSON.stringify(memoryBankIds) : null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        revokedAt: null,
+        createdAt: now,
+      }),
+    );
 
     return { key: raw, id, name, lastFour };
   }
 
   async listByUser(userId: string) {
-    const db = this.dbService.db;
-    const rows = await db
-      .select({
-        id: schema.apiKeys.id,
-        name: schema.apiKeys.name,
-        lastFour: schema.apiKeys.lastFour,
-        createdAt: schema.apiKeys.createdAt,
-        expiresAt: schema.apiKeys.expiresAt,
-        revokedAt: schema.apiKeys.revokedAt,
-      })
-      .from(schema.apiKeys)
-      .where(eq(schema.apiKeys.userId, userId));
+    const rows = await this.dbService.userDb(userId, (db) =>
+      db
+        .select({
+          id: schema.apiKeys.id,
+          name: schema.apiKeys.name,
+          lastFour: schema.apiKeys.lastFour,
+          createdAt: schema.apiKeys.createdAt,
+          expiresAt: schema.apiKeys.expiresAt,
+          revokedAt: schema.apiKeys.revokedAt,
+        })
+        .from(schema.apiKeys)
+        .where(eq(schema.apiKeys.userId, userId)),
+    );
     return rows;
   }
 
   async revoke(userId: string, keyId: string) {
-    const db = this.dbService.db;
-    const result = await db
-      .update(schema.apiKeys)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(schema.apiKeys.id, keyId), eq(schema.apiKeys.userId, userId)));
+    const result = await this.dbService.userDb(userId, (db) =>
+      db
+        .update(schema.apiKeys)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(schema.apiKeys.id, keyId), eq(schema.apiKeys.userId, userId))),
+    );
     return result;
   }
 
   async validateKey(rawKey: string) {
     const hash = createHash('sha256').update(rawKey).digest('hex');
-    const db = this.dbService.db;
-    const rows = await db
-      .select()
-      .from(schema.apiKeys)
-      .where(and(eq(schema.apiKeys.keyHash, hash), isNull(schema.apiKeys.revokedAt)))
-      .limit(1);
+    const rows = await this.dbService.systemDb((db) =>
+      db
+        .select()
+        .from(schema.apiKeys)
+        .where(and(eq(schema.apiKeys.keyHash, hash), isNull(schema.apiKeys.revokedAt)))
+        .limit(1),
+    );
 
     if (rows.length === 0) return null;
 

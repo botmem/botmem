@@ -70,6 +70,10 @@ describe('JobsService', () => {
         withCurrentUser: vi
           .fn()
           .mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+        currentUserDb: vi
+          .fn()
+          .mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+        systemDb: vi.fn().mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
       } as unknown as DbService,
       cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
       syncQueue,
@@ -192,7 +196,7 @@ describe('JobsService', () => {
 
   describe('incrementProgress', () => {
     it('increments and returns updated state', async () => {
-      // incrementProgress uses this.dbService.db directly (not withCurrentUser)
+      // incrementProgress uses explicit system DB access (not withCurrentUser)
       // First call: update().set().where() — returns void
       // Second call: select...from...where — returns [job]
       mockDb.where

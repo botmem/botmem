@@ -55,7 +55,7 @@ cd botmem
 # Configure environment
 cp .env.example .env    # Edit .env — set OLLAMA_BASE_URL to your Ollama host
 
-# Start everything (Botmem + PostgreSQL + Redis + Typesense)
+# Start everything (Botmem + PostgreSQL + pgvector + Redis)
 docker compose up -d
 ```
 

@@ -593,8 +593,6 @@ export const api = {
 
   // Admin / Danger Zone
   purgeMemories: () => request<{ ok: boolean }>('/memories/purge', { method: 'POST' }),
-  resetVectorIndex: () =>
-    request<{ ok: boolean }>('/memories/vector-index/reset', { method: 'POST' }),
 
   // Demo Data
   seedDemoData: () =>

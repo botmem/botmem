@@ -38,7 +38,7 @@ See the [Quick Start](/guide/quickstart) for local development and [Production D
 
 Sign up at [botmem.xyz](https://botmem.xyz) to get started. The managed tier includes:
 
-- Fully managed PostgreSQL, Redis, and Typesense infrastructure
+- Fully managed PostgreSQL + pgvector and Redis infrastructure
 - Preconfigured AI backend (no GPU or API keys needed)
 - Automatic updates and backups
 - Email support

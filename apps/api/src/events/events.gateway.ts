@@ -169,22 +169,26 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   private async authorizeChannel(userId: string, channel: string): Promise<boolean> {
     if (channel.startsWith('job:')) {
       const jobId = channel.slice(4);
-      const rows = await this.dbService.db
-        .select({ userId: schema.accounts.userId })
-        .from(schema.jobs)
-        .innerJoin(schema.accounts, eq(schema.jobs.accountId, schema.accounts.id))
-        .where(eq(schema.jobs.id, jobId))
-        .limit(1);
+      const rows = await this.dbService.userDb(userId, (db) =>
+        db
+          .select({ userId: schema.accounts.userId })
+          .from(schema.jobs)
+          .innerJoin(schema.accounts, eq(schema.jobs.accountId, schema.accounts.id))
+          .where(eq(schema.jobs.id, jobId))
+          .limit(1),
+      );
       return rows.length > 0 && rows[0].userId === userId;
     }
 
     if (channel.startsWith('account:')) {
       const accountId = channel.slice(8);
-      const rows = await this.dbService.db
-        .select({ userId: schema.accounts.userId })
-        .from(schema.accounts)
-        .where(eq(schema.accounts.id, accountId))
-        .limit(1);
+      const rows = await this.dbService.userDb(userId, (db) =>
+        db
+          .select({ userId: schema.accounts.userId })
+          .from(schema.accounts)
+          .where(eq(schema.accounts.id, accountId))
+          .limit(1),
+      );
       return rows.length > 0 && rows[0].userId === userId;
     }
 
