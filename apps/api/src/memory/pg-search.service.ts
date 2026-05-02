@@ -41,6 +41,12 @@ type SearchRow = {
 @Injectable()
 export class PgSearchService {
   private readonly logger = new Logger(PgSearchService.name);
+  private activeSearchQueries = 0;
+  private readonly searchQueue: Array<() => void> = [];
+  private readonly maxConcurrentSearchQueries = Math.max(
+    1,
+    Number.parseInt(process.env.PG_SEARCH_CONCURRENCY ?? '2', 10) || 2,
+  );
 
   constructor(private readonly dbService: DbService) {}
 
@@ -390,6 +396,7 @@ export class PgSearchService {
     filterBy: FilterInput,
     weights: { semanticWeight: number; lexicalWeight: number },
   ): Promise<SearchRow[]> {
+    const releaseSearchSlot = await this.acquireSearchSlot();
     const filters = this.parseFilters(filterBy);
     const conditions = this.filterConditions(filters);
     const q = query.trim();
@@ -402,39 +409,64 @@ export class PgSearchService {
     }
     if (!conditions.length) conditions.push(sql`TRUE`);
     const vectorLiteral = toPgVectorLiteral(vector);
-    const result = await this.dbService.systemDb((db) =>
-      db.execute(sql`
-        SELECT
-          memory_id AS id,
-          (
-            ${weights.semanticWeight} * ${
+    try {
+      const result = await this.dbService.systemDb((db) =>
+        db.execute(sql`
+          SELECT
+            memory_id AS id,
+            (
+              ${weights.semanticWeight} * ${
+                vectorLiteral
+                  ? sql`GREATEST(0, 1 - (embedding <=> ${vectorLiteral}::vector))`
+                  : sql`0`
+              } +
+              ${weights.lexicalWeight} * ${
+                q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`
+              } +
+              0.07 * importance +
+              0.05 * CASE WHEN pinned THEN 1 ELSE 0 END +
+              0.03 * ${recencyScoreSql()}
+            ) AS score,
+            ${
               vectorLiteral
                 ? sql`GREATEST(0, 1 - (embedding <=> ${vectorLiteral}::vector))`
                 : sql`0`
-            } +
-            ${weights.lexicalWeight} * ${
-              q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`
-            } +
-            0.07 * importance +
-            0.05 * CASE WHEN pinned THEN 1 ELSE 0 END +
-            0.03 * ${recencyScoreSql()}
-          ) AS score,
-          ${
-            vectorLiteral ? sql`GREATEST(0, 1 - (embedding <=> ${vectorLiteral}::vector))` : sql`0`
-          } AS semantic_score,
-          ${q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`}
-            AS lexical_score,
-          connector_type,
-          source_type,
-          factuality_label,
-          people
-        FROM memory_search_index
-        WHERE ${sql.join(conditions, sql` AND `)}
-        ORDER BY score DESC, event_time DESC
-        LIMIT ${Math.max(1, limit)}
-      `),
+            } AS semantic_score,
+            ${q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`}
+              AS lexical_score,
+            connector_type,
+            source_type,
+            factuality_label,
+            people
+          FROM memory_search_index
+          WHERE ${sql.join(conditions, sql` AND `)}
+          ORDER BY score DESC, event_time DESC
+          LIMIT ${Math.max(1, limit)}
+        `),
+      );
+      return (result.rows ?? []) as SearchRow[];
+    } finally {
+      releaseSearchSlot();
+    }
+  }
+
+  private async acquireSearchSlot(): Promise<() => void> {
+    if (this.activeSearchQueries < this.maxConcurrentSearchQueries) {
+      this.activeSearchQueries++;
+      return () => this.releaseSearchSlot();
+    }
+    return new Promise<() => void>((resolve) =>
+      this.searchQueue.push(() => resolve(() => this.releaseSearchSlot())),
     );
-    return (result.rows ?? []) as SearchRow[];
+  }
+
+  private releaseSearchSlot() {
+    const next = this.searchQueue.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.activeSearchQueries = Math.max(0, this.activeSearchQueries - 1);
   }
 
   private parseFilters(input: FilterInput): SearchFilters {
