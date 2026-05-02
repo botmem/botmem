@@ -811,8 +811,8 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
     const embedMs = Date.now() - t0;
 
-    // Upsert to Postgres search
-    t0 = Date.now();
+    // Build the Postgres search payload. The actual upsert happens after the
+    // memory row exists because memory_search_index has a memory FK.
     const peopleNames = resolvedContacts.map((c) => c.name).filter(Boolean) as string[];
     const roleIds = (roles: string[]) =>
       resolvedContacts.filter((c) => roles.includes(c.role)).map((c) => c.contactId);
@@ -874,9 +874,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       thread_ids: threadIds,
       transaction_tokens: transactionTokens,
     };
-    await this.searchIndex.upsert(memoryId, vector, searchIndexPayload);
-    const searchIndexMs = Date.now() - t0;
-
     // 8. Enrich inline (best-effort)
     let enrichEntities: Array<{ type: string; value: string }> = [];
     let enrichFactuality: { label: string; confidence: number; rationale: string } | null = null;
@@ -981,7 +978,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         db
           .update(memories)
           .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
-          .where(eq(memories.id, memoryId)),
+          .where(
+            and(
+              eq(memories.sourceId, event.sourceId),
+              eq(memories.connectorType, rawEvent.connectorType),
+            ),
+          ),
       );
     } else {
       await this.dbService.db
@@ -1011,9 +1013,36 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       await this.dbService.db
         .update(memories)
         .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
-        .where(eq(memories.id, memoryId));
+        .where(
+          and(
+            eq(memories.sourceId, event.sourceId),
+            eq(memories.connectorType, rawEvent.connectorType),
+          ),
+        );
     }
     const dbInsertMs = Date.now() - t0;
+    const persistedMemoryRows = await this.dbService.systemDb((db) =>
+      db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(
+          and(
+            eq(memories.sourceId, event.sourceId),
+            eq(memories.connectorType, rawEvent.connectorType),
+          ),
+        )
+        .limit(1),
+    );
+    const persistedMemoryId = persistedMemoryRows[0]?.id;
+    if (!persistedMemoryId) {
+      throw new Error(
+        `Memory insert did not produce a row for ${rawEvent.connectorType}:${event.sourceId}`,
+      );
+    }
+
+    t0 = Date.now();
+    await this.searchIndex.upsert(persistedMemoryId, vector, searchIndexPayload);
+    const searchIndexMs = Date.now() - t0;
 
     // Bump quota cache
     if (ownerUserId) {
@@ -1023,11 +1052,11 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // Link contacts + threads
     let contactCount = 0;
     if (selfContactId) {
-      await this.contactsService.linkMemory(memoryId, selfContactId, 'participant');
+      await this.contactsService.linkMemory(persistedMemoryId, selfContactId, 'participant');
       contactCount++;
     }
     for (const { contactId, role } of resolvedContacts) {
-      await this.contactsService.linkMemory(memoryId, contactId, role);
+      await this.contactsService.linkMemory(persistedMemoryId, contactId, role);
       contactCount++;
     }
     const alreadyLinked = new Set(resolvedContacts.map((c) => c.contactId));
@@ -1041,7 +1070,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           ownerUserId || undefined,
         );
         if (alreadyLinked.has(person.id)) continue;
-        await this.contactsService.linkMemory(memoryId, person.id, 'mentioned');
+        await this.contactsService.linkMemory(persistedMemoryId, person.id, 'mentioned');
         alreadyLinked.add(person.id);
         contactCount++;
       } catch (err) {
@@ -1058,7 +1087,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       if (entity.type === 'message' && entity.id.startsWith('thread:')) {
         try {
           await this.linkThread(
-            memoryId,
+            persistedMemoryId,
             entity.id.replace('thread:', ''),
             rawEvent.connectorType,
             ownerUserId ?? undefined,
@@ -1073,7 +1102,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     if (mergedMetadata.threadId) {
       try {
         await this.linkThread(
-          memoryId,
+          persistedMemoryId,
           mergedMetadata.threadId as string,
           rawEvent.connectorType,
           ownerUserId ?? undefined,
@@ -1085,21 +1114,21 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
     // 12. Create links (best-effort)
     try {
-      await this.createLinks(memoryId);
+      await this.createLinks(persistedMemoryId);
     } catch {
       // Link creation is best-effort
     }
 
     // Fire hooks
     void this.pluginRegistry.fireHook('afterIngest', {
-      id: memoryId,
+      id: persistedMemoryId,
       text: embedText,
       sourceType: event.sourceType,
       connectorType: rawEvent.connectorType,
       eventTime: new Date(event.timestamp),
     });
     void this.pluginRegistry.fireHook('afterEmbed', {
-      id: memoryId,
+      id: persistedMemoryId,
       text: embedText,
       sourceType: event.sourceType,
       connectorType: rawEvent.connectorType,
@@ -1108,23 +1137,23 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
     // Emit memory updated event
     this.events.emitToChannel('memories', 'memory:updated', {
-      memoryId,
+      memoryId: persistedMemoryId,
       sourceType: event.sourceType,
       connectorType: rawEvent.connectorType,
       text: currentText.slice(0, 100),
     });
-    this.emitGraphDelta(memoryId);
+    this.emitGraphDelta(persistedMemoryId);
 
     this.addLog(
       rawEvent.connectorType,
       rawEvent.accountId,
       'info',
-      `[memory:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) embed=${embedMs}ms(${vector.length}d) search index=${searchIndexMs}ms entities=${enrichEntities.length} fact=${enrichFactuality?.label || 'UNVERIFIED'}`,
+      `[memory:done] ${persistedMemoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) embed=${embedMs}ms(${vector.length}d) search index=${searchIndexMs}ms entities=${enrichEntities.length} fact=${enrichFactuality?.label || 'UNVERIFIED'}`,
       parentJobId,
     );
 
     this.analytics.capture('memory_complete', {
-      memory_id: memoryId,
+      memory_id: persistedMemoryId,
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
     });

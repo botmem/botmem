@@ -63,6 +63,10 @@ export class PgSearchService {
       this.logger.warn(`[pg-search] Skipping index for ${memoryId}: user_id not available`);
       return;
     }
+    if (!(await this.memoryExists(memoryId))) {
+      this.logger.warn(`[pg-search] Skipping index for ${memoryId}: memory row not found`);
+      return;
+    }
 
     const text = stringOrEmpty(payload.text);
     const entitiesText = stringOrEmpty(payload.entities_text);
@@ -315,6 +319,13 @@ export class PgSearchService {
   async pointExists(id: string): Promise<boolean> {
     const result = await this.dbService.systemDb((db) =>
       db.execute(sql`SELECT 1 FROM memory_search_index WHERE memory_id = ${id} LIMIT 1`),
+    );
+    return (result.rows?.length ?? 0) > 0;
+  }
+
+  private async memoryExists(id: string): Promise<boolean> {
+    const result = await this.dbService.systemDb((db) =>
+      db.execute(sql`SELECT 1 FROM memories WHERE id = ${id} LIMIT 1`),
     );
     return (result.rows?.length ?? 0) > 0;
   }
