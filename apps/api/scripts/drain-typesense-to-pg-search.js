@@ -10,7 +10,7 @@ const TYPESENSE_URL =
 const TYPESENSE_API_KEY =
   process.env.LEGACY_TYPESENSE_API_KEY || process.env.TYPESENSE_API_KEY || 'botmem-ts-key';
 const TYPESENSE_COLLECTION = process.env.LEGACY_TYPESENSE_COLLECTION || 'memories';
-const BATCH_SIZE = positiveInt(process.env.TYPESENSE_DRAIN_BATCH_SIZE, 250);
+const BATCH_SIZE = positiveInt(process.env.TYPESENSE_DRAIN_BATCH_SIZE, 1);
 const DELETE_ORPHANS = process.env.TYPESENSE_DRAIN_DELETE_ORPHANS === '1';
 const TASK_KEY = 'drain-typesense-to-pg-search:v1';
 const LOCK_ID = 2026050202;
@@ -180,8 +180,12 @@ async function drainBatch(db, docs, totals) {
       }
 
       if (indexedIds.has(memoryId)) {
-        totals.alreadyIndexed++;
-        deletable.push(memoryId);
+        if (await verifySearchRow(db, memoryId)) {
+          totals.alreadyIndexed++;
+          deletable.push(memoryId);
+        } else {
+          totals.skipped++;
+        }
         continue;
       }
 
@@ -194,6 +198,9 @@ async function drainBatch(db, docs, totals) {
 
       const embedding = embeddingFromDoc(doc);
       await upsertSearchRow(db, doc, row, embedding);
+      if (!(await verifySearchRow(db, memoryId))) {
+        throw new Error(`Postgres verification failed after upsert for ${memoryId}`);
+      }
       totals.indexed++;
       deletable.push(memoryId);
     }
@@ -263,6 +270,20 @@ async function loadIndexedMemoryIds(db, ids) {
     [dedupe(ids)],
   );
   return new Set(result.rows.map((row) => row.memory_id));
+}
+
+async function verifySearchRow(db, memoryId) {
+  const result = await db.query(
+    `
+      SELECT 1
+      FROM memory_search_index i
+      JOIN memories m ON m.id = i.memory_id
+      WHERE i.memory_id = $1
+      LIMIT 1
+    `,
+    [memoryId],
+  );
+  return result.rowCount === 1;
 }
 
 async function upsertSearchRow(db, doc, row, embedding) {
