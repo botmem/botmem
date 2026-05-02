@@ -10,6 +10,7 @@ export interface ScoredPoint {
 }
 
 export const MEMORY_INDEX_SCHEMA_VERSION = 3;
+const PGVECTOR_INDEXED_DIMENSION = 3072;
 
 type FilterInput = string | Record<string, unknown> | undefined;
 
@@ -222,34 +223,49 @@ export class PgSearchService {
   }
 
   async recommend(memoryId: string, limit: number, filter?: FilterInput): Promise<ScoredPoint[]> {
+    const releaseSearchSlot = await this.acquireSearchSlot();
     const filters = this.parseFilters(filter);
-    const rows = await this.dbService.systemDb((db) => {
-      const conditions = [
-        sql`target.memory_id != ${memoryId}`,
-        sql`source.embedding IS NOT NULL`,
-        sql`target.embedding IS NOT NULL`,
-        sql`source.embedding_dimension = target.embedding_dimension`,
-        ...this.filterConditions(filters, 'target'),
-      ];
-      return db.execute(sql`
-        SELECT
-          target.memory_id AS id,
-          (1 - (target.embedding <=> source.embedding)) AS score,
-          (1 - (target.embedding <=> source.embedding)) AS semantic_score,
-          0 AS lexical_score,
-          target.connector_type,
-          target.source_type,
-          target.factuality_label,
-          target.people
-        FROM memory_search_index source
-        JOIN memory_search_index target ON target.embedding_dimension = source.embedding_dimension
-        WHERE source.memory_id = ${memoryId}
-          AND ${sql.join(conditions, sql` AND `)}
-        ORDER BY target.embedding <=> source.embedding ASC
-        LIMIT ${limit}
-      `);
-    });
-    return ((rows.rows ?? []) as SearchRow[]).map(toPoint);
+    const conditions = [
+      sql`target.memory_id != ${memoryId}`,
+      sql`target.embedding IS NOT NULL`,
+      sql`target.embedding_dimension = ${PGVECTOR_INDEXED_DIMENSION}`,
+      ...this.filterConditions(filters, 'target'),
+    ];
+    try {
+      const source = await this.dbService.systemDb((db) =>
+        db.execute(sql`
+          SELECT embedding::text AS embedding
+          FROM memory_search_index
+          WHERE memory_id = ${memoryId}
+            AND embedding IS NOT NULL
+            AND embedding_dimension = ${PGVECTOR_INDEXED_DIMENSION}
+          LIMIT 1
+        `),
+      );
+      const sourceEmbedding = (source.rows[0] as { embedding?: string } | undefined)?.embedding;
+      if (!sourceEmbedding) return [];
+
+      const rows = await this.dbService.systemDb((db) =>
+        db.execute(sql`
+          SELECT
+            target.memory_id AS id,
+            GREATEST(0, 1 - (target.embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${sourceEmbedding}::halfvec(${PGVECTOR_INDEXED_DIMENSION}))) AS score,
+            GREATEST(0, 1 - (target.embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${sourceEmbedding}::halfvec(${PGVECTOR_INDEXED_DIMENSION}))) AS semantic_score,
+            0 AS lexical_score,
+            target.connector_type,
+            target.source_type,
+            target.factuality_label,
+            target.people
+          FROM memory_search_index target
+          WHERE ${sql.join(conditions, sql` AND `)}
+          ORDER BY target.embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${sourceEmbedding}::halfvec(${PGVECTOR_INDEXED_DIMENSION}) ASC
+          LIMIT ${Math.max(1, limit)}
+        `),
+      );
+      return ((rows.rows ?? []) as SearchRow[]).map(toPoint);
+    } finally {
+      releaseSearchSlot();
+    }
   }
 
   async conversationSearch(
@@ -409,7 +425,44 @@ export class PgSearchService {
     }
     if (!conditions.length) conditions.push(sql`TRUE`);
     const vectorLiteral = toPgVectorLiteral(vector);
+    const candidateLimit = Math.max(Math.max(1, limit) * 20, 100);
     try {
+      if (vectorLiteral && vector.length === PGVECTOR_INDEXED_DIMENSION) {
+        const result = await this.dbService.systemDb((db) =>
+          db.execute(sql`
+            WITH candidates AS (
+              SELECT *
+              FROM memory_search_index
+              WHERE ${sql.join(conditions, sql` AND `)}
+              ORDER BY embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${vectorLiteral}::halfvec(${PGVECTOR_INDEXED_DIMENSION}) ASC
+              LIMIT ${candidateLimit}
+            )
+            SELECT
+              memory_id AS id,
+              (
+                ${weights.semanticWeight} * GREATEST(0, 1 - (embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${vectorLiteral}::halfvec(${PGVECTOR_INDEXED_DIMENSION})) ) +
+                ${weights.lexicalWeight} * ${
+                  q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`
+                } +
+                0.07 * importance +
+                0.05 * CASE WHEN pinned THEN 1 ELSE 0 END +
+                0.03 * ${recencyScoreSql()}
+              ) AS score,
+              GREATEST(0, 1 - (embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${vectorLiteral}::halfvec(${PGVECTOR_INDEXED_DIMENSION}))) AS semantic_score,
+              ${q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`}
+                AS lexical_score,
+              connector_type,
+              source_type,
+              factuality_label,
+              people
+            FROM candidates
+            ORDER BY score DESC, event_time DESC
+            LIMIT ${Math.max(1, limit)}
+          `),
+        );
+        return (result.rows ?? []) as SearchRow[];
+      }
+
       const result = await this.dbService.systemDb((db) =>
         db.execute(sql`
           SELECT
