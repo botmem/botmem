@@ -30,6 +30,21 @@ show_disk_usage() {
   docker system df || true
 }
 
+wait_with_heartbeat() {
+  local pid="$1"
+  local label="$2"
+  local interval="${3:-30}"
+
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep "$interval"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "    ${label} still running..."
+    fi
+  done
+
+  wait "$pid"
+}
+
 prune_old_backups() {
   mkdir -p "$BACKUP_DIR"
 
@@ -37,6 +52,15 @@ prune_old_backups() {
     echo "==> BACKUP_KEEP_COUNT must be at least 1"
     exit 1
   fi
+
+  mapfile -t EXISTING_BACKUPS < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'botmem-*.dump' | sort)
+  for backup in "${EXISTING_BACKUPS[@]}"; do
+    backup_base=$(basename "$backup")
+    if ! docker run --rm -v "${BACKUP_DIR}:/backups:ro" pgvector/pgvector:pg16 pg_restore -l "/backups/${backup_base}" >/dev/null 2>&1; then
+      echo "==> Removing invalid or incomplete PostgreSQL backup: ${backup}"
+      rm -f "$backup" "${backup%.dump}.globals.sql"
+    fi
+  done
 
   mapfile -t OLD_BACKUPS < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'botmem-*.dump' | sort -r | tail -n +"$((BACKUP_KEEP_COUNT + 1))")
   if [ "${#OLD_BACKUPS[@]}" -eq 0 ]; then
@@ -110,10 +134,21 @@ mkdir -p "$BACKUP_DIR"
 BACKUP_TS=$(date -u +%Y%m%dT%H%M%SZ)
 GLOBALS_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.globals.sql"
 DB_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.dump"
+DB_BACKUP_PARTIAL="${DB_BACKUP}.partial"
 
 echo "==> Backing up PostgreSQL to ${DB_BACKUP}"
+rm -f "$DB_BACKUP_PARTIAL"
 "${COMPOSE[@]}" exec -T postgres pg_dumpall --globals-only -U "$POSTGRES_USER" > "$GLOBALS_BACKUP"
-"${COMPOSE[@]}" exec -T postgres pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > "$DB_BACKUP"
+(
+  "${COMPOSE[@]}" exec -T postgres pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > "$DB_BACKUP_PARTIAL"
+) &
+PG_DUMP_PID=$!
+if ! wait_with_heartbeat "$PG_DUMP_PID" "PostgreSQL backup"; then
+  echo "==> PostgreSQL backup failed"
+  rm -f "$DB_BACKUP_PARTIAL" "$GLOBALS_BACKUP"
+  exit 1
+fi
+mv "$DB_BACKUP_PARTIAL" "$DB_BACKUP"
 test -s "$GLOBALS_BACKUP"
 test -s "$DB_BACKUP"
 echo "==> PostgreSQL backup complete"
@@ -224,7 +259,11 @@ if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
   fi
 
   echo "==> Backfilling PostgreSQL search index from legacy search"
-  if ! "${COMPOSE[@]}" exec -T "${LEGACY_EXPORT_ENV[@]}" api node apps/api/scripts/backfill-pg-search-from-legacy-index.js; then
+  (
+    "${COMPOSE[@]}" exec -T "${LEGACY_EXPORT_ENV[@]}" api node apps/api/scripts/backfill-pg-search-from-legacy-index.js
+  ) &
+  BACKFILL_PID=$!
+  if ! wait_with_heartbeat "$BACKFILL_PID" "Search index backfill"; then
     echo "==> Search index backfill failed"
     if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
       echo "==> ROLLING BACK API to ${PREV_TAG}; PostgreSQL backup remains at ${DB_BACKUP}"
