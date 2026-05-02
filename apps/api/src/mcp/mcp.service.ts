@@ -1,154 +1,132 @@
-import { Injectable, Logger, OnModuleDestroy, UnauthorizedException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { getAgentCommand, type AgentToolArg } from '@botmem/shared';
+import type { Queue } from 'bullmq';
 import { MemoryService } from '../memory/memory.service';
 import { AgentService } from '../agent/agent.service';
 import { DbService } from '../db/db.service';
+import { AccountsService } from '../accounts/accounts.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 import type { Request, Response } from 'express';
 
-interface McpSession {
-  server: McpServer;
-  transport: StreamableHTTPServerTransport;
-  lastAccess: number;
-  userId: string;
+interface MemoryToolParams {
+  query: string;
+  source_type?: string;
+  connector_type?: string;
+  contact_id?: string;
+  date_from?: string;
+  date_to?: string;
+  text_max_length?: number;
+  limit?: number;
+}
+
+interface ListToolParams {
+  source_type?: string;
+  connector_type?: string;
+  text_max_length?: number;
+  limit?: number;
+  offset?: number;
+  sort_by?: 'eventTime' | 'ingestTime';
+}
+
+interface TimelineToolParams {
+  from?: string;
+  to?: string;
+  query?: string;
+  source_type?: string;
+  connector_type?: string;
+  text_max_length?: number;
+  limit?: number;
+}
+
+interface GetMemoryToolParams {
+  id: string;
+  text_max_length?: number;
 }
 
 const MCP_INSTRUCTIONS = `Botmem is the user's personal memory server. Its nickname is "botmem".
 
-Use search for targeted lookup and browsing of raw memories. Use ask when the user wants a synthesized answer across memories.
+Start with status or sources when you need to discover what connectors, accounts, source types, or queue states are available.
+
+Use list for latest/current-state questions because it can sort by eventTime or ingestTime directly. Use timeline for explicit date ranges. Use search for targeted semantic lookup and browsing of raw memories. Use ask when the user wants a synthesized answer across memories. Use get_memory after another tool returns an id and you need the full record.
 
 Temporal queries are supported. Prefer date_from and date_to with ISO 8601 dates when the user gives a precise range; explicit dates override natural-language dates in the query.
 
 Results are compact by default. Long text fields are returned as excerpts with text_truncated=true; use the memory id for follow-up detail rather than asking for huge result sets.
 
-Start with small limits, then refine by connector_type, source_type, contact_id, date_from, or date_to.`;
+Start with small limits, then refine by connector_type, source_type, contact_id, date_from, or date_to. source_type="location" is an explicit location stream; GPS-bearing photos remain source_type="photo".`;
 
 const DEFAULT_TEXT_MAX_LENGTH = 500;
 const MAX_TEXT_MAX_LENGTH = 2000;
 
 @Injectable()
-export class McpService implements OnModuleDestroy {
+export class McpService {
   private readonly logger = new Logger(McpService.name);
-  private sessions = new Map<string, McpSession>();
-  private cleanupInterval: NodeJS.Timeout;
 
   constructor(
     private memoryService: MemoryService,
     private agentService: AgentService,
     private dbService: DbService,
-  ) {
-    // Cleanup expired sessions every 5 minutes
-    this.cleanupInterval = setInterval(() => this.cleanupSessions(), 5 * 60 * 1000);
-  }
+    private accountsService: AccountsService,
+    private connectorsService: ConnectorsService,
+    @InjectQueue('sync') private syncQueue: Queue,
+    @InjectQueue('memory') private memoryQueue: Queue,
+    @InjectQueue('embed') private embedQueue: Queue,
+    @InjectQueue('enrich') private enrichQueue: Queue,
+    @InjectQueue('maintenance') private maintenanceQueue: Queue,
+  ) {}
 
-  onModuleDestroy() {
-    clearInterval(this.cleanupInterval);
-    for (const [id, session] of this.sessions) {
-      session.transport.close();
-      this.sessions.delete(id);
-    }
-  }
+  onModuleDestroy() {}
 
   async handleRequest(req: Request, res: Response, userId: string): Promise<void> {
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-
-    // Existing session
-    if (sessionId && this.sessions.has(sessionId)) {
-      const session = this.sessions.get(sessionId)!;
-      if (session.userId !== userId) {
-        throw new UnauthorizedException('Session user mismatch');
-      }
-      session.lastAccess = Date.now();
-      this.logger.debug(
-        `MCP request on session ${sessionId}: ${JSON.stringify(req.body?.method || req.body)}`,
-      );
-      try {
-        await session.transport.handleRequest(req, res, req.body);
-      } catch (err: unknown) {
-        this.logger.error(
-          `MCP session ${sessionId} handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
-          err instanceof Error ? err.stack : undefined,
-        );
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Internal MCP error' });
-        }
-      }
-      return;
-    }
-
-    // New session: POST without session ID (initialization)
-    if (req.method === 'POST' && !sessionId) {
-      const server = this.createServer(userId);
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (newSessionId: string) => {
-          this.sessions.set(newSessionId, {
-            server,
-            transport,
-            lastAccess: Date.now(),
-            userId,
-          });
-          this.logger.log(`MCP session created: ${newSessionId} for user ${userId}`);
-        },
-      });
-
-      transport.onclose = () => {
-        this.logger.warn(`MCP transport closed unexpectedly`);
-      };
-      transport.onerror = (err: Error) => {
-        this.logger.error(`MCP transport error: ${err.message}`, err.stack);
-      };
-
-      await server.connect(transport);
-      try {
-        await transport.handleRequest(req, res, req.body);
-      } catch (err: unknown) {
-        this.logger.error(
-          `MCP handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
-          err instanceof Error ? err.stack : undefined,
-        );
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Internal MCP error' });
-        }
-      }
-      return;
-    }
-
-    // Invalid or expired session
-    this.logger.warn(
-      `MCP invalid session request: method=${req.method}, sessionId=${sessionId}, activeSessions=${this.sessions.size}`,
-    );
-    res.status(400).json({ error: 'Invalid or missing session' });
+    await this.handleStatelessRequest(req, res, userId, true);
   }
 
   async handleSseRequest(req: Request, res: Response, userId: string): Promise<void> {
-    const sessionId = req.headers['mcp-session-id'] as string;
-    const session = this.sessions.get(sessionId);
-    if (!session || session.userId !== userId) {
-      res.status(404).json({ error: 'Session not found' });
-      return;
-    }
-    session.lastAccess = Date.now();
-    await session.transport.handleRequest(req, res, req.body);
+    await this.handleStatelessRequest(req, res, userId, false);
   }
 
-  async terminateSession(req: Request, res: Response, userId: string): Promise<void> {
-    const sessionId = req.headers['mcp-session-id'] as string;
-    const session = this.sessions.get(sessionId);
-    if (session && session.userId === userId) {
-      await session.transport.close();
-      this.sessions.delete(sessionId);
-      this.logger.log(`MCP session terminated: ${sessionId}`);
-    }
+  terminateSession(_req: Request, res: Response, _userId: string): void {
     res.status(200).json({ ok: true });
+  }
+
+  private async handleStatelessRequest(
+    req: Request,
+    res: Response,
+    userId: string,
+    enableJsonResponse: boolean,
+  ): Promise<void> {
+    const server = this.createServer(userId);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse,
+    });
+
+    transport.onerror = (err: Error) => {
+      this.logger.error(`MCP transport error: ${err.message}`, err.stack);
+    };
+
+    await server.connect(transport);
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (err: unknown) {
+      this.logger.error(
+        `MCP handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal MCP error' });
+      }
+    }
   }
 
   private createServer(userId: string): McpServer {
     const server = new McpServer(
       {
-        name: 'botmem',
+        name: 'Botmem',
         version: '1.0.0',
         icons: [
           {
@@ -163,18 +141,6 @@ export class McpService implements OnModuleDestroy {
 
     this.registerTools(server, userId);
     return server;
-  }
-
-  private cleanupSessions() {
-    const maxAge = 60 * 60 * 1000; // 1 hour
-    const now = Date.now();
-    for (const [id, session] of this.sessions) {
-      if (now - session.lastAccess > maxAge) {
-        session.transport.close();
-        this.sessions.delete(id);
-        this.logger.debug(`MCP session expired: ${id}`);
-      }
-    }
   }
 
   // ── Tool helpers ──────────────────────────────────────────────────
@@ -350,82 +316,137 @@ export class McpService implements OnModuleDestroy {
     return null;
   }
 
+  private ok(data: unknown, textMaxLength?: number) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: this.formatMcpResponse(data, textMaxLength),
+        },
+      ],
+    };
+  }
+
+  private error(err: unknown) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+      isError: true as const,
+    };
+  }
+
+  private summarizeAccount(account: unknown): Record<string, unknown> {
+    const row = account as Record<string, unknown>;
+    return {
+      id: row.id,
+      connectorType: row.connectorType,
+      identifier: row.identifier,
+      status: row.status,
+      schedule: row.schedule,
+      tunnelMode: row.tunnelMode,
+      lastSyncAt: row.lastSyncAt,
+      itemsSynced: row.itemsSynced,
+      lastError: row.lastError,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private summarizeConnector(connector: unknown): Record<string, unknown> {
+    const manifest = connector as Record<string, unknown>;
+    return {
+      id: manifest.id,
+      name: manifest.name,
+      authType: manifest.authType,
+      version: manifest.version,
+      description: manifest.description,
+      trustScore: manifest.trustScore,
+      entities: manifest.entities,
+      configSchema: manifest.configSchema,
+    };
+  }
+
+  private maxIso(values: unknown[]): string | null {
+    let max = 0;
+    for (const value of values) {
+      const time = value instanceof Date ? value.getTime() : Date.parse(String(value ?? ''));
+      if (Number.isFinite(time) && time > max) max = time;
+    }
+    return max ? new Date(max).toISOString() : null;
+  }
+
+  private async getQueueStats() {
+    const queues: Array<[string, Queue]> = [
+      ['sync', this.syncQueue],
+      ['memory', this.memoryQueue],
+      ['embed', this.embedQueue],
+      ['enrich', this.enrichQueue],
+      ['maintenance', this.maintenanceQueue],
+    ];
+    const entries = await Promise.all(
+      queues.map(async ([name, queue]) => {
+        try {
+          const counts = await queue.getJobCounts(
+            'waiting',
+            'active',
+            'completed',
+            'failed',
+            'delayed',
+          );
+          return [name, counts] as const;
+        } catch (err: unknown) {
+          return [name, { error: err instanceof Error ? err.message : String(err) }] as const;
+        }
+      }),
+    );
+    return Object.fromEntries(entries);
+  }
+
+  private normalizeListSort(value: unknown): 'eventTime' | 'ingestTime' {
+    return value === 'ingestTime' ? 'ingestTime' : 'eventTime';
+  }
+
   // ── Tool registration ─────────────────────────────────────────────
+
+  private mcpToolName(commandId: string): string {
+    return getAgentCommand(commandId)?.mcp?.name ?? commandId;
+  }
+
+  private mcpToolDescription(commandId: string): string {
+    return getAgentCommand(commandId)?.mcp?.description ?? commandId;
+  }
+
+  private mcpToolSchema(commandId: string): Record<string, z.ZodTypeAny> {
+    const args = getAgentCommand(commandId)?.mcp?.args ?? {};
+    return Object.fromEntries(
+      Object.entries(args).map(([name, arg]) => [name, this.zodArgSchema(arg)]),
+    );
+  }
+
+  private zodArgSchema(arg: AgentToolArg): z.ZodTypeAny {
+    let schema: z.ZodTypeAny =
+      arg.type === 'number' ? z.number() : arg.type === 'boolean' ? z.boolean() : z.string();
+
+    if (arg.type === 'number') {
+      if (typeof arg.min === 'number') schema = (schema as z.ZodNumber).min(arg.min);
+      if (typeof arg.max === 'number') schema = (schema as z.ZodNumber).max(arg.max);
+    }
+
+    if (!arg.required) schema = schema.optional();
+    if (arg.default !== undefined) schema = schema.default(arg.default);
+    return schema.describe(arg.description);
+  }
 
   private registerTools(server: McpServer, userId: string) {
     server.tool(
-      'search',
-      `Search the user's personal memories using semantic vector search. Returns raw memory records ranked by a weighted score (semantic similarity, recency, importance, trust).
-
-Use this tool when you need to:
-- Find specific emails, messages, photos, or events
-- Look up what someone said or wrote
-- Find memories from a specific time period or source
-- Get raw data to answer factual questions
-
-Example queries:
-- "meeting with Sarah about the product launch"
-- "flights booked in January"
-- "photos from the beach trip"
-- "messages from Ahmed about the project"
-
-Returns an array of memory objects, each containing: id, text (the memory content), sourceType, connectorType, eventTime, factuality {label, confidence, rationale}, entities (extracted people/places/orgs), metadata (connector-specific fields like email subject, sender, attachments), contacts (associated people with roles), and score weights breakdown.
-
-Tips:
-- Use natural language queries — the search is semantic, not keyword-based
-- Combine filters to narrow results (e.g. connector_type="gmail" + source_type="email")
-- Start with a broad query and refine if needed
-- Results are sorted by weighted score (semantic + recency + importance + trust)`,
-      {
-        query: z
-          .string()
-          .describe(
-            'Natural language search query. Be descriptive — semantic search understands meaning, not just keywords. E.g. "dinner plans with family last week" or "project deadline discussions"',
-          ),
-        source_type: z
-          .string()
-          .optional()
-          .describe(
-            'Filter by source type. One of: "email", "message", "photo", "location". Omit to search all types.',
-          ),
-        connector_type: z
-          .string()
-          .optional()
-          .describe(
-            'Filter by data source connector. One of: "gmail", "slack", "whatsapp", "imessage", "photos". Omit to search all connectors.',
-          ),
-        contact_id: z
-          .string()
-          .optional()
-          .describe(
-            'Filter by a specific contact UUID. Use this when you already know the contact ID from a previous search result.',
-          ),
-        date_from: z
-          .string()
-          .optional()
-          .describe(
-            'Start of event-time range as ISO 8601. Use for precise temporal filters; overrides natural-language dates in the query.',
-          ),
-        date_to: z
-          .string()
-          .optional()
-          .describe(
-            'End of event-time range as ISO 8601. Use for precise temporal filters; overrides natural-language dates in the query.',
-          ),
-        text_max_length: z
-          .number()
-          .optional()
-          .default(DEFAULT_TEXT_MAX_LENGTH)
-          .describe(
-            `Maximum characters per text field in the response excerpt (0-${MAX_TEXT_MAX_LENGTH}). Default: ${DEFAULT_TEXT_MAX_LENGTH}.`,
-          ),
-        limit: z
-          .number()
-          .optional()
-          .default(20)
-          .describe('Maximum number of results to return (1-100). Default: 20.'),
-      },
-      async (params) => {
+      this.mcpToolName('search'),
+      this.mcpToolDescription('search'),
+      this.mcpToolSchema('search'),
+      async (rawParams) => {
+        const params = rawParams as unknown as MemoryToolParams;
         try {
           const dekError = await this.checkDek(userId);
           if (dekError) return dekError;
@@ -438,96 +459,19 @@ Tips:
               userId,
             );
           });
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: this.formatMcpResponse(results, params.text_max_length),
-              },
-            ],
-          };
+          return this.ok(results, params.text_max_length);
         } catch (err: unknown) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Error: ${err instanceof Error ? err.message : String(err)}`,
-              },
-            ],
-            isError: true as const,
-          };
+          return this.error(err);
         }
       },
     );
 
     server.tool(
-      'ask',
-      `Ask a question about the user's personal memories. Retrieves relevant memories via semantic search, enriches them with contact and entity data, and returns the context needed to answer the question.
-
-Use this tool when:
-- The user asks a question that requires reasoning across multiple memories
-- You need enriched context (contacts, entities, temporal parsing) rather than raw search results
-- The question involves "who", "when", "what happened", or "summarize" patterns
-
-Difference from "search":
-- "search" returns raw ranked results — use it for lookup/browsing
-- "ask" returns enriched memories grouped by conversation thread, with parsed temporal intent and contact resolution — use it for answering questions
-
-Example queries:
-- "What did Ahmed say about the budget?"
-- "Who emailed me about the conference last month?"
-- "What photos did I take in Dubai?"
-- "Summarize my conversations with the design team this week"
-
-Returns: { results: EnrichedMemory[], query: string, parsed?: { temporal, intent, cleanQuery } }
-Each EnrichedMemory contains: id, text, sourceType, connectorType, eventTime, eventTimeRelative (human-readable like "3 days ago"), factuality, entities [{type, value}], contacts [{id, displayName, role}], metadata, weights.
-The "parsed" field shows how temporal references were interpreted (e.g. "last week" → {from, to} date range).`,
-      {
-        query: z
-          .string()
-          .describe(
-            'A natural language question about the user\'s memories. Can include temporal references like "last week", "in January", "yesterday". E.g. "What meetings did I have last Friday?" or "What did Sarah say about the marketing plan?"',
-          ),
-        source_type: z
-          .string()
-          .optional()
-          .describe(
-            'Filter by source type. One of: "email", "message", "photo", "location". Omit to search all types.',
-          ),
-        connector_type: z
-          .string()
-          .optional()
-          .describe(
-            'Filter by data source connector. One of: "gmail", "slack", "whatsapp", "imessage", "photos". Omit to search all connectors.',
-          ),
-        date_from: z
-          .string()
-          .optional()
-          .describe(
-            'Start of event-time range as ISO 8601. Use for precise temporal filters; overrides natural-language dates in the query.',
-          ),
-        date_to: z
-          .string()
-          .optional()
-          .describe(
-            'End of event-time range as ISO 8601. Use for precise temporal filters; overrides natural-language dates in the query.',
-          ),
-        text_max_length: z
-          .number()
-          .optional()
-          .default(DEFAULT_TEXT_MAX_LENGTH)
-          .describe(
-            `Maximum characters per text field in the response excerpt (0-${MAX_TEXT_MAX_LENGTH}). Default: ${DEFAULT_TEXT_MAX_LENGTH}.`,
-          ),
-        limit: z
-          .number()
-          .optional()
-          .default(20)
-          .describe(
-            'Maximum number of context memories to retrieve for answering (1-100). Default: 20. Use higher values for broad questions.',
-          ),
-      },
-      async (params) => {
+      this.mcpToolName('ask'),
+      this.mcpToolDescription('ask'),
+      this.mcpToolSchema('ask'),
+      async (rawParams) => {
+        const params = rawParams as unknown as MemoryToolParams;
         try {
           const dekError = await this.checkDek(userId);
           if (dekError) return dekError;
@@ -539,24 +483,141 @@ The "parsed" field shows how temporal references were interpreted (e.g. "last we
               userId,
             });
           });
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: this.formatMcpResponse(result, params.text_max_length),
-              },
-            ],
-          };
+          return this.ok(result, params.text_max_length);
         } catch (err: unknown) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Error: ${err instanceof Error ? err.message : String(err)}`,
-              },
-            ],
-            isError: true as const,
-          };
+          return this.error(err);
+        }
+      },
+    );
+
+    server.tool(
+      this.mcpToolName('status'),
+      this.mcpToolDescription('status'),
+      this.mcpToolSchema('status'),
+      async () => {
+        try {
+          const [stats, accounts, queues] = await this.dbService.withUserId(userId, async () =>
+            Promise.all([
+              this.memoryService.getStats(userId),
+              this.accountsService.getAll(userId),
+              this.getQueueStats(),
+            ]),
+          );
+          const summarizedAccounts = accounts.map((account) => this.summarizeAccount(account));
+          const lastUpdate = this.maxIso(
+            summarizedAccounts.flatMap((account) => [account.lastSyncAt, account.updatedAt]),
+          );
+          return this.ok({
+            memory: stats,
+            accounts: summarizedAccounts,
+            connectors: this.connectorsService
+              .list()
+              .map((connector) => this.summarizeConnector(connector)),
+            queues,
+            lastUpdate,
+          });
+        } catch (err: unknown) {
+          return this.error(err);
+        }
+      },
+    );
+
+    server.tool(
+      this.mcpToolName('sources'),
+      this.mcpToolDescription('sources'),
+      this.mcpToolSchema('sources'),
+      async () => {
+        try {
+          const stats = await this.dbService.withUserId(userId, async () =>
+            this.memoryService.getStats(userId),
+          );
+          return this.ok({
+            sourceTypes: stats.bySource,
+            connectorTypes: stats.byConnector,
+            factuality: stats.byFactuality,
+            total: stats.total,
+            connectors: this.connectorsService
+              .list()
+              .map((connector) => this.summarizeConnector(connector)),
+          });
+        } catch (err: unknown) {
+          return this.error(err);
+        }
+      },
+    );
+
+    server.tool(
+      this.mcpToolName('memories'),
+      this.mcpToolDescription('memories'),
+      this.mcpToolSchema('memories'),
+      async (rawParams) => {
+        const params = rawParams as unknown as ListToolParams;
+        try {
+          const dekError = await this.checkDek(userId);
+          if (dekError) return dekError;
+
+          const result = await this.dbService.withUserId(userId, async () =>
+            this.memoryService.list({
+              connectorType: params.connector_type,
+              sourceType: params.source_type,
+              limit: params.limit,
+              offset: params.offset,
+              sortBy: this.normalizeListSort(params.sort_by),
+              userId,
+            }),
+          );
+          return this.ok(result, params.text_max_length);
+        } catch (err: unknown) {
+          return this.error(err);
+        }
+      },
+    );
+
+    server.tool(
+      this.mcpToolName('timeline'),
+      this.mcpToolDescription('timeline'),
+      this.mcpToolSchema('timeline'),
+      async (rawParams) => {
+        const params = rawParams as unknown as TimelineToolParams;
+        try {
+          const dekError = await this.checkDek(userId);
+          if (dekError) return dekError;
+
+          const result = await this.dbService.withUserId(userId, async () =>
+            this.memoryService.timeline({
+              from: params.from,
+              to: params.to,
+              query: params.query,
+              connectorType: params.connector_type,
+              sourceType: params.source_type,
+              limit: params.limit,
+              userId,
+            }),
+          );
+          return this.ok(result, params.text_max_length);
+        } catch (err: unknown) {
+          return this.error(err);
+        }
+      },
+    );
+
+    server.tool(
+      this.mcpToolName('memory'),
+      this.mcpToolDescription('memory'),
+      this.mcpToolSchema('memory'),
+      async (rawParams) => {
+        const params = rawParams as unknown as GetMemoryToolParams;
+        try {
+          const dekError = await this.checkDek(userId);
+          if (dekError) return dekError;
+
+          const result = await this.dbService.withUserId(userId, async () =>
+            this.memoryService.getById(params.id, userId),
+          );
+          if (!result) return this.error(`Memory not found: ${params.id}`);
+          return this.ok(result, params.text_max_length);
+        } catch (err: unknown) {
+          return this.error(err);
         }
       },
     );

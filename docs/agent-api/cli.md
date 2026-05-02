@@ -132,13 +132,13 @@ botmem ask "What did John say about the project deadline?"
 botmem ask "When is the next team meeting?" --json
 ```
 
-### `timeline <topic>`
+### `timeline`
 
-Build a chronological timeline for a topic.
+Browse memories by event-time range, optionally filtered by query/source/connector.
 
 ```bash
-botmem timeline "project launch"
-botmem timeline "vacation planning" --limit 20
+botmem timeline --from 2026-01-01 --to 2026-02-01
+botmem timeline --from 2026-01-01 --query "project launch" --limit 20
 ```
 
 ### `context <topic>`
@@ -211,6 +211,8 @@ botmem memory-banks create "Work Projects"
 
 Dashboard overview showing memory counts, pipeline status, and connector health.
 
+For agents, `status` is the first discovery command: it shows memory counts, accounts, registered connectors, queue health, and last sync/update times.
+
 ### `jobs`
 
 List sync/pipeline jobs.
@@ -239,6 +241,12 @@ Show CLI and API versions.
 ```bash
 botmem version
 ```
+
+## CLI/MCP Parity
+
+CLI command help and MCP tool descriptions are generated from a shared registry in `packages/shared/src/agent-tools.ts`. The MCP surface currently exposes `status`, `sources`, `list`, `timeline`, `search`, `ask`, and `get_memory`.
+
+Use `botmem memories --source location --limit 1` or the MCP `list` tool with `source_type: "location"` and `sort_by: "eventTime"` for latest/current-state questions. Use semantic `search` when relevance ranking matters more than exact timestamp order.
 
 ## JSON Mode
 

@@ -72,9 +72,7 @@ async function mcpPost(
   return { status: res.status, headers: res.headers, jsonRpc };
 }
 
-async function getOAuthToken(
-  user: TestUser,
-): Promise<{ token: string; clientId: string }> {
+async function getOAuthToken(user: TestUser): Promise<{ token: string; clientId: string }> {
   const server = getHttpServer();
 
   const regRes = await supertest(server)
@@ -88,9 +86,7 @@ async function getOAuthToken(
 
   const clientId = regRes.body.client_id;
   const codeVerifier = randomBytes(32).toString('base64url');
-  const codeChallenge = createHash('sha256')
-    .update(codeVerifier)
-    .digest('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
 
   const authRes = await supertest(server)
     .post('/oauth/authorize/complete')
@@ -207,6 +203,11 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
     const toolNames = tools.map((t: any) => t.name);
     expect(toolNames).toContain('search');
     expect(toolNames).toContain('ask');
+    expect(toolNames).toContain('status');
+    expect(toolNames).toContain('sources');
+    expect(toolNames).toContain('list');
+    expect(toolNames).toContain('timeline');
+    expect(toolNames).toContain('get_memory');
   });
 
   it('MCP-006: search tool should have correct input schema', async () => {
@@ -216,9 +217,7 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
       sessionId,
     );
 
-    const searchTool = jsonRpc.result.tools.find(
-      (t: any) => t.name === 'search',
-    );
+    const searchTool = jsonRpc.result.tools.find((t: any) => t.name === 'search');
     expect(searchTool).toBeDefined();
     expect(searchTool.description).toBeTruthy();
 
@@ -239,9 +238,7 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
       sessionId,
     );
 
-    const askTool = jsonRpc.result.tools.find(
-      (t: any) => t.name === 'ask',
-    );
+    const askTool = jsonRpc.result.tools.find((t: any) => t.name === 'ask');
     expect(askTool).toBeDefined();
     expect(askTool.description).toBeTruthy();
 
@@ -254,13 +251,35 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
     expect(schema.required).toContain('query');
   });
 
-  it('MCP-008: search tool should execute and return results', async () => {
-    const { status, jsonRpc } = await callTool(
+  it('MCP-007b: discovery and latest tools should have correct input schemas', async () => {
+    const { jsonRpc } = await mcpPost(
       oauthToken,
+      { jsonrpc: '2.0', id: 41, method: 'tools/list', params: {} },
       sessionId,
-      'search',
-      { query: 'test query for e2e', limit: 5 },
     );
+
+    const tools = jsonRpc.result.tools;
+    const statusTool = tools.find((t: any) => t.name === 'status');
+    const sourcesTool = tools.find((t: any) => t.name === 'sources');
+    const listTool = tools.find((t: any) => t.name === 'list');
+    const timelineTool = tools.find((t: any) => t.name === 'timeline');
+    const getMemoryTool = tools.find((t: any) => t.name === 'get_memory');
+
+    expect(statusTool).toBeDefined();
+    expect(sourcesTool).toBeDefined();
+    expect(listTool.inputSchema.properties).toHaveProperty('sort_by');
+    expect(listTool.inputSchema.properties).toHaveProperty('source_type');
+    expect(timelineTool.inputSchema.properties).toHaveProperty('from');
+    expect(timelineTool.inputSchema.properties).toHaveProperty('to');
+    expect(getMemoryTool.inputSchema.properties).toHaveProperty('id');
+    expect(getMemoryTool.inputSchema.required).toContain('id');
+  });
+
+  it('MCP-008: search tool should execute and return results', async () => {
+    const { status, jsonRpc } = await callTool(oauthToken, sessionId, 'search', {
+      query: 'test query for e2e',
+      limit: 5,
+    });
 
     expect(status).toBe(200);
     expect(jsonRpc).toBeDefined();
@@ -273,12 +292,10 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
   });
 
   it('MCP-009: ask tool should execute and return results or AI error', async () => {
-    const { status, jsonRpc } = await callTool(
-      oauthToken,
-      sessionId,
-      'ask',
-      { query: 'What happened yesterday?', limit: 5 },
-    );
+    const { status, jsonRpc } = await callTool(oauthToken, sessionId, 'ask', {
+      query: 'What happened yesterday?',
+      limit: 5,
+    });
 
     expect(status).toBe(200);
     expect(jsonRpc).toBeDefined();
@@ -288,17 +305,12 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
   });
 
   it('MCP-010: search tool should accept optional filters', async () => {
-    const { status, jsonRpc } = await callTool(
-      oauthToken,
-      sessionId,
-      'search',
-      {
-        query: 'email about meeting',
-        source_type: 'email',
-        connector_type: 'gmail',
-        limit: 3,
-      },
-    );
+    const { status, jsonRpc } = await callTool(oauthToken, sessionId, 'search', {
+      query: 'email about meeting',
+      source_type: 'email',
+      connector_type: 'gmail',
+      limit: 3,
+    });
 
     expect(status).toBe(200);
     expect(jsonRpc).toBeDefined();
@@ -309,12 +321,9 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
 
   it('MCP-011: search tool returns result or DEK-cold error', async () => {
     // In external server mode we cannot evict DEK, so just verify search tool responds
-    const { status, jsonRpc } = await callTool(
-      oauthToken,
-      sessionId,
-      'search',
-      { query: 'test dek cold' },
-    );
+    const { status, jsonRpc } = await callTool(oauthToken, sessionId, 'search', {
+      query: 'test dek cold',
+    });
 
     expect(status).toBe(200);
     expect(jsonRpc).toBeDefined();
@@ -324,12 +333,9 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
   });
 
   it('MCP-012: should handle calling non-existent tool gracefully', async () => {
-    const { status, jsonRpc } = await callTool(
-      oauthToken,
-      sessionId,
-      'nonexistent_tool',
-      { query: 'test' },
-    );
+    const { status, jsonRpc } = await callTool(oauthToken, sessionId, 'nonexistent_tool', {
+      query: 'test',
+    });
 
     expect(status).toBe(200);
     expect(jsonRpc).toBeDefined();
@@ -338,18 +344,31 @@ describe('MCP Tools (MCP-005 → MCP-013)', () => {
     expect(hasError).toBe(true);
   });
 
+  it('MCP-012b: status, sources, list, and timeline tools should execute', async () => {
+    for (const [name, args] of [
+      ['status', {}],
+      ['sources', {}],
+      ['list', { limit: 1, sort_by: 'eventTime' }],
+      ['timeline', { limit: 1 }],
+    ] as const) {
+      const { status, jsonRpc } = await callTool(oauthToken, sessionId, name, args);
+
+      expect(status).toBe(200);
+      expect(jsonRpc).toBeDefined();
+      expect(jsonRpc.result).toBeDefined();
+      expect(jsonRpc.result.content).toBeInstanceOf(Array);
+      if (jsonRpc.result.content.length > 0) {
+        expect(jsonRpc.result.content[0].type).toBe('text');
+      }
+    }
+  });
+
   it('MCP-013: should handle missing required parameters in tool call', async () => {
-    const { status, jsonRpc } = await callTool(
-      oauthToken,
-      sessionId,
-      'search',
-      {},
-    );
+    const { status, jsonRpc } = await callTool(oauthToken, sessionId, 'search', {});
 
     expect(status).toBe(200);
     expect(jsonRpc).toBeDefined();
-    const hasError =
-      jsonRpc.error !== undefined || jsonRpc.result?.isError === true;
+    const hasError = jsonRpc.error !== undefined || jsonRpc.result?.isError === true;
     expect(hasError).toBe(true);
   });
 });

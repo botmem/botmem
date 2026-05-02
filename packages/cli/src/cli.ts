@@ -19,6 +19,7 @@ import { runVersion, versionHelp } from './commands/version.js';
 import { runAsk, runContext, askHelp, contextHelp } from './commands/agent.js';
 import { runMemoryBanks, memoryBanksHelp } from './commands/memory-banks.js';
 import { runInstallSkill } from './commands/install-skill.js';
+import { registryCliHelp } from './command-registry.js';
 
 const DEFAULT_API_URL = 'http://localhost:12412/api';
 
@@ -203,19 +204,7 @@ const COMMAND_HELP: Record<string, string> = {
   timeline: timelineHelp,
   related: relatedHelp,
   entities: entitiesHelp,
-  memories: `
-  botmem memories -- List recent memories
-
-  USAGE
-    botmem memories [options]
-
-  OPTIONS
-    --limit <n>          Max results (default: 50)
-    --offset <n>         Skip first N results
-    --source <type>      Filter by source (email, message, photo, location)
-    --connector <type>   Filter by connector (gmail, slack, whatsapp, imessage, locations)
-    --json               Output raw JSON
-`.trim(),
+  memories: registryCliHelp('memories', 'botmem memories [options]'),
   memory: `
   botmem memory -- Get or delete a memory
 
@@ -226,12 +215,7 @@ const COMMAND_HELP: Record<string, string> = {
     botmem memory <id> raw --out <path> [--variant original|thumbnail]
                                   Download connector-backed raw asset via Botmem
 `.trim(),
-  stats: `
-  botmem stats -- Memory count breakdown
-
-  USAGE
-    botmem stats [--json]
-`.trim(),
+  stats: registryCliHelp('stats', 'botmem stats [--json]'),
   contacts: `
   botmem contacts -- List or search contacts
 
