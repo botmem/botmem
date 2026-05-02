@@ -4,7 +4,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import supertest from 'supertest';
-import { ensureApiRunning,
+import {
+  ensureApiRunning,
   closeApp,
   getHttpServer,
   registerUser,
@@ -78,8 +79,7 @@ describe('Account Management (USER-016 → USER-030)', () => {
     const user = await registerUser();
 
     // Logout
-    const logoutRes = await authedRequest(user.accessToken)
-      .post('/api/user-auth/logout');
+    const logoutRes = await authedRequest(user.accessToken).post('/api/user-auth/logout');
     expect([200, 201, 204]).toContain(logoutRes.status);
 
     // Verify refresh cookie is cleared (if set-cookie header present)
@@ -101,8 +101,7 @@ describe('Account Management (USER-016 → USER-030)', () => {
     const session2 = await loginUser({ email: user.email, password: user.password });
 
     // Logout first session
-    await authedRequest(user.accessToken)
-      .post('/api/user-auth/logout');
+    await authedRequest(user.accessToken).post('/api/user-auth/logout');
 
     // Second session may or may not still work depending on implementation
     const res = await authedRequest(session2.accessToken).get('/api/me');
@@ -156,8 +155,7 @@ describe('Account Management (USER-016 → USER-030)', () => {
   it('USER-025 user status endpoint is accessible', async () => {
     const user = await registerUser();
 
-    const statusRes = await authedRequest(user.accessToken)
-      .get('/api/me/status');
+    const statusRes = await authedRequest(user.accessToken).get('/api/me/status');
 
     expect([200]).toContain(statusRes.status);
     expect(statusRes.body).toBeDefined();
@@ -191,9 +189,7 @@ describe('Account Management (USER-016 → USER-030)', () => {
       .send({ recoveryKey: user.recoveryKey });
 
     // Dashboard data endpoints should work (empty state)
-    const accountsRes = await authedRequest(user.accessToken)
-      .get('/api/accounts')
-      .expect(200);
+    const accountsRes = await authedRequest(user.accessToken).get('/api/accounts').expect(200);
     expect(accountsRes.body).toBeDefined();
   });
 
@@ -206,7 +202,7 @@ describe('Account Management (USER-016 → USER-030)', () => {
       .send({ recoveryKey: user.recoveryKey });
 
     // Search is POST /api/memories/search with { query }
-    // May return 500 if Typesense/AI is unavailable
+    // May return 500 if search/AI is unavailable
     const searchRes = await authedRequest(user.accessToken)
       .post('/api/memories/search')
       .send({ query: 'test' });
@@ -221,9 +217,7 @@ describe('Account Management (USER-016 → USER-030)', () => {
   it('USER-030 fresh user has zero connector accounts', async () => {
     const user = await registerUser();
 
-    const accountsRes = await authedRequest(user.accessToken)
-      .get('/api/accounts')
-      .expect(200);
+    const accountsRes = await authedRequest(user.accessToken).get('/api/accounts').expect(200);
     const accounts = accountsRes.body.accounts || accountsRes.body;
     expect(Array.isArray(accounts)).toBe(true);
     expect(accounts.length).toBe(0);

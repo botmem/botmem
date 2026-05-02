@@ -57,28 +57,30 @@ export class JobsService implements OnApplicationBootstrap {
    */
   private async recoverStaleState() {
     const recentRestartCutoff = new Date(Date.now() - 15 * 60 * 1000);
-    const candidates = await this.dbService.db
-      .select({
-        id: jobs.id,
-        accountId: jobs.accountId,
-        connectorType: jobs.connectorType,
-        memoryBankId: jobs.memoryBankId,
-        status: jobs.status,
-        error: jobs.error,
-      })
-      .from(jobs)
-      .where(
-        or(
-          inArray(jobs.status, ['queued', 'running']),
-          and(
-            eq(jobs.status, 'failed'),
-            eq(jobs.error, 'Server restarted'),
-            gt(jobs.completedAt, recentRestartCutoff),
+    const candidates = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          id: jobs.id,
+          accountId: jobs.accountId,
+          connectorType: jobs.connectorType,
+          memoryBankId: jobs.memoryBankId,
+          status: jobs.status,
+          error: jobs.error,
+        })
+        .from(jobs)
+        .where(
+          or(
+            inArray(jobs.status, ['queued', 'running']),
+            and(
+              eq(jobs.status, 'failed'),
+              eq(jobs.error, 'Server restarted'),
+              gt(jobs.completedAt, recentRestartCutoff),
+            ),
           ),
-        ),
-      )
-      .orderBy(desc(jobs.createdAt))
-      .limit(100);
+        )
+        .orderBy(desc(jobs.createdAt))
+        .limit(100),
+    );
 
     const activeAccounts = new Set(
       candidates
@@ -93,18 +95,21 @@ export class JobsService implements OnApplicationBootstrap {
         (await this.hasCompletedWhatsAppHistory(job.accountId))
       ) {
         const now = new Date();
-        await this.dbService.db
-          .update(jobs)
-          .set({
-            status: 'cancelled',
-            error: 'Cancelled stale WhatsApp sync; realtime handles updates after initial history',
-            completedAt: now,
-          })
-          .where(eq(jobs.id, job.id));
-        await this.dbService.db
-          .update(accounts)
-          .set({ status: 'connected', lastError: null, updatedAt: now })
-          .where(eq(accounts.id, job.accountId));
+        await this.dbService.systemDb(async (db) => {
+          await db
+            .update(jobs)
+            .set({
+              status: 'cancelled',
+              error:
+                'Cancelled stale WhatsApp sync; realtime handles updates after initial history',
+              completedAt: now,
+            })
+            .where(eq(jobs.id, job.id));
+          await db
+            .update(accounts)
+            .set({ status: 'connected', lastError: null, updatedAt: now })
+            .where(eq(accounts.id, job.accountId));
+        });
         continue;
       }
 
@@ -123,20 +128,22 @@ export class JobsService implements OnApplicationBootstrap {
         await existingBullJob.remove().catch(() => undefined);
       }
 
-      await this.dbService.db
-        .update(jobs)
-        .set({
-          status: 'queued',
-          error: null,
-          startedAt: null,
-          completedAt: null,
-        })
-        .where(eq(jobs.id, job.id));
+      await this.dbService.systemDb(async (db) => {
+        await db
+          .update(jobs)
+          .set({
+            status: 'queued',
+            error: null,
+            startedAt: null,
+            completedAt: null,
+          })
+          .where(eq(jobs.id, job.id));
 
-      await this.dbService.db
-        .update(accounts)
-        .set({ status: 'connected', lastError: null })
-        .where(eq(accounts.id, job.accountId));
+        await db
+          .update(accounts)
+          .set({ status: 'connected', lastError: null })
+          .where(eq(accounts.id, job.accountId));
+      });
 
       await this.syncQueue.add(
         'sync',
@@ -157,11 +164,13 @@ export class JobsService implements OnApplicationBootstrap {
   }
 
   private async hasCompletedWhatsAppHistory(accountId: string): Promise<boolean> {
-    const [account] = await this.dbService.db
-      .select({ lastCursor: accounts.lastCursor })
-      .from(accounts)
-      .where(eq(accounts.id, accountId))
-      .limit(1);
+    const [account] = await this.dbService.systemDb((db) =>
+      db
+        .select({ lastCursor: accounts.lastCursor })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1),
+    );
     return account?.lastCursor === WHATSAPP_HISTORY_CURSOR;
   }
 
@@ -175,11 +184,9 @@ export class JobsService implements OnApplicationBootstrap {
       const accountId = rj.name?.replace('scheduled:', '');
       if (!accountId) continue;
 
-      const [acct] = await this.dbService.db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(eq(accounts.id, accountId))
-        .limit(1);
+      const [acct] = await this.dbService.systemDb((db) =>
+        db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, accountId)).limit(1),
+      );
 
       if (!acct) {
         await this.syncQueue.removeRepeatableByKey(rj.key);
@@ -222,11 +229,13 @@ export class JobsService implements OnApplicationBootstrap {
     }
 
     // Advisory quota check — warn user if at limit (sync still proceeds for contacts)
-    const [acctRow] = await this.dbService.db
-      .select({ userId: accounts.userId })
-      .from(accounts)
-      .where(eq(accounts.id, accountId))
-      .limit(1);
+    const [acctRow] = await this.dbService.currentUserDb((db) =>
+      db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1),
+    );
     if (acctRow?.userId) {
       const quota = await this.quotaService.canCreateMemory(acctRow.userId);
       if (!quota.allowed) {
@@ -279,42 +288,50 @@ export class JobsService implements OnApplicationBootstrap {
   }
 
   async startScheduledSync(accountId: string, connectorType: string) {
-    const [existing] = await this.dbService.db
-      .select({ id: jobs.id, status: jobs.status })
-      .from(jobs)
-      .where(and(eq(jobs.accountId, accountId), inArray(jobs.status, ['queued', 'running'])))
-      .limit(1);
+    const [existing] = await this.dbService.systemDb((db) =>
+      db
+        .select({ id: jobs.id, status: jobs.status })
+        .from(jobs)
+        .where(and(eq(jobs.accountId, accountId), inArray(jobs.status, ['queued', 'running'])))
+        .limit(1),
+    );
 
-    const [account] = await this.dbService.db
-      .select({
-        identifier: accounts.identifier,
-        userId: accounts.userId,
-        lastCursor: accounts.lastCursor,
-      })
-      .from(accounts)
-      .where(eq(accounts.id, accountId))
-      .limit(1);
+    const [account] = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          identifier: accounts.identifier,
+          userId: accounts.userId,
+          lastCursor: accounts.lastCursor,
+        })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1),
+    );
 
     if (connectorType === 'whatsapp' && account?.lastCursor === WHATSAPP_HISTORY_CURSOR) {
       const id = crypto.randomUUID();
       const now = new Date();
       const error = 'Skipped scheduled sync; WhatsApp uses realtime after initial history sync';
-      await this.dbService.db.insert(jobs).values({
-        id,
-        accountId,
-        connectorType,
-        accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
-        memoryBankId: null,
-        status: 'cancelled',
-        priority: 0,
-        progress: 0,
-        total: 0,
-        error,
-        createdAt: now,
-        completedAt: now,
-      });
+      await this.dbService.systemDb((db) =>
+        db.insert(jobs).values({
+          id,
+          accountId,
+          connectorType,
+          accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
+          memoryBankId: null,
+          status: 'cancelled',
+          priority: 0,
+          progress: 0,
+          total: 0,
+          error,
+          createdAt: now,
+          completedAt: now,
+        }),
+      );
       this.logger.log(`Skipping scheduled sync for account ${accountId} — ${error}`);
-      const [row] = await this.dbService.db.select().from(jobs).where(eq(jobs.id, id));
+      const [row] = await this.dbService.systemDb((db) =>
+        db.select().from(jobs).where(eq(jobs.id, id)),
+      );
       return { skipped: true, job: row ? this.decryptJob(row) : row };
     }
 
@@ -322,22 +339,26 @@ export class JobsService implements OnApplicationBootstrap {
       const id = crypto.randomUUID();
       const now = new Date();
       const error = `Skipped scheduled sync because job ${existing.id} is already ${existing.status}`;
-      await this.dbService.db.insert(jobs).values({
-        id,
-        accountId,
-        connectorType,
-        accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
-        memoryBankId: null,
-        status: 'cancelled',
-        priority: 0,
-        progress: 0,
-        total: 0,
-        error,
-        createdAt: now,
-        completedAt: now,
-      });
+      await this.dbService.systemDb((db) =>
+        db.insert(jobs).values({
+          id,
+          accountId,
+          connectorType,
+          accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
+          memoryBankId: null,
+          status: 'cancelled',
+          priority: 0,
+          progress: 0,
+          total: 0,
+          error,
+          createdAt: now,
+          completedAt: now,
+        }),
+      );
       this.logger.log(`Skipping scheduled sync for account ${accountId} — ${error}`);
-      const [row] = await this.dbService.db.select().from(jobs).where(eq(jobs.id, id));
+      const [row] = await this.dbService.systemDb((db) =>
+        db.select().from(jobs).where(eq(jobs.id, id)),
+      );
       return { skipped: true, job: row ? this.decryptJob(row) : row };
     }
 
@@ -355,20 +376,24 @@ export class JobsService implements OnApplicationBootstrap {
 
     const id = crypto.randomUUID();
     const now = new Date();
-    await this.dbService.db.insert(jobs).values({
-      id,
-      accountId,
-      connectorType,
-      accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
-      memoryBankId: null,
-      status: 'queued',
-      priority: 0,
-      progress: 0,
-      total: 0,
-      createdAt: now,
-    });
+    await this.dbService.systemDb((db) =>
+      db.insert(jobs).values({
+        id,
+        accountId,
+        connectorType,
+        accountIdentifier: account?.identifier ? this.crypto.encrypt(account.identifier) : null,
+        memoryBankId: null,
+        status: 'queued',
+        priority: 0,
+        progress: 0,
+        total: 0,
+        createdAt: now,
+      }),
+    );
 
-    const [row] = await this.dbService.db.select().from(jobs).where(eq(jobs.id, id));
+    const [row] = await this.dbService.systemDb((db) =>
+      db.select().from(jobs).where(eq(jobs.id, id)),
+    );
     return { skipped: false, job: row ? this.decryptJob(row) : row };
   }
 
@@ -445,10 +470,8 @@ export class JobsService implements OnApplicationBootstrap {
     if (data.status === 'queued' || data.status === 'running') {
       toSet.completedAt = null;
     }
-    // updateJob is called from BullMQ processors (outside HTTP context) — use unscoped db
-    // since the job row is already validated to belong to the correct user via the processor's
-    // withUserId() scope. Direct db access is intentional here for cross-context compatibility.
-    await this.dbService.db.update(jobs).set(toSet).where(eq(jobs.id, id));
+    // updateJob is called from BullMQ processors and scheduler maintenance.
+    await this.dbService.systemDb((db) => db.update(jobs).set(toSet).where(eq(jobs.id, id)));
   }
 
   async getQueueStats(queues: Record<string, Queue>) {
@@ -520,26 +543,30 @@ export class JobsService implements OnApplicationBootstrap {
    * Increment job progress by 1 and return the updated job.
    * Does NOT auto-mark the job as done -- that's handled by tryCompleteJob().
    *
-   * Note: called from BullMQ processors (outside HTTP context) — uses unscoped db
-   * intentionally, as processors use withUserId() for their own scope already.
+   * Note: called from BullMQ processors (outside HTTP context) — uses explicit
+   * system DB access for cross-context job bookkeeping.
    */
   async incrementProgress(
     jobId: string,
   ): Promise<{ progress: number; total: number; done: boolean }> {
-    await this.dbService.db
-      .update(jobs)
-      .set({ progress: sql`${jobs.progress} + 1` })
-      .where(eq(jobs.id, jobId));
+    await this.dbService.systemDb((db) =>
+      db
+        .update(jobs)
+        .set({ progress: sql`${jobs.progress} + 1` })
+        .where(eq(jobs.id, jobId)),
+    );
 
-    const [job] = await this.dbService.db
-      .select({
-        accountId: jobs.accountId,
-        progress: jobs.progress,
-        total: jobs.total,
-        status: jobs.status,
-      })
-      .from(jobs)
-      .where(eq(jobs.id, jobId));
+    const [job] = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          accountId: jobs.accountId,
+          progress: jobs.progress,
+          total: jobs.total,
+          status: jobs.status,
+        })
+        .from(jobs)
+        .where(eq(jobs.id, jobId)),
+    );
 
     if (!job) return { progress: 0, total: 0, done: false };
 
@@ -551,36 +578,40 @@ export class JobsService implements OnApplicationBootstrap {
    * Check if a job can be marked done: progress >= total AND no items remain in pipeline queues.
    * Called by the enrich processor after incrementing progress.
    *
-   * Note: called from BullMQ processors (outside HTTP context) — uses unscoped db
-   * intentionally, as processors use withUserId() for their own scope already.
+   * Note: called from BullMQ processors (outside HTTP context) — uses explicit
+   * system DB access for cross-context job bookkeeping.
    */
   async tryCompleteJob(jobId: string): Promise<boolean> {
-    const [job] = await this.dbService.db
-      .select({
-        accountId: jobs.accountId,
-        progress: jobs.progress,
-        total: jobs.total,
-        status: jobs.status,
-      })
-      .from(jobs)
-      .where(eq(jobs.id, jobId));
+    const [job] = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          accountId: jobs.accountId,
+          progress: jobs.progress,
+          total: jobs.total,
+          status: jobs.status,
+        })
+        .from(jobs)
+        .where(eq(jobs.id, jobId)),
+    );
 
     if (!job || job.status !== 'running') return false;
     if (job.total <= 0 || job.progress < job.total) return false;
 
-    await this.dbService.db
-      .update(jobs)
-      .set({
-        status: 'done',
-        progress: job.total,
-        completedAt: new Date(),
-      })
-      .where(eq(jobs.id, jobId));
+    await this.dbService.systemDb(async (db) => {
+      await db
+        .update(jobs)
+        .set({
+          status: 'done',
+          progress: job.total,
+          completedAt: new Date(),
+        })
+        .where(eq(jobs.id, jobId));
 
-    await this.dbService.db
-      .update(accounts)
-      .set({ status: 'connected', lastError: null, updatedAt: new Date() })
-      .where(and(eq(accounts.id, job.accountId), eq(accounts.status, 'syncing')));
+      await db
+        .update(accounts)
+        .set({ status: 'connected', lastError: null, updatedAt: new Date() })
+        .where(and(eq(accounts.id, job.accountId), eq(accounts.status, 'syncing')));
+    });
 
     return true;
   }
@@ -607,27 +638,33 @@ export class JobsService implements OnApplicationBootstrap {
     await this.reconcileCompletedBullJobs();
 
     const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS);
-    const stale = await this.dbService.db
-      .select({
-        id: jobs.id,
-        accountId: jobs.accountId,
-        connectorType: jobs.connectorType,
-        progress: jobs.progress,
-        total: jobs.total,
-      })
-      .from(jobs)
-      .where(and(eq(jobs.status, 'running'), lt(jobs.startedAt, cutoff), isNull(jobs.completedAt)));
+    const stale = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          id: jobs.id,
+          accountId: jobs.accountId,
+          connectorType: jobs.connectorType,
+          progress: jobs.progress,
+          total: jobs.total,
+        })
+        .from(jobs)
+        .where(
+          and(eq(jobs.status, 'running'), lt(jobs.startedAt, cutoff), isNull(jobs.completedAt)),
+        ),
+    );
 
     for (const job of stale) {
       const error = `Job stalled — stuck in "running" for over ${STALE_JOB_THRESHOLD_MS / 3600000}h (progress: ${job.progress}/${job.total})`;
-      await this.dbService.db
-        .update(jobs)
-        .set({ status: 'failed', error, completedAt: new Date() })
-        .where(eq(jobs.id, job.id));
-      await this.dbService.db
-        .update(accounts)
-        .set({ status: 'failed', lastError: error, updatedAt: new Date() })
-        .where(eq(accounts.id, job.accountId));
+      await this.dbService.systemDb(async (db) => {
+        await db
+          .update(jobs)
+          .set({ status: 'failed', error, completedAt: new Date() })
+          .where(eq(jobs.id, job.id));
+        await db
+          .update(accounts)
+          .set({ status: 'failed', lastError: error, updatedAt: new Date() })
+          .where(eq(accounts.id, job.accountId));
+      });
       this.logger.warn(`[reaper] Marked stale job ${job.id} (${job.connectorType}) as failed`);
       this.events.emitToChannel(`job:${job.id}`, 'job:complete', {
         jobId: job.id,
@@ -648,15 +685,17 @@ export class JobsService implements OnApplicationBootstrap {
       this.logger.warn(`[reconciler] Found ${cleaned.length} DB/BullMQ contradiction(s)`);
     }
 
-    const activeRowsResult = await this.dbService.db
-      .select({
-        id: jobs.id,
-        accountId: jobs.accountId,
-        progress: jobs.progress,
-        total: jobs.total,
-      })
-      .from(jobs)
-      .where(and(eq(jobs.status, 'running'), isNull(jobs.completedAt)));
+    const activeRowsResult = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          id: jobs.id,
+          accountId: jobs.accountId,
+          progress: jobs.progress,
+          total: jobs.total,
+        })
+        .from(jobs)
+        .where(and(eq(jobs.status, 'running'), isNull(jobs.completedAt))),
+    );
     const activeRows = Array.isArray(activeRowsResult) ? activeRowsResult : [];
 
     let reconciled = 0;
@@ -667,19 +706,21 @@ export class JobsService implements OnApplicationBootstrap {
       if (state !== 'completed') continue;
       if (row.total > 0 && row.progress < row.total) continue;
 
-      await this.dbService.db
-        .update(jobs)
-        .set({
-          status: 'done',
-          progress: row.total > 0 ? row.total : row.progress,
-          completedAt: new Date(),
-          error: null,
-        })
-        .where(eq(jobs.id, row.id));
-      await this.dbService.db
-        .update(accounts)
-        .set({ status: 'connected', lastError: null, updatedAt: new Date() })
-        .where(and(eq(accounts.id, row.accountId), eq(accounts.status, 'syncing')));
+      await this.dbService.systemDb(async (db) => {
+        await db
+          .update(jobs)
+          .set({
+            status: 'done',
+            progress: row.total > 0 ? row.total : row.progress,
+            completedAt: new Date(),
+            error: null,
+          })
+          .where(eq(jobs.id, row.id));
+        await db
+          .update(accounts)
+          .set({ status: 'connected', lastError: null, updatedAt: new Date() })
+          .where(and(eq(accounts.id, row.accountId), eq(accounts.status, 'syncing')));
+      });
       this.events.emitToChannel(`job:${row.id}`, 'job:complete', {
         jobId: row.id,
         status: 'done',
@@ -697,10 +738,12 @@ export class JobsService implements OnApplicationBootstrap {
     queue: Queue,
     repair: boolean,
   ): Promise<Array<{ jobId: string; dbStatus?: string; bullState: string; action: string }>> {
-    const terminalRowsResult = await this.dbService.db
-      .select({ id: jobs.id, status: jobs.status })
-      .from(jobs)
-      .where(inArray(jobs.status, ['done', 'failed', 'cancelled']));
+    const terminalRowsResult = await this.dbService.systemDb((db) =>
+      db
+        .select({ id: jobs.id, status: jobs.status })
+        .from(jobs)
+        .where(inArray(jobs.status, ['done', 'failed', 'cancelled'])),
+    );
     const terminalRows = Array.isArray(terminalRowsResult) ? terminalRowsResult : [];
     const contradictions: Array<{
       jobId: string;

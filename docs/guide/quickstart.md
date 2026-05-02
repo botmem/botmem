@@ -9,7 +9,7 @@ Get Botmem running locally in under five minutes.
 
 ::: details Minimum hardware
 
-- **Without local Ollama**: 2 GB RAM, 1 CPU core, 10 GB disk (runs PostgreSQL, Redis, Typesense, and the API)
+- **Without local Ollama**: 2 GB RAM, 1 CPU core, 10 GB disk (runs PostgreSQL + pgvector, Redis, and the API)
 - **With local Ollama**: 8 GB RAM, 4 CPU cores recommended (embedding models need 2-4 GB)
 - **Disk**: grows with data volume — roughly 1 GB per 100k memories
   :::
@@ -24,7 +24,7 @@ docker compose pull     # Ensure you have the latest image
 docker compose up -d    # Starts all services
 ```
 
-This pulls and starts everything: Botmem, PostgreSQL, Redis, and Typesense. The API and web UI are at `http://localhost:12412`.
+This pulls and starts everything: Botmem, PostgreSQL + pgvector and Redis. The API and web UI are at `http://localhost:12412`.
 
 ::: warning Clean start
 If you've previously built a local image (`docker compose build`), Docker may use the cached local image instead of the published one. Always run `docker compose pull` first to get the latest release.
@@ -66,14 +66,14 @@ pnpm install
 ### 2. Start Infrastructure
 
 ```bash
-docker compose up -d postgres redis typesense
+docker compose up -d postgres redis
 ```
 
 This starts only the backing services:
 
 - **PostgreSQL 17** on port `5432`
 - **Redis 7** on port `6379`
-- **Typesense** on port `8108`
+- **PostgreSQL search index** on port `8108`
 
 ### Configure Environment
 
@@ -191,7 +191,7 @@ The sync pipeline will:
 3. Generate embeddings via your AI backend
 4. Resolve participants into contacts
 5. Enrich memories with entities and factuality labels
-6. Index everything in Typesense for semantic search
+6. Index everything in PostgreSQL search index for semantic search
 
 ## 8. Search Your Memories
 
@@ -209,7 +209,7 @@ curl -X POST http://localhost:12412/api/memories/search \
 If you've run Botmem before, the PostgreSQL volume still has your old data. This can also cause issues when switching between image versions. For a truly clean start:
 
 ```bash
-docker compose down -v   # Removes all volumes (PostgreSQL, Redis, Typesense data)
+docker compose down -v   # Removes all volumes (PostgreSQL + pgvector, Redis data)
 docker compose pull      # Ensure latest image
 docker compose up -d     # Fresh start
 ```

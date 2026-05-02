@@ -35,14 +35,16 @@ function createMocks() {
     emitToChannel: vi.fn(),
   } as unknown as EventsService;
 
+  const rawDb = {
+    select: vi.fn().mockReturnThis(),
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockResolvedValue([]),
+    update: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
+  };
   const dbService = {
-    db: {
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockResolvedValue([]),
-      update: vi.fn().mockReturnThis(),
-      set: vi.fn().mockReturnThis(),
-    },
+    db: rawDb,
+    systemDb: vi.fn((fn) => fn(rawDb)),
   } as unknown as DbService;
 
   return { connectors, config, registry, events, dbService, mockWa };
@@ -61,7 +63,7 @@ function createService(
     config,
     registry,
     events ?? ({ emitToChannel: vi.fn() } as unknown as EventsService),
-    dbService ?? ({ db: {} } as unknown as DbService),
+    dbService ?? ({ db: {}, systemDb: vi.fn((fn) => fn({})) } as unknown as DbService),
   );
   (service as unknown as { loadBuiltin: ReturnType<typeof vi.fn> }).loadBuiltin = vi
     .fn()

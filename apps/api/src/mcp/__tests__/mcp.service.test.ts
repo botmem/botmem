@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { EventEmitter } from 'events';
 import { getAgentCommand } from '@botmem/shared';
 import { McpService } from '../mcp.service';
 import type { MemoryService } from '../../memory/memory.service';
@@ -95,8 +96,13 @@ function getTool(server: unknown, name: string) {
 }
 
 describe('McpService', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('sets startup instructions that identify botmem and tool usage', () => {
@@ -192,6 +198,33 @@ describe('McpService', () => {
       lastUpdate: '2026-05-01T01:00:00.000Z',
     });
 
+    service.onModuleDestroy();
+  });
+
+  it('starts SSE streams with an initial heartbeat comment', () => {
+    vi.useFakeTimers();
+    const { service } = createService();
+    const req = new EventEmitter() as EventEmitter & { method: string; originalUrl: string };
+    req.method = 'GET';
+    req.originalUrl = '/mcp/';
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: vi.fn(),
+      writableEnded: false,
+    };
+
+    service.handleSseStream(req as never, res as never, 'user-1', 'client-1');
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
+    expect(res.write).toHaveBeenCalledWith(': botmem-ready\n\n');
+
+    vi.advanceTimersByTime(25_000);
+    expect(res.write).toHaveBeenCalledWith(': keepalive\n\n');
+
+    req.emit('close');
     service.onModuleDestroy();
   });
 

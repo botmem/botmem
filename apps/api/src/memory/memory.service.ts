@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { desc, eq, sql, and, or, inArray, type SQLWrapper } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { AiService } from './ai.service';
-import { TypesenseService } from './typesense.service';
+import { PgSearchService } from './pg-search.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
@@ -141,7 +141,7 @@ interface SearchDiagnostics {
     semantic: number;
     lanes: string[];
   }>;
-  schemaStatus?: Awaited<ReturnType<TypesenseService['getSchemaStatus']>>;
+  schemaStatus?: Awaited<ReturnType<PgSearchService['getSchemaStatus']>>;
 }
 
 /** Strip accents/diacritics for fuzzy matching (amélie → amelie) */
@@ -271,7 +271,7 @@ export class MemoryService {
   constructor(
     private dbService: DbService,
     private ai: AiService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private connectors: ConnectorsService,
     private pluginRegistry: PluginRegistry,
     private crypto: CryptoService,
@@ -747,9 +747,9 @@ export class MemoryService {
       : undefined;
 
     // --- User isolation: resolve account IDs ---
-    // Narrow account scope before Typesense when connector filters are present.
+    // Narrow account scope before Postgres search when connector filters are present.
     // A full account_id list combined with connector_type filters can exceed the
-    // Typesense client timeout even when the matching connector has one account.
+    // Postgres search client timeout even when the matching connector has one account.
     const connectorScope = [
       ...(filters?.connectorTypes ?? []),
       ...(filters?.connectorType ? [filters.connectorType] : []),
@@ -798,11 +798,11 @@ export class MemoryService {
     const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
     const hasContacts = resolvedContacts.length > 0;
 
-    // --- Build Qdrant-format filter (TypesenseService converts internally) ---
+    // --- Build Qdrant-format filter (Postgres searchService converts internally) ---
     const tsFilter = this.buildQdrantFilter(effectiveFilters);
 
-    // --- Build Typesense filter string for faceted search ---
-    const tsFilterString = this.typesense.buildFilterString({
+    // --- Build Postgres search filter string for faceted search ---
+    const tsFilterString = this.searchIndex.buildFilterString({
       connectorTypes: effectiveFilters.connectorTypes,
       sourceTypes: effectiveFilters.sourceTypes,
       factualityLabels: effectiveFilters.factualityLabels,
@@ -815,29 +815,29 @@ export class MemoryService {
 
     // Merge legacy Qdrant-format filter with new filter string
     const legacyFilterStr = Object.keys(tsFilter).length
-      ? this.typesense['buildTypesenseFilter'](tsFilter)
+      ? this.searchIndex.buildLegacyFilter(tsFilter)
       : '';
     const combinedFilter =
       [legacyFilterStr, tsFilterString].filter(Boolean).join(' && ') || undefined;
     if (diagnostics) {
       diagnostics.appliedFilters = [legacyFilterStr, tsFilterString].filter(Boolean);
-      diagnostics.schemaStatus = await this.typesense.getSchemaStatus().catch(() => undefined);
+      diagnostics.schemaStatus = await this.searchIndex.getSchemaStatus().catch(() => undefined);
     }
 
     const FACET_FIELDS = 'connector_type,source_type,factuality_label,people';
 
-    // --- Single Typesense hybrid search call with facets ---
+    // --- Single Postgres search hybrid search call with facets ---
     const vector = await this.ai.embedQuery(embeddingQuery);
-    // Cap k to avoid Typesense hybrid search failure at high k values (k>250 with filters can return 0)
+    // Cap k to avoid Postgres search hybrid search failure at high k values (k>250 with filters can return 0)
     const hybridK = Math.min(effectiveLimit * HYBRID_K_MULTIPLIER, HYBRID_K_CAP);
-    const hybridResult = await this.typesense.hybridSearch(
+    const hybridResult = await this.searchIndex.hybridSearch(
       embeddingQuery,
       vector,
       hybridK,
       combinedFilter,
       FACET_FIELDS,
     );
-    const typesenseResults = hybridResult.results;
+    const searchIndexResults = hybridResult.results;
     const semanticScores = new Map<string, number>();
     const candidateLanes = new Map<string, Set<string>>();
     const noteLane = (id: string, lane: string) => {
@@ -845,12 +845,12 @@ export class MemoryService {
       lanes.add(lane);
       candidateLanes.set(id, lanes);
     };
-    for (const point of typesenseResults) {
+    for (const point of searchIndexResults) {
       semanticScores.set(point.id, point.score);
       noteLane(point.id, 'vector_semantic');
     }
 
-    const lexicalResults = await this.typesense.textSearch(
+    const lexicalResults = await this.searchIndex.textSearch(
       embeddingQuery,
       hybridK,
       combinedFilter,
@@ -864,7 +864,7 @@ export class MemoryService {
     if (plannedIntent === 'transaction') {
       const txQuery = extractTransactionTokens(query).join(' ');
       if (txQuery) {
-        const txResults = await this.typesense.textSearch(
+        const txResults = await this.searchIndex.textSearch(
           txQuery,
           hybridK,
           combinedFilter,
@@ -916,7 +916,7 @@ export class MemoryService {
           noteLane(r.memoryId, 'structured_person_role');
         }
       }
-      for (const point of typesenseResults) {
+      for (const point of searchIndexResults) {
         if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
       }
       topicMatchCount = contactMatchIds.size;
@@ -1013,7 +1013,7 @@ export class MemoryService {
       };
     }
 
-    // If filtering by contactId directly, filter Typesense results to that contact's memories
+    // If filtering by contactId directly, filter Postgres search results to that contact's memories
     if (effectiveFilters.contactId) {
       const linkedMemoryIds = new Set(
         (
@@ -1026,7 +1026,7 @@ export class MemoryService {
         ).map((r) => r.memoryId),
       );
       const contactResults: SearchResult[] = [];
-      for (const point of typesenseResults) {
+      for (const point of searchIndexResults) {
         if (!linkedMemoryIds.has(point.id)) continue;
         const row = await this.fetchMemoryRow(point.id);
         if (!row) continue;
@@ -1060,13 +1060,13 @@ export class MemoryService {
       };
     }
 
-    // --- Collect candidate IDs from Typesense results ---
+    // --- Collect candidate IDs from Postgres search results ---
     const allCandidateIds = new Set<string>();
-    for (const point of typesenseResults) allCandidateIds.add(point.id);
+    for (const point of searchIndexResults) allCandidateIds.add(point.id);
     for (const point of lexicalResults) allCandidateIds.add(point.id);
     for (const [id] of candidateLanes) allCandidateIds.add(id);
 
-    // For pure contact queries, inject top contact-linked memories that Typesense may have missed
+    // For pure contact queries, inject top contact-linked memories that Postgres search may have missed
     if (isPureContactQuery && allContactMemoryIds.size > 0) {
       // Prioritize memories linked to ALL resolved contacts
       const multiContactMemories: string[] = [];
@@ -1203,7 +1203,7 @@ export class MemoryService {
       topScore: returnItems[0]?.score,
     });
 
-    // Map Typesense facet_counts to our structure
+    // Map Postgres search facet_counts to our structure
     const facetCounts: FacetCounts = {
       connectorType: [],
       sourceType: [],
@@ -1265,7 +1265,7 @@ export class MemoryService {
     }
     const filter = must.length ? { must } : undefined;
 
-    const result = await this.typesense.conversationSearch(
+    const result = await this.searchIndex.conversationSearch(
       query,
       vector,
       20,
@@ -1653,7 +1653,7 @@ export class MemoryService {
       });
     });
     try {
-      await this.typesense.remove(id);
+      await this.searchIndex.remove(id);
     } catch {
       // Qdrant removal is best-effort
     }
@@ -2312,7 +2312,7 @@ export class MemoryService {
     const semScale = connectorWeights.semantic / 0.4;
     const recScale = connectorWeights.recency / 0.25;
 
-    // The semantic score already includes Typesense hybrid rank fusion.
+    // The semantic score already includes Postgres search hybrid rank fusion.
     // Browse intent boosts recency weight significantly.
     let final: number;
     if (intent === 'browse') {
@@ -2452,7 +2452,7 @@ export class MemoryService {
     }
 
     // 2. Vector similarity (Qdrant recommend)
-    const recommended = await this.typesense.recommend(memoryId, limit);
+    const recommended = await this.searchIndex.recommend(memoryId, limit);
     for (const r of recommended) linkedIds.add(r.id);
 
     // 3. Same-contact memories (shared participants)

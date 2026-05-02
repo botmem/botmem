@@ -8,8 +8,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import supertest from 'supertest';
 import { createHash, randomBytes } from 'crypto';
-import { ensureApiRunning,
-  
+import {
+  ensureApiRunning,
   closeApp,
   getHttpServer,
   registerUser,
@@ -20,9 +20,7 @@ import { ensureApiRunning,
 
 function generatePKCE() {
   const codeVerifier = randomBytes(32).toString('base64url');
-  const codeChallenge = createHash('sha256')
-    .update(codeVerifier)
-    .digest('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
   return { codeVerifier, codeChallenge };
 }
 
@@ -44,9 +42,7 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
 
   it('MCP-014: should serve OAuth authorization server metadata', async () => {
     const server = getHttpServer();
-    const res = await supertest(server)
-      .get('/.well-known/oauth-authorization-server')
-      .expect(200);
+    const res = await supertest(server).get('/.well-known/oauth-authorization-server').expect(200);
 
     expect(res.body.authorization_endpoint).toMatch(/\/oauth\/authorize$/);
     expect(res.body.token_endpoint).toMatch(/\/oauth\/token$/);
@@ -56,18 +52,18 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     expect(res.body.grant_types_supported).toContain('authorization_code');
     expect(res.body.grant_types_supported).toContain('refresh_token');
     expect(res.body.code_challenge_methods_supported).toContain('S256');
+    expect(res.body.scopes_supported).toEqual(['read']);
   });
 
   it('MCP-015: should serve protected resource metadata', async () => {
     const server = getHttpServer();
-    const res = await supertest(server)
-      .get('/.well-known/oauth-protected-resource')
-      .expect(200);
+    const res = await supertest(server).get('/.well-known/oauth-protected-resource').expect(200);
 
     expect(res.body.resource).toMatch(/\/mcp$/);
     expect(res.body.authorization_servers).toBeInstanceOf(Array);
     expect(res.body.authorization_servers.length).toBeGreaterThan(0);
     expect(res.body.bearer_methods_supported).toContain('header');
+    expect(res.body.scopes_supported).toEqual(['read']);
   });
 
   // ── Client Registration ──────────────────────────────────────────
@@ -75,7 +71,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
   it('MCP-016: should register a new OAuth client', async () => {
     const server = getHttpServer();
     const res = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'test-mcp-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -93,12 +90,14 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({ client_name: 'incomplete' })
       .expect(400);
 
     await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({ redirect_uris: ['http://localhost:9999/cb'] })
       .expect(400);
   });
@@ -107,7 +106,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'info-test-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -128,7 +128,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'auth-flow-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -161,7 +162,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'no-pkce-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -184,7 +186,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
 
     // 1. Register client
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'full-flow-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -239,7 +242,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'wrong-verifier-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -282,7 +286,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'code-reuse-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -339,7 +344,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'refresh-test-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -410,7 +416,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const server = getHttpServer();
 
     const regRes = await supertest(server)
-      .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+      .post('/oauth/register')
+      .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         client_name: 'revoke-test-client',
         redirect_uris: ['http://localhost:9999/callback'],
@@ -450,10 +457,7 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
     const refreshToken = tokenRes.body.refresh_token;
 
     // Revoke
-    await supertest(server)
-      .post('/oauth/revoke')
-      .send({ token: refreshToken })
-      .expect(201);
+    await supertest(server).post('/oauth/revoke').send({ token: refreshToken }).expect(201);
 
     // Revoked token should not work
     await supertest(server)
@@ -526,7 +530,8 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
 
       // Get a proper OAuth token
       const regRes = await supertest(server)
-        .post('/oauth/register').set('Authorization', `Bearer ${user.accessToken}`)
+        .post('/oauth/register')
+        .set('Authorization', `Bearer ${user.accessToken}`)
         .send({
           client_name: 'guard-test-client',
           redirect_uris: ['http://localhost:9999/callback'],
@@ -567,7 +572,9 @@ describe('MCP OAuth 2.1 PKCE (MCP-014 → MCP-025)', () => {
       const sseParser = (res: any, cb: (err: any, body: any) => void) => {
         let data = '';
         res.setEncoding('utf8');
-        res.on('data', (chunk: string) => { data += chunk; });
+        res.on('data', (chunk: string) => {
+          data += chunk;
+        });
         res.on('end', () => cb(null, data));
       };
 

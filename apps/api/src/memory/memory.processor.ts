@@ -7,8 +7,7 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
 import { AiService } from './ai.service';
-import { TypesenseService } from './typesense.service';
-import { MEMORY_INDEX_SCHEMA_VERSION } from './typesense.service';
+import { MEMORY_INDEX_SCHEMA_VERSION, PgSearchService } from './pg-search.service';
 import { MemoryService } from './memory.service';
 import { EnrichService } from './enrich.service';
 import { ContentCleaner } from './content-cleaner';
@@ -34,6 +33,10 @@ import {
   jobs,
 } from '../db/schema';
 import { normalizeEntities } from './entity-normalizer';
+import {
+  buildWhatsAppGroupIdentity,
+  shouldMergeEntityResolutionBucket,
+} from './connector-normalizers/whatsapp-group-identity';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
 import type {
@@ -69,119 +72,45 @@ function compactStrings(values: unknown[]): string[] {
   return [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))];
 }
 
-export function shouldMergeEntityResolutionBucket(
-  entityType: string,
-  role: string,
-  bucket: { entityType: string; role: string; identifiers: IdentifierInput[] },
-  identifiers: IdentifierInput[],
-): boolean {
-  if (bucket.entityType !== entityType || bucket.role !== role) return false;
+type MediaKind = 'image' | 'audio' | 'video' | 'document' | 'file' | 'unknown';
 
-  // Person entities must stay isolated. A single memory can mention several
-  // people that share weak labels like "Amr" or "me"; fusing identifiers here
-  // pollutes the person graph before PeopleService can evaluate evidence.
-  if (entityType === 'person') return false;
-
-  const bucketKeys = new Set(bucket.identifiers.map((id) => `${id.type}:${id.value}`));
-  return identifiers.some((id) => bucketKeys.has(`${id.type}:${id.value}`));
+interface PrimaryMedia {
+  kind: MediaKind;
+  mimeType: string;
+  fileName?: string;
+  hasInlineContent: boolean;
+  hasFetchableUrl: boolean;
 }
 
-export interface WhatsAppGroupIdentity {
-  groupJid: string;
-  groupName: string;
-  groupIdentifiers: IdentifierInput[];
-  members: Array<{
-    rawJid?: string;
-    identifiers: IdentifierInput[];
-    confidence: number;
-  }>;
+const MAX_MEDIA_TEXT_CHARS = 8_000;
+const MAX_IMAGE_DESCRIPTION_BYTES = 12 * 1024 * 1024;
+
+function normalizeMimeType(value: unknown): string {
+  return String(value || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
 }
 
-function whatsappJidLocalPart(jid: string): string {
-  return jid.split('@')[0]?.split(':')[0]?.trim() || '';
+function mediaKindFromMime(
+  mimeType: string,
+  messageType?: unknown,
+  sourceType?: unknown,
+): MediaKind {
+  const type = String(messageType || sourceType || '').toLowerCase();
+  if (type === 'image' || mimeType.startsWith('image/')) return 'image';
+  if (type === 'audio' || mimeType.startsWith('audio/')) return 'audio';
+  if (type === 'video' || mimeType.startsWith('video/')) return 'video';
+  if (type === 'document' || sourceType === 'file') return 'document';
+  if (mimeType) return 'file';
+  return 'unknown';
 }
 
-function normalizeWhatsAppPhone(value: string): string {
-  const digits = value.replace(/[^\d+]/g, '');
-  if (!digits) return '';
-  return digits.startsWith('+') ? digits : `+${digits.replace(/^\+/, '')}`;
-}
-
-function addWhatsAppMemberIdentifier(
-  bucket: Map<string, WhatsAppGroupIdentity['members'][number]>,
-  rawValue: string,
-  connectorType: string,
-) {
-  const value = rawValue.trim();
-  if (!value) return;
-
-  const isJid = value.includes('@');
-  const local = isJid ? whatsappJidLocalPart(value) : value;
-  if (!local) return;
-
-  let type = 'phone';
-  let normalizedValue = normalizeWhatsAppPhone(local);
-  let confidence = 0.95;
-
-  if (value.endsWith('@lid')) {
-    type = 'whatsapp_lid';
-    normalizedValue = local.toLowerCase();
-    confidence = 0.75;
-  } else if (isJid && !value.endsWith('@s.whatsapp.net')) {
-    return;
-  }
-
-  if (!normalizedValue) return;
-  const key = `${type}:${normalizedValue}`;
-  const existing = bucket.get(key);
-  if (existing) {
-    existing.rawJid ||= isJid ? value : undefined;
-    existing.confidence = Math.max(existing.confidence, confidence);
-    return;
-  }
-
-  bucket.set(key, {
-    rawJid: isJid ? value : undefined,
-    identifiers: [{ type, value: normalizedValue, connectorType }],
-    confidence,
-  });
-}
-
-export function buildWhatsAppGroupIdentity(
-  event: ConnectorDataEvent,
-  connectorType = 'whatsapp',
-): WhatsAppGroupIdentity | null {
-  const metadata = (event.content?.metadata || {}) as Record<string, unknown>;
-  const groupJid = String(
-    metadata.groupJid || event.sourceId.replace(/^wa-group:/, '') || '',
-  ).trim();
-  if (!groupJid || !groupJid.endsWith('@g.us')) return null;
-
-  const groupName = String(metadata.name || metadata.groupName || groupJid).trim() || groupJid;
-  const groupIdentifiers: IdentifierInput[] = [
-    { type: 'whatsapp_group_jid', value: groupJid, connectorType },
-  ];
-  if (groupName && groupName !== groupJid) {
-    groupIdentifiers.push({ type: 'name', value: groupName, connectorType });
-  }
-
-  const membersByIdentifier = new Map<string, WhatsAppGroupIdentity['members'][number]>();
-  for (const value of arrayFromUnknown(metadata.memberJids)) {
-    addWhatsAppMemberIdentifier(membersByIdentifier, String(value), connectorType);
-  }
-  for (const value of arrayFromUnknown(metadata.memberPhones)) {
-    addWhatsAppMemberIdentifier(membersByIdentifier, String(value), connectorType);
-  }
-  for (const value of arrayFromUnknown(metadata.memberLids)) {
-    addWhatsAppMemberIdentifier(membersByIdentifier, `${String(value)}@lid`, connectorType);
-  }
-
-  return {
-    groupJid,
-    groupName,
-    groupIdentifiers,
-    members: [...membersByIdentifier.values()],
-  };
+function truncateMediaText(value: string): string {
+  const cleaned = value.trim();
+  return cleaned.length > MAX_MEDIA_TEXT_CHARS
+    ? `${cleaned.slice(0, MAX_MEDIA_TEXT_CHARS)}\n[truncated]`
+    : cleaned;
 }
 
 @Processor('memory', {
@@ -198,7 +127,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
     private ai: AiService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private memoryService: MemoryService,
     private enrichService: EnrichService,
     private contentCleaner: ContentCleaner,
@@ -712,22 +641,87 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
     const contactMs = Date.now() - t0;
 
-    // 3. File processing — parse file content
-    const hasFile = mergedMetadata.fileUrl || mergedMetadata.fileBase64;
-    const fileMime = (mergedMetadata.mimetype as string) || '';
+    // 3. Media/file processing — extract searchable text where possible
+    const primaryMedia = this.resolvePrimaryMedia(mergedMetadata, event.sourceType);
+    const hasFile = !!(primaryMedia?.hasInlineContent || primaryMedia?.hasFetchableUrl);
+    const fileMime = primaryMedia?.mimeType || '';
     let currentText = embedText;
 
-    if (hasFile && !fileMime.startsWith('image/')) {
+    if (primaryMedia) {
+      mergedMetadata.mediaExtraction = {
+        status: hasFile ? 'pending' : 'unavailable',
+        kind: primaryMedia.kind,
+        mimeType: primaryMedia.mimeType || undefined,
+        fileName: primaryMedia.fileName || undefined,
+      };
+    }
+
+    if (hasFile && primaryMedia?.kind === 'image') {
+      try {
+        const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
+        if (fileBuffer.length <= 30_000) {
+          mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
+        }
+        if (fileBuffer.length <= MAX_IMAGE_DESCRIPTION_BYTES) {
+          const description = await this.describeImageForSearch(
+            fileBuffer,
+            fileMime,
+            primaryMedia.fileName,
+          );
+          if (description) {
+            const extractedText = truncateMediaText(description);
+            currentText = `${extractedText}\n\n${currentText}`;
+            mergedMetadata.mediaExtraction = {
+              ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+              status: 'extracted',
+              extractedText,
+            };
+          }
+        } else {
+          mergedMetadata.mediaExtraction = {
+            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+            status: 'skipped_too_large',
+            sizeBytes: fileBuffer.length,
+          };
+        }
+      } catch (err: unknown) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:image] ${mid} image extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+          parentJobId,
+        );
+        mergedMetadata.mediaExtraction = {
+          ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    if (hasFile && primaryMedia?.kind !== 'image' && primaryMedia?.kind !== 'audio') {
       // Non-image files: parse via ContentCleaner
       try {
         const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
         const fileContent = await this.contentCleaner.parseFile(
           fileBuffer,
           fileMime,
-          mergedMetadata.fileName as string | undefined,
+          primaryMedia.fileName,
         );
         if (fileContent) {
-          currentText = fileContent + '\n\n' + currentText;
+          const extractedText = truncateMediaText(fileContent);
+          currentText = `${extractedText}\n\n${currentText}`;
+          mergedMetadata.mediaExtraction = {
+            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+            status: 'extracted',
+            extractedText,
+          };
+        } else {
+          mergedMetadata.mediaExtraction = {
+            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+            status: 'unsupported',
+          };
         }
       } catch (err: unknown) {
         this.addLog(
@@ -737,25 +731,23 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           `[memory:file] ${mid} file processing failed: ${err instanceof Error ? err.message : String(err)}`,
           parentJobId,
         );
+        mergedMetadata.mediaExtraction = {
+          ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        };
       }
     }
 
-    // Image files: store thumbnail, no VL description generation
-    if (hasFile && fileMime.startsWith('image/')) {
-      try {
-        const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
-        if (fileBuffer.length <= 30_000) {
-          mergedMetadata.thumbnailBase64 = fileBuffer.toString('base64');
-        }
-      } catch (err: unknown) {
-        this.addLog(
-          rawEvent.connectorType,
-          rawEvent.accountId,
-          'warn',
-          `[memory:thumbnail] ${mid} thumbnail failed: ${err instanceof Error ? err.message : String(err)}`,
-          parentJobId,
-        );
-      }
+    if (hasFile && primaryMedia?.kind === 'audio') {
+      mergedMetadata.mediaExtraction = {
+        ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+        status: this.config.embedBackend === 'gemini' ? 'embedded_no_transcript' : 'unsupported',
+        note:
+          this.config.embedBackend === 'gemini'
+            ? 'Audio is included in multimodal embedding, but no transcript is stored yet.'
+            : 'Audio transcription backend is not configured.',
+      };
     }
 
     // 7. Generate embedding
@@ -770,23 +762,34 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const canMultimodal =
       isGeminiMultimodal &&
       hasFile &&
-      (fileMime.startsWith('image/') || fileMime === 'application/pdf');
+      (primaryMedia?.kind === 'image' ||
+        primaryMedia?.kind === 'audio' ||
+        fileMime === 'application/pdf');
 
     if (canMultimodal) {
       try {
         const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
 
-        // For PDFs on Gemini path, still extract text for display
-        if (fileMime === 'application/pdf') {
+        // For PDFs on Gemini path, still extract text for display if it was not already parsed.
+        const mediaExtraction = mergedMetadata.mediaExtraction as
+          | Record<string, unknown>
+          | undefined;
+        if (fileMime === 'application/pdf' && !mediaExtraction?.extractedText) {
           const pdfText = await this.contentCleaner.parseFile(fileBuffer, fileMime);
           if (pdfText) {
             currentText = pdfText + '\n\n' + currentText;
           }
         }
 
+        const multimodalType: import('./gemini-embed.service').EmbedPart['type'] =
+          primaryMedia?.kind === 'audio'
+            ? 'audio'
+            : fileMime.startsWith('image/')
+              ? 'image'
+              : 'pdf';
         const parts: import('./gemini-embed.service').EmbedPart[] = [
           {
-            type: fileMime.startsWith('image/') ? 'image' : 'pdf',
+            type: multimodalType,
             base64: fileBuffer.toString('base64'),
             mimeType: fileMime,
           },
@@ -808,7 +811,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
     const embedMs = Date.now() - t0;
 
-    // Upsert to Typesense
+    // Upsert to Postgres search
     t0 = Date.now();
     const peopleNames = resolvedContacts.map((c) => c.name).filter(Boolean) as string[];
     const roleIds = (roles: string[]) =>
@@ -846,13 +849,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         /[a-z0-9]+(?:[._-][a-z0-9]+)*|\b(?:aed|usd|eur|gbp|sar|egp)\b|\d+(?:[.,]\d+)?/gi,
       ) ?? []),
     ]).map((token) => token.toLowerCase());
-    const typesensePayload: Record<string, unknown> = {
+    const searchIndexPayload: Record<string, unknown> = {
       schema_version: MEMORY_INDEX_SCHEMA_VERSION,
       text: truncatedText,
       source_type: event.sourceType,
       connector_type: rawEvent.connectorType,
       event_time: event.timestamp,
       account_id: rawEvent.accountId,
+      user_id: ownerUserId,
       memory_bank_id: memoryBankId,
       people: peopleNames,
       person_ids: resolvedContacts.map((c) => c.contactId),
@@ -870,8 +874,8 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       thread_ids: threadIds,
       transaction_tokens: transactionTokens,
     };
-    await this.typesense.upsert(memoryId, vector, typesensePayload);
-    const typesenseMs = Date.now() - t0;
+    await this.searchIndex.upsert(memoryId, vector, searchIndexPayload);
+    const searchIndexMs = Date.now() - t0;
 
     // 8. Enrich inline (best-effort)
     let enrichEntities: Array<{ type: string; value: string }> = [];
@@ -904,6 +908,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
     // 9. Encrypt all fields (single pass)
     currentText = stripNullBytes(currentText);
+    this.stripInlineMediaContent(mergedMetadata);
     const metadataStr = stripNullBytes(JSON.stringify(mergedMetadata));
 
     // Quota check
@@ -1114,7 +1119,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       rawEvent.connectorType,
       rawEvent.accountId,
       'info',
-      `[memory:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) embed=${embedMs}ms(${vector.length}d) typesense=${typesenseMs}ms entities=${enrichEntities.length} fact=${enrichFactuality?.label || 'UNVERIFIED'}`,
+      `[memory:done] ${memoryId.slice(0, 8)} in ${Date.now() - pipelineStart}ms — db=${dbInsertMs}ms contacts=${contactMs}ms(${contactCount}) embed=${embedMs}ms(${vector.length}d) search index=${searchIndexMs}ms entities=${enrichEntities.length} fact=${enrichFactuality?.label || 'UNVERIFIED'}`,
       parentJobId,
     );
 
@@ -1138,6 +1143,72 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
   }
 
+  private resolvePrimaryMedia(
+    metadata: Record<string, unknown>,
+    sourceType: unknown,
+  ): PrimaryMedia | null {
+    const attachments = arrayFromUnknown(metadata.attachments);
+    const firstAttachment = attachments.find((item) => item && typeof item === 'object') as
+      | Record<string, unknown>
+      | undefined;
+    const mimeType = normalizeMimeType(
+      metadata.mimetype ||
+        metadata.fileMimeType ||
+        metadata.mimeType ||
+        firstAttachment?.mimeType ||
+        firstAttachment?.mimetype,
+    );
+    const fileName = String(
+      metadata.fileName ||
+        metadata.filename ||
+        firstAttachment?.fileName ||
+        firstAttachment?.filename ||
+        '',
+    ).trim();
+    const kind = mediaKindFromMime(mimeType, metadata.messageType, sourceType);
+    const hasInlineContent = typeof metadata.fileBase64 === 'string' && metadata.fileBase64 !== '';
+    const hasFetchableUrl = typeof metadata.fileUrl === 'string' && metadata.fileUrl !== '';
+    if (!mimeType && !fileName && kind === 'unknown' && !hasInlineContent && !hasFetchableUrl) {
+      return null;
+    }
+    return {
+      kind,
+      mimeType,
+      fileName: fileName || undefined,
+      hasInlineContent,
+      hasFetchableUrl,
+    };
+  }
+
+  private async describeImageForSearch(
+    fileBuffer: Buffer,
+    mimeType: string,
+    fileName?: string,
+  ): Promise<string> {
+    const prompt = [
+      'Extract searchable information from this image for a private memory system.',
+      'Include any visible text exactly enough to search it, then summarize the scene, people, places, document type, dates, names, organizations, and identifiers.',
+      'If this is a document/photo of a document, prioritize OCR-like text and official fields over visual style.',
+      'Do not invent missing details. Keep it concise.',
+      fileName ? `Filename: ${fileName}` : '',
+      mimeType ? `MIME type: ${mimeType}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return this.ai.generate(prompt, [fileBuffer.toString('base64')], 1);
+  }
+
+  private stripInlineMediaContent(metadata: Record<string, unknown>) {
+    if (typeof metadata.fileBase64 === 'string') {
+      delete metadata.fileBase64;
+      metadata.fileContentStored = false;
+    }
+    if (typeof metadata.thumbnailBase64 === 'string') {
+      delete metadata.thumbnailBase64;
+      metadata.thumbnailStored = false;
+    }
+  }
+
   private async getFileBuffer(
     metadata: Record<string, unknown>,
     rawEvent: { accountId: string; connectorType: string },
@@ -1146,7 +1217,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     if (fileBase64) return Buffer.from(fileBase64, 'base64');
 
     const fileUrl = (metadata.fileUrl as string) || '';
-    const mimetype = (metadata.mimetype as string) || '';
+    const mimetype = normalizeMimeType(
+      metadata.mimetype || metadata.fileMimeType || metadata.mimeType,
+    );
     const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
     const fetchUrl = mimetype.startsWith('image/')
       ? fileUrl.replace('size=preview', 'size=thumbnail').replace('size=original', 'size=thumbnail')
@@ -1383,7 +1456,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const SIMILARITY_THRESHOLD = 0.8;
     const SIMILAR_MEMORY_LIMIT = 5;
 
-    const results = await this.typesense.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
+    const results = await this.searchIndex.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
     const candidates = results.filter((r) => r.score >= SIMILARITY_THRESHOLD && r.id !== memoryId);
     if (!candidates.length) return;
 

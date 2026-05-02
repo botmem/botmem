@@ -60,7 +60,7 @@ const FREE_FEATURES = [
 const PRO_FEATURES = [
   'Everything in Free',
   'Cloud-hosted infrastructure (zero setup)',
-  'Managed PostgreSQL, Typesense, and Redis',
+  'Managed PostgreSQL, Postgres search, and Redis',
   'Priority enrichment pipeline',
   'Full API access',
   'Email support with 24h response time',

@@ -6,7 +6,7 @@ Thanks for your interest in contributing to Botmem! This guide covers the essent
 
 - Node.js 20+
 - pnpm 9.15+ (`corepack enable`)
-- Docker (PostgreSQL, Redis, Typesense)
+- Docker (PostgreSQL + pgvector, Redis)
 - An AI backend: [Ollama](https://ollama.ai) (local) or an [OpenRouter](https://openrouter.ai) API key
 
 ## Setup

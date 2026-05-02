@@ -213,16 +213,16 @@ erDiagram
 
 ### 1.2 Indexes
 
-| Table | Index | Columns | Purpose |
-|-------|-------|---------|---------|
-| `memories` | `idx_memories_account_id` | `account_id` | Filter by account |
-| `memories` | `idx_memories_event_time` | `event_time` | Temporal queries |
-| `memories` | `idx_memories_connector_type` | `connector_type` | Faceted search |
-| `rawEvents` | `idx_raw_events_account_source` | `account_id, source_type, source_id` | Dedup check |
-| `personIdentifiers` | `idx_person_ident_type_value` | `type, value` | Contact resolution |
-| `memoryPeople` | `idx_memory_people_memory` | `memory_id` | Join lookup |
-| `memoryPeople` | `idx_memory_people_person` | `person_id` | Contact memory list |
-| `accounts` | `idx_accounts_user_id` | `user_id` | User's accounts |
+| Table               | Index                           | Columns                              | Purpose             |
+| ------------------- | ------------------------------- | ------------------------------------ | ------------------- |
+| `memories`          | `idx_memories_account_id`       | `account_id`                         | Filter by account   |
+| `memories`          | `idx_memories_event_time`       | `event_time`                         | Temporal queries    |
+| `memories`          | `idx_memories_connector_type`   | `connector_type`                     | Faceted search      |
+| `rawEvents`         | `idx_raw_events_account_source` | `account_id, source_type, source_id` | Dedup check         |
+| `personIdentifiers` | `idx_person_ident_type_value`   | `type, value`                        | Contact resolution  |
+| `memoryPeople`      | `idx_memory_people_memory`      | `memory_id`                          | Join lookup         |
+| `memoryPeople`      | `idx_memory_people_person`      | `person_id`                          | Contact memory list |
+| `accounts`          | `idx_accounts_user_id`          | `user_id`                            | User's accounts     |
 
 ---
 
@@ -278,7 +278,7 @@ graph TB
     JobsModule --> ConnectorsModule
     JobsModule --> EventsModule
 
-    MemoryModule["MemoryModule<br/>(MemoryService,<br/>MemoryController,<br/>EmbedProcessor,<br/>EnrichProcessor,<br/>CleanProcessor,<br/>DecayProcessor,<br/>OllamaService,<br/>TypesenseService)"]
+    MemoryModule["MemoryModule<br/>(MemoryService,<br/>MemoryController,<br/>EmbedProcessor,<br/>EnrichProcessor,<br/>CleanProcessor,<br/>DecayProcessor,<br/>OllamaService,<br/>PostgreSQL search indexService)"]
     MemoryModule --> DbModule
     MemoryModule --> ConfigModule
     MemoryModule --> CryptoModule
@@ -306,18 +306,20 @@ graph TB
 ### 2.2 Key Service Classes
 
 #### MemoryService
+
 ```
 search(query, userId, options) → RankedResult[]
   ├── parseNLQ(query) → temporal filters, entities, intent
   ├── embedQuery(query) → float[]
   ├── resolveUserAccounts(userId) → accountIds[]
-  ├── typesenseHybridSearch(text, vector, filters) → raw hits
+  ├── PostgreSQL search indexHybridSearch(text, vector, filters) → raw hits
   ├── applyWeightedRanking(hits) → scored results
   ├── decryptResults(results, userId) → plaintext
   └── buildFacets(hits) → connector/source/factuality/people counts
 ```
 
 #### CryptoService
+
 ```
 encrypt(plaintext, key) → { ciphertext, iv, tag }     // AES-256-GCM
 decrypt(ciphertext, iv, tag, key) → plaintext
@@ -326,6 +328,7 @@ hashRecoveryKey(key) → string                           // SHA-256 hex
 ```
 
 #### UserKeyService
+
 ```
 getKey(userId) → Buffer
   ├── checkMemoryCache(userId) → key?
@@ -337,6 +340,7 @@ cacheKey(userId, key) → void
 ```
 
 #### ConnectorsService
+
 ```
 getRegistry() → ConnectorRegistry
   ├── loadBuiltinConnectors()
@@ -407,7 +411,7 @@ flowchart TD
     Claims --> Factuality["Classify factuality<br/>(FACT / UNVERIFIED /<br/>FICTION + confidence)"]
     Factuality --> Importance["Compute importance<br/>baseline score"]
     Importance --> UpdateMem["UPDATE memory<br/>(entities, claims,<br/>factuality, importance)"]
-    UpdateMem --> Upsert["Upsert document →<br/>Typesense collection"]
+    UpdateMem --> Upsert["Upsert document →<br/>PostgreSQL search index collection"]
     Upsert --> Done["Job DONE<br/>+ WS broadcast"]
 ```
 
@@ -415,7 +419,7 @@ flowchart TD
 
 ## 4. Search System — Detailed
 
-### 4.1 Typesense Collection Schema
+### 4.1 PostgreSQL search index Collection Schema
 
 ```
 Collection: memories
@@ -443,7 +447,7 @@ final_score = 0.40 × semantic
             + 0.15 × trust
 
 where:
-  semantic   = Typesense vector similarity (or hybrid rank_fusion_score)
+  semantic   = PostgreSQL search index vector similarity (or hybrid rank_fusion_score)
   recency    = exp(-0.005 × age_in_days)  // search; decay processor uses -0.015
   importance = memory.importance (boosted by recall, pinning, direct mention)
   trust      = connector_base_trust × factuality_confidence
@@ -663,14 +667,14 @@ sequenceDiagram
 
 ### 8.2 Event Types
 
-| Channel | Event | Payload | Source |
-|---------|-------|---------|--------|
-| `jobs` | `job:progress` | `{ jobId, progress, total }` | SyncProcessor |
-| `jobs` | `job:status` | `{ jobId, status, error? }` | JobsService |
-| `memory` | `memory:processed` | `{ memoryId, accountId }` | EmbedProcessor |
-| `memory` | `memory:enriched` | `{ memoryId, entities, claims }` | EnrichProcessor |
-| `connectors` | `phone-auth:code` | `{ qrCode, accountId }` | WhatsAppConnector |
-| `connectors` | `phone-auth:2fa` | `{ accountId }` | WhatsAppConnector |
+| Channel      | Event              | Payload                          | Source            |
+| ------------ | ------------------ | -------------------------------- | ----------------- |
+| `jobs`       | `job:progress`     | `{ jobId, progress, total }`     | SyncProcessor     |
+| `jobs`       | `job:status`       | `{ jobId, status, error? }`      | JobsService       |
+| `memory`     | `memory:processed` | `{ memoryId, accountId }`        | EmbedProcessor    |
+| `memory`     | `memory:enriched`  | `{ memoryId, entities, claims }` | EnrichProcessor   |
+| `connectors` | `phone-auth:code`  | `{ qrCode, accountId }`          | WhatsAppConnector |
+| `connectors` | `phone-auth:2fa`   | `{ accountId }`                  | WhatsAppConnector |
 
 ---
 
@@ -734,12 +738,12 @@ flowchart TD
 
 ### 10.1 BullMQ Queue Settings
 
-| Queue | Concurrency | Lock Duration | Max Attempts | Backoff |
-|-------|-------------|---------------|--------------|---------|
-| `sync` | 1 | 300s | 3 | Exponential (5s base) |
-| `clean` | 5 | 300s | 3 | Exponential (5s base) |
-| `embed` | 3 (configurable) | 300s | 3 | Exponential (5s base) |
-| `enrich` | 3 (configurable) | 300s | 3 | Exponential (5s base) |
+| Queue    | Concurrency      | Lock Duration | Max Attempts | Backoff               |
+| -------- | ---------------- | ------------- | ------------ | --------------------- |
+| `sync`   | 1                | 300s          | 3            | Exponential (5s base) |
+| `clean`  | 5                | 300s          | 3            | Exponential (5s base) |
+| `embed`  | 3 (configurable) | 300s          | 3            | Exponential (5s base) |
+| `enrich` | 3 (configurable) | 300s          | 3            | Exponential (5s base) |
 
 ### 10.2 Job State Machine
 
@@ -763,35 +767,35 @@ stateDiagram-v2
 
 ### 11.1 REST API Routes
 
-| Method | Path | Controller | Auth | Purpose |
-|--------|------|------------|------|---------|
-| `POST` | `/api/user-auth/signup` | UserAuthController | None | Register user |
-| `POST` | `/api/user-auth/login` | UserAuthController | None | Login (JWT) |
-| `POST` | `/api/user-auth/firebase-login` | UserAuthController | Firebase | Firebase SSO |
-| `POST` | `/api/user-auth/recovery-key` | UserAuthController | Auth | Submit recovery key |
-| `GET` | `/api/accounts` | AccountsController | Auth | List accounts |
-| `POST` | `/api/accounts` | AccountsController | Auth | Create account |
-| `DELETE` | `/api/accounts/:id` | AccountsController | Auth | Delete account |
-| `GET` | `/api/connectors` | ConnectorsController | Auth | List available connectors |
-| `GET` | `/api/connectors/:type/manifest` | ConnectorsController | Auth | Get connector manifest |
-| `POST` | `/api/auth/:type/initiate` | AuthController | Auth | Start OAuth/QR flow |
-| `GET` | `/api/auth/:type/callback` | AuthController | None | OAuth callback |
-| `POST` | `/api/jobs/sync/:accountId` | JobsController | Auth | Trigger sync |
-| `GET` | `/api/jobs` | JobsController | Auth | List jobs |
-| `GET` | `/api/jobs/:id` | JobsController | Auth | Get job detail |
-| `GET` | `/api/jobs/:id/logs` | JobsController | Auth | Get job logs |
-| `GET` | `/api/memory/search` | MemoryController | Auth | Search memories |
-| `GET` | `/api/memory/:id` | MemoryController | Auth | Get single memory |
-| `GET` | `/api/memory/graph` | MemoryController | Auth | Get memory graph |
-| `GET` | `/api/memory/timeline` | MemoryController | Auth | Timeline view |
-| `GET` | `/api/people` | PeopleController | Auth | List contacts |
-| `POST` | `/api/people/merge` | PeopleController | Auth | Merge contacts |
-| `GET` | `/api/memory-banks` | MemoryBanksController | Auth | List memory banks |
-| `POST` | `/api/memory-banks` | MemoryBanksController | Auth | Create bank |
-| `GET` | `/api/settings` | SettingsController | Auth | Get settings |
-| `PUT` | `/api/settings` | SettingsController | Auth | Update settings |
-| `GET` | `/api/version` | AppController | None | Health check |
-| `WS` | `/events` | EventsGateway | Auth | Real-time events |
+| Method   | Path                             | Controller            | Auth     | Purpose                   |
+| -------- | -------------------------------- | --------------------- | -------- | ------------------------- |
+| `POST`   | `/api/user-auth/signup`          | UserAuthController    | None     | Register user             |
+| `POST`   | `/api/user-auth/login`           | UserAuthController    | None     | Login (JWT)               |
+| `POST`   | `/api/user-auth/firebase-login`  | UserAuthController    | Firebase | Firebase SSO              |
+| `POST`   | `/api/user-auth/recovery-key`    | UserAuthController    | Auth     | Submit recovery key       |
+| `GET`    | `/api/accounts`                  | AccountsController    | Auth     | List accounts             |
+| `POST`   | `/api/accounts`                  | AccountsController    | Auth     | Create account            |
+| `DELETE` | `/api/accounts/:id`              | AccountsController    | Auth     | Delete account            |
+| `GET`    | `/api/connectors`                | ConnectorsController  | Auth     | List available connectors |
+| `GET`    | `/api/connectors/:type/manifest` | ConnectorsController  | Auth     | Get connector manifest    |
+| `POST`   | `/api/auth/:type/initiate`       | AuthController        | Auth     | Start OAuth/QR flow       |
+| `GET`    | `/api/auth/:type/callback`       | AuthController        | None     | OAuth callback            |
+| `POST`   | `/api/jobs/sync/:accountId`      | JobsController        | Auth     | Trigger sync              |
+| `GET`    | `/api/jobs`                      | JobsController        | Auth     | List jobs                 |
+| `GET`    | `/api/jobs/:id`                  | JobsController        | Auth     | Get job detail            |
+| `GET`    | `/api/jobs/:id/logs`             | JobsController        | Auth     | Get job logs              |
+| `GET`    | `/api/memory/search`             | MemoryController      | Auth     | Search memories           |
+| `GET`    | `/api/memory/:id`                | MemoryController      | Auth     | Get single memory         |
+| `GET`    | `/api/memory/graph`              | MemoryController      | Auth     | Get memory graph          |
+| `GET`    | `/api/memory/timeline`           | MemoryController      | Auth     | Timeline view             |
+| `GET`    | `/api/people`                    | PeopleController      | Auth     | List contacts             |
+| `POST`   | `/api/people/merge`              | PeopleController      | Auth     | Merge contacts            |
+| `GET`    | `/api/memory-banks`              | MemoryBanksController | Auth     | List memory banks         |
+| `POST`   | `/api/memory-banks`              | MemoryBanksController | Auth     | Create bank               |
+| `GET`    | `/api/settings`                  | SettingsController    | Auth     | Get settings              |
+| `PUT`    | `/api/settings`                  | SettingsController    | Auth     | Update settings           |
+| `GET`    | `/api/version`                   | AppController         | None     | Health check              |
+| `WS`     | `/events`                        | EventsGateway         | Auth     | Real-time events          |
 
 ---
 
@@ -845,7 +849,7 @@ graph TB
         API["botmem-api<br/>:12412<br/>NestJS app"]
         PG["postgres:16<br/>:5432<br/>Primary datastore"]
         Redis["redis:7-alpine<br/>:6379<br/>Queue + key cache<br/>(AOF persistence)"]
-        TS["typesense/typesense<br/>:8108<br/>Search engine"]
+        TS["PostgreSQL search index/PostgreSQL search index<br/>:8108<br/>Search engine"]
     end
 
     Internet["Internet<br/>(botmem.xyz)"] -->|"HTTPS :443"| Caddy
@@ -857,7 +861,7 @@ graph TB
     subgraph "Volumes"
         PGData["pg_data"]
         RedisData["redis_data"]
-        TSData["typesense_data"]
+        TSData["PostgreSQL search index_data"]
     end
 
     PG --> PGData

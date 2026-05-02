@@ -23,8 +23,10 @@ export class SettingsService implements OnModuleInit {
   async onModuleInit() {
     // Seed all missing defaults in one query, then load all into cache
     const defaultValues = Object.entries(DEFAULTS).map(([key, value]) => ({ key, value }));
-    await this.dbService.db.insert(settings).values(defaultValues).onConflictDoNothing();
-    const rows = await this.dbService.db.select().from(settings);
+    await this.dbService.systemDb((db) =>
+      db.insert(settings).values(defaultValues).onConflictDoNothing(),
+    );
+    const rows = await this.dbService.systemDb((db) => db.select().from(settings));
     for (const row of rows) {
       this.cache[row.key] = row.value;
     }
@@ -39,10 +41,12 @@ export class SettingsService implements OnModuleInit {
   }
 
   async set(key: string, value: string): Promise<void> {
-    await this.dbService.db
-      .insert(settings)
-      .values({ key, value })
-      .onConflictDoUpdate({ target: settings.key, set: { value } });
+    await this.dbService.systemDb((db) =>
+      db
+        .insert(settings)
+        .values({ key, value })
+        .onConflictDoUpdate({ target: settings.key, set: { value } }),
+    );
     this.cache[key] = value;
     for (const listener of this.listeners) {
       listener(key, value);

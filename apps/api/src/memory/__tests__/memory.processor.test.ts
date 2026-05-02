@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildWhatsAppGroupIdentity, shouldMergeEntityResolutionBucket } from '../memory.processor';
+import {
+  buildWhatsAppGroupIdentity,
+  shouldMergeEntityResolutionBucket,
+} from '../connector-normalizers/whatsapp-group-identity';
 
 describe('shouldMergeEntityResolutionBucket', () => {
   it('never fuses person entities before person resolution', () => {

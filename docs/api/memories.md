@@ -6,7 +6,7 @@ All endpoints require `Authorization: Bearer <token>` header. See [Authenticatio
 
 ## Search Memories
 
-Performs semantic search across all memories using hybrid BM25 + vector similarity in Typesense.
+Performs semantic search across all memories using hybrid BM25 + vector similarity in PostgreSQL search index.
 
 ```
 POST /api/memories/search
@@ -267,7 +267,7 @@ POST /api/memories
 
 ## Delete Memory
 
-Removes a memory from both PostgreSQL and Typesense.
+Removes a memory from both PostgreSQL and PostgreSQL search index.
 
 ```
 DELETE /api/memories/:id

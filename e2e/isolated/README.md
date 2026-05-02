@@ -57,7 +57,6 @@ bash e2e/isolated/down.sh managed
 - App/API: `22412`
 - Postgres: `25432`
 - Redis: `26379`
-- Typesense: `28108`
 - Optional Ollama profile: `21434`
 
 ### Managed
@@ -65,7 +64,6 @@ bash e2e/isolated/down.sh managed
 - App/API: `32412`
 - Postgres: `35432`
 - Redis: `36379`
-- Typesense: `38108`
 
 ## Reports and notes
 
@@ -78,4 +76,3 @@ Each mode has:
 - `reports/SETUP_NOTES.md`
 - `checklists/DATA_READINESS_CHECKLIST.md`
 - `checklists/SEARCH_QUERY_PACK.md`
-

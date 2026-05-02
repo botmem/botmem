@@ -70,7 +70,15 @@ describe('OAuthService', () => {
     const module = await Test.createTestingModule({
       providers: [
         OAuthService,
-        { provide: DbService, useValue: { db: mockDb } },
+        {
+          provide: DbService,
+          useValue: {
+            db: mockDb,
+            systemDb: vi
+              .fn()
+              .mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+          },
+        },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configService },
       ],

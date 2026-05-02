@@ -63,7 +63,7 @@
     "semantic-search",
     "connectors",
     "nestjs",
-    "typesense"
+    "search index"
   ],
   "license": "AGPL-3.0",
   "packageManager": "pnpm@9.15.0",

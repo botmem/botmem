@@ -24,11 +24,13 @@ export class BillingService {
   }
 
   async getOrCreateStripeCustomer(userId: string, email: string): Promise<string> {
-    const [user] = await this.db.db
-      .select({ stripeCustomerId: users.stripeCustomerId })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const [user] = await this.db.userDb(userId, (db) =>
+      db
+        .select({ stripeCustomerId: users.stripeCustomerId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1),
+    );
 
     if (user?.stripeCustomerId) return user.stripeCustomerId;
 
@@ -37,10 +39,9 @@ export class BillingService {
       metadata: { userId },
     });
 
-    await this.db.db
-      .update(users)
-      .set({ stripeCustomerId: customer.id })
-      .where(eq(users.id, userId));
+    await this.db.userDb(userId, (db) =>
+      db.update(users).set({ stripeCustomerId: customer.id }).where(eq(users.id, userId)),
+    );
 
     return customer.id;
   }
@@ -61,11 +62,13 @@ export class BillingService {
   }
 
   async createPortalSession(userId: string): Promise<{ url: string }> {
-    const [user] = await this.db.db
-      .select({ stripeCustomerId: users.stripeCustomerId, email: users.email })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const [user] = await this.db.userDb(userId, (db) =>
+      db
+        .select({ stripeCustomerId: users.stripeCustomerId, email: users.email })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1),
+    );
 
     if (!user) throw new Error('User not found');
 
@@ -92,14 +95,16 @@ export class BillingService {
   }
 
   async getBillingInfo(userId: string): Promise<BillingInfo> {
-    const rows = await this.db.db
-      .select({
-        subscriptionStatus: users.subscriptionStatus,
-        subscriptionCurrentPeriodEnd: users.subscriptionCurrentPeriodEnd,
-      })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const rows = await this.db.userDb(userId, (db) =>
+      db
+        .select({
+          subscriptionStatus: users.subscriptionStatus,
+          subscriptionCurrentPeriodEnd: users.subscriptionCurrentPeriodEnd,
+        })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1),
+    );
     const user = rows[0];
 
     const status = (user?.subscriptionStatus || 'free') as BillingInfo['status'];
@@ -133,14 +138,16 @@ export class BillingService {
           this.logger.warn('Checkout session missing client_reference_id');
           return;
         }
-        await this.db.db
-          .update(users)
-          .set({
-            stripeCustomerId: session.customer as string,
-            subscriptionId: session.subscription as string,
-            subscriptionStatus: 'active',
-          })
-          .where(eq(users.id, userId));
+        await this.db.systemDb((db) =>
+          db
+            .update(users)
+            .set({
+              stripeCustomerId: session.customer as string,
+              subscriptionId: session.subscription as string,
+              subscriptionStatus: 'active',
+            })
+            .where(eq(users.id, userId)),
+        );
         this.logger.log(`User ${userId} subscribed (checkout completed)`);
         break;
       }
@@ -157,29 +164,33 @@ export class BillingService {
                 : subscription.status === 'canceled'
                   ? 'canceled'
                   : subscription.status;
-        await this.db.db
-          .update(users)
-          .set({
-            subscriptionStatus: status,
-            subscriptionCurrentPeriodEnd: new Date(
-              (subscription as unknown as Record<string, number>).current_period_end * 1000,
-            ),
-          })
-          .where(eq(users.stripeCustomerId, subscription.customer as string));
+        await this.db.systemDb((db) =>
+          db
+            .update(users)
+            .set({
+              subscriptionStatus: status,
+              subscriptionCurrentPeriodEnd: new Date(
+                (subscription as unknown as Record<string, number>).current_period_end * 1000,
+              ),
+            })
+            .where(eq(users.stripeCustomerId, subscription.customer as string)),
+        );
         this.logger.log(`Subscription ${subscription.id} updated → ${status}`);
         break;
       }
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
-        await this.db.db
-          .update(users)
-          .set({
-            subscriptionStatus: 'free',
-            subscriptionId: null,
-            subscriptionCurrentPeriodEnd: null,
-          })
-          .where(eq(users.stripeCustomerId, subscription.customer as string));
+        await this.db.systemDb((db) =>
+          db
+            .update(users)
+            .set({
+              subscriptionStatus: 'free',
+              subscriptionId: null,
+              subscriptionCurrentPeriodEnd: null,
+            })
+            .where(eq(users.stripeCustomerId, subscription.customer as string)),
+        );
         this.logger.log(`Subscription ${subscription.id} deleted → free`);
         break;
       }
@@ -187,10 +198,12 @@ export class BillingService {
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice;
         if (invoice.customer) {
-          await this.db.db
-            .update(users)
-            .set({ subscriptionStatus: 'past_due' })
-            .where(eq(users.stripeCustomerId, invoice.customer as string));
+          await this.db.systemDb((db) =>
+            db
+              .update(users)
+              .set({ subscriptionStatus: 'past_due' })
+              .where(eq(users.stripeCustomerId, invoice.customer as string)),
+          );
           this.logger.warn(`Payment failed for customer ${invoice.customer}`);
         }
         break;

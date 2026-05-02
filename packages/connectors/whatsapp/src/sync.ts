@@ -306,7 +306,7 @@ function nameFromVcard(vcard: string): string {
   return '';
 }
 
-/** Download image or document media and return base64-encoded content */
+/** Download searchable media and return base64-encoded content */
 async function downloadMedia(
   msg: WAMessage,
 ): Promise<{ base64: string; mimetype: string; fileName?: string } | null> {
@@ -322,6 +322,10 @@ async function downloadMedia(
     mediaMsg = m.imageMessage;
     mediaType = 'image';
     mime = m.imageMessage.mimetype || 'image/jpeg';
+  } else if (m.audioMessage) {
+    mediaMsg = m.audioMessage;
+    mediaType = 'audio';
+    mime = m.audioMessage.mimetype || 'audio/ogg';
   } else if (m.documentMessage) {
     mediaMsg = m.documentMessage;
     mediaType = 'document';
@@ -626,7 +630,7 @@ async function createSyncSocket(
   return sock;
 }
 
-function buildMessageEvent(
+async function buildMessageEvent(
   msg: WAMessage,
   source: string,
   selfPhone: string,
@@ -637,7 +641,7 @@ function buildMessageEvent(
   chatNames: Map<string, string>,
   groupParticipants: Map<string, Set<string>>,
   log?: (level: 'info' | 'warn' | 'error' | 'debug', message: string) => void,
-): ConnectorDataEvent | null {
+): Promise<ConnectorDataEvent | null> {
   if (!msg.message) return null;
 
   const m = msg.message;
@@ -777,6 +781,18 @@ function buildMessageEvent(
 
   const msgTs = Number(msg.messageTimestamp || 0);
   const messageId = msg.key?.id || `${Date.now()}`;
+  let fileBase64: string | undefined;
+  let fileMimetype: string | undefined;
+  let fileFileName: string | undefined;
+  if (msgType.type === 'image' || msgType.type === 'document' || msgType.type === 'audio') {
+    const media = await downloadMedia(msg);
+    if (media) {
+      fileBase64 = media.base64;
+      fileMimetype = media.mimetype;
+      fileFileName = media.fileName || msgType.fileName;
+    }
+  }
+
   return {
     sourceType: 'message',
     sourceId: `wa-msg:${messageId}`,
@@ -800,6 +816,9 @@ function buildMessageEvent(
         sharedContacts: sharedContacts.length > 0 ? sharedContacts : undefined,
         location: location || undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
+        fileBase64,
+        mimetype: fileMimetype,
+        fileName: fileFileName,
       },
     },
   };
@@ -858,7 +877,7 @@ export async function startWhatsAppRealtime(
         continue;
       }
       await emitRealtimeEvent(
-        buildMessageEvent(
+        await buildMessageEvent(
           msg,
           source,
           phoneFromJid(sock.user?.id || ''),
@@ -939,7 +958,7 @@ export async function startWhatsAppRealtime(
         if (chat.id && chat.name) chatNames.set(chat.id, chat.name);
       for (const msg of data.messages || []) {
         storeMessage(msg.key, msg.message);
-        const event = buildMessageEvent(
+        const event = await buildMessageEvent(
           msg,
           'history',
           phoneFromJid(sock.user?.id || ''),
@@ -1484,11 +1503,14 @@ export async function syncWhatsApp(
       if (first) emittedSourceIds.delete(first);
     }
 
-    // Download image/document media if available
+    // Download searchable media if available
     let fileBase64: string | undefined;
     let fileMimetype: string | undefined;
     let fileFileName: string | undefined;
-    if (!skipMedia && (msgType.type === 'image' || msgType.type === 'document')) {
+    if (
+      !skipMedia &&
+      (msgType.type === 'image' || msgType.type === 'document' || msgType.type === 'audio')
+    ) {
       const media = await downloadMedia(msg);
       if (media) {
         fileBase64 = media.base64;

@@ -9,7 +9,7 @@ export const askHelp = `
 
   OPTIONS
     --summarize          Use LLM summarization (POST /agent/summarize)
-    --conversation <id>  Continue a conversation (Typesense conversational RAG)
+    --conversation <id>  Continue a conversation (Postgres search conversational RAG)
     --source <type>      Filter by source (email, message, photo, location)
     --connector <type>   Filter by connector (gmail, slack, whatsapp, imessage)
     --memory-bank <id>   Filter by memory bank ID

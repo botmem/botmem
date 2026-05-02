@@ -4,12 +4,14 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import supertest from 'supertest';
-import { ensureApiRunning,
+import {
+  ensureApiRunning,
   closeApp,
   getHttpServer,
   registerUser,
   authedRequest,
-  type TestUser } from '../helpers/index.js';
+  type TestUser,
+} from '../helpers/index.js';
 
 describe('Billing & Plugins (USER-053 → USER-060)', () => {
   let user: TestUser;
@@ -29,9 +31,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
 
   // USER-053: GET /billing/info returns current plan
   it('USER-053 billing info returns plan status and usage', async () => {
-    const res = await authedRequest(user.accessToken)
-      .get('/api/billing/info')
-      .expect(200);
+    const res = await authedRequest(user.accessToken).get('/api/billing/info').expect(200);
 
     expect(res.body).toHaveProperty('enabled');
     if (res.body.enabled) {
@@ -42,9 +42,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
 
   // USER-054: Billing usage reflects actual counts
   it('USER-054 billing info reflects memory and connector counts', async () => {
-    const res = await authedRequest(user.accessToken)
-      .get('/api/billing/info')
-      .expect(200);
+    const res = await authedRequest(user.accessToken).get('/api/billing/info').expect(200);
 
     if (res.body.enabled && res.body.usage) {
       expect(typeof res.body.usage.memoryCount).toBe('number');
@@ -72,9 +70,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
   // USER-057: Missing PLUGINS_DIR → no crash
   it('USER-057 missing plugins directory does not crash server', async () => {
     // Server is already running, confirming it didn't crash on startup
-    const res = await authedRequest(user.accessToken)
-      .get('/api/me')
-      .expect(200);
+    const res = await authedRequest(user.accessToken).get('/api/me').expect(200);
     expect(res.body).toBeDefined();
   });
 
@@ -84,7 +80,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
       .post('/api/memories/search')
       .send({ query: 'test' });
 
-    // Search should work regardless of plugin hooks (500 if Typesense/AI down)
+    // Search should work regardless of plugin hooks (500 if search/AI is down)
     expect([200, 400, 500]).toContain(res.status);
   });
 
@@ -100,7 +96,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
       seedRes = await fetch('http://localhost:12412/api/demo/seed', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.accessToken}`,
+          Authorization: `Bearer ${user.accessToken}`,
           'Content-Type': 'application/json',
         },
         signal: controller.signal,
@@ -131,8 +127,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
 
   describe('Billing checkout and portal (self-hosted mode)', () => {
     it('checkout returns error in self-hosted mode', async () => {
-      const res = await authedRequest(user.accessToken)
-        .post('/api/billing/checkout');
+      const res = await authedRequest(user.accessToken).post('/api/billing/checkout');
 
       // Self-hosted: 400 (billing not available)
       // Cloud: 200/302 (redirect to Stripe)
@@ -140,8 +135,7 @@ describe('Billing & Plugins (USER-053 → USER-060)', () => {
     });
 
     it('portal returns error in self-hosted mode', async () => {
-      const res = await authedRequest(user.accessToken)
-        .post('/api/billing/portal');
+      const res = await authedRequest(user.accessToken).post('/api/billing/portal');
 
       // Self-hosted: 400 (billing not available)
       // Cloud: 200 (portal URL)

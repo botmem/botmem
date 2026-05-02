@@ -16,13 +16,14 @@ describe('MemoryService', () => {
     embedQuery: ReturnType<typeof vi.fn>;
     generate: ReturnType<typeof vi.fn>;
   };
-  let typesenseService: {
+  let searchIndexService: {
     search: ReturnType<typeof vi.fn>;
     hybridSearch: ReturnType<typeof vi.fn>;
     ensureCollection: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
     buildFilterString: ReturnType<typeof vi.fn>;
+    buildLegacyFilter: ReturnType<typeof vi.fn>;
     textSearch: ReturnType<typeof vi.fn>;
     getSchemaStatus: ReturnType<typeof vi.fn>;
   };
@@ -64,7 +65,7 @@ describe('MemoryService', () => {
       generate: vi.fn().mockResolvedValue('generated text'),
     };
 
-    typesenseService = {
+    searchIndexService = {
       search: vi.fn().mockResolvedValue([]),
       hybridSearch: vi.fn().mockResolvedValue({ results: [], facetCounts: [], found: 0 }),
       ensureCollection: vi.fn(),
@@ -79,7 +80,7 @@ describe('MemoryService', () => {
         status: 'current',
         missingFields: [],
       }),
-      buildTypesenseFilter: vi.fn().mockReturnValue(''),
+      buildLegacyFilter: vi.fn().mockReturnValue(''),
     };
 
     connectorsService = {
@@ -145,7 +146,7 @@ describe('MemoryService', () => {
     service = new MemoryService(
       makeDbService(mockDb),
       aiService,
-      typesenseService,
+      searchIndexService,
       connectorsService,
       pluginRegistry,
       cryptoService,
@@ -168,7 +169,7 @@ describe('MemoryService', () => {
     it('embeds the query and calls search pipeline', async () => {
       const result = await service.search('meeting with john');
       expect(aiService.embedQuery).toHaveBeenCalled();
-      expect(typesenseService.textSearch).toHaveBeenCalled();
+      expect(searchIndexService.textSearch).toHaveBeenCalled();
       expect(result).toHaveProperty('items');
     });
 
@@ -196,7 +197,7 @@ describe('MemoryService', () => {
     });
 
     it('applies source type filter from NLQ', async () => {
-      typesenseService.hybridSearch.mockResolvedValueOnce({
+      searchIndexService.hybridSearch.mockResolvedValueOnce({
         results: [],
         facetCounts: [],
         found: 0,
@@ -316,13 +317,13 @@ describe('MemoryService', () => {
   });
 
   describe('delete', () => {
-    it('deletes memory from DB and Qdrant', async () => {
+    it('deletes memory from DB and search index', async () => {
       await service.delete('mem-1');
-      expect(typesenseService.remove).toHaveBeenCalledWith('mem-1');
+      expect(searchIndexService.remove).toHaveBeenCalledWith('mem-1');
     });
 
-    it('handles Qdrant removal failure gracefully', async () => {
-      typesenseService.remove.mockRejectedValueOnce(new Error('Qdrant down'));
+    it('handles search index removal failure gracefully', async () => {
+      searchIndexService.remove.mockRejectedValueOnce(new Error('search index down'));
       // Should not throw
       await service.delete('mem-1');
     });

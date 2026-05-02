@@ -36,6 +36,8 @@ business/
 .claude/worktrees/
 .agents/
 scripts/
+!apps/api/scripts/
+!apps/api/scripts/backfill-pg-search-from-typesense.js
 *.swp
 @notes.md
 TODO.md

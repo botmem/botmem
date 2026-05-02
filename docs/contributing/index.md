@@ -22,7 +22,7 @@ pnpm install
 ### Start Infrastructure
 
 ```bash
-docker compose up -d postgres redis typesense   # Start backing services only
+docker compose up -d postgres redis   # Start backing services only
 ```
 
 ### Configure Environment
@@ -204,7 +204,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:12412/api/memori
 
 - **PostgreSQL over SQLite** — multi-user support, proper concurrent writes, production-grade reliability
 - **BullMQ over direct processing** — decouples ingestion from processing, provides retries with backoff, enables concurrency control
-- **Typesense over pgvector** — dedicated search engine with built-in hybrid BM25 + vector search, filtering, and faceting
+- **PostgreSQL search index over pgvector** — dedicated search engine with built-in hybrid BM25 + vector search, filtering, and faceting
 - **Ollama + OpenRouter** — local-first with cloud fallback, swappable via single env var
 - **Recovery key over password-derived encryption** — password changes don't invalidate encrypted data
 - **Cursor-based sync** — enables incremental sync without re-fetching all data

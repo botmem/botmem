@@ -8,7 +8,7 @@ describe('AccountsService', () => {
   let dbService: Record<string, unknown>;
   let crypto: Record<string, ReturnType<typeof vi.fn>>;
   let connectors: Record<string, ReturnType<typeof vi.fn>>;
-  let typesense: Record<string, ReturnType<typeof vi.fn>>;
+  let searchIndex: Record<string, ReturnType<typeof vi.fn>>;
   let analytics: Record<string, ReturnType<typeof vi.fn>>;
   let syncQueue: Record<string, ReturnType<typeof vi.fn>>;
 
@@ -50,7 +50,7 @@ describe('AccountsService', () => {
         revokeAuth: vi.fn().mockResolvedValue(undefined),
       }),
     };
-    typesense = {
+    searchIndex = {
       remove: vi.fn().mockResolvedValue(undefined),
     };
     analytics = { capture: vi.fn() };
@@ -59,7 +59,7 @@ describe('AccountsService', () => {
       removeRepeatableByKey: vi.fn().mockResolvedValue(undefined),
       getJob: vi.fn().mockResolvedValue(null),
     };
-    service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+    service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics, syncQueue);
   });
 
   describe('create', () => {
@@ -77,7 +77,7 @@ describe('AccountsService', () => {
         [account], // getById after create
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       const result = await service.create({
         connectorType: 'gmail',
@@ -99,7 +99,7 @@ describe('AccountsService', () => {
       ];
       mockDb.where = vi.fn(() => Promise.resolve(rows));
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       const result = await service.getAll();
       expect(result).toHaveLength(2);
@@ -111,7 +111,7 @@ describe('AccountsService', () => {
       const rows = [{ id: '1', authContext: 'enc:ctx1' }];
       mockDb.where = vi.fn(() => Promise.resolve(rows));
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       const result = await service.getAll('user-1');
       expect(result).toHaveLength(1);
@@ -123,7 +123,7 @@ describe('AccountsService', () => {
       const account = { id: 'a1', authContext: 'enc:ctx' };
       mockDb = createChainDb([[account]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       const result = await service.getById('a1');
       expect(result.id).toBe('a1');
@@ -133,7 +133,7 @@ describe('AccountsService', () => {
     it('throws NotFoundException when not found', async () => {
       mockDb = createChainDb([[]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       await expect(service.getById('nonexistent')).rejects.toThrow(NotFoundException);
     });
@@ -149,7 +149,7 @@ describe('AccountsService', () => {
         [updated], // getById return
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       await service.update('a1', { authContext: 'new-ctx' });
       expect(crypto.encrypt).toHaveBeenCalledWith('new-ctx');
@@ -159,7 +159,7 @@ describe('AccountsService', () => {
       const existing = { id: 'a1', authContext: null };
       mockDb = createChainDb([[existing], undefined, [existing]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       await service.update('a1', { lastSyncAt: '2025-01-01T00:00:00Z' });
       // Should have set lastSyncAt as Date
@@ -170,7 +170,7 @@ describe('AccountsService', () => {
     it('throws if account not found', async () => {
       mockDb = createChainDb([[]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       await expect(service.update('nonexistent', { status: 'disconnected' })).rejects.toThrow(
         NotFoundException,
@@ -188,7 +188,7 @@ describe('AccountsService', () => {
       };
       mockDb = createChainDb([[account]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       const result = await service.findByTypeAndIdentifier('gmail', 'test@x.com');
       expect(result!.id).toBe('a1');
@@ -197,7 +197,7 @@ describe('AccountsService', () => {
     it('returns null when not found', async () => {
       mockDb = createChainDb([[]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       const result = await service.findByTypeAndIdentifier('gmail', 'none@x.com');
       expect(result).toBeNull();
@@ -206,7 +206,7 @@ describe('AccountsService', () => {
     it('adds userId condition when provided', async () => {
       mockDb = createChainDb([[]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics);
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
 
       await service.findByTypeAndIdentifier('gmail', 'test@x.com', 'user-1');
       expect(mockDb.where).toHaveBeenCalled();
@@ -223,7 +223,14 @@ describe('AccountsService', () => {
         undefined, // archive account
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+      service = new AccountsService(
+        dbService,
+        crypto,
+        connectors,
+        searchIndex,
+        analytics,
+        syncQueue,
+      );
 
       await service.remove('a1');
       expect(connectors.get).toHaveBeenCalledWith('gmail');
@@ -248,7 +255,14 @@ describe('AccountsService', () => {
         undefined,
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+      service = new AccountsService(
+        dbService,
+        crypto,
+        connectors,
+        searchIndex,
+        analytics,
+        syncQueue,
+      );
 
       // Should not throw
       await service.remove('a1');
@@ -257,7 +271,14 @@ describe('AccountsService', () => {
     it('throws if account not found', async () => {
       mockDb = createChainDb([[]]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+      service = new AccountsService(
+        dbService,
+        crypto,
+        connectors,
+        searchIndex,
+        analytics,
+        syncQueue,
+      );
 
       await expect(service.remove('nonexistent')).rejects.toThrow(NotFoundException);
     });
@@ -273,7 +294,14 @@ describe('AccountsService', () => {
         undefined,
       ]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+      service = new AccountsService(
+        dbService,
+        crypto,
+        connectors,
+        searchIndex,
+        analytics,
+        syncQueue,
+      );
 
       await service.remove('a1');
     });
@@ -283,7 +311,14 @@ describe('AccountsService', () => {
       connectors.get.mockReturnValue(null);
       mockDb = createChainDb([[account], [], undefined, undefined, undefined, undefined]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+      service = new AccountsService(
+        dbService,
+        crypto,
+        connectors,
+        searchIndex,
+        analytics,
+        syncQueue,
+      );
 
       await service.remove('a1');
     });
@@ -296,7 +331,14 @@ describe('AccountsService', () => {
       ]);
       mockDb = createChainDb([[account], [], undefined, undefined, undefined, undefined]);
       dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
-      service = new AccountsService(dbService, crypto, connectors, typesense, analytics, syncQueue);
+      service = new AccountsService(
+        dbService,
+        crypto,
+        connectors,
+        searchIndex,
+        analytics,
+        syncQueue,
+      );
 
       await service.remove('a1');
       expect(syncQueue.removeRepeatableByKey).toHaveBeenCalledWith('repeat:k1');

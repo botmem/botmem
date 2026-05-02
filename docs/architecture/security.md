@@ -94,7 +94,7 @@ The API uses [`@nestjs/throttler`](https://docs.nestjs.com/security/rate-limitin
 What gets encrypted at rest (AES-256-GCM with the user's recovery key):
 
 - **Encrypted:** connector OAuth tokens, API keys, refresh tokens, and any credentials stored in the `accounts.authContext` and `connectorCredentials` columns
-- **Not encrypted:** memory text, entity extractions, embeddings, contact display names, and search index data in Typesense
+- **Not encrypted:** memory text, entity extractions, embeddings, contact display names, and search index data in PostgreSQL search index
 
 The recovery key itself is never stored in plaintext — only its SHA-256 hash is persisted. The key is cached in-memory and in Redis (encrypted with `APP_SECRET`) for active sessions.
 
@@ -106,5 +106,5 @@ The recovery key itself is never stored in plaintext — only its SHA-256 hash i
 - [ ] `FRONTEND_URL` set to your production domain
 - [ ] PostgreSQL password is strong and not the default
 - [ ] Redis is not exposed to the public internet
-- [ ] Typesense is not exposed to the public internet
+- [ ] PostgreSQL search index is not exposed to the public internet
 - [ ] Backups configured for PostgreSQL and Redis

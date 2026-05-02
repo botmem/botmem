@@ -38,7 +38,7 @@ Each stage of the pipeline is idempotent. If an embed or enrich job fails, it ca
               +------------+------------+
               |            |            |
         +-----+----+ +----+-----+ +----+-----+
-        |  Redis   | | Typesense| | AI       |
+        |  Redis   | | PostgreSQL search index| | AI       |
         |  BullMQ  | |  Search  | | Ollama / |
         |  :6379   | |  :8108   | | OpenRouter|
         +----------+ +----------+ +----------+
@@ -77,7 +77,7 @@ JobsModule ──────────── (depends on              |    |
                                                   |    |
 MemoryModule ────────── (depends on              |    |
                          Db, Contacts,           |    |
-                         AI, Typesense,             |    |
+                         AI, PostgreSQL search index,             |    |
                          BullMQ, Logs,           |    |
                          Events, Settings) ───────┤    |
                                                   |    |
@@ -105,7 +105,7 @@ The system operates on three core data entities:
 The central entity. Each memory represents a normalized event from any source — an email, a chat message, a photo, a location point. Memories carry:
 
 - **Text content** — the searchable body
-- **Vector embedding** — 1024-dimensional vector in Typesense (or 3072d with OpenRouter/Gemini)
+- **Vector embedding** — 1024-dimensional vector in PostgreSQL search index (or 3072d with OpenRouter/Gemini)
 - **Weights** — semantic, recency, importance, trust scores
 - **Factuality** — label (FACT/UNVERIFIED/FICTION), confidence, rationale
 - **Entities** — extracted people, organizations, topics, dates
@@ -122,7 +122,7 @@ Deduplicated people resolved from memory participants. A single contact can have
 
 ### Memory Links
 
-Graph edges connecting related memories. Created automatically during enrichment when Typesense finds semantically similar memories:
+Graph edges connecting related memories. Created automatically during enrichment when PostgreSQL search index finds semantically similar memories:
 
 - **related** — the default type for similar memories (strength >= 0.8)
 - **supports** — one memory corroborates another

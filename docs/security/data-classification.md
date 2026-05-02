@@ -19,7 +19,7 @@ CASA Tier 2 self-attestation for ASVS 1.8.1, 1.8.2.
 
 | Data                  | Storage                               | Protection                                                                                                           |
 | --------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Memory text           | `memories.text`                       | AES-256-GCM with per-user DEK (recovery key). Stale DEK detection triggers recovery key prompt.                       |
+| Memory text           | `memories.text`                       | AES-256-GCM with per-user DEK (recovery key). Stale DEK detection triggers recovery key prompt.                      |
 | Memory entities       | `memories.entities`                   | AES-256-GCM with per-user DEK.                                                                                       |
 | Memory claims         | `memories.claims`                     | AES-256-GCM with per-user DEK.                                                                                       |
 | Memory metadata       | `memories.metadata`                   | AES-256-GCM with per-user DEK.                                                                                       |
@@ -93,7 +93,7 @@ CASA Tier 2 self-attestation for ASVS 1.8.1, 1.8.2.
 
 - **External traffic**: TLS 1.2+ via Caddy with automatic Let's Encrypt certificates (ACME).
 - **HSTS**: Enforced by Caddy configuration.
-- **Internal traffic**: All data-zone services (PostgreSQL, Redis, Typesense, Qdrant) communicate over Docker internal network with no exposed ports. API-to-data connections are unencrypted loopback (acceptable per CASA for same-host Docker networking).
+- **Internal traffic**: All data-zone services (PostgreSQL + pgvector, Redis, Qdrant) communicate over Docker internal network with no exposed ports. API-to-data connections are unencrypted loopback (acceptable per CASA for same-host Docker networking).
 - **CORS**: Origin whitelist from `FRONTEND_URL` environment variable. Credentials allowed. Methods restricted to standard REST verbs.
 - **WebSocket** (`/events`): Same origin policy, authenticated via JWT in connection handshake.
 

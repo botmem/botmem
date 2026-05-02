@@ -59,6 +59,7 @@ COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml
 COPY --from=build /app/apps/api/package.json apps/api/
 COPY --from=build /app/apps/api/dist apps/api/dist/
 COPY --from=build /app/apps/api/drizzle.config.ts apps/api/
+COPY --from=build /app/apps/api/scripts apps/api/scripts/
 COPY --from=build /app/apps/api/src/db apps/api/src/db/
 COPY --from=build /app/apps/web/dist apps/web/dist/
 COPY --from=build /app/packages/shared/package.json packages/shared/

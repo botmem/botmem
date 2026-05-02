@@ -110,10 +110,9 @@ export class JobsController {
     const row = await this.jobsService.getById(id);
     if (!row) return { error: 'not found' };
     // IDOR fix: verify job belongs to user's account
-    const userAccounts = await this.dbService.db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(eq(accounts.userId, user.id));
+    const userAccounts = await this.dbService.userDb(user.id, (db) =>
+      db.select({ id: accounts.id }).from(accounts).where(eq(accounts.userId, user.id)),
+    );
     const userAccountIds = new Set(userAccounts.map((a) => a.id));
     if (!userAccountIds.has(row.accountId)) return { error: 'not found' };
     return toApiJob(row);
@@ -150,10 +149,9 @@ export class JobsController {
     // IDOR fix: verify job belongs to user's account
     const row = await this.jobsService.getById(id);
     if (!row) return { error: 'not found' };
-    const userAccounts = await this.dbService.db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(eq(accounts.userId, user.id));
+    const userAccounts = await this.dbService.userDb(user.id, (db) =>
+      db.select({ id: accounts.id }).from(accounts).where(eq(accounts.userId, user.id)),
+    );
     if (!userAccounts.some((a) => a.id === row.accountId)) return { error: 'not found' };
     await this.jobsService.cancel(id);
     return { ok: true };

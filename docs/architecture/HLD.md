@@ -31,7 +31,7 @@ graph TB
     subgraph "Storage Layer"
         PG["PostgreSQL<br/>(Drizzle ORM)"]
         Redis["Redis<br/>(BullMQ + Cache)"]
-        TS["Typesense<br/>(Hybrid Search)"]
+        TS["PostgreSQL search index<br/>(Hybrid Search)"]
     end
 
     subgraph "AI Services"
@@ -155,7 +155,7 @@ flowchart LR
     C -->|"clean queue"| D["CleanProcessor<br/>(normalize text)"]
     D -->|"embed queue"| E["EmbedProcessor<br/>(Memory + embedding<br/>+ contact resolution)"]
     E -->|"enrich queue"| F["EnrichProcessor<br/>(entities, claims,<br/>factuality, importance)"]
-    F --> G["Typesense<br/>(searchable)"]
+    F --> G["PostgreSQL search index<br/>(searchable)"]
     E --> H["PostgreSQL<br/>(Memory record)"]
 ```
 
@@ -165,7 +165,7 @@ flowchart LR
 flowchart LR
     Q["User Query"] --> NLQ["NLQ Parser<br/>(temporal, entities,<br/>intent)"]
     NLQ --> EMB["Embed Query<br/>(AI backend)"]
-    EMB --> TS["Typesense<br/>Hybrid Search<br/>(BM25 + vector)"]
+    EMB --> TS["PostgreSQL search index<br/>Hybrid Search<br/>(BM25 + vector)"]
     TS --> RANK["Weighted Ranking<br/>(semantic 40%,<br/>recency 25%,<br/>importance 20%,<br/>trust 15%)"]
     RANK --> DEC["Decrypt Results"]
     DEC --> RES["Ranked Results<br/>+ Facets"]
@@ -182,7 +182,7 @@ graph TB
         API["NestJS API<br/>(Docker)"]
         PG["PostgreSQL<br/>(Docker)"]
         Redis["Redis<br/>(Docker, AOF)"]
-        TSProd["Typesense<br/>(Docker)"]
+        TSProd["PostgreSQL search index<br/>(Docker)"]
     end
 
     subgraph "CI/CD"

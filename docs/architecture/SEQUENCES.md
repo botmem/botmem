@@ -193,7 +193,7 @@ sequenceDiagram
     participant Conn as Connector
     participant DB as PostgreSQL
     participant AI as AI Backend
-    participant TS as Typesense
+    participant TS as PostgreSQL search index
     participant WS as WebSocket
 
     User->>Web: Click "Sync" on account
@@ -264,7 +264,7 @@ sequenceDiagram
     participant API as NestJS API
     participant Mem as MemoryService
     participant AI as AI Backend
-    participant TS as Typesense
+    participant TS as PostgreSQL search index
     participant DB as PostgreSQL
     participant Crypto as CryptoService
 
@@ -427,7 +427,7 @@ sequenceDiagram
     participant Cron as NestJS Scheduler
     participant Decay as DecayProcessor
     participant DB as PostgreSQL
-    participant TS as Typesense
+    participant TS as PostgreSQL search index
 
     Note over Cron: Runs periodically (daily)
 

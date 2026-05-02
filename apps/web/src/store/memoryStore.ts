@@ -84,7 +84,7 @@ interface MemoryState {
   mode: 'search' | 'ask';
   setMode: (m: 'search' | 'ask') => void;
 
-  // Facets from Typesense
+  // Facets from Postgres search
   facets: ApiFacetCounts;
 
   // Active filters

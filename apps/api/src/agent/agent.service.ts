@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { DbService } from '../db/db.service';
 import { MemoryService } from '../memory/memory.service';
 import { AiService } from '../memory/ai.service';
-import { TypesenseService } from '../memory/typesense.service';
+import { PgSearchService } from '../memory/pg-search.service';
 import { PeopleService, PersonWithIdentifiers } from '../people/people.service';
 import { ConfigService } from '../config/config.service';
 import { memories, people, memoryPeople } from '../db/schema';
@@ -62,7 +62,7 @@ export class AgentService {
     private dbService: DbService,
     private memoryService: MemoryService,
     private ai: AiService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private peopleService: PeopleService,
     private config: ConfigService,
   ) {}
@@ -100,8 +100,8 @@ export class AgentService {
     // Try conversation-powered search first
     try {
       const vector = await this.ai.embed(query);
-      const filter = options?.filters ? this.buildFilterForTypesense(options.filters) : undefined;
-      const result = await this.typesense.conversationSearch(
+      const filter = options?.filters ? this.buildSearchFilter(options.filters) : undefined;
+      const result = await this.searchIndex.conversationSearch(
         query,
         vector,
         limit,
@@ -245,9 +245,10 @@ export class AgentService {
     // Generate embedding immediately
     try {
       const vector = await this.ai.embed(text);
-      await this.typesense.ensureCollection(vector.length);
-      await this.typesense.upsert(id, vector, {
+      await this.searchIndex.ensureCollection(vector.length);
+      await this.searchIndex.upsert(id, vector, {
         memory_id: id,
+        user_id: _userId,
         source_type: 'note',
         connector_type: 'agent',
         event_time: now,
@@ -531,7 +532,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     };
   }
 
-  private buildFilterForTypesense(filters: {
+  private buildSearchFilter(filters: {
     sourceType?: string;
     connectorType?: string;
     contactId?: string;

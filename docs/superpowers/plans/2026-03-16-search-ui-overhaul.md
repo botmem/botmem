@@ -4,26 +4,26 @@
 
 **Goal:** Rebuild the Memory Explorer page with faceted search, conversation mode, enhanced result cards, and keyboard navigation.
 
-**Architecture:** Extend the existing memoryStore with facet/filter/conversation state. Backend adds `factuality_label` to Typesense schema, returns `facet_counts`, and exposes a new `/memories/ask` RAG endpoint. Frontend replaces MemorySearchBar with SearchHeader + FacetSidebar in a 3-column layout.
+**Architecture:** Extend the existing memoryStore with facet/filter/conversation state. Backend adds `factuality_label` to PostgreSQL search index schema, returns `facet_counts`, and exposes a new `/memories/ask` RAG endpoint. Frontend replaces MemorySearchBar with SearchHeader + FacetSidebar in a 3-column layout.
 
-**Tech Stack:** React 19, Zustand 5, Tailwind 4, NestJS 11, Typesense, SSE
+**Tech Stack:** React 19, Zustand 5, Tailwind 4, NestJS 11, PostgreSQL search index, SSE
 
 **Spec:** `docs/superpowers/specs/2026-03-16-search-ui-overhaul-design.md`
 
 ---
 
-## Chunk 1: Backend — Typesense Schema + Faceted Search
+## Chunk 1: Backend — PostgreSQL search index Schema + Faceted Search
 
-### Task 1: Add `factuality_label` field to Typesense collection
+### Task 1: Add `factuality_label` field to PostgreSQL search index collection
 
 **Files:**
 
-- Modify: `apps/api/src/memory/typesense.service.ts` (schema at ~line 68)
+- Modify: `apps/api/src/memory/PostgreSQL search index.service.ts` (schema at ~line 68)
 - Create: `apps/api/src/memory/scripts/backfill-factuality-label.ts`
 
 - [ ] **Step 1: Add factuality_label to collection schema**
 
-In `typesense.service.ts`, add to the `fields` array in the collection schema (~line 68):
+In `PostgreSQL search index.service.ts`, add to the `fields` array in the collection schema (~line 68):
 
 ```typescript
 { name: 'factuality_label', type: 'string', facet: true, optional: true },
@@ -31,7 +31,7 @@ In `typesense.service.ts`, add to the `fields` array in the collection schema (~
 
 - [ ] **Step 2: Update upsertDocument to populate factuality_label**
 
-Find the method that upserts documents to Typesense (search for `upsert` or `import`). Add `factuality_label` extraction from the memory's factuality JSON:
+Find the method that upserts documents to PostgreSQL search index (search for `upsert` or `import`). Add `factuality_label` extraction from the memory's factuality JSON:
 
 ```typescript
 factuality_label: memory.factuality?.label || 'UNVERIFIED',
@@ -43,14 +43,14 @@ Create `apps/api/src/memory/scripts/backfill-factuality-label.ts`:
 
 ```typescript
 /**
- * One-time script: adds factuality_label field to existing Typesense docs.
+ * One-time script: adds factuality_label field to existing PostgreSQL search index docs.
  * Run: npx tsx apps/api/src/memory/scripts/backfill-factuality-label.ts
  */
-import Typesense from 'typesense';
+import PostgreSQL search index from 'PostgreSQL search index';
 
-const client = new Typesense.Client({
+const client = new PostgreSQL search index.Client({
   nodes: [{ host: 'localhost', port: 8108, protocol: 'http' }],
-  apiKey: process.env.TYPESENSE_API_KEY || 'botmem-ts-key',
+  apiKey: process.env. || 'botmem-ts-key',
 });
 
 async function run() {
@@ -108,8 +108,8 @@ run().catch(console.error);
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/api/src/memory/typesense.service.ts apps/api/src/memory/scripts/backfill-factuality-label.ts
-git commit -m "feat(search): add factuality_label facet field to Typesense schema"
+git add apps/api/src/memory/PostgreSQL search index.service.ts apps/api/src/memory/scripts/backfill-factuality-label.ts
+git commit -m "feat(search): add factuality_label facet field to PostgreSQL search index schema"
 ```
 
 ---
@@ -118,21 +118,21 @@ git commit -m "feat(search): add factuality_label facet field to Typesense schem
 
 **Files:**
 
-- Modify: `apps/api/src/memory/typesense.service.ts` (~line 114, search method)
+- Modify: `apps/api/src/memory/PostgreSQL search index.service.ts` (~line 114, search method)
 - Modify: `apps/api/src/memory/memory.service.ts` (~line 468, search method)
 - Modify: `apps/api/src/memory/memory.controller.ts` (~line 322, search endpoint)
 
-- [ ] **Step 1: Add facet_by to Typesense search params**
+- [ ] **Step 1: Add facet_by to PostgreSQL search index search params**
 
-In `typesense.service.ts`, find the search method. Add `facet_by` to the search parameters object:
+In `PostgreSQL search index.service.ts`, find the search method. Add `facet_by` to the search parameters object:
 
 ```typescript
 facet_by: 'connector_type,source_type,factuality_label,people',
 ```
 
-- [ ] **Step 2: Return facet_counts from TypesenseService**
+- [ ] **Step 2: Return facet_counts from PostgreSQL search indexService**
 
-Update the return type of the search method to include `facetCounts`. Extract `facet_counts` from the Typesense response and return it alongside results:
+Update the return type of the search method to include `facetCounts`. Extract `facet_counts` from the PostgreSQL search index response and return it alongside results:
 
 ```typescript
 return {
@@ -143,7 +143,7 @@ return {
 
 - [ ] **Step 3: Pass facetCounts through MemoryService.search()**
 
-In `memory.service.ts` search method (~line 468), capture the facetCounts from TypesenseService and include in the SearchResult:
+In `memory.service.ts` search method (~line 468), capture the facetCounts from PostgreSQL search indexService and include in the SearchResult:
 
 Add to SearchResult interface (~line 102):
 
@@ -161,7 +161,7 @@ return {
   results: rankedResults,
   resolvedEntities,
   parsed,
-  facetCounts: typesenseResult.facetCounts,
+  facetCounts: PostgreSQL search indexResult.facetCounts,
 };
 ```
 
@@ -193,7 +193,7 @@ Expected: array of facet objects with field_name and counts.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/api/src/memory/typesense.service.ts apps/api/src/memory/memory.service.ts apps/api/src/memory/memory.controller.ts
+git add apps/api/src/memory/PostgreSQL search index.service.ts apps/api/src/memory/memory.service.ts apps/api/src/memory/memory.controller.ts
 git commit -m "feat(search): return facet_counts from search endpoint"
 ```
 
@@ -279,7 +279,7 @@ filters?: SearchFiltersDto;
 In `memory.service.ts`, update the SearchFilters interface and the filter_by string builder to handle arrays:
 
 ```typescript
-// Build Typesense filter_by from typed filters
+// Build PostgreSQL search index filter_by from typed filters
 const filterParts: string[] = [];
 
 if (filters.connectorTypes?.length) {
@@ -379,14 +379,11 @@ async ask(
   // Generate embedding for the query
   const vector = await this.embedService.embed(query);
 
-  // Get conversation model ID from config
-  const conversationModelId = this.configService.get('TYPESENSE_CONV_MODEL_ID') || 'botmem-chat';
-
   // Build filter for user isolation
   const accountIds = userId ? await this.getAccountIds(userId) : undefined;
   const filter = this.buildFilterBy({ userId, accountIds, memoryBankId });
 
-  const result = await this.typesenseService.conversationSearch(
+  const result = await this.PostgreSQL search indexService.conversationSearch(
     query,
     vector,
     20,
@@ -2366,7 +2363,7 @@ Navigate to http://localhost:12412/memories
 
 1. Click "ASK" toggle
 2. Type a question — conversation message appears
-3. AI response renders (or error if Typesense conversation model not configured)
+3. AI response renders (or error if PostgreSQL search index conversation model not configured)
 4. Citations show below the answer
 
 - [ ] **Step 4: Verify keyboard shortcuts**

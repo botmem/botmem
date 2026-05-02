@@ -40,7 +40,7 @@ The connector pulls data from the external service and emits `ConnectorDataEvent
 
 ### Stage 2: Memory Processing
 
-The `MemoryProcessor` handles the entire lifecycle in a single pass: parses the raw event, cleans content (email signature/reply stripping via `email-reply-parser`, Slack/WA formatting cleanup, file parsing via `liteparse`), resolves contacts, creates a Memory record, generates a vector embedding, runs inline enrichment (entity extraction, factuality classification, weight computation), encrypts sensitive fields in a single pass, upserts to Typesense, and creates relationship graph links with factuality corroboration.
+The `MemoryProcessor` handles the entire lifecycle in a single pass: parses the raw event, cleans content (email signature/reply stripping via `email-reply-parser`, Slack/WA formatting cleanup, file parsing via `liteparse`), resolves contacts, creates a Memory record, generates a vector embedding, runs inline enrichment (entity extraction, factuality classification, weight computation), encrypts sensitive fields in a single pass, upserts to PostgreSQL search index, and creates relationship graph links with factuality corroboration.
 
 See [Pipeline Architecture](/architecture/pipeline) for the full 13-step breakdown.
 
@@ -48,7 +48,7 @@ See [Pipeline Architecture](/architecture/pipeline) for the full 13-step breakdo
 
 ```
 +-------------------+     +-------------------+     +-------------------+
-|   PostgreSQL      |     |    Typesense      |     |     Redis         |
+|   PostgreSQL      |     |    PostgreSQL search index      |     |     Redis         |
 |   (Drizzle ORM)   |     |  (Search Engine)  |     |  (BullMQ + Cache) |
 |                   |     |                   |     |                   |
 |  - users          |     |  Collection:      |     |  Queues:          |
@@ -70,9 +70,9 @@ See [Pipeline Architecture](/architecture/pipeline) for the full 13-step breakdo
 
 All structured data lives in PostgreSQL 17. The schema is defined with Drizzle ORM. All IDs are UUIDs, all timestamps are ISO 8601 strings, and JSON columns are stored as text. Multi-user with `userId` foreign keys on all user-owned tables.
 
-### Typesense
+### PostgreSQL search index
 
-Typesense hosts a `memories` collection with hybrid BM25 + vector search (cosine similarity). Each document carries fields including `text`, `source_type`, `connector_type`, `event_time`, `account_id`, `user_id`, `people`, `entities_text`, and `embedding` (float[]) for filtered search.
+PostgreSQL search index hosts a `memories` collection with hybrid BM25 + vector search (cosine similarity). Each document carries fields including `text`, `source_type`, `connector_type`, `event_time`, `account_id`, `user_id`, `people`, `entities_text`, and `embedding` (float[]) for filtered search.
 
 ### Redis
 

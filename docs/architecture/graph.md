@@ -42,12 +42,12 @@ The graph consists of two types of nodes and three types of edges:
 
 ### Edge Types
 
-| Type          | Description                              | Created By                                    |
-| ------------- | ---------------------------------------- | --------------------------------------------- |
-| `related`     | Two memories are semantically similar    | EnrichProcessor (Typesense similarity >= 0.8) |
-| `supports`    | One memory corroborates another          | Future: conflict resolution                   |
-| `contradicts` | Memories contain conflicting information | Future: conflict resolution                   |
-| `involves`    | A contact is associated with a memory    | Contact resolution (all connectors)           |
+| Type          | Description                              | Created By                                                  |
+| ------------- | ---------------------------------------- | ----------------------------------------------------------- |
+| `related`     | Two memories are semantically similar    | EnrichProcessor (PostgreSQL search index similarity >= 0.8) |
+| `supports`    | One memory corroborates another          | Future: conflict resolution                                 |
+| `contradicts` | Memories contain conflicting information | Future: conflict resolution                                 |
+| `involves`    | A contact is associated with a memory    | Contact resolution (all connectors)                         |
 
 ### Edge Properties
 
@@ -60,19 +60,19 @@ The graph consists of two types of nodes and three types of edges:
 }
 ```
 
-The `strength` field (0.0 - 1.0) indicates how strong the relationship is. For `related` links, it is the Typesense cosine similarity score. For `involves` links, it is fixed at 0.7.
+The `strength` field (0.0 - 1.0) indicates how strong the relationship is. For `related` links, it is the PostgreSQL search index cosine similarity score. For `involves` links, it is fixed at 0.7.
 
 ## How Links Are Created
 
 ### Automatic Similarity Links
 
-During enrichment, the `EnrichProcessor` queries Typesense for the top 5 most similar memories to the current one. Any result with a cosine similarity >= 0.8 gets a `related` link:
+During enrichment, the `EnrichProcessor` queries PostgreSQL search index for the top 5 most similar memories to the current one. Any result with a cosine similarity >= 0.8 gets a `related` link:
 
 ```typescript
 const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
 
-const results = await this.typesense.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
+const results = await this.PostgreSQL search index.recommend(memoryId, SIMILAR_MEMORY_LIMIT);
 
 for (const result of results) {
   if (result.score >= SIMILARITY_THRESHOLD && result.id !== memoryId) {

@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, like, and, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { TypesenseService } from '../memory/typesense.service';
+import { PgSearchService } from '../memory/pg-search.service';
 import { ConfigService } from '../config/config.service';
 import * as schema from '../db/schema';
 import {
@@ -21,7 +21,7 @@ export class DemoService {
   constructor(
     private db: DbService,
     private crypto: CryptoService,
-    private typesense: TypesenseService,
+    private searchIndex: PgSearchService,
     private config: ConfigService,
   ) {}
 
@@ -156,17 +156,18 @@ export class DemoService {
           .onConflictDoNothing(),
       );
 
-      // Typesense vector + text fields (text is CRITICAL for BM25 search)
+      // Postgres search vector + text fields (text is CRITICAL for BM25 search)
       const vector = randomVector(dim);
       const contactNames = mem.contactIndices
         .map((idx) => fakeContacts[idx]?.displayName)
         .filter(Boolean);
-      await this.typesense.upsert(mem.id, vector, {
+      await this.searchIndex.upsert(mem.id, vector, {
         text: mem.text,
         source_type: mem.sourceType,
         connector_type: mem.connectorType,
         event_time: mem.eventTime.toISOString(),
         account_id: accountId,
+        user_id: userId,
         memory_bank_id: memoryBankId,
         people: contactNames,
         entities_text: mem.entities.map((e) => e.value).join(', '),
@@ -270,7 +271,7 @@ export class DemoService {
 
       // Remove from Qdrant
       for (const id of memoryIds) {
-        await this.typesense.remove(id);
+        await this.searchIndex.remove(id);
       }
     }
 

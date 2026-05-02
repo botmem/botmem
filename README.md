@@ -10,7 +10,7 @@ Botmem ingests events from your email, messages, photos, and locations — norma
 
 ## Features
 
-- **Semantic + keyword search** — hybrid BM25 + vector retrieval via Typesense
+- **Semantic + keyword search** — PostgreSQL full-text retrieval blended with pgvector similarity
 - **7 connectors** — Gmail, Slack, WhatsApp, iMessage, Photos/Immich, Locations/OwnTracks, Telegram
 - **Agent API + CLI** — `botmem search`, `botmem ask` for humans and AI agents
 - **AES-256-GCM encryption** — credentials and PII encrypted at rest with a recovery key
@@ -39,7 +39,7 @@ Requires Node.js 20+, pnpm 9.15+, and Docker.
 ```bash
 git clone https://github.com/botmem/botmem.git
 cd botmem
-docker compose up -d postgres redis typesense   # Infrastructure only
+docker compose up -d postgres redis             # Infrastructure only
 pnpm install
 cp .env.example .env
 pnpm dev                      # API + web on http://localhost:12412
@@ -62,16 +62,13 @@ graph LR
     C[Connectors] -->|raw events| SQ[Sync Queue]
     SQ --> CQ[Clean Queue]
     CQ --> EQ[Embed Queue]
-    EQ -->|vectors| TS[(Typesense)]
-    EQ -->|records| PG[(PostgreSQL)]
+    EQ -->|vectors + records| PG[(PostgreSQL + pgvector)]
     EQ --> FQ[File Queue]
     FQ -->|VL/OCR| EQ
     EQ --> NQ[Enrich Queue]
     NQ -->|entities, links| PG
-    CLI[CLI / Agent API] --> TS
     CLI --> PG
     Web[Web UI] --> API[NestJS API]
-    API --> TS
     API --> PG
 ```
 
@@ -115,7 +112,7 @@ packages/
 
 ## Stack
 
-**Backend:** NestJS 11, Drizzle ORM, PostgreSQL, BullMQ/Redis, Typesense
+**Backend:** NestJS 11, Drizzle ORM, PostgreSQL + pgvector, BullMQ/Redis
 **AI:** Ollama (default) or OpenRouter — swappable via `AI_BACKEND` env var
 **Frontend:** React 19, Vite 6, Zustand 5, Tailwind 4
 **Tooling:** pnpm workspaces, Turborepo, Vitest, Husky

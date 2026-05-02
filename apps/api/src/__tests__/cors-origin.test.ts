@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { createCorsOriginChecker } from '../cors.util';
+import {
+  createCorsOriginChecker,
+  createCorsOptionsDelegate,
+  isCorsOriginAllowed,
+} from '../cors.util';
 
 function check(
   checker: ReturnType<typeof createCorsOriginChecker>,
@@ -16,6 +20,17 @@ describe('createCorsOriginChecker', () => {
     const { err, allow } = await check(checker, undefined);
     expect(err).toBeNull();
     expect(allow).toBe(true);
+  });
+
+  it('allows requests with null origin', () => {
+    expect(
+      isCorsOriginAllowed({
+        frontendUrl: 'https://botmem.xyz',
+        origin: 'null',
+        path: '/mcp',
+        nodeEnv: 'production',
+      }),
+    ).toBe(true);
   });
 
   it('allows origin matching single frontendUrl', async () => {
@@ -38,6 +53,73 @@ describe('createCorsOriginChecker', () => {
     expect(err).toBeInstanceOf(Error);
     expect(err!.message).toContain('https://evil.com');
     expect(allow).toBe(false);
+  });
+
+  it('allows HTTPS origins for MCP and well-known metadata routes', () => {
+    expect(
+      isCorsOriginAllowed({
+        frontendUrl: 'https://botmem.xyz',
+        origin: 'https://claude.ai',
+        path: '/mcp',
+        nodeEnv: 'production',
+      }),
+    ).toBe(true);
+    expect(
+      isCorsOriginAllowed({
+        frontendUrl: 'https://botmem.xyz',
+        origin: 'https://chatgpt.com',
+        path: '/mcp/',
+        nodeEnv: 'production',
+      }),
+    ).toBe(true);
+    expect(
+      isCorsOriginAllowed({
+        frontendUrl: 'https://botmem.xyz',
+        origin: 'https://example.com',
+        path: '/.well-known/oauth-protected-resource',
+        nodeEnv: 'production',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not allow arbitrary HTTPS origins for normal API routes', () => {
+    expect(
+      isCorsOriginAllowed({
+        frontendUrl: 'https://botmem.xyz',
+        origin: 'https://claude.ai',
+        path: '/api/version',
+        nodeEnv: 'production',
+      }),
+    ).toBe(false);
+  });
+
+  it('allows localhost origins for MCP routes outside production', () => {
+    expect(
+      isCorsOriginAllowed({
+        frontendUrl: 'http://localhost:12412',
+        origin: 'http://localhost:5173',
+        path: '/mcp',
+        nodeEnv: 'test',
+      }),
+    ).toBe(true);
+  });
+
+  it('builds request-aware CORS options that echo allowed MCP origins', async () => {
+    const delegate = createCorsOptionsDelegate('https://botmem.xyz');
+    const options = await new Promise<{ err: Error | null; origin?: boolean }>((resolve) => {
+      delegate(
+        {
+          headers: { origin: 'https://claude.ai' },
+          path: '/mcp',
+          originalUrl: '/mcp',
+          url: '/mcp',
+        } as never,
+        (err, opts) => resolve({ err, origin: opts?.origin as boolean | undefined }),
+      );
+    });
+
+    expect(options.err).toBeNull();
+    expect(options.origin).toBe(true);
   });
 
   it('trims whitespace in comma-separated origins', async () => {

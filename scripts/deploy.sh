@@ -15,8 +15,14 @@ IMAGE_TAG="${1:?Usage: deploy.sh <image-tag>}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/botmem}"
 ENV_FILE="${DEPLOY_DIR}/.env.prod"
 COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.prod.yml"
+BACKUP_DIR="${DEPLOY_DIR}/backups"
 HEALTH_TIMEOUT=180   # seconds to wait for health check (NestJS can take 2+ min on 2GB VPS)
 HEALTH_INTERVAL=5    # seconds between health check attempts
+POSTGRES_USER="${POSTGRES_USER:-botmem}"
+POSTGRES_DB="${POSTGRES_DB:-botmem}"
+RUN_SEARCH_BACKFILL="${RUN_SEARCH_BACKFILL:-1}"
+REMOVE_TYPESENSE_AFTER_BACKFILL="${REMOVE_TYPESENSE_AFTER_BACKFILL:-1}"
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 echo "==> Deploying ghcr.io/botmem/botmem:${IMAGE_TAG}"
 
@@ -38,11 +44,42 @@ fi
 
 cd "$DEPLOY_DIR"
 
+# ── Back up PostgreSQL before image/schema changes ─────────────────────────
+mkdir -p "$BACKUP_DIR"
+BACKUP_TS=$(date -u +%Y%m%dT%H%M%SZ)
+GLOBALS_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.globals.sql"
+DB_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.dump"
+
+echo "==> Backing up PostgreSQL to ${DB_BACKUP}"
+"${COMPOSE[@]}" exec -T postgres pg_dumpall --globals-only -U "$POSTGRES_USER" > "$GLOBALS_BACKUP"
+"${COMPOSE[@]}" exec -T postgres pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > "$DB_BACKUP"
+test -s "$GLOBALS_BACKUP"
+test -s "$DB_BACKUP"
+echo "==> PostgreSQL backup complete"
+
+# ── Recreate Postgres with pgvector image and verify extension ──────────────
+echo "==> Ensuring PostgreSQL is running with pgvector support"
+"${COMPOSE[@]}" up -d --no-deps postgres
+
+PG_WAIT=0
+until "${COMPOSE[@]}" exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do
+  if [ "$PG_WAIT" -ge 60 ]; then
+    echo "==> PostgreSQL did not become ready after pgvector image switch"
+    exit 1
+  fi
+  sleep 2
+  PG_WAIT=$((PG_WAIT + 2))
+done
+
+"${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+  -c 'CREATE EXTENSION IF NOT EXISTS vector' \
+  -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+
 # ── Pull new image ──────────────────────────────────────────────────────────
 docker pull "ghcr.io/botmem/botmem:${IMAGE_TAG}"
 
 # ── Recreate only the API container (infra stays running) ───────────────────
-docker compose -f "$COMPOSE_FILE" up -d --no-deps api
+"${COMPOSE[@]}" up -d --no-deps api
 
 # ── Health check via Docker network (port not exposed to host) ──────────────
 check_health() {
@@ -69,7 +106,7 @@ done
 if [ "$HEALTHY" = false ]; then
   echo "==> HEALTH CHECK FAILED after ${HEALTH_TIMEOUT}s"
   echo "==> API container status:"
-  docker compose -f "$COMPOSE_FILE" ps api || true
+  "${COMPOSE[@]}" ps api || true
   echo "==> Recent API logs:"
   docker logs --tail 120 botmem-api-1 || true
 
@@ -80,7 +117,7 @@ if [ "$HEALTHY" = false ]; then
     sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
 
     # Recreate with previous image
-    docker compose -f "$COMPOSE_FILE" up -d --no-deps api
+    "${COMPOSE[@]}" up -d --no-deps api
 
     # Wait for rollback to come up
     ROLLBACK_WAIT=60
@@ -105,6 +142,33 @@ if [ "$HEALTHY" = false ]; then
   fi
 
   exit 1
+fi
+
+# ── Backfill PostgreSQL search index from the old Typesense collection ──────
+if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
+  if ! grep -q '^TYPESENSE_URL=' "$ENV_FILE" 2>/dev/null; then
+    echo "==> TYPESENSE_URL is missing from .env.prod; cannot backfill existing search data"
+    echo "==> Set TYPESENSE_URL to the old Typesense service or rerun with RUN_SEARCH_BACKFILL=0 if this is intentional"
+    exit 1
+  fi
+
+  echo "==> Backfilling PostgreSQL search index from Typesense"
+  if ! "${COMPOSE[@]}" exec -T api node apps/api/scripts/backfill-pg-search-from-typesense.js; then
+    echo "==> Search index backfill failed"
+    if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
+      echo "==> ROLLING BACK API to ${PREV_TAG}; PostgreSQL backup remains at ${DB_BACKUP}"
+      sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
+      "${COMPOSE[@]}" up -d --no-deps api
+    fi
+    exit 1
+  fi
+
+  if [ "$REMOVE_TYPESENSE_AFTER_BACKFILL" = "1" ]; then
+    echo "==> Removing old Typesense container(s) after successful backfill"
+    docker ps -q --filter 'label=com.docker.compose.service=typesense' | xargs -r docker rm -f
+  fi
+else
+  echo "==> Skipping search index backfill because RUN_SEARCH_BACKFILL=${RUN_SEARCH_BACKFILL}"
 fi
 
 # ── Clean up unused images ──────────────────────────────────────────────────

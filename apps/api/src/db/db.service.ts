@@ -7,6 +7,8 @@ import { ConfigService } from '../config/config.service';
 import * as schema from './schema';
 import { RlsContext } from './rls.context';
 
+export type BotmemDb = NodePgDatabase<typeof schema>;
+
 // All tables and their required columns derived from schema.ts.
 // App refuses to start if any are missing after migrations run.
 const REQUIRED_SCHEMA: Record<string, string[]> = {
@@ -102,6 +104,33 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
     'created_at',
   ],
   memory_links: ['id', 'src_memory_id', 'dst_memory_id', 'link_type', 'strength', 'created_at'],
+  memory_search_index: [
+    'memory_id',
+    'user_id',
+    'account_id',
+    'memory_bank_id',
+    'connector_type',
+    'source_type',
+    'event_time',
+    'factuality_label',
+    'pinned',
+    'importance',
+    'recall_count',
+    'text',
+    'entities_text',
+    'people',
+    'person_ids',
+    'person_aliases',
+    'locations',
+    'location_text',
+    'organizations',
+    'thread_ids',
+    'transaction_tokens',
+    'search_tokens',
+    'embedding',
+    'embedding_dimension',
+    'updated_at',
+  ],
   people: [
     'id',
     'user_id',
@@ -225,10 +254,15 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
    * SET LOCAL means the variable is scoped to the transaction only —
    * it resets on COMMIT/ROLLBACK, preventing bleed between pooled connections.
    */
-  async withUserId<T>(
-    userId: string,
-    fn: (db: NodePgDatabase<typeof schema>) => Promise<T>,
-  ): Promise<T> {
+  async withUserId<T>(userId: string, fn: (db: BotmemDb) => Promise<T>): Promise<T> {
+    return this.userDb(userId, fn);
+  }
+
+  /**
+   * Explicit tenant-scoped DB access for background jobs or services that
+   * already know which user owns the work.
+   */
+  async userDb<T>(userId: string, fn: (db: BotmemDb) => Promise<T>): Promise<T> {
     const client: PoolClient = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -251,7 +285,16 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
    * Falls back to running without RLS if not in an HTTP context
    * (BullMQ processors must use withUserId() explicitly instead).
    */
-  async withCurrentUser<T>(fn: (db: NodePgDatabase<typeof schema>) => Promise<T>): Promise<T> {
+  async withCurrentUser<T>(fn: (db: BotmemDb) => Promise<T>): Promise<T> {
+    return this.currentUserDb(fn);
+  }
+
+  /**
+   * Explicit request-scoped DB access. Uses the AsyncLocalStorage user set by
+   * RlsInterceptor, with the existing unscoped fallback preserved for backwards
+   * compatibility outside HTTP request contexts.
+   */
+  async currentUserDb<T>(fn: (db: BotmemDb) => Promise<T>): Promise<T> {
     const userId = this.rlsContext?.getCurrentUserId();
     if (!userId) {
       // Outside request context (e.g. BullMQ without explicit withUserId call) — run without RLS
@@ -260,6 +303,11 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       return fn(this.db);
     }
     return this.withUserId(userId, fn);
+  }
+
+  /** Explicit system-level DB access. Use for startup, maintenance, and migrations only. */
+  async systemDb<T>(fn: (db: BotmemDb) => Promise<T>): Promise<T> {
+    return fn(this.db);
   }
 
   /** Run a raw SQL query bypassing RLS. Use only for system-level operations. */
@@ -382,6 +430,17 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         CREATE POLICY rls_memory_banks_insert ON memory_banks FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
         CREATE POLICY rls_memory_banks_update ON memory_banks FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
         CREATE POLICY rls_memory_banks_delete ON memory_banks FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE memory_search_index ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE memory_search_index FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_memory_search_index_select ON memory_search_index;
+        DROP POLICY IF EXISTS rls_memory_search_index_insert ON memory_search_index;
+        DROP POLICY IF EXISTS rls_memory_search_index_update ON memory_search_index;
+        DROP POLICY IF EXISTS rls_memory_search_index_delete ON memory_search_index;
+        CREATE POLICY rls_memory_search_index_select ON memory_search_index FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_memory_search_index_insert ON memory_search_index FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_memory_search_index_update ON memory_search_index FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_memory_search_index_delete ON memory_search_index FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
 
         ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
         ALTER TABLE api_keys FORCE ROW LEVEL SECURITY;
