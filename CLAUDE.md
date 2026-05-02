@@ -18,6 +18,7 @@ pnpm dev                      # Builds deps, then API + web on :12412
 - Deleting a connector account means disconnecting/archiving the connector and stopping future work; preserve memories, raw events, contacts, credentials history, and job history unless the user explicitly asks for data deletion.
 - Production logs must not include user message contents, phone numbers, names, chat IDs, or other user-data-bearing metadata; temporary diagnostic logging must be removed or redacted before shipping.
 - Person merge suggestions must not treat embedded full-name fragments with different first names as the same person, e.g. `Saleh Al-Ghamdi` is not `Mostafa Mohamed Saleh Al-Ghamdi`.
+- When replacing storage/search infrastructure, remove the old service and its data only after a fresh backup exists, the replacement database restore/backfill has completed, and the app is confirmed healthy on the new path.
 
 ## Monorepo Structure
 
@@ -55,8 +56,6 @@ packages/
 | `PORT`                    | `12412`                               | API server port                                                                     |
 | `DATABASE_URL`            | _(required)_                          | PostgreSQL connection string                                                        |
 | `REDIS_URL`               | `redis://localhost:6379`              | BullMQ queue backend                                                                |
-| `DATABASE_URL`            | `http://localhost:8108`               | PostgreSQL search index search engine                                               |
-| ``                        | `botmem-ts-key`                       | PostgreSQL search index API key                                                     |
 | `OLLAMA_BASE_URL`         | `http://localhost:11434`              | Ollama inference endpoint                                                           |
 | `OLLAMA_USERNAME`         | _(empty)_                             | Basic auth username (optional)                                                      |
 | `OLLAMA_PASSWORD`         | _(empty)_                             | Basic auth password (optional)                                                      |

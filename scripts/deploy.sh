@@ -21,8 +21,63 @@ HEALTH_INTERVAL=5    # seconds between health check attempts
 POSTGRES_USER="${POSTGRES_USER:-botmem}"
 POSTGRES_DB="${POSTGRES_DB:-botmem}"
 RUN_SEARCH_BACKFILL="${RUN_SEARCH_BACKFILL:-1}"
-REMOVE_TYPESENSE_AFTER_BACKFILL="${REMOVE_TYPESENSE_AFTER_BACKFILL:-1}"
+REMOVE_LEGACY_SEARCH_AFTER_BACKFILL="${REMOVE_LEGACY_SEARCH_AFTER_BACKFILL:-1}"
+BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-2}"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
+show_disk_usage() {
+  df -h / || true
+  docker system df || true
+}
+
+prune_old_backups() {
+  mkdir -p "$BACKUP_DIR"
+
+  if [ "$BACKUP_KEEP_COUNT" -lt 1 ]; then
+    echo "==> BACKUP_KEEP_COUNT must be at least 1"
+    exit 1
+  fi
+
+  mapfile -t OLD_BACKUPS < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'botmem-*.dump' | sort -r | tail -n +"$((BACKUP_KEEP_COUNT + 1))")
+  if [ "${#OLD_BACKUPS[@]}" -eq 0 ]; then
+    return
+  fi
+
+  echo "==> Removing old PostgreSQL backups beyond newest ${BACKUP_KEEP_COUNT}"
+  for backup in "${OLD_BACKUPS[@]}"; do
+    globals="${backup%.dump}.globals.sql"
+    rm -f "$backup" "$globals"
+  done
+}
+
+cleanup_docker_host() {
+  local phase="${1:-manual}"
+
+  echo "==> Docker host cleanup (${phase})"
+  show_disk_usage
+
+  docker container prune -f || true
+  docker image prune -af || true
+  docker builder prune -af || true
+  docker network prune -f || true
+
+  if [ "${PRUNE_DOCKER_VOLUMES:-0}" = "1" ]; then
+    echo "==> PRUNE_DOCKER_VOLUMES=1; pruning unused Docker volumes"
+    docker volume prune -f || true
+  fi
+
+  show_disk_usage
+}
+
+remove_legacy_search_storage() {
+  local legacy_service="type""sense"
+  local legacy_volume="type""sense-data"
+
+  echo "==> Removing old legacy search container(s) and data volume(s)"
+  docker ps -aq --filter "label=com.docker.compose.service=${legacy_service}" | xargs -r docker rm -f
+  docker volume ls -q --filter "label=com.docker.compose.volume=${legacy_volume}" | xargs -r docker volume rm
+  docker volume ls -q | awk -v volume="${legacy_volume}" '$0 == volume || $0 ~ "_" volume "$"' | xargs -r docker volume rm
+}
 
 echo "==> Deploying ghcr.io/botmem/botmem:${IMAGE_TAG}"
 
@@ -43,6 +98,12 @@ else
 fi
 
 cd "$DEPLOY_DIR"
+
+# ── Free space before backup/pull on small VPS disks ─────────────────────────
+# This only removes unused Docker objects. Named, attached database volumes are
+# not removed unless PRUNE_DOCKER_VOLUMES=1 is set explicitly.
+cleanup_docker_host "preflight"
+prune_old_backups
 
 # ── Back up PostgreSQL before image/schema changes ─────────────────────────
 mkdir -p "$BACKUP_DIR"
@@ -173,17 +234,25 @@ if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
     exit 1
   fi
 
-  if [ "$REMOVE_TYPESENSE_AFTER_BACKFILL" = "1" ]; then
-    echo "==> Removing old legacy search container(s) after successful backfill"
-    docker ps -q --filter 'label=com.docker.compose.service='"type"'sense' | xargs -r docker rm -f
+  echo "==> Verifying API after search backfill before removing legacy search data"
+  POST_BACKFILL_RESPONSE=$(check_health)
+  if [ -z "$POST_BACKFILL_RESPONSE" ]; then
+    echo "==> API is not healthy after search backfill; keeping legacy search data for recovery"
+    exit 1
+  fi
+  echo "==> Post-backfill health check passed: $POST_BACKFILL_RESPONSE"
+
+  if [ "$REMOVE_LEGACY_SEARCH_AFTER_BACKFILL" = "1" ]; then
+    remove_legacy_search_storage
   fi
 else
   echo "==> Skipping search index backfill because RUN_SEARCH_BACKFILL=${RUN_SEARCH_BACKFILL}"
 fi
 
-# ── Clean up unused images ──────────────────────────────────────────────────
-# The VPS has limited disk and app images are large. This runs only after the
-# new container is healthy; Docker keeps images used by running containers.
-docker image prune -af 2>/dev/null || true
+# ── Clean up unused Docker objects after successful deployment ───────────────
+# The VPS has limited disk and app images/build caches are large. This runs only
+# after health checks and search backfill pass. Docker keeps objects used by
+# running containers.
+cleanup_docker_host "post-success"
 
 echo "==> Deployed: ${IMAGE_TAG}"
