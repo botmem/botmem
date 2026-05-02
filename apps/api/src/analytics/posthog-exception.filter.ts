@@ -1,9 +1,10 @@
-import { Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import { Catch, ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { BaseExceptionFilter, HttpAdapterHost } from '@nestjs/core';
 import { AnalyticsService } from './analytics.service';
 
 @Catch()
 export class PostHogExceptionFilter extends BaseExceptionFilter {
+  private readonly logger = new Logger(PostHogExceptionFilter.name);
   private readonly analytics: AnalyticsService;
 
   constructor(analytics: AnalyticsService, httpAdapterHost: HttpAdapterHost) {
@@ -19,6 +20,7 @@ export class PostHogExceptionFilter extends BaseExceptionFilter {
     if (status >= 500) {
       const message = exception instanceof Error ? exception.message : String(exception);
       const stack = exception instanceof Error ? exception.stack : undefined;
+      this.logger.error(message, stack);
 
       this.analytics.capture('$exception', {
         $exception_message: message,
