@@ -273,7 +273,7 @@ jobs:
           ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy versioned image to VPS
-        timeout-minutes: 10
+        timeout-minutes: 60
         env:
           IMAGE_TAG: ${{ needs.version.outputs.tag }}
         run: |
