@@ -117,4 +117,33 @@ describe('McpService', () => {
 
     service.onModuleDestroy();
   });
+
+  it('serializes dates and backfills photo takenAt in MCP output', () => {
+    const { service } = createService();
+    const output = (
+      service as unknown as {
+        formatMcpResponse: (data: unknown, textMaxLength?: number) => string;
+      }
+    ).formatMcpResponse({
+      items: [
+        {
+          id: 'photo-1',
+          connectorType: 'photos',
+          sourceType: 'photo',
+          text: 'Photo: IMG_0001.jpg',
+          eventTime: new Date('2026-04-30T10:15:00.000Z'),
+          metadata: JSON.stringify({ fileName: 'IMG_0001.jpg' }),
+        },
+      ],
+    });
+    const parsed = JSON.parse(output) as { items: Array<Record<string, unknown>> };
+
+    expect(parsed.items[0].eventTime).toBe('2026-04-30T10:15:00.000Z');
+    expect(parsed.items[0].metadata).toEqual({
+      fileName: 'IMG_0001.jpg',
+      takenAt: '2026-04-30T10:15:00.000Z',
+    });
+
+    service.onModuleDestroy();
+  });
 });

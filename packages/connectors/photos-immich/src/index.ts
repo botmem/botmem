@@ -348,12 +348,12 @@ export class ImmichConnector extends BaseConnector {
       if (ctx.signal.aborted) break;
 
       const text = this.composeText(asset);
-      const timestamp = asset.fileCreatedAt || asset.localDateTime || asset.createdAt;
+      const takenAt = asset.localDateTime || asset.fileCreatedAt || asset.createdAt;
 
       this.emitData({
         sourceType: 'photo',
         sourceId: asset.id,
-        timestamp,
+        timestamp: takenAt,
         content: {
           text,
           participants: (asset.people ?? []).filter((p) => p.name).map((p) => p.name),
@@ -368,6 +368,10 @@ export class ImmichConnector extends BaseConnector {
             mimetype: asset.originalMimeType ?? 'image/jpeg',
             fileName: asset.originalFileName,
             originalFileName: asset.originalFileName,
+            takenAt,
+            localDateTime: asset.localDateTime,
+            fileCreatedAt: asset.fileCreatedAt,
+            createdAt: asset.createdAt,
             isFavorite: asset.isFavorite,
             // EXIF
             width: asset.exifInfo?.exifImageWidth,
@@ -402,7 +406,7 @@ export class ImmichConnector extends BaseConnector {
       });
 
       processed++;
-      highWater = maxIsoTimestamp(highWater, timestamp);
+      highWater = maxIsoTimestamp(highWater, takenAt);
     }
 
     this.emitProgress({ processed });
