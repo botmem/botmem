@@ -134,6 +134,13 @@
       "when": 1777650000000,
       "tag": "0023_add_memory_search_index",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777651000000,
+      "tag": "0024_add_memory_search_hnsw_index",
+      "breakpoints": true
     }
   ]
 }

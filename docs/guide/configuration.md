@@ -126,7 +126,7 @@ These are only for the first startup while a legacy Typesense service is still r
 | `LEGACY_TYPESENSE_URL`             | `http://typesense:8108` | Legacy Typesense URL                                         |
 | `LEGACY_TYPESENSE_API_KEY`         | `botmem-ts-key`         | Legacy Typesense API key                                     |
 | `LEGACY_TYPESENSE_COLLECTION`      | `memories`              | Legacy collection to export and delete from                  |
-| `TYPESENSE_DRAIN_BATCH_SIZE`       | `250`                   | Documents processed per database transaction                 |
+| `TYPESENSE_DRAIN_BATCH_SIZE`       | `1`                     | Documents processed per database transaction                 |
 | `TYPESENSE_DRAIN_DELETE_ORPHANS`   | `0`                     | Set to `1` to delete legacy docs whose memory row is missing |
 
 ### Other
