@@ -249,8 +249,8 @@ export class PgSearchService {
         db.execute(sql`
           SELECT
             target.memory_id AS id,
-            GREATEST(0, 1 - (target.embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${sourceEmbedding}::halfvec(${PGVECTOR_INDEXED_DIMENSION}))) AS score,
-            GREATEST(0, 1 - (target.embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${sourceEmbedding}::halfvec(${PGVECTOR_INDEXED_DIMENSION}))) AS semantic_score,
+            GREATEST(0, 1 - (target.embedding::halfvec(3072) <=> ${sourceEmbedding}::halfvec(3072))) AS score,
+            GREATEST(0, 1 - (target.embedding::halfvec(3072) <=> ${sourceEmbedding}::halfvec(3072))) AS semantic_score,
             0 AS lexical_score,
             target.connector_type,
             target.source_type,
@@ -258,7 +258,7 @@ export class PgSearchService {
             target.people
           FROM memory_search_index target
           WHERE ${sql.join(conditions, sql` AND `)}
-          ORDER BY target.embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${sourceEmbedding}::halfvec(${PGVECTOR_INDEXED_DIMENSION}) ASC
+          ORDER BY target.embedding::halfvec(3072) <=> ${sourceEmbedding}::halfvec(3072) ASC
           LIMIT ${Math.max(1, limit)}
         `),
       );
@@ -434,13 +434,13 @@ export class PgSearchService {
               SELECT *
               FROM memory_search_index
               WHERE ${sql.join(conditions, sql` AND `)}
-              ORDER BY embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${vectorLiteral}::halfvec(${PGVECTOR_INDEXED_DIMENSION}) ASC
+              ORDER BY embedding::halfvec(3072) <=> ${vectorLiteral}::halfvec(3072) ASC
               LIMIT ${candidateLimit}
             )
             SELECT
               memory_id AS id,
               (
-                ${weights.semanticWeight} * GREATEST(0, 1 - (embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${vectorLiteral}::halfvec(${PGVECTOR_INDEXED_DIMENSION})) ) +
+                ${weights.semanticWeight} * GREATEST(0, 1 - (embedding::halfvec(3072) <=> ${vectorLiteral}::halfvec(3072)) ) +
                 ${weights.lexicalWeight} * ${
                   q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`
                 } +
@@ -448,7 +448,7 @@ export class PgSearchService {
                 0.05 * CASE WHEN pinned THEN 1 ELSE 0 END +
                 0.03 * ${recencyScoreSql()}
               ) AS score,
-              GREATEST(0, 1 - (embedding::halfvec(${PGVECTOR_INDEXED_DIMENSION}) <=> ${vectorLiteral}::halfvec(${PGVECTOR_INDEXED_DIMENSION}))) AS semantic_score,
+              GREATEST(0, 1 - (embedding::halfvec(3072) <=> ${vectorLiteral}::halfvec(3072))) AS semantic_score,
               ${q ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q}))` : sql`0`}
                 AS lexical_score,
               connector_type,
