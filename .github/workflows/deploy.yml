@@ -286,11 +286,29 @@ jobs:
           scp $SSH_OPTS Caddyfile.production ${VPS}:/opt/botmem/Caddyfile
           ssh $SSH_OPTS ${VPS} "chmod +x /opt/botmem/deploy.sh"
 
+          # Stream a PostgreSQL backup off the VPS before deploy. This avoids
+          # filling the host root disk with a local dump on small machines.
+          mkdir -p backup-artifacts
+          BACKUP_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+          ssh $SSH_OPTS ${VPS} 'cd /opt/botmem && docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T postgres pg_dumpall --globals-only -U botmem' > "backup-artifacts/botmem-${BACKUP_TS}.globals.sql"
+          ssh $SSH_OPTS ${VPS} 'cd /opt/botmem && docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T postgres pg_dump -Fc -U botmem botmem' > "backup-artifacts/botmem-${BACKUP_TS}.dump"
+          test -s "backup-artifacts/botmem-${BACKUP_TS}.globals.sql"
+          test -s "backup-artifacts/botmem-${BACKUP_TS}.dump"
+
           # Login to GHCR and deploy
           ssh $SSH_OPTS ${VPS} << DEPLOY
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            /opt/botmem/deploy.sh ${IMAGE_TAG}
+            SKIP_ON_HOST_BACKUP=1 OFF_HOST_BACKUP_CONFIRMED=1 DRAIN_TYPESENSE_ON_NEXT_STARTUP=1 RUN_SEARCH_BACKFILL=0 HEALTH_TIMEOUT=3600 /opt/botmem/deploy.sh ${IMAGE_TAG}
           DEPLOY
+
+      - name: Upload off-host PostgreSQL backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-backup-${{ needs.version.outputs.tag }}
+          path: backup-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Deploy docs to VPS
         if: steps.docs-check.outputs.changed == 'true'

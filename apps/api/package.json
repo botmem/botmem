@@ -10,6 +10,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "search:backfill": "node scripts/backfill-pg-search-from-legacy-index.js",
+    "search:drain-typesense": "node scripts/drain-typesense-to-pg-search.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

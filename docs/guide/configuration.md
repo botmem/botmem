@@ -11,7 +11,6 @@ Botmem is configured through environment variables. All variables have sensible 
 | `PORT`         | `12412`                  | API server port                                                                        |
 | `DATABASE_URL` | _(required)_             | PostgreSQL connection string (e.g. `postgresql://botmem:botmem@localhost:5432/botmem`) |
 | `REDIS_URL`    | `redis://localhost:6379` | Redis connection URL for BullMQ job queues                                             |
-| `DATABASE_URL` | `http://localhost:8108`  | PostgreSQL search index search engine URL                                              |
 | `FRONTEND_URL` | `http://localhost:12412` | Frontend origin for CORS and OAuth redirects                                           |
 | `BASE_URL`     | _(same as FRONTEND_URL)_ | Public base URL (used for OAuth callbacks)                                             |
 | `PLUGINS_DIR`  | `./plugins`              | Directory for external connector plugins                                               |
@@ -117,6 +116,19 @@ In cloud mode (Stripe configured), free-plan users are limited to 500 memories t
 | ---------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY` | _(empty)_ | OpenAI API key for PostgreSQL search index conversation model (`gpt-4.1-nano`). Optional — conversation search is skipped when not set. |
 
+### One-Shot Legacy Search Drain
+
+These are only for the first startup while a legacy Typesense service is still reachable. When `DRAIN_TYPESENSE_TO_PG_ON_STARTUP=1`, the API bootstrap runs `apps/api/scripts/drain-typesense-to-pg-search.js` after database migrations and before listening for traffic. The script exports every document from the legacy `memories` collection, upserts it into `memory_search_index`, deletes each document from Typesense only after its Postgres write commits, and records completion in the `system_startup_tasks` table so restarts skip it.
+
+| Variable                           | Default                 | Description                                                  |
+| ---------------------------------- | ----------------------- | ------------------------------------------------------------ |
+| `DRAIN_TYPESENSE_TO_PG_ON_STARTUP` | `0`                     | Set to `1` for the first startup that should drain Typesense |
+| `LEGACY_TYPESENSE_URL`             | `http://typesense:8108` | Legacy Typesense URL                                         |
+| `LEGACY_TYPESENSE_API_KEY`         | `botmem-ts-key`         | Legacy Typesense API key                                     |
+| `LEGACY_TYPESENSE_COLLECTION`      | `memories`              | Legacy collection to export and delete from                  |
+| `TYPESENSE_DRAIN_BATCH_SIZE`       | `250`                   | Documents processed per database transaction                 |
+| `TYPESENSE_DRAIN_DELETE_ORPHANS`   | `0`                     | Set to `1` to delete legacy docs whose memory row is missing |
+
 ### Other
 
 | Variable           | Default     | Description                                                                |
@@ -148,14 +160,6 @@ services:
     command: redis-server --appendonly yes --appendfsync everysec
     volumes:
       - redis-data:/data
-
-  PostgreSQL search index:
-    image: PostgreSQL search index/PostgreSQL search index:30.1
-    ports:
-      - '8108:8108'
-    volumes:
-      - PostgreSQL search index-data:/data
-    command: '--data-dir /data --api-key=botmem-ts-key'
 
   # Optional: local Ollama instance
   ollama:

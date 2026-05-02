@@ -16,14 +16,17 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/botmem}"
 ENV_FILE="${DEPLOY_DIR}/.env.prod"
 COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.prod.yml"
 BACKUP_DIR="${DEPLOY_DIR}/backups"
-HEALTH_TIMEOUT=180   # seconds to wait for health check (NestJS can take 2+ min on 2GB VPS)
-HEALTH_INTERVAL=5    # seconds between health check attempts
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"   # seconds to wait for health check
+HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"    # seconds between health check attempts
 POSTGRES_USER="${POSTGRES_USER:-botmem}"
 POSTGRES_DB="${POSTGRES_DB:-botmem}"
 RUN_SEARCH_BACKFILL="${RUN_SEARCH_BACKFILL:-1}"
 REMOVE_LEGACY_SEARCH_AFTER_BACKFILL="${REMOVE_LEGACY_SEARCH_AFTER_BACKFILL:-1}"
 BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-2}"
 MIN_FREE_SPACE_AFTER_BACKUP_GB="${MIN_FREE_SPACE_AFTER_BACKUP_GB:-8}"
+SKIP_ON_HOST_BACKUP="${SKIP_ON_HOST_BACKUP:-0}"
+OFF_HOST_BACKUP_CONFIRMED="${OFF_HOST_BACKUP_CONFIRMED:-0}"
+DRAIN_TYPESENSE_ON_NEXT_STARTUP="${DRAIN_TYPESENSE_ON_NEXT_STARTUP:-0}"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 show_disk_usage() {
@@ -151,32 +154,40 @@ cd "$DEPLOY_DIR"
 # This only removes unused Docker objects. Named, attached database volumes are
 # not removed unless PRUNE_DOCKER_VOLUMES=1 is set explicitly.
 cleanup_docker_host "preflight"
-prune_old_backups
-require_backup_space
+if [ "$SKIP_ON_HOST_BACKUP" = "1" ]; then
+  if [ "$OFF_HOST_BACKUP_CONFIRMED" != "1" ]; then
+    echo "==> Refusing to skip on-host PostgreSQL backup without OFF_HOST_BACKUP_CONFIRMED=1"
+    exit 1
+  fi
+  echo "==> Skipping on-host PostgreSQL backup because an off-host backup was confirmed"
+else
+  prune_old_backups
+  require_backup_space
 
-# ── Back up PostgreSQL before image/schema changes ─────────────────────────
-mkdir -p "$BACKUP_DIR"
-BACKUP_TS=$(date -u +%Y%m%dT%H%M%SZ)
-GLOBALS_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.globals.sql"
-DB_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.dump"
-DB_BACKUP_PARTIAL="${DB_BACKUP}.partial"
+  # ── Back up PostgreSQL before image/schema changes ───────────────────────
+  mkdir -p "$BACKUP_DIR"
+  BACKUP_TS=$(date -u +%Y%m%dT%H%M%SZ)
+  GLOBALS_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.globals.sql"
+  DB_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.dump"
+  DB_BACKUP_PARTIAL="${DB_BACKUP}.partial"
 
-echo "==> Backing up PostgreSQL to ${DB_BACKUP}"
-rm -f "$DB_BACKUP_PARTIAL"
-"${COMPOSE[@]}" exec -T postgres pg_dumpall --globals-only -U "$POSTGRES_USER" > "$GLOBALS_BACKUP"
-(
-  "${COMPOSE[@]}" exec -T postgres pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > "$DB_BACKUP_PARTIAL"
-) &
-PG_DUMP_PID=$!
-if ! wait_with_heartbeat "$PG_DUMP_PID" "PostgreSQL backup"; then
-  echo "==> PostgreSQL backup failed"
-  rm -f "$DB_BACKUP_PARTIAL" "$GLOBALS_BACKUP"
-  exit 1
+  echo "==> Backing up PostgreSQL to ${DB_BACKUP}"
+  rm -f "$DB_BACKUP_PARTIAL"
+  "${COMPOSE[@]}" exec -T postgres pg_dumpall --globals-only -U "$POSTGRES_USER" > "$GLOBALS_BACKUP"
+  (
+    "${COMPOSE[@]}" exec -T postgres pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > "$DB_BACKUP_PARTIAL"
+  ) &
+  PG_DUMP_PID=$!
+  if ! wait_with_heartbeat "$PG_DUMP_PID" "PostgreSQL backup"; then
+    echo "==> PostgreSQL backup failed"
+    rm -f "$DB_BACKUP_PARTIAL" "$GLOBALS_BACKUP"
+    exit 1
+  fi
+  mv "$DB_BACKUP_PARTIAL" "$DB_BACKUP"
+  test -s "$GLOBALS_BACKUP"
+  test -s "$DB_BACKUP"
+  echo "==> PostgreSQL backup complete"
 fi
-mv "$DB_BACKUP_PARTIAL" "$DB_BACKUP"
-test -s "$GLOBALS_BACKUP"
-test -s "$DB_BACKUP"
-echo "==> PostgreSQL backup complete"
 
 # ── Recreate Postgres with pgvector image and verify extension ──────────────
 echo "==> Ensuring PostgreSQL is running with pgvector support"
@@ -203,6 +214,16 @@ else
   echo "" >> "$ENV_FILE"
   echo "# Docker image version (managed by deploy.sh)" >> "$ENV_FILE"
   echo "IMAGE_TAG=${IMAGE_TAG}" >> "$ENV_FILE"
+fi
+
+if [ "$DRAIN_TYPESENSE_ON_NEXT_STARTUP" = "1" ]; then
+  if grep -q '^DRAIN_TYPESENSE_TO_PG_ON_STARTUP=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^DRAIN_TYPESENSE_TO_PG_ON_STARTUP=.*|DRAIN_TYPESENSE_TO_PG_ON_STARTUP=1|" "$ENV_FILE"
+  else
+    echo "" >> "$ENV_FILE"
+    echo "# One-shot legacy search drain (managed by deploy.sh)" >> "$ENV_FILE"
+    echo "DRAIN_TYPESENSE_TO_PG_ON_STARTUP=1" >> "$ENV_FILE"
+  fi
 fi
 
 # ── Pull new image ──────────────────────────────────────────────────────────
@@ -300,7 +321,7 @@ if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
   if ! wait_with_heartbeat "$BACKFILL_PID" "Search index backfill"; then
     echo "==> Search index backfill failed"
     if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
-      echo "==> ROLLING BACK API to ${PREV_TAG}; PostgreSQL backup remains at ${DB_BACKUP}"
+      echo "==> ROLLING BACK API to ${PREV_TAG}; PostgreSQL backup remains available off-host"
       sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
       "${COMPOSE[@]}" up -d --no-deps api
     fi
