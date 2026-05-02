@@ -97,6 +97,15 @@ const MINIMAL_STOPS = new Set([
 ]);
 
 const TITLE_PREFIXES = new Set(['dr.', 'dr', 'mr.', 'mr', 'mrs.', 'mrs', 'ms.', 'ms']);
+const GROUPISH_CONTACT_WORDS = new Set([
+  'family',
+  'group',
+  'chat',
+  'channel',
+  'team',
+  'friends',
+  'community',
+]);
 
 interface SearchFilters {
   sourceType?: string;
@@ -655,7 +664,7 @@ export class MemoryService {
     contactIds: string[];
   }> {
     const allContacts = (await this.getCachedContacts(userId)).filter(
-      (c) => c.entityType !== 'group',
+      (c) => !c.entityType || c.entityType === 'person',
     );
 
     const resolved: { id: string; displayName: string }[] = [];
@@ -676,6 +685,7 @@ export class MemoryService {
           const nameWordsRaw = stripAccents((c.displayName || '').toLowerCase()).split(/\s+/);
           const nameWordCount = nameWordsRaw.length;
           if (candidateWords.length === 1 && nameWordCount > 1) {
+            if (nameWordsRaw.some((w) => GROUPISH_CONTACT_WORDS.has(w))) continue;
             const prevWord = i > 0 ? remaining[i - 1] : '';
             const hasPersonCue = ['with', 'from', 'to', 'sent', 'by', 'where', 'is'].includes(
               prevWord,

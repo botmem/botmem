@@ -1,5 +1,6 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
+import { LogLevel } from 'telegram/extensions/Logger.js';
 import type { AuthContext } from '@botmem/connector-sdk';
 
 // Default Telegram API credentials (public test app — users can override)
@@ -20,6 +21,15 @@ export interface PendingAuth {
 }
 
 const pendingAuths = new Map<string, PendingAuth>();
+
+function quietClient(client: TelegramClient): TelegramClient {
+  client.setLogLevel?.(LogLevel.NONE);
+  client.onError = async (err) => {
+    if (err instanceof Error && err.message === 'TIMEOUT') return;
+    throw err;
+  };
+  return client;
+}
 
 export function getPendingAuth(wsChannel: string): PendingAuth | undefined {
   return pendingAuths.get(wsChannel);
@@ -47,6 +57,7 @@ export async function sendCode(
     systemVersion: 'macOS',
     appVersion: '1.0.0',
   });
+  quietClient(client);
 
   await client.connect();
 
@@ -170,12 +181,14 @@ export function createClientFromSession(
   apiHash?: string,
 ): TelegramClient {
   const session = new StringSession(sessionStr);
-  return new TelegramClient(session, apiId || DEFAULT_API_ID, apiHash || DEFAULT_API_HASH, {
-    connectionRetries: 3,
-    deviceModel: 'Botmem',
-    systemVersion: 'macOS',
-    appVersion: '1.0.0',
-  });
+  return quietClient(
+    new TelegramClient(session, apiId || DEFAULT_API_ID, apiHash || DEFAULT_API_HASH, {
+      connectionRetries: 3,
+      deviceModel: 'Botmem',
+      systemVersion: 'macOS',
+      appVersion: '1.0.0',
+    }),
+  );
 }
 
 /**

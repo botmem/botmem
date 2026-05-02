@@ -23,6 +23,7 @@ POSTGRES_DB="${POSTGRES_DB:-botmem}"
 RUN_SEARCH_BACKFILL="${RUN_SEARCH_BACKFILL:-1}"
 REMOVE_LEGACY_SEARCH_AFTER_BACKFILL="${REMOVE_LEGACY_SEARCH_AFTER_BACKFILL:-1}"
 BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-2}"
+MIN_FREE_SPACE_AFTER_BACKUP_GB="${MIN_FREE_SPACE_AFTER_BACKUP_GB:-8}"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 show_disk_usage() {
@@ -93,6 +94,38 @@ cleanup_docker_host() {
   show_disk_usage
 }
 
+bytes_available_on_root() {
+  df -PB1 / | awk 'NR == 2 { print $4 }'
+}
+
+postgres_database_size_bytes() {
+  "${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At \
+    -c "SELECT pg_database_size('${POSTGRES_DB}')"
+}
+
+require_backup_space() {
+  local available_bytes
+  local db_size_bytes
+  local reserve_bytes
+  local required_bytes
+
+  available_bytes=$(bytes_available_on_root)
+  db_size_bytes=$(postgres_database_size_bytes)
+  reserve_bytes=$((MIN_FREE_SPACE_AFTER_BACKUP_GB * 1024 * 1024 * 1024))
+  required_bytes=$((db_size_bytes + reserve_bytes))
+
+  echo "==> Backup space preflight"
+  echo "    available_on_root_bytes=${available_bytes}"
+  echo "    postgres_database_size_bytes=${db_size_bytes}"
+  echo "    required_bytes=db_size + ${MIN_FREE_SPACE_AFTER_BACKUP_GB}GiB reserve = ${required_bytes}"
+
+  if [ "$available_bytes" -lt "$required_bytes" ]; then
+    echo "==> Refusing to create on-host PostgreSQL backup: insufficient free space"
+    echo "==> Free more disk, lower MIN_FREE_SPACE_AFTER_BACKUP_GB, or take an off-host backup first."
+    exit 1
+  fi
+}
+
 remove_legacy_search_storage() {
   local legacy_service="type""sense"
   local legacy_volume="type""sense-data"
@@ -112,15 +145,6 @@ if grep -q '^IMAGE_TAG=' "$ENV_FILE" 2>/dev/null; then
 fi
 echo "==> Previous version: ${PREV_TAG:-none}"
 
-# ── Update IMAGE_TAG in .env.prod ───────────────────────────────────────────
-if grep -q '^IMAGE_TAG=' "$ENV_FILE" 2>/dev/null; then
-  sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" "$ENV_FILE"
-else
-  echo "" >> "$ENV_FILE"
-  echo "# Docker image version (managed by deploy.sh)" >> "$ENV_FILE"
-  echo "IMAGE_TAG=${IMAGE_TAG}" >> "$ENV_FILE"
-fi
-
 cd "$DEPLOY_DIR"
 
 # ── Free space before backup/pull on small VPS disks ─────────────────────────
@@ -128,6 +152,7 @@ cd "$DEPLOY_DIR"
 # not removed unless PRUNE_DOCKER_VOLUMES=1 is set explicitly.
 cleanup_docker_host "preflight"
 prune_old_backups
+require_backup_space
 
 # ── Back up PostgreSQL before image/schema changes ─────────────────────────
 mkdir -p "$BACKUP_DIR"
@@ -170,6 +195,15 @@ done
 "${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
   -c 'CREATE EXTENSION IF NOT EXISTS vector' \
   -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+
+# ── Update IMAGE_TAG in .env.prod only after backup/preflight succeeds ──────
+if grep -q '^IMAGE_TAG=' "$ENV_FILE" 2>/dev/null; then
+  sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" "$ENV_FILE"
+else
+  echo "" >> "$ENV_FILE"
+  echo "# Docker image version (managed by deploy.sh)" >> "$ENV_FILE"
+  echo "IMAGE_TAG=${IMAGE_TAG}" >> "$ENV_FILE"
+fi
 
 # ── Pull new image ──────────────────────────────────────────────────────────
 docker pull "ghcr.io/botmem/botmem:${IMAGE_TAG}"
