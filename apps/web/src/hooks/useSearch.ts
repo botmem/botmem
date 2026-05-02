@@ -52,44 +52,48 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
   const [results, setResults] = useState<SearchResult | null>(null);
   const hadResults = useRef(false);
   const currentLimit = useRef(pageSize);
+  const onResultsRef = useRef(onResults);
+  const onClearRef = useRef(onClear);
 
-  const applyResponse = useCallback(
-    (res: ApiSearchResponse, requestedLimit: number) => {
-      // Surface recovery key requirement from search response
-      if (res.needsRecoveryKey) {
-        useAuthStore.setState({ needsRecoveryKey: true });
-      }
+  useEffect(() => {
+    onResultsRef.current = onResults;
+    onClearRef.current = onClear;
+  }, [onClear, onResults]);
 
-      const memoryIds = new Set<string>(res.items.map((item) => item.id));
-      const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
-        (c: { id: string }) => `contact-${c.id}`,
-      );
-      const scoreMap = new Map<string, number>();
-      const total = res.items.length;
-      res.items.forEach((item, idx) => {
-        scoreMap.set(item.id, total > 1 ? 1 - idx / (total - 1) : 1);
-      });
-      for (const id of contactNodeIds) scoreMap.set(id, 1);
+  const applyResponse = useCallback((res: ApiSearchResponse, requestedLimit: number) => {
+    // Surface recovery key requirement from search response
+    if (res.needsRecoveryKey) {
+      useAuthStore.setState({ needsRecoveryKey: true });
+    }
 
-      const result: SearchResult = {
-        items: res.items,
-        memoryIds,
-        contactNodeIds,
-        scoreMap,
-        resolvedEntities: res.resolvedEntities ?? null,
-        fallback: res.fallback ?? false,
-        parsed: res.parsed,
-      };
+    const memoryIds = new Set<string>(res.items.map((item) => item.id));
+    const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
+      (c: { id: string }) => `contact-${c.id}`,
+    );
+    const scoreMap = new Map<string, number>();
+    const total = res.items.length;
+    res.items.forEach((item, idx) => {
+      scoreMap.set(item.id, total > 1 ? 1 - idx / (total - 1) : 1);
+    });
+    for (const id of contactNodeIds) scoreMap.set(id, 1);
 
-      const reportedTotal = res.found ?? res.items.length;
-      const canAskForMore = requestedLimit < SEARCH_MAX_LIMIT;
-      setHasMore(res.items.length < reportedTotal && canAskForMore);
-      hadResults.current = true;
-      setResults(result);
-      onResults?.(result);
-    },
-    [onResults],
-  );
+    const result: SearchResult = {
+      items: res.items,
+      memoryIds,
+      contactNodeIds,
+      scoreMap,
+      resolvedEntities: res.resolvedEntities ?? null,
+      fallback: res.fallback ?? false,
+      parsed: res.parsed,
+    };
+
+    const reportedTotal = res.found ?? res.items.length;
+    const canAskForMore = requestedLimit < SEARCH_MAX_LIMIT;
+    setHasMore(res.items.length < reportedTotal && canAskForMore);
+    hadResults.current = true;
+    setResults(result);
+    onResultsRef.current?.(result);
+  }, []);
 
   const clear = useCallback(() => {
     setTerm('');
@@ -99,8 +103,8 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
     setResults(null);
     currentLimit.current = pageSize;
     hadResults.current = false;
-    onClear?.();
-  }, [onClear, pageSize]);
+    onClearRef.current?.();
+  }, [pageSize]);
 
   const runSearch = useCallback(
     async (query: string, requestedLimit: number) => {
@@ -140,7 +144,7 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
       setPendingMore(false);
       setHasMore(false);
       currentLimit.current = pageSize;
-      if (shouldNotify) onClear?.();
+      if (shouldNotify) onClearRef.current?.();
       return;
     }
     if (trimmed.length < minLength) return;
@@ -160,7 +164,7 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
     }, debounceMs);
 
     return () => clearTimeout(timer);
-  }, [debounceMs, minLength, onClear, pageSize, runSearch, term]);
+  }, [debounceMs, minLength, pageSize, runSearch, term]);
 
   return { term, setTerm, pending, pendingMore, hasMore, results, clear, loadMore };
 }
