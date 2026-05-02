@@ -4,7 +4,7 @@
 
 **Applicable?** Yes
 
-**Comment:** Architecture documented in CLAUDE.md with component diagram and trust boundaries. Data flow: Connector.sync() → rawEvents table → SyncProcessor → EmbedProcessor (parse, embed, resolve contacts) → EnrichProcessor (entities, claims, factuality, importance) → Typesense collection. Trust boundaries: external connectors (OAuth-authenticated), NestJS API (JWT-gated), PostgreSQL/Redis/Typesense (internal network only, password-protected).
+**Comment:** Architecture documented in CLAUDE.md with component diagram and trust boundaries. Data flow: Connector.sync() → rawEvents table → SyncProcessor → EmbedProcessor (parse, embed, resolve contacts) → EnrichProcessor (entities, claims, factuality, importance) → PostgreSQL search index collection. Trust boundaries: external connectors (OAuth-authenticated), NestJS API (JWT-gated), PostgreSQL/Redis/PostgreSQL search index (internal network only, password-protected).
 
 ## 2. Verify the application does not use unsupported, insecure, or deprecated client-side technologies such as NSAPI plugins, Flash, Shockwave, ActiveX, Silverlight, NACL, or client-side Java applets.
 
@@ -88,7 +88,7 @@
 
 **Applicable?** Yes
 
-**Comment:** Full stack defined in docker-compose.prod.yml (API, Redis, Typesense, Caddy). Automated deployment triggered on push to main via scripts/deploy.sh (image pull + container restart). Infrastructure restorable from git repository + .env.prod file. PostgreSQL data persisted via Docker volumes. Redis AOF persistence enabled.
+**Comment:** Full stack defined in docker-compose.prod.yml (API, Redis, PostgreSQL search index, Caddy). Automated deployment triggered on push to main via scripts/deploy.sh (image pull + container restart). Infrastructure restorable from git repository + .env.prod file. PostgreSQL data persisted via Docker volumes. Redis AOF persistence enabled.
 
 ## 16. Verify that authorized administrators can verify the integrity of all security-relevant configurations to detect tampering.
 

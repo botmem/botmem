@@ -9,7 +9,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "search:backfill": "node scripts/backfill-pg-search-from-typesense.js",
+    "search:backfill": "node scripts/backfill-pg-search-from-legacy-index.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
