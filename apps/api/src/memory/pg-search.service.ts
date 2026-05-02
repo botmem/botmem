@@ -83,7 +83,7 @@ export class PgSearchService {
     ]
       .filter(Boolean)
       .join(' ');
-    const embedding = vector.length ? `[${vector.join(',')}]` : null;
+    const embedding = toPgVectorLiteral(vector);
     const now = new Date();
 
     await this.dbService.systemDb((db) =>
@@ -401,7 +401,7 @@ export class PgSearchService {
       conditions.push(sql`search_tokens @@ websearch_to_tsquery('english', ${q})`);
     }
     if (!conditions.length) conditions.push(sql`TRUE`);
-    const vectorLiteral = vector.length ? `[${vector.join(',')}]` : null;
+    const vectorLiteral = toPgVectorLiteral(vector);
     const result = await this.dbService.systemDb((db) =>
       db.execute(sql`
         SELECT
@@ -417,7 +417,7 @@ export class PgSearchService {
             } +
             0.07 * importance +
             0.05 * CASE WHEN pinned THEN 1 ELSE 0 END +
-            0.03 * EXP(-0.015 * EXTRACT(day FROM now() - event_time))
+            0.03 * ${recencyScoreSql()}
           ) AS score,
           ${
             vectorLiteral ? sql`GREATEST(0, 1 - (embedding <=> ${vectorLiteral}::vector))` : sql`0`
@@ -564,6 +564,35 @@ function dateFromPayload(value: unknown): Date {
   if (typeof value === 'number') return new Date(value);
   if (typeof value === 'string') return new Date(value);
   return new Date();
+}
+
+function recencyScoreSql(): SQL {
+  return sql`
+    EXP(
+      GREATEST(
+        -50.0::double precision,
+        LEAST(
+          0.0::double precision,
+          -0.015::double precision * (
+            EXTRACT(EPOCH FROM (now() - event_time))::double precision / 86400.0::double precision
+          )
+        )
+      )
+    )
+  `;
+}
+
+function toPgVectorLiteral(vector: number[]): string | null {
+  if (!vector.length) return null;
+  return `[${vector.map(toPgVectorComponent).join(',')}]`;
+}
+
+function toPgVectorComponent(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  // pgvector stores float4 values. Subnormal values below float4 range carry no
+  // practical embedding signal and can be rejected while parsing numeric literals.
+  if (Math.abs(value) < 1e-38) return '0';
+  return value.toExponential(8);
 }
 
 function clamp(score: number): number {
