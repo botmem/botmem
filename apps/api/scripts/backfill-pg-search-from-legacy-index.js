@@ -10,6 +10,8 @@ const LEGACY_API_KEY_HEADER = 'X-' + 'TYPE' + 'SENSE-API-KEY';
 const LEGACY_SEARCH_URL = process.env.LEGACY_SEARCH_URL || process.env[LEGACY_URL_KEY] || 'http://localhost:8108';
 const LEGACY_SEARCH_API_KEY = process.env.LEGACY_SEARCH_API_KEY || process.env[LEGACY_KEY_KEY] || 'botmem-ts-key';
 const STRICT_BACKFILL = process.env.STRICT_BACKFILL === '1';
+const RESUME_EXISTING_BACKFILL = process.env.RESUME_EXISTING_BACKFILL !== '0';
+const BACKFILL_LOCK_ID = 2026050201;
 
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required');
@@ -23,9 +25,12 @@ async function main() {
   try {
     await db.query('CREATE EXTENSION IF NOT EXISTS vector');
     await assertSearchTable(db);
+    await db.query('SELECT pg_advisory_lock($1)', [BACKFILL_LOCK_ID]);
 
     const memoryById = await loadMemoryMetadata(db);
+    const alreadyIndexed = RESUME_EXISTING_BACKFILL ? await loadAlreadyIndexedMemoryIds(db) : new Set();
     let indexed = 0;
+    let resumed = 0;
     let skipped = 0;
 
     for await (const doc of streamLegacySearchDocuments()) {
@@ -33,6 +38,14 @@ async function main() {
       const embedding = Array.isArray(doc.embedding) ? doc.embedding : [];
       if (!memoryId || embedding.length === 0) {
         skipped++;
+        continue;
+      }
+
+      if (alreadyIndexed.has(memoryId)) {
+        resumed++;
+        if (resumed % 10000 === 0) {
+          console.log(JSON.stringify({ resumed, indexed, skipped }));
+        }
         continue;
       }
 
@@ -131,7 +144,7 @@ async function main() {
       indexed++;
 
       if (indexed % 1000 === 0) {
-        console.log(JSON.stringify({ indexed, skipped }));
+        console.log(JSON.stringify({ indexed, resumed, skipped }));
       }
     }
 
@@ -143,7 +156,7 @@ async function main() {
         (SELECT COUNT(*)::int FROM memory_search_index) AS actual
     `);
     const { expected, actual } = counts.rows[0];
-    console.log(JSON.stringify({ indexed, skipped, textOnly, expected, actual, strict: STRICT_BACKFILL }, null, 2));
+    console.log(JSON.stringify({ indexed, resumed, skipped, textOnly, expected, actual, strict: STRICT_BACKFILL }, null, 2));
 
     if (STRICT_BACKFILL && actual < expected) {
       console.error(`Backfill incomplete: expected at least ${expected}, got ${actual}`);
@@ -152,6 +165,7 @@ async function main() {
       console.warn(`Backfill indexed available legacy search documents; ${expected - actual} completed memories were not present in the legacy search export.`);
     }
   } finally {
+    await db.query('SELECT pg_advisory_unlock($1)', [BACKFILL_LOCK_ID]).catch(() => undefined);
     await db.end();
   }
 }
@@ -183,6 +197,18 @@ async function loadMemoryMetadata(db) {
   }
   console.log(JSON.stringify({ loadedMemoryRows: memoryById.size }));
   return memoryById;
+}
+
+async function loadAlreadyIndexedMemoryIds(db) {
+  const result = await db.query(`
+    SELECT memory_id
+    FROM memory_search_index
+    WHERE embedding IS NOT NULL
+  `);
+
+  const indexed = new Set(result.rows.map((row) => row.memory_id));
+  console.log(JSON.stringify({ alreadyIndexedMemoryRows: indexed.size }));
+  return indexed;
 }
 
 async function* streamLegacySearchDocuments() {
