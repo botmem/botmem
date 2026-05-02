@@ -1544,6 +1544,58 @@ export class PeopleService {
                 .set({ personId: targetId })
                 .where(eq(memoryPeople.personId, sourceId));
 
+              // Move relationship edges before deleting the source person. Dedupe first because
+              // source/target rewrites can collide with an existing target relationship.
+              await tx.execute(sql`
+                DELETE FROM person_relationships rel
+                WHERE (
+                  rel.source_person_id = ${sourceId}
+                  AND (
+                    rel.target_person_id = ${targetId}
+                    OR EXISTS (
+                      SELECT 1
+                      FROM person_relationships existing
+                      WHERE existing.source_person_id = ${targetId}
+                        AND existing.target_person_id = rel.target_person_id
+                        AND existing.relationship_type = rel.relationship_type
+                        AND existing.connector_type IS NOT DISTINCT FROM rel.connector_type
+                        AND existing.source_id = rel.source_id
+                    )
+                  )
+                )
+              `);
+              await tx
+                .update(personRelationships)
+                .set({ sourcePersonId: targetId })
+                .where(eq(personRelationships.sourcePersonId, sourceId));
+
+              await tx.execute(sql`
+                DELETE FROM person_relationships rel
+                WHERE (
+                  rel.target_person_id = ${sourceId}
+                  AND (
+                    rel.source_person_id = ${targetId}
+                    OR EXISTS (
+                      SELECT 1
+                      FROM person_relationships existing
+                      WHERE existing.target_person_id = ${targetId}
+                        AND existing.source_person_id = rel.source_person_id
+                        AND existing.relationship_type = rel.relationship_type
+                        AND existing.connector_type IS NOT DISTINCT FROM rel.connector_type
+                        AND existing.source_id = rel.source_id
+                    )
+                  )
+                )
+              `);
+              await tx
+                .update(personRelationships)
+                .set({ targetPersonId: targetId })
+                .where(eq(personRelationships.targetPersonId, sourceId));
+
+              await tx
+                .delete(personRelationships)
+                .where(eq(personRelationships.sourcePersonId, personRelationships.targetPersonId));
+
               // Recompute target memory count after link moves
               const [{ count: newMemCount }] = await tx
                 .select({ count: sql<number>`count(*)` })
