@@ -5,7 +5,7 @@ Local-first platform that ingests events from multiple data sources (emails, mes
 ## Quick Start
 
 ```bash
-docker compose up -d          # PostgreSQL, Redis + Typesense
+docker compose up -d          # PostgreSQL + pgvector, Redis
 pnpm install                  # Install all workspace deps
 cp .env.example .env          # Configure environment (edit as needed)
 pnpm dev                      # Builds deps, then API + web on :12412
@@ -34,7 +34,7 @@ packages/
 - **Runtime**: Node, TypeScript (ES2022, strict, ESNext modules)
 - **Backend**: NestJS 11, Drizzle ORM + PostgreSQL
 - **Queue**: BullMQ on Redis
-- **Search**: Typesense (hybrid BM25 + vector search, conversational RAG)
+- **Search**: PostgreSQL full-text search + pgvector semantic search
 - **AI**: Ollama (remote, default) or OpenRouter — swappable via `AI_BACKEND` env var
 - **Frontend**: React 19, Vite 6, Zustand 5, Tailwind 4, react-force-graph-2d
 - **Tooling**: pnpm 9.15 workspaces, Turbo 2.4, Vitest 3
@@ -46,8 +46,6 @@ packages/
 | `PORT`                    | `12412`                               | API server port                                     |
 | `DATABASE_URL`            | _(required)_                          | PostgreSQL connection string                        |
 | `REDIS_URL`               | `redis://localhost:6379`              | BullMQ queue backend                                |
-| `TYPESENSE_URL`           | `http://localhost:8108`               | Typesense search engine                             |
-| `TYPESENSE_API_KEY`       | `botmem-ts-key`                       | Typesense API key                                   |
 | `OLLAMA_BASE_URL`         | `http://localhost:11434`              | Ollama inference endpoint                           |
 | `OLLAMA_USERNAME`         | _(empty)_                             | Basic auth username (optional)                      |
 | `OLLAMA_PASSWORD`         | _(empty)_                             | Basic auth password (optional)                      |
@@ -98,12 +96,12 @@ Connectors are EventEmitters. During sync they emit `data`, `progress`, and `log
 
 BullMQ queues process work asynchronously through Redis:
 
-| Queue      | Worker            | Purpose                                                                                    |
-| ---------- | ----------------- | ------------------------------------------------------------------------------------------ |
-| `sync`     | `SyncProcessor`   | Orchestrates `connector.sync()`, writes to `rawEvents`                                     |
-| `embed`    | `EmbedProcessor`  | Parses raw event, creates Memory, generates embedding, resolves contacts                   |
-| `enrich`   | `EnrichProcessor` | Extracts entities/claims, classifies factuality, computes importance, upserts to Typesense |
-| `backfill` | —                 | Retroactive enrichment of older memories                                                   |
+| Queue      | Worker            | Purpose                                                                                                   |
+| ---------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `sync`     | `SyncProcessor`   | Orchestrates `connector.sync()`, writes to `rawEvents`                                                    |
+| `embed`    | `EmbedProcessor`  | Parses raw event, creates Memory, generates embedding, resolves contacts                                  |
+| `enrich`   | `EnrichProcessor` | Extracts entities/claims, classifies factuality, computes importance, updates the PostgreSQL search index |
+| `backfill` | —                 | Retroactive enrichment of older memories                                                                  |
 
 Job statuses: `queued → running → done | failed | cancelled`
 
@@ -117,7 +115,7 @@ Connector.sync()
   → [sync queue] SyncProcessor
   → [embed queue] EmbedProcessor
       ├ Parse raw event payload
-      ├ Create Memory record in SQLite
+      ├ Create Memory record in PostgreSQL
       ├ Generate embedding via Ollama
       ├ Resolve participants → Contacts (dedup by email/phone/handle)
       └ Enqueue enrich job
@@ -127,7 +125,7 @@ Connector.sync()
       ├ Classify factuality (FACT / UNVERIFIED / FICTION)
       ├ Compute importance baseline
       ├ Update Memory with metadata
-      └ Upsert document → Typesense collection
+      └ Upsert document → PostgreSQL search index
 ```
 
 ## Memory Model
@@ -141,7 +139,7 @@ final = 0.40×semantic + 0.25×recency + 0.20×importance + 0.15×trust
 recency = exp(-0.015 × age_days)
 ```
 
-- `semantic` — Typesense vector similarity score (or `rank_fusion_score` from hybrid BM25+vector search)
+- `semantic` — pgvector cosine similarity blended with PostgreSQL full-text ranking
 - `recency` — exponential decay from event time
 - `importance` — boosted by repeated recall, direct mention, user pinning
 - `trust` — connector base trust + factuality confidence
@@ -165,29 +163,30 @@ PostgreSQL tables defined in `apps/api/src/db/schema.ts` (Drizzle ORM):
 - `rawEvents` — immutable ingested payloads (before normalization)
 - `memories` — normalized events with text, weights, entities, claims, factuality
 - `memoryLinks` — relationship graph (related / supports / contradicts)
+- `memorySearchIndex` — denormalized full-text + pgvector search index for memories
 - `contacts` — deduplicated people
 - `contactIdentifiers` — email/phone/name/slack_id mappings to contact
 - `memoryContacts` — memory ↔ contact associations with role (sender/recipient/mentioned)
 
-Typesense collection `memories`: hybrid BM25 + vector search (cosine), fields include `text`, `connector_type`, `source_type`, `event_time`, `people`, `entities_text`, `embedding` (float[], cosine).
+`memorySearchIndex` stores searchable text, structured filters, people/location/entity facets, and LLM embeddings in a pgvector column. Embeddings from Ollama, OpenRouter, or Gemini are accepted as float arrays and compared with cosine distance.
 
 ## API Modules
 
 All under `apps/api/src/`:
 
-| Module        | Purpose                                                                         |
-| ------------- | ------------------------------------------------------------------------------- |
-| `config/`     | Environment + ConfigService                                                     |
-| `db/`         | PostgreSQL init, Drizzle schema, DbService                                      |
-| `connectors/` | Connector registry + factory                                                    |
-| `accounts/`   | Account CRUD, credential management                                             |
-| `auth/`       | OAuth flow orchestration, callback handling                                     |
-| `jobs/`       | Job CRUD, sync triggering, status tracking                                      |
-| `logs/`       | Log persistence + retrieval                                                     |
-| `events/`     | WebSocket gateway (`/events`) for real-time updates                             |
-| `memory/`     | Search, ranking, embedding (OllamaService, TypesenseService), BullMQ processors |
-| `contacts/`   | Contact dedup, identifier merging                                               |
-| `plugins/`    | Plugin/extension system (stub)                                                  |
+| Module        | Purpose                                                                        |
+| ------------- | ------------------------------------------------------------------------------ |
+| `config/`     | Environment + ConfigService                                                    |
+| `db/`         | PostgreSQL init, Drizzle schema, DbService                                     |
+| `connectors/` | Connector registry + factory                                                   |
+| `accounts/`   | Account CRUD, credential management                                            |
+| `auth/`       | OAuth flow orchestration, callback handling                                    |
+| `jobs/`       | Job CRUD, sync triggering, status tracking                                     |
+| `logs/`       | Log persistence + retrieval                                                    |
+| `events/`     | WebSocket gateway (`/events`) for real-time updates                            |
+| `memory/`     | Search, ranking, embedding (OllamaService, PgSearchService), BullMQ processors |
+| `contacts/`   | Contact dedup, identifier merging                                              |
+| `plugins/`    | Plugin/extension system (stub)                                                 |
 
 ## Frontend
 

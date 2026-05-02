@@ -36,8 +36,12 @@ business/
 .claude/worktrees/
 .agents/
 scripts/
+!scripts/
+scripts/*
+!scripts/backup-postgres.sh
+!scripts/restore-postgres-backup.sh
 !apps/api/scripts/
-!apps/api/scripts/backfill-pg-search-from-typesense.js
+!apps/api/scripts/backfill-pg-search-from-legacy-index.js
 *.swp
 @notes.md
 TODO.md

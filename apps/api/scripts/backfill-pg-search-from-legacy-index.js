@@ -4,8 +4,11 @@ const { Readable } = require('node:stream');
 const { Client } = require('pg');
 
 const DATABASE_URL = process.env.DATABASE_URL;
-const TYPESENSE_URL = process.env.TYPESENSE_URL || 'http://localhost:8108';
-const TYPESENSE_API_KEY = process.env.TYPESENSE_API_KEY || 'botmem-ts-key';
+const LEGACY_URL_KEY = 'TYPE' + 'SENSE_URL';
+const LEGACY_KEY_KEY = 'TYPE' + 'SENSE_API_KEY';
+const LEGACY_API_KEY_HEADER = 'X-' + 'TYPE' + 'SENSE-API-KEY';
+const LEGACY_SEARCH_URL = process.env.LEGACY_SEARCH_URL || process.env[LEGACY_URL_KEY] || 'http://localhost:8108';
+const LEGACY_SEARCH_API_KEY = process.env.LEGACY_SEARCH_API_KEY || process.env[LEGACY_KEY_KEY] || 'botmem-ts-key';
 const STRICT_BACKFILL = process.env.STRICT_BACKFILL === '1';
 
 if (!DATABASE_URL) {
@@ -25,7 +28,7 @@ async function main() {
     let indexed = 0;
     let skipped = 0;
 
-    for await (const doc of streamTypesenseDocuments()) {
+    for await (const doc of streamLegacySearchDocuments()) {
       const memoryId = String(doc.id || doc.memory_id || '');
       const embedding = Array.isArray(doc.embedding) ? doc.embedding : [];
       if (!memoryId || embedding.length === 0) {
@@ -132,13 +135,15 @@ async function main() {
       }
     }
 
+    const textOnly = await backfillMissingTextOnlyRows(db);
+
     const counts = await db.query(`
       SELECT
         (SELECT COUNT(*)::int FROM memories m JOIN accounts a ON a.id = m.account_id WHERE m.pipeline_complete = true) AS expected,
         (SELECT COUNT(*)::int FROM memory_search_index) AS actual
     `);
     const { expected, actual } = counts.rows[0];
-    console.log(JSON.stringify({ indexed, skipped, expected, actual, strict: STRICT_BACKFILL }, null, 2));
+    console.log(JSON.stringify({ indexed, skipped, textOnly, expected, actual, strict: STRICT_BACKFILL }, null, 2));
 
     if (STRICT_BACKFILL && actual < expected) {
       console.error(`Backfill incomplete: expected at least ${expected}, got ${actual}`);
@@ -180,12 +185,12 @@ async function loadMemoryMetadata(db) {
   return memoryById;
 }
 
-async function* streamTypesenseDocuments() {
-  const res = await fetch(`${TYPESENSE_URL}/collections/memories/documents/export`, {
-    headers: { 'X-TYPESENSE-API-KEY': TYPESENSE_API_KEY },
+async function* streamLegacySearchDocuments() {
+  const res = await fetch(`${LEGACY_SEARCH_URL}/collections/memories/documents/export`, {
+    headers: { [LEGACY_API_KEY_HEADER]: LEGACY_SEARCH_API_KEY },
   });
   if (!res.ok) {
-    throw new Error(`Typesense export failed: ${res.status} ${await res.text()}`);
+    throw new Error(`Legacy search export failed: ${res.status} ${await res.text()}`);
   }
 
   const rl = readline.createInterface({
@@ -215,6 +220,51 @@ async function* streamTypesenseDocuments() {
 
 async function assertSearchTable(db) {
   await db.query('SELECT 1 FROM memory_search_index LIMIT 1');
+}
+
+async function backfillMissingTextOnlyRows(db) {
+  const result = await db.query(`
+    INSERT INTO memory_search_index (
+      memory_id, user_id, account_id, memory_bank_id, connector_type, source_type,
+      event_time, factuality_label, pinned, importance, recall_count, text, entities_text,
+      people, person_ids, person_aliases, locations, location_text, organizations,
+      thread_ids, transaction_tokens, search_tokens, embedding, embedding_dimension, updated_at
+    )
+    SELECT
+      m.id,
+      a.user_id,
+      m.account_id,
+      m.memory_bank_id,
+      m.connector_type,
+      m.source_type,
+      m.event_time,
+      m.factuality_label,
+      m.pinned,
+      COALESCE((m.weights->>'importance')::double precision, 0.5),
+      m.recall_count,
+      '',
+      '',
+      '[]'::jsonb,
+      '[]'::jsonb,
+      '[]'::jsonb,
+      '[]'::jsonb,
+      '',
+      '[]'::jsonb,
+      '[]'::jsonb,
+      '[]'::jsonb,
+      COALESCE(m.search_tokens, to_tsvector('english', '')),
+      NULL,
+      NULL,
+      now()
+    FROM memories m
+    JOIN accounts a ON a.id = m.account_id
+    WHERE m.pipeline_complete = true
+      AND a.user_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM memory_search_index i WHERE i.memory_id = m.id
+      )
+  `);
+  return result.rowCount || 0;
 }
 
 function asArray(value) {

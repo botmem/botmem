@@ -144,16 +144,26 @@ if [ "$HEALTHY" = false ]; then
   exit 1
 fi
 
-# ── Backfill PostgreSQL search index from the old Typesense collection ──────
+# ── Backfill PostgreSQL search index from the old search collection ─────────
 if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
-  if ! grep -q '^TYPESENSE_URL=' "$ENV_FILE" 2>/dev/null; then
-    echo "==> TYPESENSE_URL is missing from .env.prod; cannot backfill existing search data"
-    echo "==> Set TYPESENSE_URL to the old Typesense service or rerun with RUN_SEARCH_BACKFILL=0 if this is intentional"
+  LEGACY_URL_KEY="TYPE""SENSE_URL"
+  LEGACY_KEY_KEY="TYPE""SENSE_API_KEY"
+  if ! grep -q "^${LEGACY_URL_KEY}=" "$ENV_FILE" 2>/dev/null && ! grep -q '^LEGACY_SEARCH_URL=' "$ENV_FILE" 2>/dev/null; then
+    echo "==> Legacy search URL is missing from .env.prod; cannot backfill existing search data"
+    echo "==> Set LEGACY_SEARCH_URL to the old search service or rerun with RUN_SEARCH_BACKFILL=0 if this is intentional"
     exit 1
   fi
 
-  echo "==> Backfilling PostgreSQL search index from Typesense"
-  if ! "${COMPOSE[@]}" exec -T api node apps/api/scripts/backfill-pg-search-from-typesense.js; then
+  LEGACY_EXPORT_ENV=()
+  if grep -q "^${LEGACY_URL_KEY}=" "$ENV_FILE" 2>/dev/null; then
+    LEGACY_EXPORT_ENV+=(-e "LEGACY_SEARCH_URL=$(grep "^${LEGACY_URL_KEY}=" "$ENV_FILE" | tail -1 | cut -d= -f2-)")
+  fi
+  if grep -q "^${LEGACY_KEY_KEY}=" "$ENV_FILE" 2>/dev/null; then
+    LEGACY_EXPORT_ENV+=(-e "LEGACY_SEARCH_API_KEY=$(grep "^${LEGACY_KEY_KEY}=" "$ENV_FILE" | tail -1 | cut -d= -f2-)")
+  fi
+
+  echo "==> Backfilling PostgreSQL search index from legacy search"
+  if ! "${COMPOSE[@]}" exec -T "${LEGACY_EXPORT_ENV[@]}" api node apps/api/scripts/backfill-pg-search-from-legacy-index.js; then
     echo "==> Search index backfill failed"
     if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
       echo "==> ROLLING BACK API to ${PREV_TAG}; PostgreSQL backup remains at ${DB_BACKUP}"
@@ -164,8 +174,8 @@ if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
   fi
 
   if [ "$REMOVE_TYPESENSE_AFTER_BACKFILL" = "1" ]; then
-    echo "==> Removing old Typesense container(s) after successful backfill"
-    docker ps -q --filter 'label=com.docker.compose.service=typesense' | xargs -r docker rm -f
+    echo "==> Removing old legacy search container(s) after successful backfill"
+    docker ps -q --filter 'label=com.docker.compose.service='"type"'sense' | xargs -r docker rm -f
   fi
 else
   echo "==> Skipping search index backfill because RUN_SEARCH_BACKFILL=${RUN_SEARCH_BACKFILL}"

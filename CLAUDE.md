@@ -5,7 +5,7 @@ Local-first platform that ingests events from multiple data sources (emails, mes
 ## Quick Start
 
 ```bash
-docker compose up -d          # PostgreSQL, Redis + Typesense
+docker compose up -d          # PostgreSQL + pgvector, Redis
 pnpm install                  # Install all workspace deps
 cp .env.example .env          # Configure environment (edit as needed)
 pnpm dev                      # Builds deps, then API + web on :12412
@@ -42,7 +42,7 @@ packages/
 - **Runtime**: Node, TypeScript (ES2022, strict, ESNext modules)
 - **Backend**: NestJS 11, Drizzle ORM + PostgreSQL
 - **Queue**: BullMQ on Redis
-- **Search**: Typesense (hybrid BM25 + vector search, conversational RAG)
+- **Search**: PostgreSQL search index (hybrid BM25 + vector search, conversational RAG)
 - **AI**: Ollama (remote, default) or OpenRouter — swappable via `AI_BACKEND` env var
 - **Frontend**: React 19, Vite 6, Zustand 5, Tailwind 4, react-force-graph-2d
 - **Content Processing**: liteparse (PDF, DOCX, XLSX, PPTX), email-reply-parser, html-to-text
@@ -55,8 +55,8 @@ packages/
 | `PORT`                    | `12412`                               | API server port                                                                     |
 | `DATABASE_URL`            | _(required)_                          | PostgreSQL connection string                                                        |
 | `REDIS_URL`               | `redis://localhost:6379`              | BullMQ queue backend                                                                |
-| `TYPESENSE_URL`           | `http://localhost:8108`               | Typesense search engine                                                             |
-| `TYPESENSE_API_KEY`       | `botmem-ts-key`                       | Typesense API key                                                                   |
+| `DATABASE_URL`            | `http://localhost:8108`               | PostgreSQL search index search engine                                               |
+| ``                        | `botmem-ts-key`                       | PostgreSQL search index API key                                                     |
 | `OLLAMA_BASE_URL`         | `http://localhost:11434`              | Ollama inference endpoint                                                           |
 | `OLLAMA_USERNAME`         | _(empty)_                             | Basic auth username (optional)                                                      |
 | `OLLAMA_PASSWORD`         | _(empty)_                             | Basic auth password (optional)                                                      |
@@ -107,10 +107,10 @@ Connectors are EventEmitters. During sync they emit `data`, `progress`, and `log
 
 BullMQ queues process work asynchronously through Redis:
 
-| Queue    | Worker            | Purpose                                                                                                   |
-| -------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `sync`   | `SyncProcessor`   | Orchestrates `connector.sync()`, writes to `rawEvents`, enqueues memory jobs                              |
-| `memory` | `MemoryProcessor` | Parses raw event, cleans content, creates Memory, embeds, enriches inline, encrypts, upserts to Typesense |
+| Queue    | Worker            | Purpose                                                                                                                 |
+| -------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `sync`   | `SyncProcessor`   | Orchestrates `connector.sync()`, writes to `rawEvents`, enqueues memory jobs                                            |
+| `memory` | `MemoryProcessor` | Parses raw event, cleans content, creates Memory, embeds, enriches inline, encrypts, upserts to PostgreSQL search index |
 
 Job statuses: `queued → running → done | failed | cancelled`
 
@@ -131,7 +131,7 @@ Connector.sync()
       ├ Generate embedding via AI backend
       ├ Enrich inline (entities, factuality, weights)
       ├ Single-pass AES-256-GCM encryption
-      ├ Upsert document → Typesense collection
+      ├ Upsert document → PostgreSQL search index collection
       └ Create links + corroborate factuality
 ```
 
@@ -150,7 +150,7 @@ final = 0.40×semantic + 0.25×recency + 0.20×importance + 0.15×trust
 
 Weights are intent-dependent (`recall` vs `browse`) with per-connector scaling adjustments. All scoring constants are centralized in `apps/api/src/memory/search.constants.ts`.
 
-- `semantic` — Typesense vector similarity score (or `rank_fusion_score` from hybrid BM25+vector search)
+- `semantic` — PostgreSQL search index vector similarity score (or `rank_fusion_score` from hybrid BM25+vector search)
 - `recency` — exponential decay from event time
 - `importance` — boosted by repeated recall, direct mention, user pinning
 - `trust` — connector base trust + factuality confidence
@@ -180,7 +180,7 @@ PostgreSQL tables defined in `apps/api/src/db/schema.ts` (Drizzle ORM):
 - `contactIdentifiers` — email/phone/name/slack_id mappings to contact
 - `memoryContacts` — memory ↔ contact associations with role (sender/recipient/mentioned)
 
-Typesense collection `memories`: hybrid BM25 + vector search (cosine), fields include `text`, `connector_type`, `source_type`, `event_time`, `people`, `entities_text`, `embedding` (float[], cosine).
+PostgreSQL search index collection `memories`: hybrid BM25 + vector search (cosine), fields include `text`, `connector_type`, `source_type`, `event_time`, `people`, `entities_text`, `embedding` (float[], cosine).
 
 ## API Modules
 
