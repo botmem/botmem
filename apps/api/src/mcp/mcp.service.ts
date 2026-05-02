@@ -232,6 +232,7 @@ export class McpService implements OnModuleDestroy {
 
   private shapeMcpPayload(data: unknown, textMaxLength: number): unknown {
     if (!data || typeof data !== 'object') return data;
+    if (data instanceof Date) return data.toISOString();
 
     if (Array.isArray(data)) {
       return this.dedupeMemories(data).map((item) => this.shapeMcpPayload(item, textMaxLength));
@@ -249,6 +250,10 @@ export class McpService implements OnModuleDestroy {
       shaped[key] = this.shapeMcpPayload(value, textMaxLength);
     }
 
+    if (shaped.connectorType === 'photos') {
+      shaped.metadata = this.withPhotoTakenAt(shaped.metadata, shaped.eventTime);
+    }
+
     if (
       typeof shaped.text === 'string' &&
       textMaxLength >= 0 &&
@@ -259,6 +264,17 @@ export class McpService implements OnModuleDestroy {
     }
 
     return shaped;
+  }
+
+  private withPhotoTakenAt(metadata: unknown, eventTime: unknown): unknown {
+    const metadataObject = this.parseMaybeJsonObject(metadata);
+    if (!Object.keys(metadataObject).length && metadata !== undefined && metadata !== null) {
+      return metadata;
+    }
+    if (!metadataObject.takenAt && typeof eventTime === 'string' && eventTime.trim()) {
+      metadataObject.takenAt = eventTime;
+    }
+    return metadataObject;
   }
 
   private dedupeMemories(items: unknown[]): unknown[] {

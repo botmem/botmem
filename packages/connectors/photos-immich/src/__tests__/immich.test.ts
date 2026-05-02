@@ -705,7 +705,10 @@ describe('ImmichConnector', () => {
       const dataListener = vi.fn();
       connector.on('data', dataListener);
       await connector.sync(makeSyncCtx());
-      expect(dataListener.mock.calls[0][0].content.text).toContain('2026-06-01');
+      const event = dataListener.mock.calls[0][0];
+      expect(event.content.text).toContain('2026-06-01');
+      expect(event.timestamp).toBe('2026-06-01T12:00:00.000Z');
+      expect(event.content.metadata.takenAt).toBe('2026-06-01T12:00:00.000Z');
     });
 
     it('handles asset with no exifInfo', async () => {
