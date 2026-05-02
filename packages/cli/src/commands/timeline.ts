@@ -1,26 +1,8 @@
 import type { BotmemClient } from '../client.js';
 import { bold, dim } from '../format.js';
+import { registryCliHelp } from '../command-registry.js';
 
-export const timelineHelp = `
-  ${bold('botmem timeline')} -- Query memories by time range
-
-  USAGE
-    botmem timeline [options]
-
-  OPTIONS
-    --from <date>        Start date (ISO 8601, e.g. 2025-01-01)
-    --to <date>          End date (ISO 8601, e.g. 2025-01-31)
-    --query <text>       Filter by text content
-    --connector <type>   Filter by connector
-    --source <type>      Filter by source type
-    --limit <n>          Max results (default: 50)
-    --json               Output raw JSON
-
-  EXAMPLES
-    botmem timeline --from 2025-01-01 --to 2025-01-31
-    botmem timeline --from 2025-06-01 --query "meeting"
-    botmem timeline --connector gmail --limit 20
-`.trim();
+export const timelineHelp = registryCliHelp('timeline', 'botmem timeline [options]');
 
 function truncate(text: string, maxLen: number): string {
   const oneLine = text.replace(/\n/g, ' ').trim();

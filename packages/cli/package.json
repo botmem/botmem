@@ -40,6 +40,7 @@
     "typescript": "catalog:"
   },
   "dependencies": {
+    "@botmem/shared": "workspace:*",
     "@toon-format/toon": "^2.1.0"
   }
 }

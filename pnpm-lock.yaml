@@ -447,6 +447,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@botmem/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0

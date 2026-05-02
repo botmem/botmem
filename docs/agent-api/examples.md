@@ -2,11 +2,14 @@
 
 These examples show how an AI agent can use Botmem's MCP tools to answer real questions by combining multiple tool calls.
 
+Before applying connector or source filters, agents should call `status` or `sources` when they do not already know what data is available. For latest/current-state questions, use `list` sorted by `eventTime` instead of semantic search.
+
 ## "What did John say about the project deadline?"
 
 The agent needs to find a person and then search for relevant memories.
 
 **Step 1: Find the contact**
+
 ```
 Tool: search_contacts
 Input: { "query": "John" }
@@ -15,11 +18,12 @@ Input: { "query": "John" }
 Returns John Smith with contact ID `contact-uuid-1`.
 
 **Step 2: Search memories involving John about deadlines**
+
 ```
-Tool: search_memories
+Tool: search
 Input: {
   "query": "project deadline",
-  "contactId": "contact-uuid-1",
+  "contact_id": "contact-uuid-1",
   "limit": 10
 }
 ```
@@ -27,17 +31,18 @@ Input: {
 Returns ranked memories from email, Slack, and WhatsApp where John discussed deadlines. The agent can synthesize a response:
 
 > "Based on your memory, John mentioned the project deadline in three places:
+>
 > 1. In a Gmail email on Jan 15, he said the deadline is March 1st (FACT, confidence 0.9)
 > 2. In Slack on Jan 20, he mentioned pushing it to March 15th (UNVERIFIED, confidence 0.6)
 > 3. In WhatsApp on Jan 22, he confirmed March 15th with the team (FACT, confidence 0.85)"
 
 ## "Remember that the meeting was rescheduled to Friday"
 
-The agent stores a new fact in memory.
+MCP is read-only. To write a new memory, use the REST agent endpoint or CLI instead.
 
 ```
-Tool: store_memory
-Input: {
+POST /api/agent/remember
+{
   "text": "The team meeting originally scheduled for Wednesday has been rescheduled to Friday this week."
 }
 ```
@@ -49,8 +54,9 @@ This creates a manual memory that will be embedded and enriched automatically. F
 The agent builds a timeline by searching and sorting.
 
 **Step 1: Broad search**
+
 ```
-Tool: search_memories
+Tool: search
 Input: {
   "query": "product launch",
   "limit": 20
@@ -74,8 +80,9 @@ The agent receives memories from multiple sources and can construct a timeline:
 The agent combines statistics and contact lookups.
 
 **Step 1: Search for budget-related memories**
+
 ```
-Tool: search_memories
+Tool: search
 Input: {
   "query": "budget financial spending",
   "limit": 50
@@ -87,6 +94,7 @@ Input: {
 The agent counts person entities across all returned memories:
 
 > "Based on your memory, the people you discuss budget topics with most are:
+>
 > 1. **John Smith** (23 mentions) -- mostly via email and Slack
 > 2. **Sarah Chen** (15 mentions) -- primarily in email threads
 > 3. **Mike Johnson** (8 mentions) -- WhatsApp group discussions"
@@ -96,8 +104,9 @@ The agent counts person entities across all returned memories:
 The agent leverages the factuality system.
 
 **Step 1: Search for contract-related memories**
+
 ```
-Tool: search_memories
+Tool: search
 Input: {
   "query": "contract value amount price",
   "limit": 20
@@ -109,6 +118,7 @@ Input: {
 The agent examines the factuality field of each result:
 
 > "I found a potential conflict in your memory:
+>
 > - **Email from Sarah** (Jan 15, FACT): 'The contract value is $250,000'
 > - **Slack message from Mike** (Jan 18, UNVERIFIED): 'I heard the contract is closer to $300,000'
 >
@@ -116,33 +126,39 @@ The agent examines the factuality field of each result:
 
 ## "What was I doing last Tuesday?"
 
-The agent searches across all source types for a specific time period.
+The agent browses the specific event-time range across all source types.
 
-**Step 1: Search with time context**
+**Step 1: Browse the date range**
+
 ```
-Tool: search_memories
+Tool: timeline
 Input: {
-  "query": "Tuesday February 25",
+  "from": "2026-02-25T00:00:00.000Z",
+  "to": "2026-02-26T00:00:00.000Z",
   "limit": 20
 }
 ```
 
-**Step 2: Supplement with location data**
+**Step 2: Supplement with location data if available**
+
 ```
-Tool: search_memories
+Tool: timeline
 Input: {
-  "query": "location February 25",
-  "sourceType": "location",
+  "from": "2026-02-25T00:00:00.000Z",
+  "to": "2026-02-26T00:00:00.000Z",
+  "source_type": "location",
   "limit": 10
 }
 ```
 
 **Step 3: Check photos**
+
 ```
-Tool: search_memories
+Tool: timeline
 Input: {
-  "query": "February 25",
-  "sourceType": "photo",
+  "from": "2026-02-25T00:00:00.000Z",
+  "to": "2026-02-26T00:00:00.000Z",
+  "source_type": "photo",
   "limit": 10
 }
 ```
@@ -150,6 +166,7 @@ Input: {
 The agent combines all results:
 
 > "Here's what I found for last Tuesday (Feb 25):
+>
 > - **9:00 AM** -- You were at the office (OwnTracks location)
 > - **10:30 AM** -- Email thread about the product roadmap with Sarah
 > - **12:00 PM** -- Photo at a restaurant (Immich, tagged: you + John)
@@ -161,8 +178,9 @@ The agent combines all results:
 The agent performs a broad entity search and contact correlation.
 
 **Step 1: Search by organization name**
+
 ```
-Tool: search_memories
+Tool: search
 Input: {
   "query": "Acme Corp",
   "limit": 30
@@ -170,6 +188,7 @@ Input: {
 ```
 
 **Step 2: Find contacts associated with Acme**
+
 ```
 Tool: search_contacts
 Input: {
@@ -178,10 +197,13 @@ Input: {
 ```
 
 **Step 3: For key contacts, get their memory history**
+
 ```
-Tool: get_contact_memories
+Tool: search
 Input: {
-  "contactId": "acme-contact-uuid"
+  "query": "Acme Corp",
+  "contact_id": "acme-contact-uuid",
+  "limit": 30
 }
 ```
 

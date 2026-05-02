@@ -79,6 +79,22 @@ List extracted entities across all memories.
 
 **Query Parameters:** `type` (optional, e.g. `person`, `organization`)
 
+## MCP Tools
+
+The MCP endpoint at `POST /mcp` exposes a connector-agnostic tool set generated from the shared CLI/MCP registry. The descriptions and argument schemas are kept in `packages/shared/src/agent-tools.ts`, so MCP tool metadata and CLI command help stay aligned.
+
+| Tool         | Arguments                                                                                    | Notes                                                                  |
+| ------------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `status`     | none                                                                                         | Memory stats, accounts, registered connectors, queue counts, last sync |
+| `sources`    | none                                                                                         | Available source, connector, and factuality counts                     |
+| `list`       | `connector_type`, `source_type`, `limit`, `offset`, `sort_by`, `text_max_length`             | Latest browsing; `sort_by` is `eventTime` or `ingestTime`              |
+| `timeline`   | `from`, `to`, `query`, `connector_type`, `source_type`, `limit`, `text_max_length`           | Event-time range browsing, sorted ascending                            |
+| `search`     | `query`, `connector_type`, `source_type`, `contact_id`, `date_from`, `date_to`, `limit`      | Semantic ranked search                                                 |
+| `ask`        | `query`, `connector_type`, `source_type`, `date_from`, `date_to`, `limit`, `text_max_length` | Synthesized answer/context over memories                               |
+| `get_memory` | `id`, `text_max_length`                                                                      | Full memory record by id                                               |
+
+Use `status` or `sources` first when an agent needs to discover available connectors and source types. Use `list` for "latest" or "current location" style questions because semantic ranking is not a pure timestamp sort.
+
 ## Search & Memory Endpoints
 
 ### POST /api/memories/search

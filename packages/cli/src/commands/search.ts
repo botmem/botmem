@@ -1,26 +1,8 @@
 import type { BotmemClient, SearchResult } from '../client.js';
 import { formatSearchResults } from '../format.js';
+import { registryCliHelp } from '../command-registry.js';
 
-export const searchHelp = `
-  ${bold('botmem search')} -- Search memories semantically
-
-  USAGE
-    botmem search <query> [options]
-
-  OPTIONS
-    --source <type>      Filter by source (email, message, photo, location)
-    --connector <type>   Filter by connector (gmail, slack, whatsapp, imessage, locations)
-    --contact <id>       Filter by contact UUID
-    --memory-bank <id>   Filter by memory bank ID
-    --limit <n>          Max results (default: 20)
-    --debug              Include search planner and lane diagnostics
-    --json               Output raw JSON
-
-  EXAMPLES
-    botmem search "dinner plans"
-    botmem search "meeting" --connector gmail --limit 5
-    botmem search "photos from dubai" --source photo --json
-`.trim();
+export const searchHelp = registryCliHelp('search', 'botmem search <query> [options]');
 
 function bold(s: string) {
   return `\x1b[1m${s}\x1b[0m`;

@@ -1,8 +1,14 @@
 import { defineConfig } from 'vitest/config';
 import swc from 'unplugin-swc';
+import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [swc.vite({ module: { type: 'es6' } })],
+  resolve: {
+    alias: {
+      '@botmem/shared': resolve(__dirname, '../../packages/shared/src/index.ts'),
+    },
+  },
   test: {
     globals: true,
     coverage: {

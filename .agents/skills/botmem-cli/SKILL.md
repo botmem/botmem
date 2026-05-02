@@ -26,6 +26,16 @@ botmem status --toon-fields memory.total,connectors,queues
 
 Array paths can be written with or without `[]`: `items.id` and `items[].id` are equivalent.
 
+## Agent Tool Selection
+
+CLI help and MCP tool descriptions are generated from the same shared registry. The MCP connector exposes `status`, `sources`, `list`, `timeline`, `search`, `ask`, and `get_memory`.
+
+- Start with `botmem status --toon-fields memory.total,accounts,connectors,queues,lastUpdate` or MCP `status` when source coverage or pipeline health matters.
+- Use MCP `sources` or `botmem stats --toon` before guessing `source_type` / `connector_type` filters.
+- Use `botmem memories --source location --limit 1 --toon` or MCP `list` with `source_type: "location"`, `sort_by: "eventTime"`, `limit: 1` for "latest/current location" style questions.
+- Use `timeline` for explicit date ranges, `search` for semantic lookup, `ask` only after retrieval when synthesis is needed.
+- MCP is read-only; use REST/CLI commands for write operations.
+
 ## Setup
 
 When this skill is invoked and the `botmem` command is unavailable, install it automatically before using Botmem:
