@@ -24,6 +24,8 @@ import type { SyncContext, ConnectorDataEvent, ConnectorLogger } from '@botmem/c
 import { isNoise } from '@botmem/connector-sdk';
 import { useAtomicMultiFileAuthState, flushPendingWrites } from './atomic-auth-state.js';
 
+type OnWhatsAppResult = { jid: string; exists: boolean };
+
 /**
  * Simple in-memory message store for Baileys getMessage callback.
  * When Baileys fails to decrypt a message, it retries using this store
@@ -239,34 +241,71 @@ function rememberPhoneLidMapping(
   lidToPhone.set(lidKey, phoneKey);
 }
 
+function rememberWhatsAppPhone(phone: string, phoneToName: Map<string, string>) {
+  const phoneKey = phoneFromJid(phone).replace(/[^\d]/g, '');
+  if (!phoneKey || phoneToName.has(phoneKey)) return;
+  phoneToName.set(phoneKey, '');
+}
+
 async function resolveKnownPhonesToLids(
   sock: WaSock,
   phones: Iterable<string>,
   lidToPhone: Map<string, string>,
   phoneToLid: Map<string, string>,
+  phoneToName: Map<string, string>,
   log: (level: 'info' | 'warn' | 'error' | 'debug', message: string) => void,
 ) {
-  if (typeof sock.executeUSyncQuery !== 'function') return;
+  if (typeof sock.executeUSyncQuery !== 'function' && typeof sock.onWhatsApp !== 'function') {
+    return;
+  }
   const phoneList = [...new Set([...phones].map(normalizePhoneForLookup).filter(Boolean))].filter(
     (phone) => !phoneToLid.has(phoneFromJid(phone).replace(/[^\d]/g, '')),
   );
   if (!phoneList.length) return;
 
-  let resolved = 0;
+  let confirmed = 0;
+  let resolvedLids = 0;
   for (let i = 0; i < phoneList.length; i += PHONE_LOOKUP_BATCH_SIZE) {
     const batch = phoneList.slice(i, i + PHONE_LOOKUP_BATCH_SIZE);
-    const query = new USyncQuery().withContactProtocol();
-    for (const phone of batch) {
-      query.withUser(new USyncUser().withPhone(phone));
-    }
     try {
-      const result = await sock.executeUSyncQuery(query);
-      for (let idx = 0; idx < (result?.list?.length || 0); idx++) {
-        const entry = result!.list[idx];
-        const lidJid = entry?.id || '';
-        if (!isLid(lidJid)) continue;
-        rememberPhoneLidMapping(batch[idx], lidJid, lidToPhone, phoneToLid);
-        resolved++;
+      if (typeof sock.onWhatsApp === 'function') {
+        const result = (await sock.onWhatsApp(...batch)) as OnWhatsAppResult[] | undefined;
+        const resultByPhone = new Map(
+          (result || []).map((entry) => [phoneFromJid(entry.jid).replace(/[^\d]/g, ''), entry]),
+        );
+
+        for (let idx = 0; idx < batch.length; idx++) {
+          const phone = batch[idx];
+          const phoneKey = phoneFromJid(phone).replace(/[^\d]/g, '');
+          const entry = resultByPhone.get(phoneKey) ?? result?.[idx];
+          if (!entry?.exists) continue;
+
+          rememberWhatsAppPhone(phone, phoneToName);
+          confirmed++;
+
+          if (isLid(entry.jid)) {
+            rememberPhoneLidMapping(phone, entry.jid, lidToPhone, phoneToLid);
+            resolvedLids++;
+          }
+        }
+      } else {
+        const query = new USyncQuery().withContactProtocol();
+        for (const phone of batch) {
+          query.withUser(new USyncUser().withPhone(phone));
+        }
+        const result = await sock.executeUSyncQuery(query);
+        for (let idx = 0; idx < (result?.list?.length || 0); idx++) {
+          const entry = result!.list[idx];
+          if (!entry?.contact) continue;
+
+          rememberWhatsAppPhone(batch[idx], phoneToName);
+          confirmed++;
+
+          const jid = entry.id || '';
+          if (!isLid(jid)) continue;
+          rememberPhoneLidMapping(batch[idx], jid, lidToPhone, phoneToLid);
+          resolvedLids++;
+        }
       }
       await jitter(100, 400);
     } catch (err) {
@@ -278,7 +317,8 @@ async function resolveKnownPhonesToLids(
       );
     }
   }
-  if (resolved > 0) log('info', `Resolved ${resolved} WhatsApp phone number(s) to LIDs`);
+  if (confirmed > 0) log('info', `Confirmed ${confirmed} known phone number(s) are on WhatsApp`);
+  if (resolvedLids > 0) log('info', `Resolved ${resolvedLids} WhatsApp phone number(s) to LIDs`);
 }
 
 async function loadKnownPhoneLidMappingsFromAuthState(
@@ -1053,6 +1093,7 @@ export async function startWhatsAppRealtime(
       [selfPhone, ...phoneToName.keys()],
       lidToPhone,
       phoneToLid,
+      phoneToName,
       (level, message) => log?.(level, message),
     );
     emitContactEvents(
@@ -1970,6 +2011,7 @@ export async function syncWhatsApp(
     [selfPhone, ...knownPhones, ...phoneToName.keys(), ...lidToPhone.values()],
     lidToPhone,
     phoneToLid,
+    phoneToName,
     (level, message) => ctx.logger[level](message),
   );
 
