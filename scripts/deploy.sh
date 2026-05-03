@@ -15,17 +15,12 @@ IMAGE_TAG="${1:?Usage: deploy.sh <image-tag>}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/botmem}"
 ENV_FILE="${DEPLOY_DIR}/.env.prod"
 COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.prod.yml"
-BACKUP_DIR="${DEPLOY_DIR}/backups"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"   # seconds to wait for health check
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"    # seconds between health check attempts
 POSTGRES_USER="${POSTGRES_USER:-botmem}"
 POSTGRES_DB="${POSTGRES_DB:-botmem}"
 RUN_SEARCH_BACKFILL="${RUN_SEARCH_BACKFILL:-1}"
 REMOVE_LEGACY_SEARCH_AFTER_BACKFILL="${REMOVE_LEGACY_SEARCH_AFTER_BACKFILL:-1}"
-BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-2}"
-MIN_FREE_SPACE_AFTER_BACKUP_GB="${MIN_FREE_SPACE_AFTER_BACKUP_GB:-8}"
-SKIP_ON_HOST_BACKUP="${SKIP_ON_HOST_BACKUP:-0}"
-OFF_HOST_BACKUP_CONFIRMED="${OFF_HOST_BACKUP_CONFIRMED:-0}"
 DRAIN_TYPESENSE_ON_NEXT_STARTUP="${DRAIN_TYPESENSE_ON_NEXT_STARTUP:-0}"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
@@ -49,35 +44,6 @@ wait_with_heartbeat() {
   wait "$pid"
 }
 
-prune_old_backups() {
-  mkdir -p "$BACKUP_DIR"
-
-  if [ "$BACKUP_KEEP_COUNT" -lt 1 ]; then
-    echo "==> BACKUP_KEEP_COUNT must be at least 1"
-    exit 1
-  fi
-
-  mapfile -t EXISTING_BACKUPS < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'botmem-*.dump' | sort)
-  for backup in "${EXISTING_BACKUPS[@]}"; do
-    backup_base=$(basename "$backup")
-    if ! docker run --rm -v "${BACKUP_DIR}:/backups:ro" pgvector/pgvector:pg16 pg_restore -l "/backups/${backup_base}" >/dev/null 2>&1; then
-      echo "==> Removing invalid or incomplete PostgreSQL backup: ${backup}"
-      rm -f "$backup" "${backup%.dump}.globals.sql"
-    fi
-  done
-
-  mapfile -t OLD_BACKUPS < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'botmem-*.dump' | sort -r | tail -n +"$((BACKUP_KEEP_COUNT + 1))")
-  if [ "${#OLD_BACKUPS[@]}" -eq 0 ]; then
-    return
-  fi
-
-  echo "==> Removing old PostgreSQL backups beyond newest ${BACKUP_KEEP_COUNT}"
-  for backup in "${OLD_BACKUPS[@]}"; do
-    globals="${backup%.dump}.globals.sql"
-    rm -f "$backup" "$globals"
-  done
-}
-
 cleanup_docker_host() {
   local phase="${1:-manual}"
 
@@ -95,38 +61,6 @@ cleanup_docker_host() {
   fi
 
   show_disk_usage
-}
-
-bytes_available_on_root() {
-  df -PB1 / | awk 'NR == 2 { print $4 }'
-}
-
-postgres_database_size_bytes() {
-  "${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At \
-    -c "SELECT pg_database_size('${POSTGRES_DB}')"
-}
-
-require_backup_space() {
-  local available_bytes
-  local db_size_bytes
-  local reserve_bytes
-  local required_bytes
-
-  available_bytes=$(bytes_available_on_root)
-  db_size_bytes=$(postgres_database_size_bytes)
-  reserve_bytes=$((MIN_FREE_SPACE_AFTER_BACKUP_GB * 1024 * 1024 * 1024))
-  required_bytes=$((db_size_bytes + reserve_bytes))
-
-  echo "==> Backup space preflight"
-  echo "    available_on_root_bytes=${available_bytes}"
-  echo "    postgres_database_size_bytes=${db_size_bytes}"
-  echo "    required_bytes=db_size + ${MIN_FREE_SPACE_AFTER_BACKUP_GB}GiB reserve = ${required_bytes}"
-
-  if [ "$available_bytes" -lt "$required_bytes" ]; then
-    echo "==> Refusing to create on-host PostgreSQL backup: insufficient free space"
-    echo "==> Free more disk, lower MIN_FREE_SPACE_AFTER_BACKUP_GB, or take an off-host backup first."
-    exit 1
-  fi
 }
 
 remove_legacy_search_storage() {
@@ -150,44 +84,10 @@ echo "==> Previous version: ${PREV_TAG:-none}"
 
 cd "$DEPLOY_DIR"
 
-# ── Free space before backup/pull on small VPS disks ─────────────────────────
+# ── Free space before pull on small VPS disks ────────────────────────────────
 # This only removes unused Docker objects. Named, attached database volumes are
 # not removed unless PRUNE_DOCKER_VOLUMES=1 is set explicitly.
 cleanup_docker_host "preflight"
-if [ "$SKIP_ON_HOST_BACKUP" = "1" ]; then
-  if [ "$OFF_HOST_BACKUP_CONFIRMED" != "1" ]; then
-    echo "==> Refusing to skip on-host PostgreSQL backup without OFF_HOST_BACKUP_CONFIRMED=1"
-    exit 1
-  fi
-  echo "==> Skipping on-host PostgreSQL backup because an off-host backup was confirmed"
-else
-  prune_old_backups
-  require_backup_space
-
-  # ── Back up PostgreSQL before image/schema changes ───────────────────────
-  mkdir -p "$BACKUP_DIR"
-  BACKUP_TS=$(date -u +%Y%m%dT%H%M%SZ)
-  GLOBALS_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.globals.sql"
-  DB_BACKUP="${BACKUP_DIR}/botmem-${BACKUP_TS}.dump"
-  DB_BACKUP_PARTIAL="${DB_BACKUP}.partial"
-
-  echo "==> Backing up PostgreSQL to ${DB_BACKUP}"
-  rm -f "$DB_BACKUP_PARTIAL"
-  "${COMPOSE[@]}" exec -T postgres pg_dumpall --globals-only -U "$POSTGRES_USER" > "$GLOBALS_BACKUP"
-  (
-    "${COMPOSE[@]}" exec -T postgres pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > "$DB_BACKUP_PARTIAL"
-  ) &
-  PG_DUMP_PID=$!
-  if ! wait_with_heartbeat "$PG_DUMP_PID" "PostgreSQL backup"; then
-    echo "==> PostgreSQL backup failed"
-    rm -f "$DB_BACKUP_PARTIAL" "$GLOBALS_BACKUP"
-    exit 1
-  fi
-  mv "$DB_BACKUP_PARTIAL" "$DB_BACKUP"
-  test -s "$GLOBALS_BACKUP"
-  test -s "$DB_BACKUP"
-  echo "==> PostgreSQL backup complete"
-fi
 
 # ── Recreate Postgres with pgvector image and verify extension ──────────────
 echo "==> Ensuring PostgreSQL is running with pgvector support"
@@ -207,7 +107,7 @@ done
   -c 'CREATE EXTENSION IF NOT EXISTS vector' \
   -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
 
-# ── Update IMAGE_TAG in .env.prod only after backup/preflight succeeds ──────
+# ── Update IMAGE_TAG in .env.prod only after preflight succeeds ─────────────
 if grep -q '^IMAGE_TAG=' "$ENV_FILE" 2>/dev/null; then
   sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" "$ENV_FILE"
 else
@@ -321,7 +221,7 @@ if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
   if ! wait_with_heartbeat "$BACKFILL_PID" "Search index backfill"; then
     echo "==> Search index backfill failed"
     if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
-      echo "==> ROLLING BACK API to ${PREV_TAG}; PostgreSQL backup remains available off-host"
+      echo "==> ROLLING BACK API to ${PREV_TAG}"
       sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
       "${COMPOSE[@]}" up -d --no-deps api
     fi
