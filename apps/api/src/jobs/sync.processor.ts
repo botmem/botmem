@@ -3,7 +3,7 @@ import { OnModuleInit, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Job, Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { AuthService } from '../auth/auth.service';
@@ -12,7 +12,7 @@ import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { rawEvents, accounts } from '../db/schema';
+import { rawEvents, accounts, people, personIdentifiers } from '../db/schema';
 import { rawEventSourceHash } from '../db/raw-event-source-hash';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
@@ -93,6 +93,36 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       return this.moduleRef.get(ImsgTunnelService, { strict: false });
     } catch {
       return null;
+    }
+  }
+
+  private async getKnownPhoneNumbers(ownerUserId: string | undefined): Promise<string[]> {
+    if (!ownerUserId) return [];
+    try {
+      const rows = await this.dbService.withUserId(ownerUserId, (db) =>
+        db
+          .select({ value: personIdentifiers.identifierValue })
+          .from(personIdentifiers)
+          .innerJoin(people, eq(people.id, personIdentifiers.personId))
+          .where(
+            and(eq(people.userId, ownerUserId), eq(personIdentifiers.identifierType, 'phone')),
+          ),
+      );
+
+      const seen = new Set<string>();
+      for (const row of rows) {
+        const value = this.crypto.decrypt(row.value) ?? row.value;
+        const normalized = value.replace(/[^\d+]/g, '');
+        if (normalized) seen.add(normalized);
+      }
+      return [...seen];
+    } catch (err) {
+      this.logger.debug(
+        `Failed to load known phone numbers for WhatsApp identity lookup: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return [];
     }
   }
 
@@ -218,6 +248,11 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     let knownTotal = 0;
     let degradedReason: string | null = null;
     const pendingWrites: Promise<void>[] = [];
+    const knownPhoneNumbers =
+      connectorType === 'whatsapp' ? await this.getKnownPhoneNumbers(ownerUserId) : [];
+    if (knownPhoneNumbers.length) {
+      logger.info(`Loaded ${knownPhoneNumbers.length} known phone number(s) for identity lookup`);
+    }
 
     connector.on('data', (event: ConnectorDataEvent) => {
       this.events.emitToChannel(`job:${jobId}`, 'connector:data', event);
@@ -311,6 +346,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           jobId,
           logger,
           signal: abortController.signal,
+          knownPhoneNumbers,
         };
 
         const ctx = connector.wrapSyncContext(rawCtx);

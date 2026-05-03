@@ -309,6 +309,46 @@ export class WhatsAppConnector extends BaseConnector {
     const metadata = event.content?.metadata || {};
     const participants = event.content?.participants || [];
 
+    if (
+      event.sourceType === 'contact' &&
+      metadata.type === 'contact' &&
+      metadata.isGroup !== true
+    ) {
+      const parts: string[] = [];
+      const phones = Array.isArray(metadata.phones)
+        ? metadata.phones
+        : metadata.phone
+          ? [metadata.phone]
+          : [];
+      const lids = Array.isArray(metadata.whatsappLids)
+        ? metadata.whatsappLids
+        : metadata.whatsappLid
+          ? [metadata.whatsappLid]
+          : [];
+
+      for (const phone of phones) {
+        if (typeof phone !== 'string') continue;
+        const value = phone.replace(/[^\d+]/g, '');
+        if (value) parts.push(`phone:${value}`);
+      }
+      for (const lid of lids) {
+        if (typeof lid !== 'string') continue;
+        const value = lid.replace(/@.*$/, '').split(':')[0];
+        if (value && !value.includes('-')) parts.push(`whatsapp_lid:${value}`);
+      }
+      if (typeof metadata.name === 'string' && metadata.name.trim()) {
+        parts.push(`name:${metadata.name.trim()}`);
+      }
+
+      const uniqueParts = [...new Set(parts)];
+      if (uniqueParts.some((part) => !part.startsWith('name:'))) {
+        return {
+          text: cleanedText,
+          entities: [{ type: 'person', id: uniqueParts.join('|'), role: 'contact' }],
+        };
+      }
+    }
+
     const senderPhone = metadata.senderPhone as string | undefined;
     const senderName = metadata.senderName as string | undefined;
     const selfPhone = metadata.selfPhone as string | undefined;

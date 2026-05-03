@@ -115,4 +115,38 @@ describe('WhatsAppConnector', () => {
       role: 'participant',
     });
   });
+
+  it('turns WhatsApp contact identity events into one person with phone and LID identifiers', () => {
+    const connector = new WhatsAppConnector();
+    const result = connector.embed(
+      {
+        sourceType: 'contact',
+        sourceId: 'wa-contact:971508556252',
+        timestamp: new Date().toISOString(),
+        content: {
+          text: 'WhatsApp contact: Moataz Aly (+971508556252)',
+          participants: ['971508556252'],
+          metadata: {
+            type: 'contact',
+            name: 'Moataz Aly',
+            phone: '971508556252',
+            phones: ['971508556252'],
+            whatsappLid: '49293440377068',
+            whatsappLids: ['49293440377068'],
+            connectorType: 'whatsapp',
+          },
+        },
+      },
+      'WhatsApp contact: Moataz Aly (+971508556252)',
+      {} as never,
+    );
+
+    expect(result.entities).toEqual([
+      {
+        type: 'person',
+        id: 'phone:971508556252|whatsapp_lid:49293440377068|name:Moataz Aly',
+        role: 'contact',
+      },
+    ]);
+  });
 });

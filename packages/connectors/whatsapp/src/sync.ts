@@ -281,6 +281,47 @@ async function resolveKnownPhonesToLids(
   if (resolved > 0) log('info', `Resolved ${resolved} WhatsApp phone number(s) to LIDs`);
 }
 
+async function loadKnownPhoneLidMappingsFromAuthState(
+  sessionDir: string,
+  phones: Iterable<string>,
+  lidToPhone: Map<string, string>,
+  phoneToLid: Map<string, string>,
+  log: (level: 'info' | 'warn' | 'error' | 'debug', message: string) => void,
+) {
+  const phoneList = [...new Set([...phones].map((phone) => phone.replace(/[^\d]/g, '')))].filter(
+    (phone) => phone && !phoneToLid.has(phone),
+  );
+  if (!phoneList.length) return;
+
+  try {
+    const { state } = await useAtomicMultiFileAuthState(sessionDir);
+    const keys = state.keys as AuthKeyStore;
+    if (typeof keys.get !== 'function') return;
+
+    let resolved = 0;
+    for (let i = 0; i < phoneList.length; i += PHONE_LOOKUP_BATCH_SIZE) {
+      const batch = phoneList.slice(i, i + PHONE_LOOKUP_BATCH_SIZE);
+      const mappings = await keys.get('lid-mapping', batch);
+      for (const phone of batch) {
+        const lid = mappings?.[phone];
+        if (typeof lid !== 'string' || !lid) continue;
+        rememberPhoneLidMapping(phone, `${lid}@lid`, lidToPhone, phoneToLid);
+        resolved++;
+      }
+    }
+    if (resolved > 0) {
+      log('info', `Loaded ${resolved} WhatsApp phone→LID mapping(s) from auth state`);
+    }
+  } catch (err) {
+    log(
+      'debug',
+      `WhatsApp auth-state LID mapping lookup failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 /** Parse phone numbers from a vCard string */
 function phonesFromVcard(vcard: string): string[] {
   const phones: string[] = [];
@@ -430,6 +471,9 @@ const WHATSAPP_HISTORY_CURSOR = 'whatsapp-history-v1';
 const REALTIME_STARTUP_QUARANTINE_MS = 2 * 60_000;
 
 type WaSock = ReturnType<typeof makeWASocket>;
+type AuthKeyStore = {
+  get(type: string, ids: string[]): Promise<Record<string, unknown>>;
+};
 
 const inflatePromise = promisify(inflate);
 
@@ -1177,6 +1221,15 @@ export async function syncWhatsApp(
     );
   }
 
+  const knownPhones = ctx.knownPhoneNumbers ?? [];
+  await loadKnownPhoneLidMappingsFromAuthState(
+    sessionDir,
+    [selfPhone, ...knownPhones, ...phoneToName.keys(), ...lidToPhone.values()],
+    lidToPhone,
+    phoneToLid,
+    (level, message) => ctx.logger[level](message),
+  );
+
   // Track history message count (no longer buffered — emitted immediately)
   let historyMsgCount = 0;
   const emittedSourceIds = new Set<string>();
@@ -1914,7 +1967,7 @@ export async function syncWhatsApp(
 
   await resolveKnownPhonesToLids(
     sock,
-    [selfPhone, ...phoneToName.keys(), ...lidToPhone.values()],
+    [selfPhone, ...knownPhones, ...phoneToName.keys(), ...lidToPhone.values()],
     lidToPhone,
     phoneToLid,
     (level, message) => ctx.logger[level](message),
@@ -1992,6 +2045,8 @@ function emitContactEvents(
   for (const [phone, name] of phoneToName) {
     if (emittedPhones.has(phone)) continue;
     emittedPhones.add(phone);
+    const phoneKey = phone.replace(/[^\d]/g, '');
+    const whatsappLid = phoneToLid.get(phoneKey) || phoneToLid.get(phone);
 
     emit({
       sourceType: 'contact',
@@ -2005,6 +2060,7 @@ function emitContactEvents(
           name,
           phone,
           phones: [phone],
+          ...(whatsappLid ? { whatsappLid, whatsappLids: [whatsappLid] } : {}),
           connectorType: 'whatsapp',
           selfPhone,
         },
@@ -2030,6 +2086,8 @@ function emitContactEvents(
           name,
           phone,
           phones: [phone],
+          whatsappLid: lid,
+          whatsappLids: [lid],
           connectorType: 'whatsapp',
           selfPhone,
         },

@@ -59,6 +59,11 @@ export interface SyncContext {
   jobId: string;
   logger: ConnectorLogger;
   signal: AbortSignal;
+  /**
+   * Account-owner phone numbers already known to Botmem. Connectors can use
+   * these as lookup hints to resolve provider-specific IDs to durable phones.
+   */
+  knownPhoneNumbers?: string[];
 }
 
 export interface ConnectorDataEvent {
