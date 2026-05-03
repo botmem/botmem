@@ -42,6 +42,7 @@ export function useMemories() {
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const loadFullGraph = useMemoryStore((s) => s.loadFullGraph);
   const loadGraphForIds = useMemoryStore((s) => s.loadGraphForIds);
+  const expandGraphNode = useMemoryStore((s) => s.expandGraphNode);
   const connectWs = useMemoryStore((s) => s.connectWs);
   const setQuery = useMemoryStore((s) => s.setQuery);
   const setSearchResults = useMemoryStore((s) => s.setSearchResults);
@@ -99,6 +100,7 @@ export function useMemories() {
     loadGraph,
     loadFullGraph,
     loadGraphForIds,
+    expandGraphNode,
     filtered,
     query: search.term,
     setQuery: search.setTerm,

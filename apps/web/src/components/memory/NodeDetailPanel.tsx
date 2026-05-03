@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { GraphNode } from '@botmem/shared';
-import { CONNECTOR_COLORS, formatDate } from '@botmem/shared';
+import { CONNECTOR_COLORS, formatDate, getConnectorColor } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
@@ -17,6 +17,7 @@ interface NodeDetailPanelProps {
   contactInfo: { detail: ApiContact | null; memories: ApiContactMemory[] } | null;
   connectionCounts: Map<string, number>;
   onClose: () => void;
+  onExpand?: (nodeId: string) => void;
   onRemoveIdentifier: (contactId: string, identId: string) => void;
 }
 
@@ -26,6 +27,7 @@ export function NodeDetailPanel({
   contactInfo,
   connectionCounts,
   onClose,
+  onExpand,
   onRemoveIdentifier,
 }: NodeDetailPanelProps) {
   const isSelf = selfNodeId === selectedNode.id;
@@ -153,13 +155,27 @@ export function NodeDetailPanel({
                         <span className="font-mono text-[11px] text-nb-muted">
                           {formatDate(m.eventTime || m.createdAt || '')}
                         </span>
-                        <Badge className="text-[11px] py-0">{m.connectorType}</Badge>
+                        <Badge
+                          color={getConnectorColor(m.connectorType, undefined)}
+                          className="text-[11px] py-0"
+                        >
+                          {m.connectorType}
+                        </Badge>
                       </div>
                       <p className="font-mono text-[11px] text-nb-text line-clamp-2">{m.text}</p>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {onExpand && (
+                <button
+                  onClick={() => onExpand(selectedNode.id)}
+                  className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors"
+                >
+                  EXPAND
+                </button>
+              )}
 
               <button
                 onClick={() => {
@@ -216,6 +232,14 @@ export function NodeDetailPanel({
               showClaims
               onThumbnailClick={setLightboxSrc}
             />
+            {onExpand && (
+              <button
+                onClick={() => onExpand(selectedNode.id)}
+                className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors"
+              >
+                EXPAND
+              </button>
+            )}
             {selectedNode.metadata?.factuality &&
               (() => {
                 const fact =

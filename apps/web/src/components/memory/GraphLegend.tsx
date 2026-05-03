@@ -1,4 +1,4 @@
-import { CONNECTOR_COLORS } from '@botmem/shared';
+import { CONNECTOR_COLORS, getConnectorColor } from '@botmem/shared';
 import type { FilterState, FilterAction } from './graphReducers';
 import type { ForceGraphInstance } from './graphTypes';
 
@@ -109,6 +109,7 @@ interface GraphLegendProps {
   filters: FilterState;
   dispatch: React.Dispatch<FilterAction>;
   sourceTypes: string[];
+  connectorTypes: string[];
   edgeTypes: string[];
   legendOpen: boolean;
   onToggleLegend: () => void;
@@ -119,6 +120,7 @@ export function GraphLegend({
   filters,
   dispatch,
   sourceTypes,
+  connectorTypes,
   edgeTypes,
   legendOpen,
   onToggleLegend,
@@ -268,7 +270,7 @@ export function GraphLegend({
             {sourceTypes.filter((st) => st !== 'file' && st !== 'photo').length > 0 && (
               <div>
                 <div className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
-                  Source
+                  Source Type
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {sourceTypes
@@ -285,6 +287,28 @@ export function GraphLegend({
                         />
                       );
                     })}
+                </div>
+              </div>
+            )}
+
+            {connectorTypes.length > 0 && (
+              <div>
+                <div className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted mb-1.5">
+                  Connectors
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {connectorTypes.map((connectorType) => (
+                    <span
+                      key={connectorType}
+                      className="flex items-center gap-1.5 px-2 py-1 border-2 border-nb-border bg-nb-surface-hover font-mono text-[11px] uppercase text-nb-text"
+                    >
+                      <span
+                        className="size-3 border border-nb-border"
+                        style={{ backgroundColor: getConnectorColor(connectorType) }}
+                      />
+                      {connectorType}
+                    </span>
+                  ))}
                 </div>
               </div>
             )}

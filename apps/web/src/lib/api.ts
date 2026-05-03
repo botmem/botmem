@@ -388,8 +388,15 @@ export const api = {
     return request<ApiGraphData>(`/memories/graph${qs ? `?${qs}` : ''}`);
   },
   getGraphSeeds: () => request<ApiGraphData>('/memories/graph/seeds'),
-  getGraphNeighbors: (nodeId: string) =>
-    request<ApiGraphData>(`/memories/graph/neighbors/${nodeId}`),
+  getGraphNeighbors: (nodeId: string, params?: { limit?: number; memoryBankId?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
+    const qs = query.toString();
+    return request<ApiGraphData>(
+      `/memories/graph/neighbors/${encodeURIComponent(nodeId)}${qs ? `?${qs}` : ''}`,
+    );
+  },
 
   // Contacts
   // Contact endpoints use generics so consuming code can specify its own type
@@ -407,8 +414,11 @@ export const api = {
   },
   getContact: <T = ApiContact>(id: string) => request<T>(`/people/${id}`),
   getContactMemories: (id: string) => request<ApiContactMemory[]>(`/people/${id}/memories`),
-  searchContacts: <T = ApiContact>(query: string) =>
-    request<T[]>('/people/search', { method: 'POST', body: JSON.stringify({ query }) }),
+  searchContacts: <T = ApiContact>(query: string, entityType?: string) =>
+    request<T[]>('/people/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, entityType }),
+    }),
   updateContact: (
     id: string,
     data: {

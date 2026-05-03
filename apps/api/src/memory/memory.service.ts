@@ -106,6 +106,37 @@ const GROUPISH_CONTACT_WORDS = new Set([
   'friends',
   'community',
 ]);
+const LEXICAL_QUERY_FILLER_WORDS = new Set([
+  ...MINIMAL_STOPS,
+  'about',
+  'anything',
+  'detail',
+  'details',
+  'find',
+  'give',
+  'info',
+  'information',
+  'know',
+  'please',
+  'show',
+  'tell',
+  'what',
+  'when',
+  'where',
+  'which',
+  'who',
+  'why',
+]);
+
+function buildLexicalQuery(query: string, topicWords: string[] = []): string {
+  const source = topicWords.length ? topicWords.join(' ') : query;
+  const words = source
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/'s$/i, '').replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, ''))
+    .filter((word) => word.length >= 2 && !LEXICAL_QUERY_FILLER_WORDS.has(word));
+  return words.join(' ');
+}
 
 interface SearchFilters {
   sourceType?: string;
@@ -860,8 +891,10 @@ export class MemoryService {
       noteLane(point.id, 'vector_semantic');
     }
 
+    const lexicalQuery = buildLexicalQuery(embeddingQuery, hasContacts ? topicWords : []);
+    const textSearchQuery = lexicalQuery || embeddingQuery;
     const lexicalResults = await this.searchIndex.textSearch(
-      embeddingQuery,
+      textSearchQuery,
       hybridK,
       combinedFilter,
       'text,entities_text,people,locations,location_text,organizations',
@@ -1384,7 +1417,7 @@ export class MemoryService {
       createdAt: mem.createdAt,
       factuality,
       entities: mem.entities,
-      metadata: mem.metadata,
+      metadata: this.sanitizeMetadataJsonForResponse(mem.metadata),
       accountIdentifier,
       pinned: mem.pinned,
       score,
@@ -1400,7 +1433,11 @@ export class MemoryService {
     const resolvedKey = await this.resolveUserKey(userId);
     const mem = this.decryptMemoryAuto(rows[0], userId, resolvedKey);
     const peopleMap = await this.getPeopleForMemories([id]);
-    return { ...mem, people: peopleMap.get(id) || [] };
+    return {
+      ...mem,
+      metadata: this.sanitizeMetadataJsonForResponse(mem.metadata),
+      people: peopleMap.get(id) || [],
+    };
   }
 
   async getRawById(id: string, userId?: string | null, memoryBankIds?: string[]) {
@@ -1426,7 +1463,9 @@ export class MemoryService {
       ? this.parseMaybeJson(this.crypto.decrypt(rawEvent.payload) || rawEvent.payload)
       : null;
 
-    const memoryMetadata = this.stripLargeInlineData(this.parseMaybeJson(memory.metadata));
+    const memoryMetadata = this.sanitizeMemoryMetadataForResponse(
+      this.parseMaybeJson(memory.metadata),
+    );
 
     return {
       memory: {
@@ -1500,7 +1539,7 @@ export class MemoryService {
     const auth = await this.getAccountAuth(accountId);
     const connector = this.connectors.get('photos');
     const raw = await connector.getRaw(sourceId, auth);
-    return this.stripLargeInlineData(raw);
+    return this.sanitizeMemoryMetadataForResponse(raw);
   }
 
   private async getAccountAuth(accountId: string | null) {
@@ -1532,18 +1571,47 @@ export class MemoryService {
     }
   }
 
-  private stripLargeInlineData(value: unknown): unknown {
+  public sanitizeMemoryMetadataForResponse(value: unknown): unknown {
+    return this.stripLargeInlineData(value);
+  }
+
+  private sanitizeMetadataJsonForResponse(value: unknown): string {
+    return JSON.stringify(this.sanitizeMemoryMetadataForResponse(this.parseMaybeJson(value)) ?? {});
+  }
+
+  private stripLargeInlineData(value: unknown, parentKey?: string): unknown {
     if (!value || typeof value !== 'object') return value;
-    if (Array.isArray(value)) return value.map((item) => this.stripLargeInlineData(item));
+    if (Array.isArray(value)) {
+      return value.map((item) => this.stripLargeInlineData(item, parentKey));
+    }
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
       if (key === 'thumbnailBase64') {
         out.hasThumbnailBase64 = typeof child === 'string' && child.length > 0;
+      } else if (key === 'fileBase64') {
+        out.hasFileBase64 = typeof child === 'string' && child.length > 0;
+      } else if (key === 'searchTokens' || key === 'search_tokens') {
+        continue;
+      } else if (
+        parentKey === 'attachments' &&
+        key === 'uri' &&
+        typeof child === 'string' &&
+        child.length > 0
+      ) {
+        out.hasUri = true;
+      } else if (typeof child === 'string' && this.isLargeInlineMetadataString(key, child)) {
+        out[`${key}Stripped`] = true;
       } else {
-        out[key] = this.stripLargeInlineData(child);
+        out[key] = this.stripLargeInlineData(child, key);
       }
     }
     return out;
+  }
+
+  private isLargeInlineMetadataString(key: string, value: string): boolean {
+    if (value.startsWith('data:')) return true;
+    if (/base64/i.test(key) && value.length > 256) return true;
+    return value.length > 4096;
   }
 
   async list(
@@ -1605,13 +1673,17 @@ export class MemoryService {
     const listKey = await this.resolveUserKey(params.userId);
     const memoryIds = rows.map((r) => r.memory.id);
     const peopleMap = await this.getPeopleForMemories(memoryIds);
-    const items = rows.map((r) => ({
-      ...this.decryptMemoryAuto(r.memory, params.userId, listKey),
-      accountIdentifier: r.accountIdentifier
-        ? (this.crypto.decrypt(r.accountIdentifier) ?? r.accountIdentifier)
-        : null,
-      people: peopleMap.get(r.memory.id) || [],
-    }));
+    const items = rows.map((r) => {
+      const mem = this.decryptMemoryAuto(r.memory, params.userId, listKey);
+      return {
+        ...mem,
+        metadata: this.sanitizeMetadataJsonForResponse(mem.metadata),
+        accountIdentifier: r.accountIdentifier
+          ? (this.crypto.decrypt(r.accountIdentifier) ?? r.accountIdentifier)
+          : null,
+        people: peopleMap.get(r.memory.id) || [],
+      };
+    });
 
     return { items, total };
   }
@@ -1733,12 +1805,16 @@ export class MemoryService {
 
   async getGraphData(
     limit = 500,
-    _linkLimit = 2000,
+    linkLimit = 2000,
     userId?: string,
     memoryBankId?: string,
     memoryBankIds?: string[],
     filterMemoryIds?: string[],
   ) {
+    const effectiveLimit = filterMemoryIds?.length ? Math.min(limit, 250) : Math.min(limit, 80);
+    const effectiveLinkLimit = filterMemoryIds?.length
+      ? Math.min(linkLimit, 1000)
+      : Math.min(linkLimit, 240);
     const userAccountIds = await this.getUserAccountIds(userId);
 
     // Build memory bank + user isolation filter conditions
@@ -1775,8 +1851,8 @@ export class MemoryService {
             .select()
             .from(memories)
             .where(memoryBankFilter)
-            .orderBy(sql`${memories.eventTime} DESC`)
-            .limit(limit),
+            .orderBy(desc(memories.eventTime))
+            .limit(effectiveLimit),
         );
 
     const memoryIds = new Set(recentMemories.map((m) => m.id));
@@ -1785,9 +1861,14 @@ export class MemoryService {
     const memoryIdList = [...memoryIds];
     const allLinks: Array<typeof memoryLinks.$inferSelect> = [];
     for (let i = 0; i < memoryIdList.length; i += 500) {
+      if (allLinks.length >= effectiveLinkLimit) break;
       const batch = memoryIdList.slice(i, i + 500);
       const srcLinks = await this.dbService.withCurrentUser((db) =>
-        db.select().from(memoryLinks).where(inArray(memoryLinks.srcMemoryId, batch)),
+        db
+          .select()
+          .from(memoryLinks)
+          .where(inArray(memoryLinks.srcMemoryId, batch))
+          .limit(effectiveLinkLimit - allLinks.length),
       );
       allLinks.push(...srcLinks);
     }
@@ -1797,7 +1878,7 @@ export class MemoryService {
     for (const link of allLinks) {
       if (!memoryIds.has(link.dstMemoryId)) linkedIdSet.add(link.dstMemoryId);
     }
-    const missingLinkedIds = [...linkedIdSet];
+    const missingLinkedIds = filterMemoryIds?.length ? [...linkedIdSet] : [];
     const linkedMemories: Array<(typeof recentMemories)[0]> = [];
     for (let i = 0; i < missingLinkedIds.length; i += 100) {
       const batch = missingLinkedIds.slice(i, i + 100);
@@ -1940,12 +2021,10 @@ export class MemoryService {
       } catch {
         /* empty */
       }
-
-      // Build thumbnail data URL for photo nodes (avoids per-node HTTP requests)
-      const thumbnailDataUrl =
-        m.sourceType === 'photo' && metadata.thumbnailBase64
-          ? `data:image/jpeg;base64,${metadata.thumbnailBase64}`
-          : undefined;
+      const responseMetadata = this.sanitizeMemoryMetadataForResponse(metadata) as Record<
+        string,
+        unknown
+      >;
 
       const evtStr = m.eventTime instanceof Date ? m.eventTime.toISOString() : m.eventTime;
       const label = this.buildMediaLabel(m.sourceType, metadata, entityNames, evtStr, m.text);
@@ -1963,8 +2042,7 @@ export class MemoryService {
         entities: entityNames,
         weights,
         eventTime: m.eventTime,
-        metadata,
-        thumbnailDataUrl,
+        metadata: responseMetadata,
       };
     });
 
@@ -2123,6 +2201,94 @@ export class MemoryService {
     };
   }
 
+  async getGraphNeighbors(
+    nodeId: string,
+    limit = 30,
+    userId?: string,
+    memoryBankId?: string,
+    memoryBankIds?: string[],
+  ) {
+    const effectiveLimit = Math.max(1, Math.min(limit, 50));
+    const userAccountIds = await this.getUserAccountIds(userId);
+    if (userAccountIds !== null && userAccountIds.length === 0) return { nodes: [], links: [] };
+
+    const memoryBankConditions: SQLWrapper[] = [eq(memories.pipelineComplete, true)];
+    if (userAccountIds !== null)
+      memoryBankConditions.push(inArray(memories.accountId, userAccountIds));
+    if (memoryBankId) {
+      memoryBankConditions.push(eq(memories.memoryBankId, memoryBankId));
+    } else if (memoryBankIds?.length) {
+      memoryBankConditions.push(inArray(memories.memoryBankId, memoryBankIds));
+    }
+
+    let memoryIds: string[];
+
+    if (nodeId.startsWith('contact-')) {
+      const personId = nodeId.slice('contact-'.length);
+      const rows = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ id: memories.id })
+          .from(memoryPeople)
+          .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+          .where(and(eq(memoryPeople.personId, personId), ...memoryBankConditions))
+          .orderBy(desc(memories.eventTime))
+          .limit(effectiveLimit),
+      );
+      memoryIds = rows.map((row) => row.id);
+    } else if (nodeId.startsWith('file-')) {
+      return { nodes: [], links: [] };
+    } else {
+      const peopleRows = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ personId: memoryPeople.personId })
+          .from(memoryPeople)
+          .where(eq(memoryPeople.memoryId, nodeId)),
+      );
+      const personIds = [...new Set(peopleRows.map((row) => row.personId))];
+
+      const linkRows = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({
+            srcMemoryId: memoryLinks.srcMemoryId,
+            dstMemoryId: memoryLinks.dstMemoryId,
+          })
+          .from(memoryLinks)
+          .where(or(eq(memoryLinks.srcMemoryId, nodeId), eq(memoryLinks.dstMemoryId, nodeId)))
+          .limit(effectiveLimit),
+      );
+      const linkedIds = linkRows.map((link) =>
+        link.srcMemoryId === nodeId ? link.dstMemoryId : link.srcMemoryId,
+      );
+
+      let peopleMemoryIds: string[] = [];
+      if (personIds.length) {
+        const rows = await this.dbService.withCurrentUser((db) =>
+          db
+            .select({ id: memories.id })
+            .from(memoryPeople)
+            .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+            .where(and(inArray(memoryPeople.personId, personIds), ...memoryBankConditions))
+            .orderBy(desc(memories.eventTime))
+            .limit(effectiveLimit),
+        );
+        peopleMemoryIds = rows.map((row) => row.id);
+      }
+
+      memoryIds = [nodeId, ...peopleMemoryIds, ...linkedIds];
+    }
+
+    const uniqueMemoryIds = [...new Set(memoryIds)].slice(0, effectiveLimit);
+    if (!uniqueMemoryIds.length) return { nodes: [], links: [] };
+    return this.getGraphData(
+      uniqueMemoryIds.length,
+      Math.max(120, uniqueMemoryIds.length * 6),
+      userId,
+      memoryBankId,
+      memoryBankIds,
+      uniqueMemoryIds,
+    );
+  }
+
   /**
    * Build graph delta for a single memory — lightweight query for WS push.
    * Returns the memory node, its links, associated contact nodes, and contact edges.
@@ -2166,10 +2332,10 @@ export class MemoryService {
       .filter(Boolean)
       .slice(0, 5);
 
-    const thumbnailDataUrl =
-      mem.sourceType === 'photo' && metadata.thumbnailBase64
-        ? `data:image/jpeg;base64,${metadata.thumbnailBase64}`
-        : undefined;
+    const responseMetadata = this.sanitizeMemoryMetadataForResponse(metadata) as Record<
+      string,
+      unknown
+    >;
 
     const eventTimeStr =
       mem.eventTime instanceof Date ? mem.eventTime.toISOString() : mem.eventTime;
@@ -2194,8 +2360,7 @@ export class MemoryService {
       entities: entityNames,
       weights,
       eventTime: mem.eventTime,
-      metadata,
-      thumbnailDataUrl,
+      metadata: responseMetadata,
     };
 
     // Links from/to this memory

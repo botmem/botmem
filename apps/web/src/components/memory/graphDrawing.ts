@@ -1,4 +1,4 @@
-import { CONNECTOR_COLORS, truncate } from '@botmem/shared';
+import { getConnectorColor, truncate } from '@botmem/shared';
 import type { SimulationNode } from './graphTypes';
 
 // Image cache — loaded once per URL, reused across frames
@@ -60,6 +60,10 @@ const PHOTO_COLOR = '#F9A8D4';
 const DEVICE_COLOR = '#2DD4BF';
 const HIGHLIGHT_COLOR = '#A3E635';
 const DIM_OPACITY = 0.15;
+
+function nodeConnectorColor(node: SimulationNode, fallback = '#999') {
+  return getConnectorColor(node.sourceConnector || node.source, fallback);
+}
 
 /** Read live CSS custom-property values so the graph matches the active theme. */
 function getThemeColors() {
@@ -292,7 +296,7 @@ export function renderNode(
   ctx.globalAlpha = focusDimmed ? DIM_OPACITY : searchDimmed ? 0.55 : 1;
 
   if (isConnector) {
-    const color = CONNECTOR_COLORS[node.source] || '#999';
+    const color = nodeConnectorColor(node);
     const w = 28;
     const h = 20;
     const r = 5;
@@ -534,7 +538,7 @@ export function renderNode(
     const baseSize = 6 + (node.importance || 0.5) * 12;
     const rankSize = rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize;
     const radius = (isTopResult ? rankSize * 1.3 : rankSize) / 2;
-    const color = CONNECTOR_COLORS[node.source] || '#999';
+    const color = nodeConnectorColor(node);
 
     if (isTopResult) {
       ctx.shadowColor = HIGHLIGHT_COLOR;
@@ -592,34 +596,51 @@ export function renderNodePointerArea(
   node: SimulationNode,
   color: string,
   ctx: CanvasRenderingContext2D,
+  rc: NodeRenderCtx,
+  globalScale = 1,
 ) {
   const x = node.x || 0;
   const y = node.y || 0;
+  const nodeLabel = truncate(node.label || '', 20);
+  const labelHitWidth = Math.min(Math.max(nodeLabel.length * 7, 48), 140);
+  const isDirectMatch = rc.searchMatchIds?.has(node.id);
+  const isSelf = rc.selfNodeId === node.id;
+
   ctx.fillStyle = color;
   if (node.nodeType === 'connector') {
-    drawRoundedRect(ctx, x, y, 32, 24, 6);
+    drawRoundedRect(ctx, x, y, 38, 28, 6);
+    ctx.fill();
+    if (globalScale > 0.8 || isDirectMatch) {
+      drawRoundedRect(ctx, x, y + 23, labelHitWidth, 20, 4);
+    }
     ctx.fill();
   } else if (node.nodeType === 'file') {
-    drawDiamond(ctx, x, y, 9);
-    ctx.fill();
-  } else if (node.nodeType === 'group') {
-    drawHexagon(ctx, x, y, 12);
-    ctx.fill();
-  } else if (node.nodeType === 'device') {
-    drawRoundedRect(ctx, x, y, 24, 18, 5);
-    ctx.fill();
-  } else if (node.nodeType === 'contact') {
     ctx.beginPath();
     ctx.arc(x, y, 14, 0, 2 * Math.PI);
     ctx.fill();
+  } else if (node.nodeType === 'group') {
+    ctx.beginPath();
+    ctx.arc(x, y, 18, 0, 2 * Math.PI);
+    ctx.fill();
+  } else if (node.nodeType === 'device') {
+    drawRoundedRect(ctx, x, y, 30, 24, 5);
+    ctx.fill();
+  } else if (node.nodeType === 'contact') {
+    ctx.beginPath();
+    ctx.arc(x, y, isSelf ? 18 : 16, 0, 2 * Math.PI);
+    ctx.fill();
+    if (globalScale > 1.2 || isDirectMatch || isSelf) {
+      drawRoundedRect(ctx, x, y + (isSelf ? 23 : 21), labelHitWidth, 20, 4);
+      ctx.fill();
+    }
   } else if (node.nodeType === 'memory' && node.source === 'photo') {
     const size = 8 + (node.importance || 0.5) * 10;
-    const hitSize = Math.max(size + 6, 24);
+    const hitSize = Math.max(size + 10, 28);
     drawRoundedRect(ctx, x, y, hitSize, hitSize, 3);
     ctx.fill();
   } else {
     const size = 6 + (node.importance || 0.5) * 12;
-    const radius = Math.max(size / 2 + 3, 12);
+    const radius = Math.max(size / 2 + 6, 16);
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, 2 * Math.PI);
     ctx.fill();

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { getConnectorColor } from '@botmem/shared';
 import { cn } from '../lib/utils';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
@@ -303,15 +304,13 @@ function ResultLine({
   text: string;
   time: string;
 }) {
-  const sourceColor: Record<string, string> = {
-    gmail: 'text-nb-blue',
-    whatsapp: 'text-nb-green',
-    photos: 'text-nb-purple',
-  };
   return (
     <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3">
       <span className="text-nb-lime font-bold shrink-0">[{score}]</span>
-      <span className={cn('uppercase font-bold shrink-0', sourceColor[source] ?? 'text-nb-muted')}>
+      <span
+        className="uppercase font-bold shrink-0"
+        style={{ color: getConnectorColor(source, 'var(--color-nb-muted)') }}
+      >
         {source}
       </span>
       <span className="text-nb-text flex-1 break-words">{text}</span>
@@ -687,13 +686,6 @@ function HowItWorks() {
   const [activeTab, setActiveTab] = useState(0);
   const tab = HOW_IT_WORKS_TABS[activeTab];
 
-  const sourceColor: Record<string, string> = {
-    gmail: 'text-nb-blue',
-    whatsapp: 'text-nb-green',
-    photos: 'text-nb-purple',
-    slack: 'text-nb-orange',
-  };
-
   return (
     <section
       id="how-it-works"
@@ -811,10 +803,10 @@ function HowItWorks() {
                   >
                     <span className="text-nb-lime font-bold shrink-0">[{line.score}]</span>
                     <span
-                      className={cn(
-                        'uppercase font-bold shrink-0',
-                        sourceColor[line.source ?? ''] ?? 'text-nb-muted',
-                      )}
+                      className="uppercase font-bold shrink-0"
+                      style={{
+                        color: getConnectorColor(line.source, 'var(--color-nb-muted)'),
+                      }}
                     >
                       {line.source}
                     </span>

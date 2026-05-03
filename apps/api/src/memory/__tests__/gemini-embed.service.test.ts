@@ -8,6 +8,7 @@ vi.mock('@google/genai', () => {
     GoogleGenAI: vi.fn().mockImplementation(() => ({
       models: {
         embedContent: vi.fn(),
+        generateContent: vi.fn(),
       },
     })),
   };
@@ -18,6 +19,7 @@ function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService
     embedBackend: 'gemini',
     geminiApiKey: 'test-gemini-key',
     geminiEmbedModel: 'gemini-embedding-2-preview',
+    geminiMediaModel: 'gemini-2.5-flash-lite',
     geminiEmbedDimensions: 3072,
     ...overrides,
   } as ConfigService;
@@ -26,19 +28,32 @@ function createMockConfig(overrides: Partial<ConfigService> = {}): ConfigService
 describe('GeminiEmbedService', () => {
   let service: GeminiEmbedService;
   let mockEmbedContent: ReturnType<typeof vi.fn>;
+  let mockGenerateContent: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     service = new GeminiEmbedService(createMockConfig());
     service.onModuleInit();
 
     // Get the mock embedContent function from the initialized client
-    const client = (service as unknown as { client: { models: { embedContent: ReturnType<typeof vi.fn> } } }).client;
+    const client = (
+      service as unknown as {
+        client: {
+          models: {
+            embedContent: ReturnType<typeof vi.fn>;
+            generateContent: ReturnType<typeof vi.fn>;
+          };
+        };
+      }
+    ).client;
     mockEmbedContent = client.models.embedContent;
+    mockGenerateContent = client.models.generateContent;
   });
 
   describe('onModuleInit', () => {
     it('skips init when embedBackend is not gemini', () => {
-      const svc = new GeminiEmbedService(createMockConfig({ embedBackend: 'ollama' } as Partial<ConfigService>));
+      const svc = new GeminiEmbedService(
+        createMockConfig({ embedBackend: 'ollama' } as Partial<ConfigService>),
+      );
       svc.onModuleInit();
 
       // Client should remain null
@@ -103,7 +118,9 @@ describe('GeminiEmbedService', () => {
     });
 
     it('throws when client is not initialized', async () => {
-      const svc = new GeminiEmbedService(createMockConfig({ embedBackend: 'ollama' } as Partial<ConfigService>));
+      const svc = new GeminiEmbedService(
+        createMockConfig({ embedBackend: 'ollama' } as Partial<ConfigService>),
+      );
       svc.onModuleInit(); // Skipped init
 
       await expect(svc.embed('test', 0)).rejects.toThrow('GeminiEmbedService not initialized');
@@ -116,9 +133,7 @@ describe('GeminiEmbedService', () => {
         embeddings: [{ values: [0.5, 0.6] }],
       });
 
-      const result = await service.embedMultimodal([
-        { type: 'text', text: 'hello' },
-      ]);
+      const result = await service.embedMultimodal([{ type: 'text', text: 'hello' }]);
 
       expect(mockEmbedContent).toHaveBeenCalledWith({
         model: 'gemini-embedding-2-preview',
@@ -140,9 +155,7 @@ describe('GeminiEmbedService', () => {
       expect(mockEmbedContent).toHaveBeenCalledWith(
         expect.objectContaining({
           contents: {
-            parts: [
-              { inlineData: { data: 'aW1hZ2VkYXRh', mimeType: 'image/png' } },
-            ],
+            parts: [{ inlineData: { data: 'aW1hZ2VkYXRh', mimeType: 'image/png' } }],
           },
         }),
       );
@@ -228,9 +241,9 @@ describe('GeminiEmbedService', () => {
     it('throws on empty multimodal embedding', async () => {
       mockEmbedContent.mockResolvedValue({ embeddings: [{ values: [] }] });
 
-      await expect(
-        service.embedMultimodal([{ type: 'text', text: 'test' }], 0),
-      ).rejects.toThrow('Gemini returned empty multimodal embedding');
+      await expect(service.embedMultimodal([{ type: 'text', text: 'test' }], 0)).rejects.toThrow(
+        'Gemini returned empty multimodal embedding',
+      );
     });
   });
 
@@ -262,6 +275,35 @@ describe('GeminiEmbedService', () => {
 
       await expect(service.embed('test', 2)).rejects.toThrow('invalid request');
       expect(mockEmbedContent).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('generateFromParts', () => {
+    it('generates text from audio parts', async () => {
+      mockGenerateContent.mockResolvedValue({ text: 'hello from audio' });
+
+      const result = await service.generateFromParts('transcribe', [
+        { type: 'audio', base64: 'YXVkaW8=', mimeType: 'audio/ogg' },
+      ]);
+
+      expect(mockGenerateContent).toHaveBeenCalledWith({
+        model: 'gemini-2.5-flash-lite',
+        contents: {
+          parts: [
+            { text: 'transcribe' },
+            { inlineData: { data: 'YXVkaW8=', mimeType: 'audio/ogg' } },
+          ],
+        },
+      });
+      expect(result).toBe('hello from audio');
+    });
+
+    it('throws on empty media extraction response', async () => {
+      mockGenerateContent.mockResolvedValue({ text: '' });
+
+      await expect(
+        service.generateFromParts('transcribe', [{ type: 'audio', base64: 'YXVkaW8=' }], 0),
+      ).rejects.toThrow('Gemini returned empty media extraction');
     });
   });
 });

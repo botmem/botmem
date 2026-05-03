@@ -1,26 +1,53 @@
-import type { ConnectorConfig, ConnectorAccount } from '@botmem/shared';
+import { getConnectorColor, type ConnectorConfig, type ConnectorAccount } from '@botmem/shared';
 
 export const connectorConfigs: ConnectorConfig[] = [
-  { type: 'gmail', label: 'Gmail', color: '#FF6B9D', description: 'Import emails and attachments' },
-  { type: 'whatsapp', label: 'WhatsApp', color: '#22C55E', description: 'Import chat messages' },
-  { type: 'slack', label: 'Slack', color: '#A855F7', description: 'Import workspace messages' },
+  {
+    type: 'gmail',
+    label: 'Gmail',
+    color: getConnectorColor('gmail'),
+    description: 'Import emails and attachments',
+  },
+  {
+    type: 'whatsapp',
+    label: 'WhatsApp',
+    color: getConnectorColor('whatsapp'),
+    description: 'Import chat messages',
+  },
+  {
+    type: 'slack',
+    label: 'Slack',
+    color: getConnectorColor('slack'),
+    description: 'Import workspace messages',
+  },
   {
     type: 'imessage',
     label: 'iMessage',
-    color: '#4ECDC4',
+    color: getConnectorColor('imessage'),
     description: 'Import iMessage conversations',
   },
   {
     type: 'photos',
     label: 'Photos',
-    color: '#FFE66D',
+    color: getConnectorColor('photos'),
     description: 'Import photo metadata and OCR',
   },
   {
     type: 'locations',
     label: 'Locations',
-    color: '#4CAF50',
+    color: getConnectorColor('locations'),
     description: 'Import location history from OwnTracks',
+  },
+  {
+    type: 'telegram',
+    label: 'Telegram',
+    color: getConnectorColor('telegram'),
+    description: 'Import Telegram messages',
+  },
+  {
+    type: 'outlook',
+    label: 'Outlook',
+    color: getConnectorColor('outlook'),
+    description: 'Import Outlook emails and contacts',
   },
 ];
 

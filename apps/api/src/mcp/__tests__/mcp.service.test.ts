@@ -28,6 +28,7 @@ function createService() {
     list: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     timeline: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getById: vi.fn().mockResolvedValue(null),
+    sanitizeMemoryMetadataForResponse: vi.fn((value: unknown) => stripLargeInlineData(value)),
     getStats: vi.fn().mockResolvedValue({
       total: 1,
       bySource: { email: 1 },
@@ -78,6 +79,26 @@ function createService() {
     ...queues,
   );
   return { service, memoryService, agentService, accountsService, connectorsService, queues };
+}
+
+function stripLargeInlineData(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(stripLargeInlineData);
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'thumbnailBase64') {
+      out.hasThumbnailBase64 = typeof child === 'string' && child.length > 0;
+    } else if (key === 'fileBase64') {
+      out.hasFileBase64 = typeof child === 'string' && child.length > 0;
+    } else if (key === 'searchTokens' || key === 'search_tokens') {
+      continue;
+    } else if (key === 'uri' && typeof child === 'string' && child.length > 0) {
+      out.hasUri = true;
+    } else {
+      out[key] = stripLargeInlineData(child);
+    }
+  }
+  return out;
 }
 
 function createQueueTuple(): [Queue, Queue, Queue, Queue, Queue] {
@@ -338,6 +359,57 @@ describe('McpService', () => {
       fileName: 'IMG_0001.jpg',
       takenAt: '2026-04-30T10:15:00.000Z',
     });
+
+    service.onModuleDestroy();
+  });
+
+  it('strips bulky photo metadata from MCP output', () => {
+    const { service } = createService();
+    const output = (
+      service as unknown as {
+        formatMcpResponse: (data: unknown, textMaxLength?: number) => string;
+      }
+    ).formatMcpResponse({
+      items: [
+        {
+          id: 'photo-1',
+          connectorType: 'photos',
+          sourceType: 'photo',
+          text: 'Photo: IMG_0001.jpg',
+          eventTime: '2026-04-30T10:15:00.000Z',
+          searchTokens: 'internal tokens should not leak',
+          metadata: JSON.stringify({
+            fileName: 'IMG_0001.jpg',
+            fileUrl: 'https://photos.example/file/1',
+            thumbnailBase64: 'abc123',
+            fileBase64: 'def456',
+            searchTokens: 'internal fts data',
+            attachments: [
+              {
+                fileName: 'IMG_0001.jpg',
+                mimeType: 'image/jpeg',
+                uri: 'content://photos/very/long/internal/path',
+              },
+            ],
+          }),
+        },
+      ],
+    });
+    const parsed = JSON.parse(output) as { items: Array<Record<string, unknown>> };
+    const item = parsed.items[0];
+    const metadata = item.metadata as Record<string, unknown>;
+    const attachment = (metadata.attachments as Array<Record<string, unknown>>)[0];
+
+    expect(item.searchTokens).toBeUndefined();
+    expect(metadata.thumbnailBase64).toBeUndefined();
+    expect(metadata.fileBase64).toBeUndefined();
+    expect(metadata.searchTokens).toBeUndefined();
+    expect(metadata.hasThumbnailBase64).toBe(true);
+    expect(metadata.hasFileBase64).toBe(true);
+    expect(metadata.fileUrl).toBe('https://photos.example/file/1');
+    expect(metadata.takenAt).toBe('2026-04-30T10:15:00.000Z');
+    expect(attachment.uri).toBeUndefined();
+    expect(attachment.hasUri).toBe(true);
 
     service.onModuleDestroy();
   });

@@ -1030,13 +1030,9 @@ import { TimeRangeFacet } from './TimeRangeFacet';
 import { PeopleFacet } from './PeopleFacet';
 import type { FacetValue, ActiveFilters } from '../../store/memoryStore';
 
-const CONNECTOR_COLORS: Record<string, string> = {
-  gmail: 'bg-nb-red',
-  whatsapp: 'bg-nb-green',
-  imessage: 'bg-nb-blue',
-  slack: 'bg-nb-purple',
-  photos: 'bg-nb-orange',
-};
+import { getConnectorColor } from '@botmem/shared';
+
+const connectorColor = (connectorType: string) => getConnectorColor(connectorType);
 
 interface FacetSidebarProps {
   facets: {

@@ -1,6 +1,6 @@
-import { CONNECTOR_COLORS } from '@botmem/shared';
+import { CONNECTOR_COLORS, getConnectorColor } from '@botmem/shared';
 
-export { CONNECTOR_COLORS };
+export { CONNECTOR_COLORS, getConnectorColor };
 
 export const CONNECTOR_ICONS: Record<string, string> = {
   gmail: 'G',
@@ -11,6 +11,7 @@ export const CONNECTOR_ICONS: Record<string, string> = {
   photos: 'Ph',
   locations: 'Lo',
   telegram: 'Tg',
+  outlook: 'O',
 };
 
 export const CONNECTOR_LABELS: Record<string, string> = {
@@ -21,12 +22,9 @@ export const CONNECTOR_LABELS: Record<string, string> = {
   photos: 'Photos',
   locations: 'Locations',
   telegram: 'Telegram',
+  outlook: 'Outlook',
 };
 
 export function getConnectorIcon(type: string): string {
   return CONNECTOR_ICONS[type] ?? '?';
-}
-
-export function getConnectorColor(type: string): string {
-  return CONNECTOR_COLORS[type] ?? '#999';
 }

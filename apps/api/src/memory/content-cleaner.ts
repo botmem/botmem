@@ -7,6 +7,9 @@ const CONTROL_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
 
 const MAX_CONTENT_LENGTH = 10_000;
 const TRUNCATION_SUFFIX = '\n\n---\n*[Truncated]*';
+const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(
+  specifier: string,
+) => Promise<T>;
 
 @Injectable()
 export class ContentCleaner {
@@ -23,11 +26,15 @@ export class ContentCleaner {
 
     try {
       if (mime === 'application/pdf' || ext === 'pdf') {
-        const pdfParseModule = await import('pdf-parse');
-        const pdfParse = pdfParseModule.default || pdfParseModule;
-        const data = await (pdfParse as unknown as (buf: Buffer) => Promise<{ text?: string }>)(
-          buffer,
-        );
+        const { LiteParse } =
+          await dynamicImport<typeof import('@llamaindex/liteparse')>('@llamaindex/liteparse');
+        const parser = new LiteParse({
+          ocrEnabled: true,
+          ocrLanguage: 'eng+ara',
+          maxPages: 25,
+          numWorkers: 2,
+        });
+        const data = await parser.parse(buffer, true);
         const text = data.text?.trim();
         if (!text) return '';
         let content = header ? `${header}\n\n${text}` : text;

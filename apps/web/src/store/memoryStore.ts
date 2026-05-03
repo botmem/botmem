@@ -3,6 +3,7 @@ import type { Memory, SourceType, GraphData, GraphNode, GraphEdge } from '@botme
 import { api } from '../lib/api';
 import type {
   ApiMemoryItem,
+  ApiGraphData,
   ApiGraphNode,
   ApiGraphEdge,
   ApiMemoryStats,
@@ -120,6 +121,7 @@ interface MemoryState {
   loadGraph: (params?: { memoryLimit?: number; linkLimit?: number }) => Promise<void>;
   loadFullGraph: () => Promise<void>;
   loadGraphForIds: (memoryIds: string[]) => Promise<void>;
+  expandGraphNode: (nodeId: string) => Promise<void>;
   searchMemories: (query: string) => Promise<void>;
   pinMemory: (id: string) => Promise<void>;
   unpinMemory: (id: string) => Promise<void>;
@@ -202,6 +204,30 @@ function getLinkId(l: GraphEdge): { src: string; tgt: string } {
   const src = typeof l.source === 'object' ? (l.source as { id: string }).id : l.source;
   const tgt = typeof l.target === 'object' ? (l.target as { id: string }).id : l.target;
   return { src, tgt };
+}
+
+function mergeGraphData(current: GraphData, incoming: ApiGraphData): GraphData {
+  const nodeById = new Map(current.nodes.map((node) => [node.id, node]));
+  for (const node of incoming.nodes || []) {
+    const mapped = apiNodeToGraphNode(node);
+    nodeById.set(mapped.id, { ...nodeById.get(mapped.id), ...mapped });
+  }
+
+  const linkByKey = new Map<string, GraphEdge>();
+  for (const link of current.links) {
+    const { src, tgt } = getLinkId(link);
+    linkByKey.set(`${src}->${tgt}->${link.linkType}`, link);
+  }
+  for (const edge of incoming.links || incoming.edges || []) {
+    const mapped = apiEdgeToGraphEdge(edge);
+    const { src, tgt } = getLinkId(mapped);
+    linkByKey.set(`${src}->${tgt}->${mapped.linkType}`, mapped);
+  }
+
+  return {
+    nodes: [...nodeById.values()],
+    links: [...linkByKey.values()],
+  };
 }
 
 const PAGE_SIZE = 100;
@@ -601,15 +627,11 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   loadGraph: async (params) => {
-    // Adaptive limits based on search state
     const query = get().query;
-    const stats = get().memoryStats;
-    const total = stats?.total || 0;
-    // Preview: 20% of total memories (min 50, max 1000)
-    const previewLimit = total > 0 ? Math.max(50, Math.min(1000, Math.ceil(total * 0.2))) : 200;
+    const previewLimit = 40;
     const defaults = query.trim()
-      ? { memoryLimit: 500, linkLimit: 2000 }
-      : { memoryLimit: previewLimit, linkLimit: previewLimit * 3 };
+      ? { memoryLimit: 120, linkLimit: 500 }
+      : { memoryLimit: previewLimit, linkLimit: 120 };
     const bankId = useMemoryBankStore.getState().activeMemoryBankId;
     const merged = { ...defaults, ...params, memoryBankId: bankId || undefined };
     const isPreview = !query.trim();
@@ -619,9 +641,9 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       let allNodes: GraphNode[] = (data.nodes || []).map(apiNodeToGraphNode);
       let allLinks: GraphEdge[] = (data.links || data.edges || []).map(apiEdgeToGraphEdge);
 
-      // In preview mode, cap total nodes to ~previewLimit*1.5
+      // In preview mode, cap total nodes to a compact recent slice
       // by trimming contacts with fewest connections
-      if (isPreview && allNodes.length > previewLimit * 1.5) {
+      if (isPreview && allNodes.length > previewLimit * 2) {
         const memoryNodes = allNodes.filter((n) => n.nodeType !== 'contact');
         const contactNodes = allNodes.filter((n) => n.nodeType === 'contact');
         // Count edges per contact
@@ -634,7 +656,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           else contactEdgeCount.set(t, 1);
         }
         // Sort contacts by edge count desc, keep top N
-        const maxContacts = Math.max(20, previewLimit * 0.5);
+        const maxContacts = 40;
         contactNodes.sort(
           (a, b) => (contactEdgeCount.get(b.id) || 0) - (contactEdgeCount.get(a.id) || 0),
         );
@@ -663,8 +685,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     const bankId = useMemoryBankStore.getState().activeMemoryBankId;
     try {
       const data = await api.getGraphData({
-        memoryLimit: 10000,
-        linkLimit: 50000,
+        memoryLimit: 250,
+        linkLimit: 1000,
         memoryBankId: bankId || undefined,
       });
       const graphData: GraphData = {
@@ -692,6 +714,22 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     } catch (err) {
       console.error('Failed to load graph for IDs:', err);
       set({ graphLoading: false });
+    }
+  },
+
+  expandGraphNode: async (nodeId: string) => {
+    const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+    try {
+      const data = await api.getGraphNeighbors(nodeId, {
+        limit: 30,
+        memoryBankId: bankId || undefined,
+      });
+      set((state) => ({
+        graphData: mergeGraphData(state.graphData, data),
+        graphPreview: false,
+      }));
+    } catch (err) {
+      console.error('Failed to expand graph node:', err);
     }
   },
 

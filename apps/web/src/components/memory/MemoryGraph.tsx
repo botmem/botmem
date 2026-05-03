@@ -25,6 +25,7 @@ interface MemoryGraphProps {
   graphPreview?: boolean;
   graphLoading?: boolean;
   onLoadAll?: () => void;
+  onExpandNode?: (nodeId: string) => Promise<void>;
   search: UseSearchReturn;
   searchInputRef?: React.RefObject<HTMLInputElement | null>;
 }
@@ -35,6 +36,7 @@ export function MemoryGraph({
   graphPreview,
   graphLoading,
   onLoadAll,
+  onExpandNode,
   search,
   searchInputRef: externalSearchInputRef,
 }: MemoryGraphProps) {
@@ -42,11 +44,14 @@ export function MemoryGraph({
   const graphRef = useRef<ForceGraphInstance | null>(null);
   const fallbackSearchInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = externalSearchInputRef || fallbackSearchInputRef;
+  const lastNodeClickRef = useRef<{ id: string; at: number } | null>(null);
+  const expandingNodeRef = useRef<string | null>(null);
 
   const [ForceGraph, setForceGraph] = useState<ForceGraphComponent | null>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
   const [bgColor, setBgColor] = useState('#1A1A1A');
   const [selfNodeId, setSelfNodeId] = useState<string | null>(null);
+  const [expandingNodeId, setExpandingNodeId] = useState<string | null>(null);
 
   const [filters, dispatchFilter] = useReducer(filterReducer, {
     hiddenSourceTypes: new Set<string>(),
@@ -163,6 +168,14 @@ export function MemoryGraph({
     return Array.from(types).sort();
   }, [data.nodes]);
 
+  const connectorTypes = useMemo(() => {
+    const types = new Set<string>();
+    for (const node of data.nodes) {
+      if (node.nodeType === 'memory' && node.sourceConnector) types.add(node.sourceConnector);
+    }
+    return Array.from(types).sort();
+  }, [data.nodes]);
+
   const edgeTypes = useMemo(() => {
     const types = new Set<string>();
     for (const link of data.links) types.add(link.linkType || 'related');
@@ -205,15 +218,54 @@ export function MemoryGraph({
     adaptiveConfig,
   });
 
-  const handleNodeDoubleClick = useCallback(
-    (node: GraphNode) => {
-      // For contact/person nodes, trigger a search with their name
-      if (node.nodeType === 'contact' && node.label) {
-        search.setTerm(node.label);
+  const expandNode = useCallback(
+    async (nodeId: string) => {
+      if (!onExpandNode || expandingNodeRef.current) return;
+      expandingNodeRef.current = nodeId;
+      setExpandingNodeId(nodeId);
+      try {
+        await onExpandNode(nodeId);
+      } finally {
+        expandingNodeRef.current = null;
+        setExpandingNodeId(null);
       }
+    },
+    [onExpandNode],
+  );
+
+  const handleNodeDoubleClick = useCallback(
+    async (node: GraphNode) => {
+      await expandNode(node.id);
       dispatchUI({ type: 'doubleClickNode', node });
     },
-    [search],
+    [expandNode],
+  );
+
+  const handleNodeClick = useCallback(
+    (node: GraphNode) => {
+      const now = Date.now();
+      const previous = lastNodeClickRef.current;
+      lastNodeClickRef.current = { id: node.id, at: now };
+
+      if (previous?.id === node.id && now - previous.at < 350) {
+        lastNodeClickRef.current = null;
+        void handleNodeDoubleClick(node);
+        return;
+      }
+
+      dispatchUI({ type: 'selectNode', node });
+      trackEvent('graph_node_click', {
+        node_type: node.nodeType || 'unknown',
+      });
+    },
+    [handleNodeDoubleClick],
+  );
+
+  const handleExpandSelectedNode = useCallback(
+    (nodeId: string) => {
+      void expandNode(nodeId);
+    },
+    [expandNode],
   );
 
   const authToken = useAuthStore((s) => s.accessToken);
@@ -261,9 +313,9 @@ export function MemoryGraph({
   );
 
   const nodePointerArea = useCallback(
-    (node: SimulationNode, color: string, ctx: CanvasRenderingContext2D) =>
-      renderNodePointerArea(node, color, ctx),
-    [],
+    (node: SimulationNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) =>
+      renderNodePointerArea(node, color, ctx, renderCtx, globalScale),
+    [renderCtx],
   );
 
   const { handleRemoveIdentifier } = useGraphEffects({
@@ -321,6 +373,7 @@ export function MemoryGraph({
               </button>
             )}
             {graphLoading && !graphPreview && <span className="text-nb-lime">LOADING...</span>}
+            {expandingNodeId && <span className="text-nb-lime">EXPANDING...</span>}
             {adaptiveConfig.performanceMode && (
               <span className="text-nb-lime cursor-help relative group" title="">
                 &#9889;
@@ -373,12 +426,7 @@ export function MemoryGraph({
                 : (link: GraphEdge) =>
                     link.linkType === 'involves' || link.linkType === 'source' ? [4, 2] : []
             }
-            onNodeClick={(node: GraphNode) => {
-              dispatchUI({ type: 'selectNode', node });
-              trackEvent('graph_node_click', {
-                node_type: node.nodeType || 'unknown',
-              });
-            }}
+            onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
             onNodeDragEnd={(node: SimulationNode) => {
               node.fx = undefined;
@@ -449,6 +497,7 @@ export function MemoryGraph({
             contactInfo={ui.contactInfo}
             connectionCounts={connectionCounts}
             onClose={() => dispatchUI({ type: 'selectNode', node: null })}
+            onExpand={onExpandNode ? handleExpandSelectedNode : undefined}
             onRemoveIdentifier={handleRemoveIdentifier}
           />
         )}
@@ -457,6 +506,7 @@ export function MemoryGraph({
           filters={filters}
           dispatch={dispatchFilter}
           sourceTypes={sourceTypes}
+          connectorTypes={connectorTypes}
           edgeTypes={edgeTypes}
           legendOpen={ui.legendOpen}
           onToggleLegend={() => dispatchUI({ type: 'toggleLegend' })}

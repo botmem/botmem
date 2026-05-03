@@ -313,10 +313,10 @@ describe('auto-merge decision logic', () => {
 });
 
 describe('isExactIdentifierAutoMergeEligible', () => {
-  it('allows exact name identifiers, including single-token names', () => {
-    expect(isExactIdentifierAutoMergeEligible('name', 'Amelie')).toBe(true);
-    expect(isExactIdentifierAutoMergeEligible('name', 'Mohamed')).toBe(true);
-    expect(isExactIdentifierAutoMergeEligible('name', 'DM WITH AMELIE')).toBe(true);
+  it('rejects exact name identifiers as person auto-merge evidence', () => {
+    expect(isExactIdentifierAutoMergeEligible('name', 'Amelie')).toBe(false);
+    expect(isExactIdentifierAutoMergeEligible('name', 'Mohamed')).toBe(false);
+    expect(isExactIdentifierAutoMergeEligible('name', 'DM WITH AMELIE')).toBe(false);
   });
 
   it('allows exact structured identifiers', () => {
@@ -333,7 +333,7 @@ describe('isExactIdentifierAutoMergeEligible', () => {
     expect(isExactIdentifierAutoMergeEligible('slack_channel_id', 'C123456')).toBe(false);
   });
 
-  it('rejects empty identifiers only', () => {
+  it('rejects empty identifiers', () => {
     expect(isExactIdentifierAutoMergeEligible('name', '   ')).toBe(false);
     expect(isExactIdentifierAutoMergeEligible('email', '')).toBe(false);
   });

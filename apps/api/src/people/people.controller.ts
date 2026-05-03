@@ -244,7 +244,7 @@ export class PeopleController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('search')
   async search(@CurrentUser() user: { id: string }, @Body() dto: SearchPeopleDto) {
-    return this.peopleService.search(dto.query, user.id);
+    return this.peopleService.search(dto.query, user.id, dto.entityType);
   }
 
   @RequiresJwt()
