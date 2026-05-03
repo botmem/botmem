@@ -1248,12 +1248,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       }
     }
 
-    // 12. Create links (best-effort)
-    try {
-      await this.createLinks(persistedMemoryId);
-    } catch {
-      // Link creation is best-effort
-    }
+    // 12. Create links (best-effort). Recommendation queries are comparatively
+    // expensive, so do not block memory creation or bulk rebuild throughput on
+    // them. Search and retrieval only require the memory row + search index.
+    void this.createLinks(persistedMemoryId).catch(() => {
+      // Link creation is best-effort.
+    });
 
     // Fire hooks
     void this.pluginRegistry.fireHook('afterIngest', {
