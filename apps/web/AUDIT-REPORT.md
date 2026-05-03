@@ -57,14 +57,11 @@ The stat card grids (Dashboard + MePage) are the closest thing to a generic AI l
 - **Recommendation**: Replace `#1A1A2E` with `var(--color-nb-surface)`.
 - **Suggested command**: `/normalize`
 
-#### H2. FacetSidebar defines its own CONNECTOR_COLORS
+#### H2. Connector color drift
 
-- **Location**: `FacetSidebar.tsx:24-29`
+- **Status**: Resolved.
 - **Category**: Theming / Maintainability
-- **Description**: `FacetSidebar` has its own `CONNECTOR_COLORS` map with different values than `@botmem/shared` (`gmail: '#EA4335'` here vs shared definition). This was not addressed in the normalize pass.
-- **Impact**: Facet sidebar shows different connector colors than the rest of the app.
-- **Recommendation**: Import `CONNECTOR_COLORS` from `@botmem/shared` like `MemoryCard.tsx` does.
-- **Suggested command**: `/normalize`
+- **Description**: Connector colors now come from `@botmem/shared` via `CONNECTOR_COLORS` / `getConnectorColor`. Graph memory nodes use connector identity (`sourceConnector`) instead of generic source type colors, so Telegram is blue and Slack is purple consistently.
 
 ---
 

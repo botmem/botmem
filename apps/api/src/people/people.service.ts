@@ -61,6 +61,7 @@ export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | n
   let { type, value } = ident;
   value = value.trim();
   if (!value) return null;
+  if (type === 'person') type = 'name';
 
   // Reclassify: if a "name" looks like an email, treat it as email
   if (type === 'name' && EMAIL_RE.test(value)) {
@@ -204,8 +205,7 @@ export function isExactIdentifierAutoMergeEligible(
 ): boolean {
   if (!identifierValue.trim()) return false;
   if (isGroupScopedIdentifier(identifierType)) return false;
-  if (identifierType !== 'name') return true;
-  return normalizeNameForMerge(identifierValue).length > 0;
+  return identifierType !== 'name';
 }
 
 export function isGroupScopedIdentifier(identifierType: string): boolean {
@@ -563,6 +563,65 @@ export class PeopleService {
     return value;
   }
 
+  private buildNameAliasMetadata(
+    metadata: unknown,
+    aliases: IdentifierInput[],
+  ): Record<string, unknown> {
+    const base =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? { ...(metadata as Record<string, unknown>) }
+        : {};
+    const existing = Array.isArray(base.nameAliases) ? base.nameAliases : [];
+    const values = aliases
+      .filter((alias) => alias.type === 'name' && alias.value.trim())
+      .map((alias) => alias.value.trim());
+    if (!values.length) return base;
+
+    const seen = new Set<string>();
+    const merged: Array<Record<string, unknown>> = [];
+    for (const item of existing) {
+      const value =
+        typeof item === 'string'
+          ? item
+          : item && typeof item === 'object'
+            ? String((item as Record<string, unknown>).value || '')
+            : '';
+      if (!value.trim()) continue;
+      const key = value.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(
+        typeof item === 'string' ? { value: value.trim() } : (item as Record<string, unknown>),
+      );
+    }
+    for (const value of values) {
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({ value, source: 'connector_label' });
+    }
+    return { ...base, nameAliases: merged };
+  }
+
+  private async updateNameAliases(personId: string, aliases: IdentifierInput[]): Promise<void> {
+    if (!aliases.some((alias) => alias.type === 'name' && alias.value.trim())) return;
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db.select({ metadata: people.metadata }).from(people).where(eq(people.id, personId)),
+    );
+    if (!rows.length) return;
+    await this.dbService.withCurrentUser((db) =>
+      db
+        .update(people)
+        .set({
+          metadata: this.encryptJsonb(
+            this.buildNameAliasMetadata(this.decryptJsonb(rows[0].metadata), aliases),
+          ),
+          updatedAt: new Date(),
+        })
+        .where(eq(people.id, personId)),
+    );
+  }
+
   async resolvePerson(
     rawIdentifiers: IdentifierInput[],
     entityType?: 'person' | 'group' | 'organization' | 'device',
@@ -570,7 +629,7 @@ export class PeopleService {
   ): Promise<PersonWithIdentifiers> {
     // Normalize + deduplicate identifiers
     const seen = new Set<string>();
-    let identifiers: IdentifierInput[] = [];
+    const identifiers: IdentifierInput[] = [];
     for (const raw of rawIdentifiers) {
       const norm = normalizeIdentifier(raw);
       if (!norm) continue;
@@ -579,15 +638,16 @@ export class PeopleService {
       seen.add(key);
       identifiers.push(norm);
     }
+    const nameAliases = identifiers.filter((i) => i.type === 'name');
+    const identityIdentifiers = identifiers.filter((i) => i.type !== 'name');
 
     // Find existing contacts matching structured identifiers only
     // Names are too ambiguous for matching — only use email, phone, slack_id, etc.
     const matchedContactIds = new Set<string>();
 
-    const structuredIdents = identifiers.filter((i) => i.type !== 'name');
-    if (structuredIdents.length) {
+    if (identityIdentifiers.length) {
       // Build OR conditions for all structured identifiers using HMAC blind index
-      const orConditions = structuredIdents.map(
+      const orConditions = identityIdentifiers.map(
         (i) =>
           sql`(${personIdentifiers.identifierType} = ${i.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(i.value)})`,
       );
@@ -613,19 +673,31 @@ export class PeopleService {
       }
     }
 
+    if (!matchedContactIds.size && entityType && entityType !== 'person' && nameAliases[0]) {
+      const nameHash = this.crypto.hmac(nameAliases[0].value.toLowerCase());
+      const rows = await this.dbService.withCurrentUser((db) =>
+        db
+          .select({ id: people.id })
+          .from(people)
+          .where(and(eq(people.entityType, entityType), eq(people.displayNameHash, nameHash)))
+          .limit(1),
+      );
+      if (rows[0]?.id) matchedContactIds.add(rows[0].id);
+    }
+
     const matchedIds = Array.from(matchedContactIds);
     let personId: string;
     const resolvingPerson = !entityType || entityType === 'person';
 
     if (matchedIds.length === 0) {
-      if (resolvingPerson && !hasDurablePersonIdentifier(identifiers)) {
+      if (resolvingPerson && !hasDurablePersonIdentifier(identityIdentifiers)) {
         throw new Error('Refusing to create person without a durable identifier');
       }
 
       // Create new contact
       personId = randomUUID();
       const now = new Date();
-      const nameIdent = identifiers.find((i) => i.type === 'name');
+      const nameIdent = nameAliases[0];
       const displayName = nameIdent?.value || identifiers[0]?.value || 'Unknown';
 
       await this.dbService.withCurrentUser((db) =>
@@ -634,6 +706,7 @@ export class PeopleService {
           displayName: this.crypto.encrypt(displayName)!,
           displayNameHash: this.crypto.hmac(displayName.toLowerCase()),
           entityType: entityType || 'person',
+          metadata: this.encryptJsonb(this.buildNameAliasMetadata({}, nameAliases)),
           userId: userId || null,
           createdAt: now,
           updatedAt: now,
@@ -645,32 +718,32 @@ export class PeopleService {
     } else if (matchedIds.length === 1) {
       personId = matchedIds[0];
       // Update display name if we now have a better one (e.g. resolved from raw ID)
-      const nameIdent = identifiers.find((i) => i.type === 'name');
+      const nameIdent = nameAliases[0];
       if (nameIdent?.value) {
         const existing = await this.dbService.withCurrentUser((db) =>
           db
-            .select({ displayName: people.displayName })
+            .select({ displayName: people.displayName, metadata: people.metadata })
             .from(people)
             .where(eq(people.id, personId)),
         );
         const rawName = existing[0]?.displayName || '';
         const currentName = this.crypto.decrypt(rawName) ?? rawName;
-        if (!isCompatiblePersonAlias(currentName, nameIdent.value)) {
-          identifiers = identifiers.filter(
-            (ident) => !(ident.type === 'name' && ident.value === nameIdent.value),
-          );
-        } else if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
-          await this.dbService.withCurrentUser((db) =>
-            db
-              .update(people)
-              .set({
-                displayName: this.crypto.encrypt(nameIdent.value)!,
-                displayNameHash: this.crypto.hmac(nameIdent.value.toLowerCase()),
-                updatedAt: new Date(),
-              })
-              .where(eq(people.id, personId)),
-          );
+        const patch: Partial<typeof people.$inferInsert> = {
+          metadata: this.encryptJsonb(
+            this.buildNameAliasMetadata(this.decryptJsonb(existing[0]?.metadata), nameAliases),
+          ),
+          updatedAt: new Date(),
+        };
+        if (
+          isCompatiblePersonAlias(currentName, nameIdent.value) &&
+          shouldUpdateDisplayName(currentName, nameIdent.value)
+        ) {
+          patch.displayName = this.crypto.encrypt(nameIdent.value)!;
+          patch.displayNameHash = this.crypto.hmac(nameIdent.value.toLowerCase());
         }
+        await this.dbService.withCurrentUser((db) =>
+          db.update(people).set(patch).where(eq(people.id, personId)),
+        );
       }
     } else {
       // Multiple contacts matched — merge them into the first one
@@ -700,7 +773,7 @@ export class PeopleService {
         const existingKeys = new Set(
           existingIdents.map((e) => `${e.identifierType}::${e.identifierValueHash || ''}`),
         );
-        const newIdents = identifiers.filter(
+        const newIdents = identityIdentifiers.filter(
           (i) => !existingKeys.has(`${i.type}::${this.crypto.hmac(i.value)}`),
         );
         if (newIdents.length) {
@@ -727,7 +800,7 @@ export class PeopleService {
         identInsertAttempts++;
         if ((err as { code?: string }).code === '23503' && identInsertAttempts < 3) {
           // Contact was merged/deleted concurrently — find where identifiers went
-          const probe = identifiers.find((i) => i.type !== 'name') || identifiers[0];
+          const probe = identityIdentifiers[0];
           if (probe) {
             const rows = await this.dbService.withCurrentUser((db) =>
               db
@@ -743,56 +816,42 @@ export class PeopleService {
               continue; // Retry with the new contactId
             }
           }
-          // Identifier probe found nothing — fall back to display name lookup
-          const nameIdent = identifiers.find((i) => i.type === 'name');
-          if (nameIdent) {
-            const byName = await this.dbService.withCurrentUser((db) =>
-              db
-                .select({ id: people.id })
-                .from(people)
-                .where(
-                  sql`${people.displayNameHash} = ${this.crypto.hmac(nameIdent.value.toLowerCase())}`,
-                )
-                .limit(1),
-            );
-            if (byName.length) {
-              personId = byName[0].id;
-              continue;
-            }
-          }
         }
         throw err;
       }
     }
 
     // Update display name only when the incoming label is clearly an improvement.
-    const nameIdent = identifiers.find((i) => i.type === 'name');
+    const nameIdent = nameAliases[0];
     if (nameIdent) {
       const existing = await this.dbService.withCurrentUser((db) =>
-        db.select({ displayName: people.displayName }).from(people).where(eq(people.id, personId)),
+        db
+          .select({ displayName: people.displayName, metadata: people.metadata })
+          .from(people)
+          .where(eq(people.id, personId)),
       );
       const rawName = existing[0]?.displayName || '';
       const currentName = this.crypto.decrypt(rawName) ?? rawName;
-      if (!isCompatiblePersonAlias(currentName, nameIdent.value)) {
-        identifiers = identifiers.filter(
-          (ident) => !(ident.type === 'name' && ident.value === nameIdent.value),
-        );
-      } else if (shouldUpdateDisplayName(currentName, nameIdent.value)) {
-        await this.dbService.withCurrentUser((db) =>
-          db
-            .update(people)
-            .set({
-              displayName: this.crypto.encrypt(nameIdent.value)!,
-              displayNameHash: this.crypto.hmac(nameIdent.value.toLowerCase()),
-              updatedAt: new Date(),
-            })
-            .where(eq(people.id, personId)),
-        );
+      const patch: Partial<typeof people.$inferInsert> = {
+        metadata: this.encryptJsonb(
+          this.buildNameAliasMetadata(this.decryptJsonb(existing[0]?.metadata), nameAliases),
+        ),
+        updatedAt: new Date(),
+      };
+      if (
+        isCompatiblePersonAlias(currentName, nameIdent.value) &&
+        shouldUpdateDisplayName(currentName, nameIdent.value)
+      ) {
+        patch.displayName = this.crypto.encrypt(nameIdent.value)!;
+        patch.displayNameHash = this.crypto.hmac(nameIdent.value.toLowerCase());
       }
+      await this.dbService.withCurrentUser((db) =>
+        db.update(people).set(patch).where(eq(people.id, personId)),
+      );
     }
 
     // Update entityType if caller provides a non-person type and contact is currently person-typed
-    if (entityType && entityType !== 'person' && !hasDurablePersonIdentifier(identifiers)) {
+    if (entityType && entityType !== 'person' && !hasDurablePersonIdentifier(identityIdentifiers)) {
       const current = await this.dbService.withCurrentUser((db) =>
         db.select({ entityType: people.entityType }).from(people).where(eq(people.id, personId)),
       );
@@ -802,20 +861,6 @@ export class PeopleService {
             .update(people)
             .set({ entityType, updatedAt: new Date() })
             .where(eq(people.id, personId)),
-        );
-      }
-    }
-
-    // Name-only rows should not create permanent duplicates when the exact
-    // person name is already known. Keep this stricter than suggestions:
-    // multi-token person names only, no groups or combined chat labels.
-    if (nameIdent) {
-      try {
-        const dedupedId = await this.deduplicateByExactName(nameIdent.value, userId);
-        if (dedupedId) personId = dedupedId;
-      } catch (err) {
-        this.logger.debug(
-          `[resolvePerson] exact-name dedupe skipped: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -872,7 +917,7 @@ export class PeopleService {
     if (!result) {
       // Contact was deleted by a concurrent merge — it was absorbed into another contact.
       // Find where our identifiers ended up.
-      const movedIdent = identifiers.find((i) => i.type !== 'name') || identifiers[0];
+      const movedIdent = identityIdentifiers[0];
       if (movedIdent) {
         const rows = await this.dbService.withCurrentUser((db) =>
           db
@@ -1050,7 +1095,12 @@ export class PeopleService {
         db
           .select({ value: settings.value })
           .from(settings)
-          .where(eq(settings.key, `selfPersonId:${params.userId}`))
+          .where(
+            inArray(settings.key, [
+              `selfPersonId:${params.userId}`,
+              `selfContactId:${params.userId}`,
+            ]),
+          )
           .limit(1),
       );
       selfPersonId = perUserRow[0]?.value || '';
@@ -1060,7 +1110,7 @@ export class PeopleService {
         db
           .select({ value: settings.value })
           .from(settings)
-          .where(eq(settings.key, 'selfPersonId'))
+          .where(inArray(settings.key, ['selfPersonId', 'selfContactId']))
           .limit(1),
       );
       selfPersonId = globalRow[0]?.value || '';
@@ -1084,6 +1134,7 @@ export class PeopleService {
         .orderBy(
           sql`CASE WHEN ${people.id} = ${selfPersonId} THEN 0 ELSE 1 END`,
           sql`${people.memoryCount} DESC`,
+          sql`${people.updatedAt} DESC`,
         )
         .limit(limit)
         .offset(offset),
@@ -1133,7 +1184,11 @@ export class PeopleService {
     return { items, total };
   }
 
-  async search(query: string, userId?: string): Promise<PersonWithIdentifiers[]> {
+  async search(
+    query: string,
+    userId?: string,
+    entityType?: string,
+  ): Promise<PersonWithIdentifiers[]> {
     const lowerQuery = query.toLowerCase();
     const normQuery = query
       .normalize('NFD')
@@ -1142,8 +1197,14 @@ export class PeopleService {
 
     // Since display names and identifier values are encrypted, we can't use SQL LIKE.
     // Fetch contacts (scoped to user) and filter in-memory after decryption.
+    const conditions: SQLWrapper[] = [];
+    if (userId) conditions.push(eq(people.userId, userId));
+    if (entityType) conditions.push(eq(people.entityType, entityType));
     const allContactRows = await this.dbService.withCurrentUser((db) =>
-      userId ? db.select().from(people).where(eq(people.userId, userId)) : db.select().from(people),
+      db
+        .select()
+        .from(people)
+        .where(conditions.length ? and(...conditions) : undefined),
     );
 
     const allIdentRows = await this.dbService.withCurrentUser((db) =>

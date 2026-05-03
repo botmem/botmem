@@ -23,6 +23,7 @@ import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
 import { GeoService } from '../geo/geo.service';
 import { QuotaService } from '../billing/quota.service';
+import { validateUrlForFetch } from '../utils/ssrf-guard';
 import {
   rawEvents,
   memories,
@@ -84,6 +85,17 @@ interface PrimaryMedia {
 
 const MAX_MEDIA_TEXT_CHARS = 8_000;
 const MAX_IMAGE_DESCRIPTION_BYTES = 12 * 1024 * 1024;
+const MAX_LINKED_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
+const DOCUMENT_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+  'text/plain',
+]);
 
 function normalizeMimeType(value: unknown): string {
   return String(value || '')
@@ -111,6 +123,26 @@ function truncateMediaText(value: string): string {
   return cleaned.length > MAX_MEDIA_TEXT_CHARS
     ? `${cleaned.slice(0, MAX_MEDIA_TEXT_CHARS)}\n[truncated]`
     : cleaned;
+}
+
+function extractUrls(value: string): string[] {
+  return [
+    ...new Set(
+      [...value.matchAll(URL_RE)]
+        .map((match) => match[0].replace(/[.,;:!?]+$/g, ''))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function cleanGeneratedSearchText(value: string): string {
+  return value
+    .trim()
+    .replace(/^```(?:json|text|markdown)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .trim();
 }
 
 @Processor('memory', {
@@ -740,14 +772,109 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
 
     if (hasFile && primaryMedia?.kind === 'audio') {
-      mergedMetadata.mediaExtraction = {
-        ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
-        status: this.config.embedBackend === 'gemini' ? 'embedded_no_transcript' : 'unsupported',
-        note:
-          this.config.embedBackend === 'gemini'
-            ? 'Audio is included in multimodal embedding, but no transcript is stored yet.'
-            : 'Audio transcription backend is not configured.',
-      };
+      try {
+        const fileBuffer = await this.getFileBuffer(mergedMetadata, rawEvent);
+        const transcript = await this.ai.transcribeAudio(
+          fileBuffer,
+          fileMime || 'audio/ogg',
+          primaryMedia.fileName,
+        );
+        const extractedText = truncateMediaText(transcript);
+        if (extractedText) {
+          currentText = `${extractedText}\n\n${currentText}`;
+          mergedMetadata.mediaExtraction = {
+            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+            status: 'extracted',
+            extractedText,
+          };
+        } else {
+          mergedMetadata.mediaExtraction = {
+            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+            status: 'unsupported',
+          };
+        }
+      } catch (err: unknown) {
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:audio] ${mid} audio transcription failed: ${err instanceof Error ? err.message : String(err)}`,
+          parentJobId,
+        );
+        mergedMetadata.mediaExtraction = {
+          ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+          status: this.config.embedBackend === 'gemini' ? 'embedded_no_transcript' : 'unsupported',
+          error: err instanceof Error ? err.message : String(err),
+          note:
+            this.config.embedBackend === 'gemini'
+              ? 'Audio is included in multimodal embedding, but no transcript is stored.'
+              : 'Audio transcription backend is not configured.',
+        };
+      }
+    }
+
+    if (!hasFile && /https?:\/\//i.test(currentText)) {
+      const linkedDocuments = [];
+      for (const url of extractUrls(currentText).slice(0, 3)) {
+        try {
+          const linked = await this.fetchLinkedDocument(url);
+          if (!linked) continue;
+          const fileContent = await this.contentCleaner.parseFile(
+            linked.buffer,
+            linked.mimeType,
+            linked.fileName,
+          );
+          if (!fileContent) continue;
+          const extractedText = truncateMediaText(fileContent);
+          const searchSummary = await this.summarizeLinkedDocumentForSearch({
+            sourceUrl: url,
+            finalUrl: linked.url,
+            fileName: linked.fileName,
+            mimeType: linked.mimeType,
+            extractedText,
+          });
+          const searchableText = [
+            this.buildLinkedDocumentSearchContext(
+              url,
+              linked.url,
+              linked.fileName,
+              linked.mimeType,
+            ),
+            searchSummary ? `Document summary: ${searchSummary}` : '',
+            extractedText,
+          ]
+            .filter(Boolean)
+            .join('\n\n');
+          currentText = `${searchableText}\n\n${currentText}`;
+          linkedDocuments.push({
+            url: linked.url,
+            sourceUrl: url,
+            mimeType: linked.mimeType,
+            fileName: linked.fileName,
+            sizeBytes: linked.buffer.length,
+            status: 'extracted',
+            extractedText,
+            searchSummary,
+            searchableText,
+          });
+        } catch (err: unknown) {
+          linkedDocuments.push({
+            url,
+            status: 'failed',
+            error: err instanceof Error ? err.message : String(err),
+          });
+          this.addLog(
+            rawEvent.connectorType,
+            rawEvent.accountId,
+            'warn',
+            `[memory:url] ${mid} linked document extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+            parentJobId,
+          );
+        }
+      }
+      if (linkedDocuments.length) {
+        mergedMetadata.linkedDocuments = linkedDocuments;
+      }
     }
 
     // 7. Generate embedding
@@ -1219,12 +1346,15 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       'Include any visible text exactly enough to search it, then summarize the scene, people, places, document type, dates, names, organizations, and identifiers.',
       'If this is a document/photo of a document, prioritize OCR-like text and official fields over visual style.',
       'Do not invent missing details. Keep it concise.',
+      'Return plain text only. Do not return JSON, Markdown, or fenced code blocks.',
       fileName ? `Filename: ${fileName}` : '',
       mimeType ? `MIME type: ${mimeType}` : '',
     ]
       .filter(Boolean)
       .join('\n');
-    return this.ai.generate(prompt, [fileBuffer.toString('base64')], 1);
+    return cleanGeneratedSearchText(
+      await this.ai.generate(prompt, [fileBuffer.toString('base64')], 1),
+    );
   }
 
   private stripInlineMediaContent(metadata: Record<string, unknown>) {
@@ -1261,6 +1391,161 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       throw new Error(`File download failed: ${res.status} ${res.statusText}`);
     }
     return Buffer.from(await res.arrayBuffer());
+  }
+
+  private async fetchLinkedDocument(
+    inputUrl: string,
+  ): Promise<{ url: string; buffer: Buffer; mimeType: string; fileName?: string } | null> {
+    const candidateUrls = inputUrl.startsWith('http://')
+      ? [inputUrl, inputUrl.replace(/^http:\/\//i, 'https://')]
+      : [inputUrl];
+    let lastError: unknown;
+
+    for (const candidateUrl of candidateUrls) {
+      try {
+        return await this.fetchLinkedDocumentCandidate(candidateUrl);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (lastError instanceof Error) throw lastError;
+    return null;
+  }
+
+  private async fetchLinkedDocumentCandidate(
+    inputUrl: string,
+  ): Promise<{ url: string; buffer: Buffer; mimeType: string; fileName?: string } | null> {
+    let currentUrl = inputUrl;
+    for (let redirect = 0; redirect < 5; redirect++) {
+      const urlCheck = validateUrlForFetch(currentUrl);
+      if (!urlCheck.valid) throw new Error(urlCheck.reason || 'Blocked URL');
+
+      const res = await fetch(currentUrl, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (!location) throw new Error(`Redirect without location: ${res.status}`);
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+      if (!res.ok) {
+        throw new Error(`Linked document download failed: ${res.status} ${res.statusText}`);
+      }
+
+      const mimeType = normalizeMimeType(res.headers.get('content-type'));
+      if (!this.isSupportedLinkedDocument(mimeType, currentUrl)) return null;
+
+      const contentLength = Number(res.headers.get('content-length') || 0);
+      if (contentLength > MAX_LINKED_DOCUMENT_BYTES) {
+        throw new Error(`Linked document too large: ${contentLength} bytes`);
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length > MAX_LINKED_DOCUMENT_BYTES) {
+        throw new Error(`Linked document too large: ${buffer.length} bytes`);
+      }
+
+      return {
+        url: currentUrl,
+        buffer,
+        mimeType,
+        fileName: this.fileNameFromUrl(currentUrl, mimeType),
+      };
+    }
+    throw new Error('Too many redirects');
+  }
+
+  private isSupportedLinkedDocument(mimeType: string, url: string): boolean {
+    if (DOCUMENT_CONTENT_TYPES.has(mimeType)) return true;
+    const pathname = new URL(url).pathname.toLowerCase();
+    return /\.(pdf|docx?|xlsx?|csv|txt)$/.test(pathname);
+  }
+
+  private fileNameFromUrl(url: string, mimeType: string): string | undefined {
+    const pathname = new URL(url).pathname;
+    const last = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
+    if (last && /\.[a-z0-9]+$/i.test(last)) return last;
+    if (mimeType === 'application/pdf') return 'linked-document.pdf';
+    if (mimeType === 'text/plain') return 'linked-document.txt';
+    if (mimeType === 'text/csv') return 'linked-document.csv';
+    return undefined;
+  }
+
+  private buildLinkedDocumentSearchContext(
+    sourceUrl: string,
+    finalUrl: string,
+    fileName: string | undefined,
+    mimeType: string,
+  ): string {
+    const keywords = new Set<string>();
+    for (const url of [sourceUrl, finalUrl]) {
+      for (const token of this.extractSearchableUrlTokens(url)) {
+        keywords.add(token);
+      }
+    }
+    const keywordText = Array.from(keywords).join(' ');
+    const lines = [
+      'Linked document extracted from message.',
+      fileName ? `File name: ${fileName}` : '',
+      `File type: ${mimeType}`,
+      keywords.size ? `URL keywords: ${keywordText}` : '',
+    ].filter(Boolean);
+    return lines.join('\n');
+  }
+
+  private async summarizeLinkedDocumentForSearch(input: {
+    sourceUrl: string;
+    finalUrl: string;
+    fileName: string | undefined;
+    mimeType: string;
+    extractedText: string;
+  }): Promise<string> {
+    const prompt = [
+      'Create a concise retrieval summary for a private memory search index.',
+      'Use only the provided document text, filename, MIME type, and URL-derived context.',
+      'Do not invent people, dates, identifiers, events, or document type.',
+      'If the document language is not English, include an English paraphrase of the key searchable terms.',
+      'Prefer compact noun phrases and facts over prose.',
+      'Return plain text only, maximum 120 words.',
+      '',
+      `Filename: ${input.fileName || 'unknown'}`,
+      `MIME type: ${input.mimeType}`,
+      `Source URL tokens: ${this.extractSearchableUrlTokens(input.sourceUrl).join(' ')}`,
+      `Final URL tokens: ${this.extractSearchableUrlTokens(input.finalUrl).join(' ')}`,
+      '',
+      'Extracted document text:',
+      input.extractedText.slice(0, 4_000),
+    ].join('\n');
+
+    try {
+      return truncateMediaText(
+        cleanGeneratedSearchText(await this.ai.generate(prompt, undefined, 1)),
+      ).slice(0, 1_000);
+    } catch (err) {
+      this.logger.warn(
+        `Linked document summary failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return '';
+    }
+  }
+
+  private extractSearchableUrlTokens(url: string): string[] {
+    try {
+      const parsed = new URL(url);
+      const raw = `${parsed.hostname} ${parsed.pathname} ${parsed.search}`;
+      const spaced = raw
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .replace(/[^a-zA-Z0-9]+/g, ' ');
+      const tokens = spaced
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter((token) => token.length >= 3 && !/^[0-9a-f-]{12,}$/i.test(token));
+      return Array.from(new Set(tokens));
+    } catch {
+      return [];
+    }
   }
 
   private parseEntityIdentifiers(

@@ -80,16 +80,16 @@ export class MemoryController {
   @Get('graph')
   async getGraphData(
     @CurrentUser() user: { id: string; memoryBankIds?: string[] },
-    @Query('memoryLimit', new DefaultValuePipe(5000), ParseIntPipe) memoryLimit: number,
-    @Query('linkLimit', new DefaultValuePipe(50000), ParseIntPipe) linkLimit: number,
+    @Query('memoryLimit', new DefaultValuePipe(40), ParseIntPipe) memoryLimit: number,
+    @Query('linkLimit', new DefaultValuePipe(120), ParseIntPipe) linkLimit: number,
     @Query('memoryBankId') memoryBankId?: string,
     @Query('memoryIds') memoryIdsParam?: string,
   ) {
     if (await this.memoryService.needsRecoveryKey(user.id))
       return { nodes: [], edges: [], needsRecoveryKey: true };
-    const ml = Math.min(memoryLimit, 10000);
-    const ll = Math.min(linkLimit, 100000);
     const memoryIds = memoryIdsParam ? memoryIdsParam.split(',').filter(Boolean) : undefined;
+    const ml = Math.min(memoryLimit, memoryIds?.length ? 250 : 80);
+    const ll = Math.min(linkLimit, memoryIds?.length ? 1000 : 240);
     return this.memoryService.getGraphData(
       ml,
       ll,
@@ -97,6 +97,24 @@ export class MemoryController {
       memoryBankId,
       user.memoryBankIds,
       memoryIds,
+    );
+  }
+
+  @Get('graph/neighbors/:nodeId')
+  async getGraphNeighbors(
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
+    @Param('nodeId') nodeId: string,
+    @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
+    @Query('memoryBankId') memoryBankId?: string,
+  ) {
+    if (await this.memoryService.needsRecoveryKey(user.id))
+      return { nodes: [], edges: [], needsRecoveryKey: true };
+    return this.memoryService.getGraphNeighbors(
+      decodeURIComponent(nodeId),
+      Math.min(limit, 50),
+      user.id,
+      memoryBankId,
+      user.memoryBankIds,
     );
   }
 

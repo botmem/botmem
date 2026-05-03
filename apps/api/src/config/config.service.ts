@@ -229,8 +229,9 @@ export class ConfigService implements OnModuleInit {
 
   // --- AI Backend ---
 
-  get aiBackend(): 'ollama' | 'openrouter' {
+  get aiBackend(): 'ollama' | 'openrouter' | 'gemini' {
     const val = process.env.AI_BACKEND || 'ollama';
+    if (val === 'gemini') return 'gemini';
     return val === 'openrouter' ? 'openrouter' : 'ollama';
   }
 
@@ -251,7 +252,11 @@ export class ConfigService implements OnModuleInit {
   }
 
   get geminiEmbedModel(): string {
-    return process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-2-preview';
+    return process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-2';
+  }
+
+  get geminiMediaModel(): string {
+    return process.env.GEMINI_MEDIA_MODEL || 'gemini-2.5-flash-lite';
   }
 
   get geminiEmbedDimensions(): number {

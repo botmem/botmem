@@ -52,8 +52,10 @@ export const CONNECTOR_COLORS: Record<string, string> = {
   slack: '#A855F7',
   imessage: '#4ECDC4',
   photos: '#FFE66D',
+  'photos-immich': '#FFE66D',
   locations: '#4CAF50',
-  telegram: '#29B6F6',
+  telegram: '#26A5E4',
+  outlook: '#0078D4',
   // Source type hub colors
   email: '#FF6B9D',
   message: '#A855F7',
@@ -62,3 +64,8 @@ export const CONNECTOR_COLORS: Record<string, string> = {
   photo: '#888888',
   contact: '#60A5FA',
 };
+
+export function getConnectorColor(type?: string | null, fallback = '#999'): string {
+  if (!type) return fallback;
+  return CONNECTOR_COLORS[type] ?? fallback;
+}

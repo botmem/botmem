@@ -2,6 +2,10 @@
 
 Local-first platform that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking.
 
+## Agent Workflow
+
+- People graph nodes must only be created or linked from durable identifiers such as email, phone, platform user id, connector id, or account id. Arbitrary extracted names may be search entities, but must not create or attach people nodes.
+
 ## Quick Start
 
 ```bash
@@ -60,7 +64,7 @@ packages/
 | `EMBED_DIMENSION`         | _(auto-detected from model)_          | Override if model is not in known list              |
 | `EMBED_BACKEND`           | _(follows AI_BACKEND)_                | Embedding backend: `ollama`, `openrouter`, `gemini` |
 | `GEMINI_API_KEY`          | _(empty)_                             | Google API key (required if EMBED_BACKEND=gemini)   |
-| `GEMINI_EMBED_MODEL`      | `gemini-embedding-2-preview`          | Gemini embedding model (multimodal)                 |
+| `GEMINI_EMBED_MODEL`      | `gemini-embedding-2`                  | Gemini embedding model (multimodal)                 |
 | `GEMINI_EMBED_DIMENSIONS` | `3072`                                | Gemini output vector dimensions                     |
 | `FRONTEND_URL`            | `http://localhost:12412`              | CORS / OAuth redirect origin                        |
 | `APP_SECRET`              | `dev-app-secret-change-in-production` | AES-256-GCM key for encrypting credentials at rest  |

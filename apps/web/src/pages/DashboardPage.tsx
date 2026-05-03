@@ -34,6 +34,7 @@ export function DashboardPage() {
     loadGraph,
     loadFullGraph,
     loadGraphForIds,
+    expandGraphNode,
     graphPreview,
     graphLoading,
     memoryStats,
@@ -89,8 +90,8 @@ export function DashboardPage() {
 
   const graphSearch = useSearch({
     onResults: (results) => {
-      // Load graph for exactly the search-matched memory IDs
-      const ids = Array.from(results.memoryIds);
+      // Keep search graph readable; more context is loaded by expanding nodes.
+      const ids = results.items.slice(0, 25).map((item) => item.id);
       if (ids.length > 0) loadGraphForIds(ids);
     },
     onClear: () => {
@@ -228,6 +229,7 @@ export function DashboardPage() {
                   graphPreview={graphPreview}
                   graphLoading={graphLoading}
                   onLoadAll={loadFullGraph}
+                  onExpandNode={expandGraphNode}
                   search={graphSearch}
                   searchInputRef={searchInputRef}
                 />

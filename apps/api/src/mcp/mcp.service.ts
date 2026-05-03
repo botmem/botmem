@@ -259,6 +259,9 @@ export class McpService {
     const obj = data as Record<string, unknown>;
     const shaped: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
+      if (key === 'searchTokens' || key === 'search_tokens') {
+        continue;
+      }
       if ((key === 'items' || key === 'results') && Array.isArray(value)) {
         shaped[key] = this.dedupeMemories(value).map((item) =>
           this.shapeMcpPayload(item, textMaxLength),
@@ -270,6 +273,9 @@ export class McpService {
 
     if (shaped.connectorType === 'photos') {
       shaped.metadata = this.withPhotoTakenAt(shaped.metadata, shaped.eventTime);
+    }
+    if ('metadata' in shaped) {
+      shaped.metadata = this.memoryService.sanitizeMemoryMetadataForResponse(shaped.metadata);
     }
 
     if (
@@ -493,7 +499,14 @@ export class McpService {
   }
 
   private registerTools(server: McpServer, userId: string) {
-    server.tool(
+    const registerTool = server.tool.bind(server) as unknown as (
+      name: string,
+      description: string,
+      schema: Record<string, z.ZodTypeAny>,
+      handler: (params: unknown) => Promise<unknown>,
+    ) => void;
+
+    registerTool(
       this.mcpToolName('search'),
       this.mcpToolDescription('search'),
       this.mcpToolSchema('search'),
@@ -518,7 +531,7 @@ export class McpService {
       },
     );
 
-    server.tool(
+    registerTool(
       this.mcpToolName('ask'),
       this.mcpToolDescription('ask'),
       this.mcpToolSchema('ask'),
@@ -542,7 +555,7 @@ export class McpService {
       },
     );
 
-    server.tool(
+    registerTool(
       this.mcpToolName('status'),
       this.mcpToolDescription('status'),
       this.mcpToolSchema('status'),
@@ -574,7 +587,7 @@ export class McpService {
       },
     );
 
-    server.tool(
+    registerTool(
       this.mcpToolName('sources'),
       this.mcpToolDescription('sources'),
       this.mcpToolSchema('sources'),
@@ -598,7 +611,7 @@ export class McpService {
       },
     );
 
-    server.tool(
+    registerTool(
       this.mcpToolName('memories'),
       this.mcpToolDescription('memories'),
       this.mcpToolSchema('memories'),
@@ -625,7 +638,7 @@ export class McpService {
       },
     );
 
-    server.tool(
+    registerTool(
       this.mcpToolName('timeline'),
       this.mcpToolDescription('timeline'),
       this.mcpToolSchema('timeline'),
@@ -653,7 +666,7 @@ export class McpService {
       },
     );
 
-    server.tool(
+    registerTool(
       this.mcpToolName('memory'),
       this.mcpToolDescription('memory'),
       this.mcpToolSchema('memory'),

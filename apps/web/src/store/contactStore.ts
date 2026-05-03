@@ -155,8 +155,9 @@ export const useContactStore = create<ContactState>((set, get) => ({
   searchContacts: async (query: string) => {
     set({ loading: true });
     try {
-      const results = await api.searchContacts(query);
-      const contacts = results.map(parseContact);
+      const filter = get().entityFilter;
+      const results = await api.searchContacts(query, filter);
+      const contacts = results.map(parseContact).filter((contact) => contact.entityType === filter);
       trackEvent('contact_search', { query_length: query.length, result_count: contacts.length });
       set({ contacts, total: contacts.length, loading: false });
     } catch (err) {

@@ -14,10 +14,12 @@ export class GeminiEmbedService implements OnModuleInit {
   private readonly logger = new Logger(GeminiEmbedService.name);
   private client: GoogleGenAI | null = null;
   private model: string;
+  private mediaModel: string;
   private dimensions: number;
 
   constructor(private readonly config: ConfigService) {
     this.model = config.geminiEmbedModel;
+    this.mediaModel = config.geminiMediaModel;
     this.dimensions = config.geminiEmbedDimensions;
   }
 
@@ -95,6 +97,80 @@ export class GeminiEmbedService implements OnModuleInit {
     });
   }
 
+  async generateFromParts(prompt: string, parts: EmbedPart[], retries = 2): Promise<string> {
+    const t0 = Date.now();
+    return this.withRetry(retries, async () => {
+      const client = this.ensureClient();
+      const contentParts = [
+        { text: prompt },
+        ...parts.map((part) => {
+          if (part.type === 'text') {
+            const text = part.text || '';
+            return { text: text.length > 8000 ? text.slice(0, 8000) : text };
+          }
+          return {
+            inlineData: {
+              data: part.base64!,
+              mimeType: part.mimeType || this.inferMime(part.type),
+            },
+          };
+        }),
+      ];
+
+      const result = await client.models.generateContent({
+        model: this.mediaModel,
+        contents: { parts: contentParts },
+      });
+      const text = result.text?.trim();
+      if (!text) throw new Error('Gemini returned empty media extraction');
+      this.logger.log(
+        `llm_request provider=gemini model=${this.mediaModel} op=generate_media duration_ms=${Date.now() - t0} parts=${parts.length}`,
+      );
+      return text;
+    });
+  }
+
+  async generate(
+    prompt: string,
+    images?: string[],
+    retries = 2,
+    format?: Record<string, unknown>,
+  ): Promise<{ text: string; inputTokens?: number; outputTokens?: number }> {
+    const t0 = Date.now();
+    return this.withRetry(retries, async () => {
+      const client = this.ensureClient();
+      const contentParts = [
+        { text: prompt },
+        ...(images || []).map((image) => ({
+          inlineData: {
+            data: image.includes(',') ? image.split(',').pop()! : image,
+            mimeType: this.inferImageMime(image),
+          },
+        })),
+      ];
+
+      const result = await client.models.generateContent({
+        model: this.mediaModel,
+        contents: { parts: contentParts },
+        config: format ? { responseMimeType: 'application/json' } : undefined,
+      });
+
+      const text = result.text?.trim();
+      if (!text) throw new Error('Gemini returned empty generation');
+
+      const usage = result.usageMetadata;
+      this.logger.log(
+        `llm_request provider=gemini model=${this.mediaModel} op=${images?.length ? 'generate_vl' : 'generate'} duration_ms=${Date.now() - t0} input_tokens=${usage?.promptTokenCount ?? 0} output_tokens=${usage?.candidatesTokenCount ?? 0}`,
+      );
+
+      return {
+        text,
+        inputTokens: usage?.promptTokenCount,
+        outputTokens: usage?.candidatesTokenCount,
+      };
+    });
+  }
+
   private inferMime(type: string): string {
     switch (type) {
       case 'image':
@@ -106,6 +182,11 @@ export class GeminiEmbedService implements OnModuleInit {
       default:
         return 'application/octet-stream';
     }
+  }
+
+  private inferImageMime(image: string): string {
+    const match = image.match(/^data:([^;]+);base64,/);
+    return match?.[1] || 'image/jpeg';
   }
 
   private async withRetry<T>(retries: number, fn: () => Promise<T>): Promise<T> {

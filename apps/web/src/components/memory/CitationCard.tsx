@@ -1,3 +1,4 @@
+import { getConnectorColor } from '@botmem/shared';
 import type { ApiMemoryItem } from '../../lib/api';
 
 interface CitationCardProps {
@@ -16,7 +17,10 @@ export function CitationCard({ index, citation, onClick }: CitationCardProps) {
       <div className="flex items-center gap-2 mb-1">
         <span className="font-mono text-[11px] font-bold text-nb-lime">[{index + 1}]</span>
         {citation.connectorType && (
-          <span className="font-mono text-[11px] uppercase text-nb-muted">
+          <span
+            className="font-mono text-[11px] font-bold uppercase"
+            style={{ color: getConnectorColor(citation.connectorType, 'var(--color-nb-muted)') }}
+          >
             {citation.connectorType}
           </span>
         )}

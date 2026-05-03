@@ -126,6 +126,14 @@ describe('CONNECTOR_COLORS', () => {
     expect(CONNECTOR_COLORS.slack).toBe('#A855F7');
   });
 
+  it('has telegram color', () => {
+    expect(CONNECTOR_COLORS.telegram).toBe('#26A5E4');
+  });
+
+  it('has outlook color', () => {
+    expect(CONNECTOR_COLORS.outlook).toBe('#0078D4');
+  });
+
   it('has imessage color', () => {
     expect(CONNECTOR_COLORS.imessage).toBe('#4ECDC4');
   });
@@ -135,6 +143,6 @@ describe('CONNECTOR_COLORS', () => {
   });
 
   it('has all color entries', () => {
-    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(13);
+    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(15);
   });
 });

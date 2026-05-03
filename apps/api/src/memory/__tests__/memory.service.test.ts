@@ -173,6 +173,17 @@ describe('MemoryService', () => {
       expect(result).toHaveProperty('items');
     });
 
+    it('strips request filler words from lexical search queries', async () => {
+      await service.search('what are the death certificate details');
+
+      expect(searchIndexService.textSearch).toHaveBeenCalledWith(
+        'death certificate',
+        expect.any(Number),
+        undefined,
+        'text,entities_text,people,locations,location_text,organizations',
+      );
+    });
+
     it('returns diagnostics when debug is enabled', async () => {
       const result = await service.search(
         'card top ups ghanoomy',

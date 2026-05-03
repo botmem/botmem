@@ -27,6 +27,7 @@
     "@botmem/connector-whatsapp": "workspace:*",
     "@botmem/shared": "workspace:*",
     "@google/genai": "^1.44.0",
+    "@llamaindex/liteparse": "^1.5.3",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.1.16",

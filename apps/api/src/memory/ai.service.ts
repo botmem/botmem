@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { ConfigService } from '../config/config.service';
 import { OllamaService } from './ollama.service';
 import { OpenRouterService } from './openrouter.service';
@@ -52,7 +53,14 @@ export class AiService {
 
   /** Generation backend (text/VL) — always follows AI_BACKEND */
   private get backend() {
-    return this.config.aiBackend === 'openrouter' ? this.openrouter : this.ollama;
+    switch (this.config.aiBackend) {
+      case 'gemini':
+        return this.gemini;
+      case 'openrouter':
+        return this.openrouter;
+      default:
+        return this.ollama;
+    }
   }
 
   /** Embedding backend — follows EMBED_BACKEND (decoupled from generation) */
@@ -117,7 +125,63 @@ export class AiService {
         `embedMultimodal requires EMBED_BACKEND=gemini (current: ${this.config.embedBackend})`,
       );
     }
-    return this.gemini.embedMultimodal(parts, retries);
+    const cacheInput = this.cacheKeyForParts(parts);
+    const model = this.config.geminiEmbedModel;
+    const cached = await this.cache.get(model, cacheInput, 'embed_multimodal', 'gemini');
+    if (cached.hit) return JSON.parse(cached.output);
+
+    const t0 = Date.now();
+    const result = await this.gemini.embedMultimodal(parts, retries);
+    this.cache
+      .set(model, 'gemini', 'embed_multimodal', cacheInput, JSON.stringify(result), {
+        latencyMs: Date.now() - t0,
+      })
+      .catch(() => {});
+    return result;
+  }
+
+  async transcribeAudio(buffer: Buffer, mimeType: string, fileName?: string): Promise<string> {
+    if (!this.config.geminiApiKey) {
+      throw new Error('GEMINI_API_KEY is required for audio transcription');
+    }
+    const prompt = [
+      'Transcribe this audio for a private memory search index.',
+      'Return only the spoken words when speech is present.',
+      'If there is no speech, briefly describe the audible content.',
+      'Do not invent names, dates, or details that are not audible.',
+      fileName ? `Filename: ${fileName}` : '',
+      mimeType ? `MIME type: ${mimeType}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const cacheInput = [
+      prompt,
+      `audio:${mimeType}:${fileName || ''}:${createHash('sha256').update(buffer).digest('hex')}`,
+    ].join('\n');
+    const cached = await this.cache.get(
+      this.config.geminiMediaModel,
+      cacheInput,
+      'transcribe_audio',
+      'gemini',
+    );
+    if (cached.hit) return cached.output;
+
+    const t0 = Date.now();
+    const transcript = await this.gemini.generateFromParts(prompt, [
+      {
+        type: 'audio',
+        base64: buffer.toString('base64'),
+        mimeType,
+      },
+    ]);
+
+    this.cache
+      .set(this.config.geminiMediaModel, 'gemini', 'transcribe_audio', cacheInput, transcript, {
+        latencyMs: Date.now() - t0,
+      })
+      .catch(() => {});
+
+    return transcript;
   }
 
   @Traced('ai.generate')
@@ -128,12 +192,16 @@ export class AiService {
     format?: Record<string, unknown>,
   ): Promise<string> {
     const model = images?.length
-      ? this.config.aiBackend === 'openrouter'
-        ? this.config.openrouterVlModel
-        : this.config.ollamaVlModel
-      : this.config.aiBackend === 'openrouter'
-        ? this.config.openrouterTextModel
-        : this.config.ollamaTextModel;
+      ? this.config.aiBackend === 'gemini'
+        ? this.config.geminiMediaModel
+        : this.config.aiBackend === 'openrouter'
+          ? this.config.openrouterVlModel
+          : this.config.ollamaVlModel
+      : this.config.aiBackend === 'gemini'
+        ? this.config.geminiMediaModel
+        : this.config.aiBackend === 'openrouter'
+          ? this.config.openrouterTextModel
+          : this.config.ollamaTextModel;
 
     const op = images?.length ? 'generate_vl' : 'generate';
 
@@ -161,5 +229,17 @@ export class AiService {
       .catch(() => {});
 
     return text;
+  }
+
+  private cacheKeyForParts(parts: EmbedPart[]): string {
+    return parts
+      .map((part) => {
+        if (part.type === 'text') return `text:${part.text || ''}`;
+        const digest = createHash('sha256')
+          .update(part.base64 || '')
+          .digest('hex');
+        return `${part.type}:${part.mimeType || ''}:${digest}`;
+      })
+      .join('\n');
   }
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { formatDate } from '@botmem/shared';
+import { formatDate, getConnectorColor } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -301,7 +301,12 @@ export function ContactDetailPanel({
                   <span className="font-mono text-[11px] text-nb-muted">
                     {formatDate(m.eventTime || m.createdAt || '')}
                   </span>
-                  <Badge className="text-[11px] py-0">{m.connectorType}</Badge>
+                  <Badge
+                    color={getConnectorColor(m.connectorType, undefined)}
+                    className="text-[11px] py-0"
+                  >
+                    {m.connectorType}
+                  </Badge>
                 </div>
                 <p className="font-mono text-xs text-nb-text line-clamp-2">{m.text}</p>
               </div>

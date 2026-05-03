@@ -18,6 +18,7 @@ pnpm dev                      # Builds deps, then API + web on :12412
 - Deleting a connector account means disconnecting/archiving the connector and stopping future work; preserve memories, raw events, contacts, credentials history, and job history unless the user explicitly asks for data deletion.
 - Production logs must not include user message contents, phone numbers, names, chat IDs, or other user-data-bearing metadata; temporary diagnostic logging must be removed or redacted before shipping.
 - Person merge suggestions must not treat embedded full-name fragments with different first names as the same person, e.g. `Saleh Al-Ghamdi` is not `Mostafa Mohamed Saleh Al-Ghamdi`.
+- People graph nodes must only be created or linked from durable identifiers such as email, phone, platform user id, connector id, or account id. Arbitrary extracted names may be search entities, but must not create or attach people nodes.
 - When replacing storage/search infrastructure, remove the old service and its data only after a fresh backup exists, the replacement database restore/backfill has completed, and the app is confirmed healthy on the new path.
 
 ## Monorepo Structure
