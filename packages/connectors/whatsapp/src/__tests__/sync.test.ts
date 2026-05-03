@@ -980,6 +980,59 @@ describe('sync module', () => {
       expect(contactEmits.length).toBeGreaterThanOrEqual(1);
     });
 
+    it('confirms known phone numbers via onWhatsApp during sync', async () => {
+      const { syncWhatsApp } = await import('../sync.js');
+      const emit = vi.fn();
+
+      const processCallbacks: Array<(events: Record<string, any>) => Promise<void>> = [];
+      const mockSock = {
+        user: { id: '1234567890@s.whatsapp.net' },
+        ws: { close: vi.fn() },
+        ev: {
+          on: vi.fn(),
+          off: vi.fn(),
+          buffer: vi.fn(),
+          flush: vi.fn(),
+          removeAllListeners: vi.fn(),
+          process: vi.fn((cb: any) => {
+            processCallbacks.push(cb);
+          }),
+        },
+        groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+        onWhatsApp: vi.fn().mockResolvedValue([
+          { jid: '971508556252@s.whatsapp.net', exists: true },
+          { jid: '971500000000@s.whatsapp.net', exists: false },
+        ]),
+      };
+
+      const ctx = {
+        accountId: 'a1',
+        auth: { raw: { sessionDir: '/tmp/test-session-known-phones' } },
+        cursor: null,
+        jobId: 'j1',
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+        signal: AbortSignal.timeout(500),
+        knownPhoneNumbers: ['+971508556252', '+971500000000'],
+      };
+
+      const promise = syncWhatsApp(ctx as any, emit, mockSock as any);
+      await vi.advanceTimersByTimeAsync(35_000);
+
+      await promise;
+
+      expect(mockSock.onWhatsApp).toHaveBeenCalledWith(
+        '+1234567890',
+        '+971508556252',
+        '+971500000000',
+      );
+      const knownPhoneContact = emit.mock.calls.find(
+        (c: any) => c[0].sourceId === 'wa-contact:971508556252',
+      );
+      expect(knownPhoneContact).toBeDefined();
+      expect(knownPhoneContact?.[0].content.metadata.phone).toBe('971508556252');
+      expect(knownPhoneContact?.[0].content.metadata.connectorType).toBe('whatsapp');
+    });
+
     it('handles extended text messages', async () => {
       const { syncWhatsApp } = await import('../sync.js');
       const emit = vi.fn();

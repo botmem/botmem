@@ -37,6 +37,10 @@ interface TestablePeoplePipelineService {
     raw: PipelineEvent,
     event: ConnectorDataEvent,
   ): Promise<ProcessResult>;
+  processWhatsAppContactIdentity(
+    raw: PipelineEvent,
+    event: ConnectorDataEvent,
+  ): Promise<ProcessResult>;
   buildPipelineContext(
     accountId: string,
     connectorType: string,
@@ -196,6 +200,66 @@ describe('PeoplePipelineService', () => {
       'user-1',
     );
     expect(peopleService.linkMemory).toHaveBeenCalledWith('mem-1', 'person-0', 'participant');
+  });
+
+  it('resolves WhatsApp contact rows into people using phone and LID identifiers', async () => {
+    const { service, peopleService } = createService();
+    const result = await service.processWhatsAppContactIdentity(
+      raw({
+        connectorType: 'whatsapp',
+        sourceId: 'wa-contact:971508556252',
+        sourceType: 'contact',
+        memoryId: null,
+      }),
+      event({
+        sourceType: 'contact',
+        sourceId: 'wa-contact:971508556252',
+        content: {
+          text: 'WhatsApp contact: Moataz Aly (+971508556252)',
+          participants: ['971508556252'],
+          metadata: {
+            type: 'contact',
+            name: 'Moataz Aly',
+            phone: '971508556252',
+            whatsappLid: '49293440377068@lid',
+          },
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({ resolved: 1, skipped: false });
+    expect(peopleService.resolvePerson).toHaveBeenCalledWith(
+      [
+        { type: 'phone', value: '+971508556252', connectorType: 'whatsapp' },
+        { type: 'whatsapp_lid', value: '49293440377068', connectorType: 'whatsapp' },
+        { type: 'name', value: 'Moataz Aly', connectorType: 'whatsapp' },
+      ],
+      undefined,
+      'user-1',
+    );
+  });
+
+  it('skips name-only WhatsApp contact rows', async () => {
+    const { service, peopleService } = createService();
+    const result = await service.processWhatsAppContactIdentity(
+      raw({
+        connectorType: 'whatsapp',
+        sourceId: 'wa-contact:unknown',
+        sourceType: 'contact',
+        memoryId: null,
+      }),
+      event({
+        sourceType: 'contact',
+        sourceId: 'wa-contact:unknown',
+        content: {
+          text: 'WhatsApp contact: Unknown',
+          metadata: { type: 'contact', name: 'Unknown' },
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({ resolved: 0, skipped: true, reason: 'no_identity' });
+    expect(peopleService.resolvePerson).not.toHaveBeenCalled();
   });
 
   it('does not create Gmail message people from name-only extracted entities', async () => {

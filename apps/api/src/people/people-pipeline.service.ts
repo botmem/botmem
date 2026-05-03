@@ -17,6 +17,7 @@ import {
   buildWhatsAppGroupIdentity,
   shouldMergeEntityResolutionBucket,
 } from '../memory/connector-normalizers/whatsapp-group-identity';
+import { buildWhatsAppContactIdentity } from '../memory/connector-normalizers/whatsapp-contact-identity';
 import type {
   ConnectorDataEvent,
   ConnectorLogger,
@@ -237,6 +238,13 @@ export class PeoplePipelineService {
       return this.processWhatsAppGroupIdentity(raw, event);
     }
 
+    if (
+      raw.connectorType === 'whatsapp' &&
+      (raw.sourceId.startsWith('wa-contact:') || event.sourceId.startsWith('wa-contact:'))
+    ) {
+      return this.processWhatsAppContactIdentity(raw, event);
+    }
+
     const text =
       (raw.cleanedText ? this.crypto.decrypt(raw.cleanedText) || raw.cleanedText : '') ||
       event.content?.text ||
@@ -395,6 +403,36 @@ export class PeoplePipelineService {
     }
 
     return { resolved, linked: 0, relationships, skipped: false };
+  }
+
+  private async processWhatsAppContactIdentity(
+    raw: PeoplePipelineEvent,
+    event: ConnectorDataEvent,
+  ): Promise<ProcessResult> {
+    const identity = buildWhatsAppContactIdentity(event, raw.connectorType);
+    if (!identity) {
+      return { resolved: 0, linked: 0, relationships: 0, skipped: true, reason: 'no_identity' };
+    }
+
+    const ownerUserId = await this.getAccountOwnerUserId(raw.accountId);
+    const person = await this.peopleService
+      .resolvePerson(identity.identifiers, undefined, ownerUserId || undefined)
+      .catch((err) => {
+        this.logger.debug(
+          `whatsapp contact skipped for ${event.sourceId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        return null;
+      });
+
+    return {
+      resolved: person ? 1 : 0,
+      linked: 0,
+      relationships: 0,
+      skipped: !person,
+      reason: person ? undefined : 'no_person',
+    };
   }
 
   private parseEntityIdentifiers(

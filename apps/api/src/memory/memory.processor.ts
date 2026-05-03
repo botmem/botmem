@@ -38,6 +38,7 @@ import {
   buildWhatsAppGroupIdentity,
   shouldMergeEntityResolutionBucket,
 } from './connector-normalizers/whatsapp-group-identity';
+import { buildWhatsAppContactIdentity } from './connector-normalizers/whatsapp-contact-identity';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
 import type {
@@ -326,6 +327,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       (rawEvent.sourceId.startsWith('wa-group:') || event.sourceId.startsWith('wa-group:'))
     ) {
       await this.processWhatsAppGroupIdentityEvent(rawEvent, event, rawEventId, parentJobId, mid);
+      return;
+    }
+
+    if (
+      rawEvent.connectorType === 'whatsapp' &&
+      (rawEvent.sourceId.startsWith('wa-contact:') || event.sourceId.startsWith('wa-contact:'))
+    ) {
+      await this.processWhatsAppContactIdentityEvent(rawEvent, event, rawEventId, parentJobId, mid);
       return;
     }
 
@@ -1628,6 +1637,43 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       parentJobId,
     );
     await this.markRawEventState(rawEventId, 'identity_processed');
+    await this.advanceAndComplete(parentJobId);
+  }
+
+  private async processWhatsAppContactIdentityEvent(
+    rawEvent: LoadedRawEvent,
+    event: ConnectorDataEvent,
+    rawEventId: string,
+    parentJobId: string | null,
+    mid: string,
+  ) {
+    const identity = buildWhatsAppContactIdentity(event, rawEvent.connectorType);
+    if (!identity) {
+      await this.markRawEventState(rawEventId, 'skipped_contact');
+      await this.advanceAndComplete(parentJobId);
+      return;
+    }
+
+    const ownerUserId = await this.getAccountOwnerUserId(rawEvent.accountId);
+    const contact = await this.contactsService
+      .resolvePerson(identity.identifiers, undefined, ownerUserId || undefined)
+      .catch((err) => {
+        this.logger.warn(
+          `[identity] WhatsApp contact resolution failed for ${event.sourceId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        return null;
+      });
+
+    this.addLog(
+      rawEvent.connectorType,
+      rawEvent.accountId,
+      'info',
+      `[identity:done] ${mid} whatsapp contact=${event.sourceId} people=${contact ? 1 : 0}`,
+      parentJobId,
+    );
+    await this.markRawEventState(rawEventId, contact ? 'identity_processed' : 'skipped_contact');
     await this.advanceAndComplete(parentJobId);
   }
 

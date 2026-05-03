@@ -3,6 +3,7 @@ import {
   buildWhatsAppGroupIdentity,
   shouldMergeEntityResolutionBucket,
 } from '../connector-normalizers/whatsapp-group-identity';
+import { buildWhatsAppContactIdentity } from '../connector-normalizers/whatsapp-contact-identity';
 
 describe('shouldMergeEntityResolutionBucket', () => {
   it('never fuses person entities before person resolution', () => {
@@ -91,5 +92,51 @@ describe('buildWhatsAppGroupIdentity', () => {
         { type: 'whatsapp_lid', value: '987654321', connectorType: 'whatsapp' },
       ]),
     );
+  });
+});
+
+describe('buildWhatsAppContactIdentity', () => {
+  it('turns WhatsApp contact metadata into durable person identifiers', () => {
+    const result = buildWhatsAppContactIdentity(
+      {
+        sourceType: 'contact',
+        sourceId: 'wa-contact:971508556252',
+        timestamp: new Date().toISOString(),
+        content: {
+          text: 'WhatsApp contact: Moataz Aly (+971508556252)',
+          participants: ['971508556252'],
+          metadata: {
+            type: 'contact',
+            name: 'Moataz Aly',
+            phone: '971508556252',
+            whatsappLid: '49293440377068@lid',
+          },
+        },
+      },
+      'whatsapp',
+    );
+
+    expect(result?.identifiers).toEqual([
+      { type: 'phone', value: '+971508556252', connectorType: 'whatsapp' },
+      { type: 'whatsapp_lid', value: '49293440377068', connectorType: 'whatsapp' },
+      { type: 'name', value: 'Moataz Aly', connectorType: 'whatsapp' },
+    ]);
+  });
+
+  it('refuses name-only WhatsApp contacts', () => {
+    const result = buildWhatsAppContactIdentity(
+      {
+        sourceType: 'contact',
+        sourceId: 'wa-contact:unknown',
+        timestamp: new Date().toISOString(),
+        content: {
+          text: 'WhatsApp contact: Unknown',
+          metadata: { type: 'contact', name: 'Unknown' },
+        },
+      },
+      'whatsapp',
+    );
+
+    expect(result).toBeNull();
   });
 });
