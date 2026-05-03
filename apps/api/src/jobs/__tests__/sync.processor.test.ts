@@ -271,6 +271,80 @@ describe('SyncProcessor', () => {
     );
   });
 
+  it('passes known owner phone numbers to WhatsApp connector sync', async () => {
+    const {
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+      mockConnector,
+    } = createMockDeps();
+    vi.mocked(dbService.withUserId).mockImplementation(
+      async (_uid: string, fn: (db: Record<string, unknown>) => Promise<unknown>) =>
+        fn({
+          select: vi.fn().mockReturnValue({
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi
+                  .fn()
+                  .mockResolvedValue([
+                    { value: 'enc:+971 50 855 6252' },
+                    { value: 'enc:+971508556252' },
+                  ]),
+              }),
+            }),
+          }),
+          insert: vi.fn().mockReturnValue({
+            values: vi.fn().mockReturnValue({
+              onConflictDoNothing: vi.fn().mockReturnValue({
+                returning: vi.fn().mockResolvedValue([{ id: 'raw-1' }]),
+              }),
+            }),
+          }),
+        }),
+    );
+    mockConnector.sync.mockResolvedValue({ cursor: null, hasMore: false, processed: 0 });
+
+    const processor = new SyncProcessor(
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+    );
+
+    await processor.process({
+      data: { accountId: 'acc-1', connectorType: 'whatsapp', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as unknown as import('bullmq').Job);
+
+    expect(mockConnector.sync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        knownPhoneNumbers: ['+971508556252'],
+      }),
+    );
+  });
+
   it('does not enqueue duplicate raw events', async () => {
     const {
       connectors,
