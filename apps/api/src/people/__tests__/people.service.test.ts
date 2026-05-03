@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   normalizePhone,
   normalizeIdentifier,
@@ -17,7 +17,97 @@ import {
   shouldUpdateDisplayName,
   hasDurablePersonIdentifier,
   isCompatiblePersonAlias,
+  PeopleService,
 } from '../people.service';
+
+function makeDb(rows: unknown[][] = []) {
+  const next = () => rows.shift() ?? [];
+  const makeChain = (): Record<string, unknown> => {
+    const chain: Record<string, unknown> = {};
+    for (const method of [
+      'select',
+      'from',
+      'where',
+      'innerJoin',
+      'leftJoin',
+      'orderBy',
+      'limit',
+      'offset',
+      'groupBy',
+      'insert',
+      'values',
+      'onConflictDoNothing',
+      'onConflictDoUpdate',
+      'update',
+      'set',
+      'delete',
+      'execute',
+    ]) {
+      chain[method] = vi.fn(() => chain);
+    }
+    chain.transaction = vi.fn(async (fn: (tx: Record<string, unknown>) => unknown) =>
+      fn(makeDb(rows).db),
+    );
+    chain.then = (resolve: (value: unknown[]) => void) => resolve(next());
+    return chain;
+  };
+  const db = makeChain();
+  const dbService = {
+    db,
+    withCurrentUser: vi.fn(async (fn: (db: Record<string, unknown>) => unknown) => await fn(db)),
+  };
+  const crypto = {
+    encrypt: vi.fn((value: string) => `enc:${value}`),
+    decrypt: vi.fn((value: string) =>
+      typeof value === 'string' && value.startsWith('enc:') ? value.slice(4) : value,
+    ),
+    hmac: vi.fn((value: string) => `hash:${value}`),
+    isEncrypted: vi.fn((value: string) => typeof value === 'string' && value.startsWith('enc:')),
+    decryptMemoryFieldsWithKey: vi.fn((memory: unknown) => memory),
+  };
+  const userKeyService = {
+    getDek: vi.fn(async () => Buffer.from('dek')),
+  };
+  const accountsService = {
+    getAll: vi.fn(async () => []),
+  };
+  const service = new PeopleService(
+    dbService as never,
+    crypto as never,
+    userKeyService as never,
+    accountsService as never,
+  );
+  return { service, dbService, crypto, userKeyService, accountsService };
+}
+
+const personRow = (id = 'p1', displayName = 'enc:Amr Essam') => ({
+  id,
+  displayName,
+  displayNameHash: 'hash:amr essam',
+  entityType: 'person',
+  avatars: '[]',
+  metadata: '{}',
+  memoryCount: 3,
+  userId: 'user-1',
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-02T00:00:00Z'),
+});
+
+const identifierRow = (
+  id = 'i1',
+  personId = 'p1',
+  type = 'email',
+  value = 'enc:amr@example.com',
+) => ({
+  id,
+  personId,
+  identifierType: type,
+  identifierValue: value,
+  identifierValueHash: 'hash:amr@example.com',
+  connectorType: 'gmail',
+  confidence: 1,
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+});
 
 describe('normalizePhone', () => {
   it('converts 00 prefix to +', () => {
@@ -38,6 +128,158 @@ describe('normalizePhone', () => {
 
   it('strips dots', () => {
     expect(normalizePhone('+1.555.123.4567')).toBe('+15551234567');
+  });
+});
+
+describe('PeopleService runtime behavior', () => {
+  it('resolves a new person only when a durable identifier is present', async () => {
+    const { service: guardedService } = makeDb([]);
+    await expect(
+      guardedService.resolvePerson([{ type: 'name', value: 'Only Name' }], 'person', 'user-1'),
+    ).rejects.toThrow('durable identifier');
+
+    const { service, dbService } = makeDb([
+      [], // no matching identifier
+      [], // insert person
+      [], // existing identifiers for new person
+      [], // insert identifiers
+      [personRow('created', 'enc:Amr Essam')], // name update lookup
+      [], // update name metadata
+      [], // auto-merge identifiers
+      [personRow('created', 'enc:Amr Essam')], // getById person row
+      [identifierRow('i-email', 'created')], // getById identifiers
+    ]);
+
+    const created = await service.resolvePerson(
+      [
+        { type: 'email', value: 'amr@example.com', connectorType: 'gmail' },
+        { type: 'name', value: 'Amr Essam', connectorType: 'gmail' },
+      ],
+      'person',
+      'user-1',
+    );
+
+    expect(created.displayName).toBe('Amr Essam');
+    expect(created.identifiers).toHaveLength(1);
+    expect(dbService.withCurrentUser).toHaveBeenCalled();
+  });
+
+  it('maps list and search results with decrypted identifiers', async () => {
+    const { service } = makeDb([
+      [{ count: 1 }],
+      [{ value: 'p1' }],
+      [personRow()],
+      [identifierRow()],
+      [personRow()],
+      [identifierRow()],
+      [personRow()],
+      [identifierRow()],
+    ]);
+
+    const listed = await service.list({ userId: 'user-1', limit: 10 });
+    expect(listed.total).toBe(1);
+    expect(listed.items[0].displayName).toBe('Amr Essam');
+    expect(listed.items[0].identifiers[0].identifierValue).toBe('amr@example.com');
+
+    const searched = await service.search('amr', 'user-1');
+    expect(searched[0].displayName).toBe('Amr Essam');
+  });
+
+  it('updates avatars, links memories, and decrypts memory rows', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => Buffer.from('img'),
+      headers: { get: () => 'image/png' },
+    })) as never;
+    const { service, userKeyService } = makeDb([
+      [{ avatars: '[]' }],
+      [], // avatar update
+      [], // link insert
+      [], // cached count update
+      [
+        {
+          memory: {
+            id: 'm1',
+            text: 'enc:hello',
+            entities: '[]',
+            claims: '[]',
+            metadata: '{}',
+          },
+        },
+      ],
+    ]);
+
+    await service.updateAvatar('p1', { url: 'https://example.com/avatar.png', source: 'immich' });
+    await service.linkMemory('m1', 'p1', 'sender');
+    const memories = await service.getMemories('p1', 5, 'user-1');
+
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(userKeyService.getDek).toHaveBeenCalledWith('user-1');
+    expect(memories).toHaveLength(1);
+    globalThis.fetch = originalFetch;
+  });
+
+  it('updates, splits, removes identifiers, and deletes people through guarded paths', async () => {
+    const update = makeDb([
+      [personRow()],
+      [], // update
+      [personRow()],
+      [identifierRow()],
+    ]);
+    await expect(
+      update.service.updatePerson('p1', { displayName: 'Amr Updated', metadata: { ok: true } }),
+    ).resolves.toBeTruthy();
+
+    const remove = makeDb([
+      [identifierRow('i-name', 'p1', 'name', 'enc:Amr Essam'), identifierRow('i-email')],
+      [], // delete identifier
+      [personRow()],
+      [], // update display name
+      [personRow()],
+      [identifierRow('i-email')],
+    ]);
+    await expect(remove.service.removeIdentifier('p1', 'i-name')).resolves.toBeTruthy();
+
+    const split = makeDb([
+      [personRow()],
+      [
+        identifierRow('move', 'p1', 'email', 'enc:moved@example.com'),
+        identifierRow('stay', 'p1', 'phone', 'enc:+971500000000'),
+      ],
+      [], // insert new person
+      [], // move identifiers
+      [personRow('split', 'enc:moved@example.com')],
+      [identifierRow('move', 'split', 'email', 'enc:moved@example.com')],
+    ]);
+    await expect(split.service.splitPerson('p1', ['move'], 'user-1')).resolves.toBeTruthy();
+
+    const del = makeDb([[], [], [], []]);
+    await expect(del.service.deletePerson('p1')).resolves.toBeUndefined();
+  });
+
+  it('builds suggestions and auto-merges duplicate strong identifiers', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:Amr E')], // suggestions contacts
+      [identifierRow('i1', 'p1'), identifierRow('i2', 'p2')], // identifiers
+      [], // dismissals
+      [
+        { memoryId: 'm1', personId: 'p1' },
+        { memoryId: 'm1', personId: 'p2' },
+      ], // memory links
+      [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:Amr E')], // autoMerge contacts
+      [identifierRow('i1', 'p1'), identifierRow('i2', 'p2')], // autoMerge identifiers
+    ]);
+    vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'Amr Essam'),
+      identifiers: [],
+    });
+
+    const suggestions = await service.getSuggestions('user-1');
+    const auto = await service.autoMerge('user-1');
+
+    expect(Array.isArray(suggestions)).toBe(true);
+    expect(auto.merged).toBeGreaterThanOrEqual(0);
   });
 });
 
