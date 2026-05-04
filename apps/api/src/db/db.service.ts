@@ -227,6 +227,8 @@ const REQUIRED_INDEXES: Record<string, string[]> = {
   ],
 };
 
+const MIGRATION_LOCK_KEY = [7342, 4200];
+
 @Injectable()
 export class DbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DbService.name);
@@ -351,9 +353,19 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
 
   private async runMigrations() {
     const migrationsFolder = join(__dirname, 'migrations');
-    this.logger.log('Running database migrations...');
-    await migrate(this.db, { migrationsFolder });
-    this.logger.log('Migrations complete');
+    const client = await this.pool.connect();
+    try {
+      await client.query('SELECT pg_advisory_lock($1, $2)', MIGRATION_LOCK_KEY);
+      this.logger.log('Running database migrations...');
+      await migrate(this.db, { migrationsFolder });
+      this.logger.log('Migrations complete');
+    } finally {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1, $2)', MIGRATION_LOCK_KEY);
+      } finally {
+        client.release();
+      }
+    }
   }
 
   /**
