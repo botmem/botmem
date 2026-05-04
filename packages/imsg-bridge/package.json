@@ -14,13 +14,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
-    "commander": "^13.1.0",
+    "better-sqlite3": "^12.9.0",
+    "commander": "^14.0.3",
     "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.6.0",
     "@types/ws": "^8.5.13",
     "typescript": "^5.7.0"
   },
