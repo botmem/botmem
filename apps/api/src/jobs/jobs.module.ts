@@ -9,6 +9,7 @@ import { SchedulerService } from './scheduler.service';
 import { ConfigService } from '../config/config.service';
 import { SettingsModule } from '../settings/settings.module';
 import { BillingModule } from '../billing/billing.module';
+import { IngestionModule } from '../ingestion/ingestion.module';
 
 const jobsImports = [
   BullModule.forRootAsync({
@@ -37,6 +38,7 @@ const jobsImports = [
   forwardRef(() => AuthModule),
   SettingsModule,
   BillingModule,
+  IngestionModule,
 ];
 
 @Module({

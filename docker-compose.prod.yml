@@ -29,6 +29,7 @@ services:
       NODE_ENV: production
       BOTMEM_PROCESS_ROLE: api
       BOTMEM_DISABLE_QUEUE_WORKERS: 'true'
+      BOTMEM_DISABLE_CONNECTOR_RUNTIME: 'true'
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +59,7 @@ services:
       NODE_ENV: production
       BOTMEM_PROCESS_ROLE: worker
       BOTMEM_DISABLE_SCHEDULER: 'true'
+      BOTMEM_DISABLE_CONNECTOR_RUNTIME: 'false'
     depends_on:
       postgres:
         condition: service_healthy

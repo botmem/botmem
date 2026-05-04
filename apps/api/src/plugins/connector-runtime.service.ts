@@ -1,8 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { randomUUID } from 'crypto';
 import type {
   AuthContext,
   BaseConnector,
@@ -13,8 +10,8 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { EventsService } from '../events/events.service';
 import { ConnectorsService } from '../connectors/connectors.service';
-import { accounts, jobs, rawEvents } from '../db/schema';
-import { rawEventSourceHash } from '../db/raw-event-source-hash';
+import { accounts, jobs } from '../db/schema';
+import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
 
 interface RuntimeSession {
   accountId: string;
@@ -41,7 +38,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     private crypto: CryptoService,
     private events: EventsService,
     private connectors: ConnectorsService,
-    @InjectQueue('memory') private memoryQueue: Queue,
+    private rawEventIngest: RawEventIngestService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -345,42 +342,21 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     userId: string | undefined,
     event: ConnectorDataEvent,
   ) {
-    const rawEventId = randomUUID();
     const now = new Date();
-    const sourceHash = rawEventSourceHash(accountId, connectorType, event.sourceId);
-    const insert = async (db: typeof this.dbService.db) =>
-      db
-        .insert(rawEvents)
-        .values({
-          id: rawEventId,
-          accountId,
-          connectorType,
-          sourceId: event.sourceId,
-          sourceHash,
-          sourceType: event.sourceType,
-          payload: this.crypto.encrypt(JSON.stringify(event))!,
-          timestamp: new Date(event.timestamp),
-          jobId: null,
-          createdAt: now,
-        })
-        .onConflictDoNothing({ target: rawEvents.sourceHash })
-        .returning({ id: rawEvents.id });
-
-    const inserted = userId
-      ? await this.dbService.withUserId(userId, insert)
-      : await insert(this.dbService.db);
-    if (inserted.length === 0) return;
+    const result = await this.rawEventIngest.ingest({
+      accountId,
+      connectorType,
+      userId,
+      event,
+      jobId: null,
+    });
+    if (!result.inserted) return;
 
     await this.dbService.db
       .update(accounts)
       .set({ lastSyncAt: now, updatedAt: now, status: 'connected', lastError: null })
       .where(eq(accounts.id, accountId));
 
-    await this.memoryQueue.add(
-      'process',
-      { rawEventId },
-      { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
-    );
     this.events.emitToChannel('dashboard', 'connector:data', {
       connectorType,
       accountId,

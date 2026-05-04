@@ -39,6 +39,7 @@ import {
   shouldMergeEntityResolutionBucket,
 } from './connector-normalizers/whatsapp-group-identity';
 import { buildWhatsAppContactIdentity } from './connector-normalizers/whatsapp-contact-identity';
+import { RawEventPipelineClassifier } from './raw-event-pipeline-classifier.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
 import type {
@@ -177,6 +178,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private geo: GeoService,
     private quotaService: QuotaService,
     private traceContext: TraceContext,
+    private rawEventClassifier: RawEventPipelineClassifier,
     @InjectQueue('memory') private memoryQueue: Queue,
   ) {
     super();
@@ -321,38 +323,19 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     event.sourceId = rawEvent.sourceId;
     const connector = this.connectors.get(rawEvent.connectorType);
     const metadata = (event.content?.metadata || {}) as Record<string, unknown>;
+    const pipelineKind = this.rawEventClassifier.classify(rawEvent, event);
 
-    if (
-      rawEvent.connectorType === 'whatsapp' &&
-      (rawEvent.sourceId.startsWith('wa-group:') || event.sourceId.startsWith('wa-group:'))
-    ) {
+    if (pipelineKind === 'whatsapp_group_identity') {
       await this.processWhatsAppGroupIdentityEvent(rawEvent, event, rawEventId, parentJobId, mid);
       return;
     }
 
-    if (
-      rawEvent.connectorType === 'whatsapp' &&
-      (rawEvent.sourceId.startsWith('wa-contact:') || event.sourceId.startsWith('wa-contact:'))
-    ) {
+    if (pipelineKind === 'whatsapp_contact_identity') {
       await this.processWhatsAppContactIdentityEvent(rawEvent, event, rawEventId, parentJobId, mid);
       return;
     }
 
-    // Most connector contact/group events are metadata only. Gmail contact events
-    // are the exception: their connector embed step turns Google Contacts fields
-    // into person identifiers (email, phone, names) and organization links.
-    // Also skip legacy WhatsApp metadata rows that were emitted as sourceType=message.
-    if (
-      ((event.sourceType as string) === 'contact' && rawEvent.connectorType !== 'gmail') ||
-      (event.sourceType as string) === 'group' ||
-      (rawEvent.connectorType === 'whatsapp' &&
-        (rawEvent.sourceId.startsWith('wa-contact:') ||
-          rawEvent.sourceId.startsWith('wa-group:') ||
-          event.sourceId.startsWith('wa-contact:') ||
-          event.sourceId.startsWith('wa-group:') ||
-          (event.content?.metadata as Record<string, unknown> | undefined)?.type === 'contact')) ||
-      (rawEvent.connectorType === 'telegram' && event.sourceId.startsWith('telegram:contact:'))
-    ) {
+    if (pipelineKind === 'skip_contact') {
       this.addLog(
         rawEvent.connectorType,
         rawEvent.accountId,
@@ -404,7 +387,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const embedResult = await connector.embed(event, text, ctx);
     let embedText = embedResult.text || text;
 
-    if (rawEvent.connectorType === 'gmail' && (event.sourceType as string) === 'contact') {
+    if (pipelineKind === 'gmail_contact_identity') {
       await this.processGmailContactIdentityEvent(
         rawEvent,
         event,

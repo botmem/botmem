@@ -8,6 +8,7 @@ import { JobsWorkerModule } from './jobs/jobs.module';
 import { LogsModule } from './logs/logs.module';
 import { EventsModule } from './events/events.module';
 import { PluginsModule } from './plugins/plugins.module';
+import { ConnectorRuntimeModule } from './plugins/connector-runtime.module';
 import { MemoryWorkerModule } from './memory/memory.module';
 import { PeopleModule } from './people/people.module';
 import { SettingsModule } from './settings/settings.module';
@@ -33,6 +34,7 @@ import { ImsgTunnelModule } from './imsg-tunnel/imsg-tunnel.module';
     LogsModule,
     EventsModule,
     PluginsModule,
+    ConnectorRuntimeModule,
     MemoryWorkerModule,
     PeopleModule,
     SettingsModule,

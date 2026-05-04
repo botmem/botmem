@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -61,10 +62,18 @@ Start with small limits, then refine by connector_type, source_type, contact_id,
 
 const DEFAULT_TEXT_MAX_LENGTH = 500;
 const MAX_TEXT_MAX_LENGTH = 2000;
+const MCP_SESSION_HEADER = 'mcp-session-id';
+
+interface McpSession {
+  userId: string;
+  server: McpServer;
+  transport: StreamableHTTPServerTransport;
+}
 
 @Injectable()
 export class McpService {
   private readonly logger = new Logger(McpService.name);
+  private readonly sessions = new Map<string, McpSession>();
 
   constructor(
     private memoryService: MemoryService,
@@ -79,13 +88,32 @@ export class McpService {
     @InjectQueue('maintenance') private maintenanceQueue: Queue,
   ) {}
 
-  onModuleDestroy() {}
+  async onModuleDestroy() {
+    await Promise.all(
+      [...this.sessions.values()].map((session) => session.transport.close().catch(() => {})),
+    );
+    this.sessions.clear();
+  }
 
   async handleRequest(req: Request, res: Response, userId: string): Promise<void> {
-    await this.handleStatelessRequest(req, res, userId, true);
+    await this.handleStatefulRequest(req, res, userId, false);
   }
 
   handleSseStream(req: Request, res: Response, userId: string, clientId: string): void {
+    const session = this.getExistingSession(req, res, userId);
+    if (session) {
+      session.transport.handleRequest(req, res, req.body).catch((err: unknown) => {
+        this.logger.error(
+          `MCP SSE handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+        if (!res.headersSent) res.status(500).json({ error: 'Internal MCP error' });
+      });
+      return;
+    }
+
+    if (this.requestSessionId(req)) return;
+
     const startedAt = Date.now();
 
     res.status(200);
@@ -114,39 +142,74 @@ export class McpService {
     });
   }
 
-  terminateSession(_req: Request, res: Response, _userId: string): void {
+  async terminateSession(req: Request, res: Response, userId: string): Promise<void> {
+    const sessionId = this.requestSessionId(req);
+    if (sessionId) {
+      const session = this.sessions.get(sessionId);
+      if (!session || session.userId !== userId) {
+        res.status(404).json({ error: 'Unknown MCP session' });
+        return;
+      }
+      this.sessions.delete(sessionId);
+      await session.transport.close().catch(() => {});
+    }
     res.status(200).json({ ok: true });
   }
 
-  private async handleStatelessRequest(
+  private async handleStatefulRequest(
     req: Request,
     res: Response,
     userId: string,
     enableJsonResponse: boolean,
   ): Promise<void> {
     this.attachRequestLog(req, res, userId);
+    const existingSession = this.getExistingSession(req, res, userId);
+    if (existingSession) {
+      await existingSession.transport.handleRequest(req, res, req.body);
+      return;
+    }
+    if (this.requestSessionId(req)) return;
+
+    const session = await this.createSession(userId, enableJsonResponse);
+    await session.transport.handleRequest(req, res, req.body);
+    const sessionId = session.transport.sessionId;
+    if (sessionId) this.sessions.set(sessionId, session);
+  }
+
+  private async createSession(userId: string, enableJsonResponse: boolean): Promise<McpSession> {
     const server = this.createServer(userId);
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
+      sessionIdGenerator: () => randomUUID(),
       enableJsonResponse,
     });
 
     transport.onerror = (err: Error) => {
       this.logger.error(`MCP transport error: ${err.message}`, err.stack);
     };
+    transport.onclose = () => {
+      if (transport.sessionId) this.sessions.delete(transport.sessionId);
+    };
 
     await server.connect(transport);
-    try {
-      await transport.handleRequest(req, res, req.body);
-    } catch (err: unknown) {
-      this.logger.error(
-        `MCP handleRequest error: ${err instanceof Error ? err.message : String(err)}`,
-        err instanceof Error ? err.stack : undefined,
-      );
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Internal MCP error' });
-      }
+    return { userId, server, transport };
+  }
+
+  private getExistingSession(req: Request, res: Response, userId: string): McpSession | null {
+    const sessionId = this.requestSessionId(req);
+    if (!sessionId) return null;
+
+    const session = this.sessions.get(sessionId);
+    if (!session || session.userId !== userId) {
+      res.status(404).json({ error: 'Unknown MCP session' });
+      return null;
     }
+    return session;
+  }
+
+  private requestSessionId(req: Request): string | null {
+    const value = req.headers?.[MCP_SESSION_HEADER];
+    if (Array.isArray(value)) return value[0] || null;
+    return value || null;
   }
 
   private attachRequestLog(req: Request, res: Response, userId: string): void {
