@@ -159,12 +159,13 @@ describe('MemoryBanksService', () => {
 
   describe('getMemoryCounts', () => {
     it('returns memory counts per bank', async () => {
-      mockDb.execute.mockResolvedValueOnce({
-        rows: [
-          { id: 'bank-1', count: '42' },
-          { id: 'bank-2', count: '0' },
-        ],
-      });
+      mockDb.execute
+        .mockResolvedValueOnce({
+          rows: [{ id: 'bank-1' }, { id: 'bank-2' }],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'bank-1', count: '42' }],
+        });
 
       const result = await service.getMemoryCounts('user-1');
       expect(result).toEqual({ 'bank-1': 42, 'bank-2': 0 });

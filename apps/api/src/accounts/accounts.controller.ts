@@ -12,8 +12,8 @@ import {
 import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
-import { memoryPeople, people, jobs, memorySearchIndex } from '../db/schema';
-import { sql, eq, inArray, desc } from 'drizzle-orm';
+import { jobs, memorySearchIndex } from '../db/schema';
+import { sql, inArray, desc } from 'drizzle-orm';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
@@ -129,31 +129,6 @@ export class AccountsController {
         : [];
       const memoryCountMap = new Map(memoryCounts.map((c) => [c.accountId, c.count]));
 
-      // Count contacts and groups per account via memoryPeople → memories
-      const contactCountRows = accountIds.length
-        ? await db
-            .select({
-              accountId: memorySearchIndex.accountId,
-              entityType: people.entityType,
-              count: sql<number>`count(distinct ${people.id})::int`,
-            })
-            .from(memoryPeople)
-            .innerJoin(memorySearchIndex, eq(memoryPeople.memoryId, memorySearchIndex.memoryId))
-            .innerJoin(people, eq(memoryPeople.personId, people.id))
-            .where(inArray(memorySearchIndex.accountId, accountIds))
-            .groupBy(memorySearchIndex.accountId, people.entityType)
-        : [];
-
-      const contactsMap = new Map<string, number>();
-      const groupsMap = new Map<string, number>();
-      for (const row of contactCountRows) {
-        if (row.entityType === 'group') {
-          groupsMap.set(row.accountId!, (groupsMap.get(row.accountId!) || 0) + row.count);
-        } else {
-          contactsMap.set(row.accountId!, (contactsMap.get(row.accountId!) || 0) + row.count);
-        }
-      }
-
       const latestJobs = accountIds.length
         ? await db
             .select({
@@ -197,13 +172,7 @@ export class AccountsController {
 
       return {
         accounts: rows.map((r) =>
-          toApiAccount(
-            r,
-            memoryCountMap.get(r.id) ?? 0,
-            contactsMap.get(r.id) ?? 0,
-            groupsMap.get(r.id) ?? 0,
-            jobHealthMap.get(r.id),
-          ),
+          toApiAccount(r, memoryCountMap.get(r.id) ?? 0, 0, 0, jobHealthMap.get(r.id)),
         ),
       };
     });
