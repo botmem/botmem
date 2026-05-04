@@ -13,7 +13,7 @@ import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
 import { jobs, memorySearchIndex } from '../db/schema';
-import { sql, inArray, desc } from 'drizzle-orm';
+import { sql, inArray, desc, and } from 'drizzle-orm';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
 import { RequiresJwt } from '../user-auth/decorators/requires-jwt.decorator';
@@ -141,7 +141,9 @@ export class AccountsController {
               createdAt: jobs.createdAt,
             })
             .from(jobs)
-            .where(inArray(jobs.accountId, accountIds))
+            .where(
+              and(inArray(jobs.accountId, accountIds), inArray(jobs.status, ['running', 'queued'])),
+            )
             .orderBy(desc(jobs.createdAt))
         : [];
       const jobHealthMap = new Map<
@@ -157,7 +159,6 @@ export class AccountsController {
       >();
       for (const job of latestJobs) {
         if (jobHealthMap.has(job.accountId)) continue;
-        if (job.status !== 'running' && job.status !== 'queued') continue;
         const lastActivity = job.startedAt || job.createdAt;
         jobHealthMap.set(job.accountId, {
           phase: job.status === 'queued' ? 'Queued for sync' : 'Syncing connector data',

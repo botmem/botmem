@@ -264,25 +264,34 @@ describe('MemoryService', () => {
 
   describe('list', () => {
     it('returns items with people and total count', async () => {
-      // The mock chain calls where() multiple times:
-      // 1. getUserAccountIds (terminal)
-      // 2. total count (terminal)
-      // 3. rows query (chains to orderBy→limit→offset)
-      // 4. getPeopleForMemories (terminal)
-      // Use a call counter to return appropriate values
+      // The dashboard list path reads from memory_search_index:
+      // 1. total count (terminal)
+      // 2. rows query (chains to orderBy→limit→offset)
+      // 3. getPeopleForMemories (terminal)
       let whereCall = 0;
       mockDb.where.mockImplementation(() => {
         whereCall++;
-        if (whereCall === 1) return Promise.resolve([{ id: 'acc-1' }]);
-        if (whereCall === 2) return Promise.resolve([{ count: 1 }]);
-        if (whereCall === 4)
+        if (whereCall === 1) return Promise.resolve([{ count: 1 }]);
+        if (whereCall === 3)
           return Promise.resolve([
             { memoryId: 'mem-1', role: 'sender', personId: 'p-1', displayName: 'Alice' },
           ]);
-        return mockDb; // call 3: chain continues
+        return mockDb; // call 2: chain continues
       });
       mockDb.offset.mockResolvedValueOnce([
-        { memory: fakeMemoryRow, accountIdentifier: 'test@gmail.com' },
+        {
+          id: fakeMemoryRow.id,
+          accountId: fakeMemoryRow.accountId,
+          accountIdentifier: 'test@gmail.com',
+          connectorType: fakeMemoryRow.connectorType,
+          sourceType: fakeMemoryRow.sourceType,
+          text: fakeMemoryRow.text,
+          eventTime: fakeMemoryRow.eventTime,
+          factualityLabel: 'UNVERIFIED',
+          pinned: fakeMemoryRow.pinned,
+          importance: fakeMemoryRow.importance,
+          recallCount: 0,
+        },
       ]);
 
       const result = await service.list({ userId: 'user-1' });
@@ -293,13 +302,13 @@ describe('MemoryService', () => {
     });
 
     it('returns empty when user has no accounts', async () => {
-      mockDb.where.mockResolvedValueOnce([]); // no accounts
+      mockDb.where.mockResolvedValueOnce([{ count: 0 }]);
+      mockDb.offset.mockResolvedValueOnce([]);
       const result = await service.list({ userId: 'user-1' });
       expect(result).toEqual({ items: [], total: 0 });
     });
 
     it('applies connector and source type filters', async () => {
-      mockDb.where.mockResolvedValueOnce([{ id: 'acc-1' }]); // accounts
       mockDb.where.mockResolvedValueOnce([{ count: 0 }]); // total
       mockDb.offset.mockResolvedValueOnce([]); // rows
 

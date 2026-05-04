@@ -1,6 +1,6 @@
 import type { ConnectorAccount } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, cn } from '@botmem/shared';
-import { useConnectors } from '../../hooks/useConnectors';
+import { useConnectorStore } from '../../store/connectorStore';
 import { formatCompactNumber, formatIntegerNumber } from '../../lib/formatNumber';
 
 const statusConfig: Record<string, { label: string; color: string; pulse?: boolean }> = {
@@ -83,7 +83,7 @@ function ConnectorRow({ account }: { account: ConnectorAccount }) {
 }
 
 export function ConnectorStatusBar() {
-  const { accounts } = useConnectors();
+  const accounts = useConnectorStore((s) => s.accounts);
 
   if (accounts.length === 0) return null;
 

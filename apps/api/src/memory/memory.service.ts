@@ -1682,6 +1682,86 @@ export class MemoryService {
   ) {
     const limit = params.limit || 50;
     const offset = params.offset || 0;
+
+    if (params.userId && params.sortBy !== 'ingestTime' && params.fromMe === undefined) {
+      const conditions: SQLWrapper[] = [eq(memorySearchIndex.userId, params.userId)];
+      if (params.connectorType) {
+        conditions.push(eq(memorySearchIndex.connectorType, params.connectorType));
+      }
+      if (params.sourceType) {
+        conditions.push(eq(memorySearchIndex.sourceType, params.sourceType));
+      }
+      if (params.memoryBankId) {
+        conditions.push(eq(memorySearchIndex.memoryBankId, params.memoryBankId));
+      } else if (params.memoryBankIds?.length) {
+        conditions.push(inArray(memorySearchIndex.memoryBankId, params.memoryBankIds));
+      }
+      const where = and(...conditions);
+
+      const [totalRows, rows] = await Promise.all([
+        this.dbService.withCurrentUser((db) =>
+          db
+            .select({ count: sql<number>`COUNT(*)::int` })
+            .from(memorySearchIndex)
+            .where(where),
+        ),
+        this.dbService.withCurrentUser((db) =>
+          db
+            .select({
+              id: memorySearchIndex.memoryId,
+              accountId: memorySearchIndex.accountId,
+              accountIdentifier: accounts.identifier,
+              connectorType: memorySearchIndex.connectorType,
+              sourceType: memorySearchIndex.sourceType,
+              text: memorySearchIndex.text,
+              eventTime: memorySearchIndex.eventTime,
+              factualityLabel: memorySearchIndex.factualityLabel,
+              pinned: memorySearchIndex.pinned,
+              importance: memorySearchIndex.importance,
+              recallCount: memorySearchIndex.recallCount,
+            })
+            .from(memorySearchIndex)
+            .leftJoin(accounts, eq(memorySearchIndex.accountId, accounts.id))
+            .where(where)
+            .orderBy(desc(memorySearchIndex.eventTime))
+            .limit(limit)
+            .offset(offset),
+        ),
+      ]);
+
+      const peopleMap = await this.getPeopleForMemories(rows.map((r) => r.id));
+      return {
+        items: rows.map((r) => ({
+          id: r.id,
+          accountId: r.accountId,
+          accountIdentifier: this.safeDecryptAppField(r.accountIdentifier),
+          connectorType: r.connectorType,
+          sourceType: r.sourceType,
+          text: r.text,
+          eventTime: r.eventTime,
+          factuality: {
+            label: r.factualityLabel ?? 'UNVERIFIED',
+            confidence: 0.5,
+            rationale: '',
+          },
+          weights: {
+            semantic: 0,
+            recency: 0,
+            importance: r.importance ?? 0.5,
+            trust: 0.5,
+            final: r.importance ?? 0.5,
+          },
+          entities: [],
+          claims: [],
+          metadata: {},
+          pinned: r.pinned,
+          recallCount: r.recallCount,
+          people: peopleMap.get(r.id) || [],
+        })),
+        total: totalRows[0]?.count || 0,
+      };
+    }
+
     const sortCol = params.sortBy === 'ingestTime' ? memories.ingestTime : memories.eventTime;
 
     // User isolation

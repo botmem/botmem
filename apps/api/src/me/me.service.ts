@@ -10,7 +10,6 @@ import {
   personIdentifiers,
   memoryPeople,
   memorySearchIndex,
-  memories,
   mergeDismissals,
   settings,
   users,
@@ -422,16 +421,87 @@ export class MeService {
     // Build accounts list with stats — user-scoped
     const accountFilter = userId ? eq(accounts.userId, userId) : undefined;
     const userAccounts = await db.select().from(accounts).where(accountFilter);
-    // Count searchable memories per account from the indexed projection. Avoid scanning the
-    // encrypted memories table on every /api/me dashboard load.
     const userAccountIds = userAccounts.map((a) => a.id);
-    const memCountRows = userAccountIds.length
-      ? await db
-          .select({ accountId: memorySearchIndex.accountId, count: sql<number>`count(*)::int` })
-          .from(memorySearchIndex)
-          .where(inArray(memorySearchIndex.accountId, userAccountIds))
-          .groupBy(memorySearchIndex.accountId)
-      : [];
+    const doneConditions: SQLWrapper[] = [];
+    if (userId) doneConditions.push(eq(memorySearchIndex.userId, userId));
+    const doneFilter =
+      userAccountIds.length === 0 && userId
+        ? sql`1=0` // User has no accounts — zero results
+        : and(...doneConditions);
+    const contactFilter = userId ? eq(people.userId, userId) : undefined;
+
+    // Run independent dashboard aggregates concurrently. Each query is scoped by user and reads
+    // from the indexed projection so /api/me does not serialize several full-table passes.
+    const [
+      memCountRows,
+      totalMemoriesResult,
+      totalContactsResult,
+      memoriesByConnectorRows,
+      memoriesByTypeRows,
+      oldestMemoryRow,
+      newestMemoryRow,
+      recentRows,
+    ] = await Promise.all([
+      userAccountIds.length
+        ? db
+            .select({ accountId: memorySearchIndex.accountId, count: sql<number>`count(*)::int` })
+            .from(memorySearchIndex)
+            .where(inArray(memorySearchIndex.accountId, userAccountIds))
+            .groupBy(memorySearchIndex.accountId)
+        : Promise.resolve([]),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(memorySearchIndex)
+        .where(doneFilter),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(people)
+        .where(contactFilter),
+      db
+        .select({
+          connectorType: memorySearchIndex.connectorType,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(memorySearchIndex)
+        .where(doneFilter)
+        .groupBy(memorySearchIndex.connectorType),
+      db
+        .select({
+          sourceType: memorySearchIndex.sourceType,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(memorySearchIndex)
+        .where(doneFilter)
+        .groupBy(memorySearchIndex.sourceType),
+      db
+        .select({ eventTime: memorySearchIndex.eventTime })
+        .from(memorySearchIndex)
+        .where(doneFilter)
+        .orderBy(sql`${memorySearchIndex.eventTime} ASC`)
+        .limit(1),
+      db
+        .select({ eventTime: memorySearchIndex.eventTime })
+        .from(memorySearchIndex)
+        .where(doneFilter)
+        .orderBy(sql`${memorySearchIndex.eventTime} DESC`)
+        .limit(1),
+      selfContactId
+        ? db
+            .select({
+              id: memorySearchIndex.memoryId,
+              connectorType: memorySearchIndex.connectorType,
+              sourceType: memorySearchIndex.sourceType,
+              text: memorySearchIndex.text,
+              eventTime: memorySearchIndex.eventTime,
+            })
+            .from(memoryPeople)
+            .innerJoin(memorySearchIndex, eq(memoryPeople.memoryId, memorySearchIndex.memoryId))
+            .where(eq(memoryPeople.personId, selfContactId))
+            .orderBy(desc(memorySearchIndex.eventTime))
+            .limit(20)
+        : Promise.resolve([]),
+    ]);
+
     const memCountMap = new Map(memCountRows.map((r) => [r.accountId, r.count]));
     const accountsList = userAccounts.map((acct) => ({
       id: acct.id,
@@ -442,117 +512,32 @@ export class MeService {
       memoriesCount: memCountMap.get(acct.id) ?? 0,
     }));
 
-    // Stats — read from the indexed/searchable projection instead of repeatedly aggregating
-    // encrypted memory rows.
-    const doneConditions: SQLWrapper[] = [];
-    if (userId) doneConditions.push(eq(memorySearchIndex.userId, userId));
-    const doneFilter =
-      userAccountIds.length === 0 && userId
-        ? sql`1=0` // User has no accounts — zero results
-        : and(...doneConditions);
-
-    const totalMemoriesResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(memorySearchIndex)
-      .where(doneFilter);
     const totalMemories = totalMemoriesResult[0].count;
-
-    const contactFilter = userId ? eq(people.userId, userId) : undefined;
-    const totalContactsResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(people)
-      .where(contactFilter);
     const totalContacts = totalContactsResult[0].count;
-
-    const memoriesByConnectorRows = await db
-      .select({
-        connectorType: memorySearchIndex.connectorType,
-        count: sql<number>`count(*)`,
-      })
-      .from(memorySearchIndex)
-      .where(doneFilter)
-      .groupBy(memorySearchIndex.connectorType);
     const memoriesByConnector: Record<string, number> = {};
     for (const row of memoriesByConnectorRows) {
       memoriesByConnector[row.connectorType] = row.count;
     }
 
-    const memoriesByTypeRows = await db
-      .select({
-        sourceType: memorySearchIndex.sourceType,
-        count: sql<number>`count(*)`,
-      })
-      .from(memorySearchIndex)
-      .where(doneFilter)
-      .groupBy(memorySearchIndex.sourceType);
     const memoriesByType: Record<string, number> = {};
     for (const row of memoriesByTypeRows) {
       memoriesByType[row.sourceType] = row.count;
     }
 
-    const oldestMemoryRow = await db
-      .select({ eventTime: memorySearchIndex.eventTime })
-      .from(memorySearchIndex)
-      .where(doneFilter)
-      .orderBy(sql`${memorySearchIndex.eventTime} ASC`)
-      .limit(1);
     const oldestMemory = oldestMemoryRow[0]?.eventTime || null;
-
-    const newestMemoryRow = await db
-      .select({ eventTime: memorySearchIndex.eventTime })
-      .from(memorySearchIndex)
-      .where(doneFilter)
-      .orderBy(sql`${memorySearchIndex.eventTime} DESC`)
-      .limit(1);
     const newestMemory = newestMemoryRow[0]?.eventTime || null;
 
     // Top entities require decrypting/parsing encrypted memory payloads, so they do not belong
     // on the initial dashboard identity request. Keep the response shape stable.
     const topEntities: Array<{ name: string; count: number }> = [];
 
-    // Recent memories involving the user
-    let recentMemories: Array<{
-      id: string;
-      connectorType: string;
-      sourceType: string;
-      text: string;
-      eventTime: Date;
-    }> = [];
-
-    if (selfContactId) {
-      const recentRows = await db
-        .select({
-          id: memories.id,
-          connectorType: memories.connectorType,
-          sourceType: memories.sourceType,
-          text: memories.text,
-          eventTime: memories.eventTime,
-        })
-        .from(memoryPeople)
-        .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
-        .where(eq(memoryPeople.personId, selfContactId))
-        .orderBy(desc(memories.eventTime))
-        .limit(20);
-
-      recentMemories = recentRows.map((row) => {
-        let text = row.text;
-        if (userId) {
-          const userKey = this.userKeyService.getKey(userId);
-          if (userKey) {
-            text = this.crypto.decryptWithKey(row.text, userKey) ?? text;
-          } else if (this.crypto.isEncrypted(text)) {
-            text = '[Encrypted — enter your recovery key to view]';
-          }
-        }
-        return {
-          id: row.id,
-          connectorType: row.connectorType,
-          sourceType: row.sourceType,
-          text,
-          eventTime: row.eventTime,
-        };
-      });
-    }
+    const recentMemories = recentRows.map((row) => ({
+      id: row.id,
+      connectorType: row.connectorType,
+      sourceType: row.sourceType,
+      text: row.text,
+      eventTime: row.eventTime,
+    }));
 
     return {
       identity,
