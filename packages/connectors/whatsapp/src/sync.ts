@@ -247,6 +247,24 @@ function rememberWhatsAppPhone(phone: string, phoneToName: Map<string, string>) 
   phoneToName.set(phoneKey, '');
 }
 
+interface PhoneLookupOptions {
+  batchSize?: number;
+  minDelayMs?: number;
+  maxDelayMs?: number;
+  signal?: AbortSignal;
+}
+
+function whatsappErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isWhatsAppTransientLimit(err: unknown): boolean {
+  const message = whatsappErrorMessage(err);
+  return /rate[-_\s]?overlimit|rate limit|too many|connection closed|connection lost|timed out|socket|stream errored/i.test(
+    message,
+  );
+}
+
 async function resolveKnownPhonesToLids(
   sock: WaSock,
   phones: Iterable<string>,
@@ -254,6 +272,7 @@ async function resolveKnownPhonesToLids(
   phoneToLid: Map<string, string>,
   phoneToName: Map<string, string>,
   log: (level: 'info' | 'warn' | 'error' | 'debug', message: string) => void,
+  options: PhoneLookupOptions = {},
 ) {
   if (typeof sock.executeUSyncQuery !== 'function' && typeof sock.onWhatsApp !== 'function') {
     return;
@@ -265,8 +284,12 @@ async function resolveKnownPhonesToLids(
 
   let confirmed = 0;
   let resolvedLids = 0;
-  for (let i = 0; i < phoneList.length; i += PHONE_LOOKUP_BATCH_SIZE) {
-    const batch = phoneList.slice(i, i + PHONE_LOOKUP_BATCH_SIZE);
+  const batchSize = options.batchSize ?? PHONE_LOOKUP_BATCH_SIZE;
+  const totalBatches = Math.ceil(phoneList.length / batchSize);
+  for (let i = 0; i < phoneList.length; i += batchSize) {
+    if (options.signal?.aborted) break;
+    const batch = phoneList.slice(i, i + batchSize);
+    const batchNumber = i / batchSize + 1;
     try {
       if (typeof sock.onWhatsApp === 'function') {
         const result = (await sock.onWhatsApp(...batch)) as OnWhatsAppResult[] | undefined;
@@ -307,14 +330,17 @@ async function resolveKnownPhonesToLids(
           resolvedLids++;
         }
       }
-      await jitter(100, 400);
+      await jitter(options.minDelayMs ?? 100, options.maxDelayMs ?? 400);
     } catch (err) {
-      log(
-        'debug',
-        `WhatsApp phone→LID lookup failed for batch ${i / PHONE_LOOKUP_BATCH_SIZE + 1}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      const message = whatsappErrorMessage(err);
+      if (isWhatsAppTransientLimit(err)) {
+        log(
+          'warn',
+          `WhatsApp phone→LID lookup stopped at batch ${batchNumber}/${totalBatches}: ${message}`,
+        );
+        break;
+      }
+      log('debug', `WhatsApp phone→LID lookup failed for batch ${batchNumber}: ${message}`);
     }
   }
   if (confirmed > 0) log('info', `Confirmed ${confirmed} known phone number(s) are on WhatsApp`);
@@ -507,8 +533,13 @@ const ON_DEMAND_MSGS_PER_FETCH = 100; // messages per fetch request
 const ON_DEMAND_WAIT_MS = 2500; // wait for messages to arrive after fetch
 const ON_DEMAND_FETCH_TIMEOUT_MS = 15_000;
 const PHONE_LOOKUP_BATCH_SIZE = 50;
+const REALTIME_PHONE_LOOKUP_BATCH_SIZE = 20;
+const REALTIME_PHONE_LOOKUP_MIN_DELAY_MS = 1_000;
+const REALTIME_PHONE_LOOKUP_MAX_DELAY_MS = 3_000;
+const REALTIME_GROUP_METADATA_COOLDOWN_MS = 30 * 60_000;
 const WHATSAPP_HISTORY_CURSOR = 'whatsapp-history-v1';
 const REALTIME_STARTUP_QUARANTINE_MS = 2 * 60_000;
+const realtimeGroupMetadataCooldownUntil = new Map<string, number>();
 
 type WaSock = ReturnType<typeof makeWASocket>;
 type AuthKeyStore = {
@@ -1079,47 +1110,71 @@ export async function startWhatsAppRealtime(
   const selfPhone = phoneFromJid(sock.user?.id || '');
   await callbacks.onConnected?.({ selfPhone });
 
-  try {
-    const groups: Record<string, GroupMetadata> = await sock.groupFetchAllParticipating();
-    for (const [groupJid, meta] of Object.entries(groups)) {
-      if (meta.subject) chatNames.set(groupJid, meta.subject);
-      const participants = meta.participants || [];
-      if (!groupParticipants.has(groupJid)) groupParticipants.set(groupJid, new Set());
-      const memberSet = groupParticipants.get(groupJid)!;
-      for (const p of participants) if (p.id) memberSet.add(p.id);
-    }
-    await resolveKnownPhonesToLids(
-      sock,
-      [selfPhone, ...phoneToName.keys()],
-      lidToPhone,
-      phoneToLid,
-      phoneToName,
-      (level, message) => log?.(level, message),
-    );
-    emitContactEvents(
-      {
-        logger: {
-          info: (m) => log?.('info', m),
-          warn: (m) => log?.('warn', m),
-          error: (m) => log?.('error', m),
-          debug: (m) => log?.('debug', m),
+  void (async () => {
+    try {
+      const cooldownUntil = realtimeGroupMetadataCooldownUntil.get(resolvedSessionDir) ?? 0;
+      if (Date.now() >= cooldownUntil) {
+        try {
+          const groups: Record<string, GroupMetadata> = await sock.groupFetchAllParticipating();
+          if (stopped) return;
+          for (const [groupJid, meta] of Object.entries(groups)) {
+            if (meta.subject) chatNames.set(groupJid, meta.subject);
+            const participants = meta.participants || [];
+            if (!groupParticipants.has(groupJid)) groupParticipants.set(groupJid, new Set());
+            const memberSet = groupParticipants.get(groupJid)!;
+            for (const p of participants) if (p.id) memberSet.add(p.id);
+          }
+        } catch (err) {
+          if (isWhatsAppTransientLimit(err)) {
+            realtimeGroupMetadataCooldownUntil.set(
+              resolvedSessionDir,
+              Date.now() + REALTIME_GROUP_METADATA_COOLDOWN_MS,
+            );
+          }
+          log?.('warn', `WhatsApp realtime group metadata failed: ${whatsappErrorMessage(err)}`);
+        }
+      } else {
+        log?.('debug', 'WhatsApp realtime group metadata skipped during cooldown');
+      }
+
+      await resolveKnownPhonesToLids(
+        sock,
+        [selfPhone, ...phoneToName.keys()],
+        lidToPhone,
+        phoneToLid,
+        phoneToName,
+        (level, message) => log?.(level, message),
+        {
+          batchSize: REALTIME_PHONE_LOOKUP_BATCH_SIZE,
+          minDelayMs: REALTIME_PHONE_LOOKUP_MIN_DELAY_MS,
+          maxDelayMs: REALTIME_PHONE_LOOKUP_MAX_DELAY_MS,
+          signal: callbacks.signal,
         },
-      } as SyncContext,
-      callbacks.onEvent,
-      selfPhone,
-      phoneToName,
-      lidToPhone,
-      phoneToLid,
-      lidToName,
-      chatNames,
-      groupParticipants,
-    );
-  } catch (err) {
-    log?.(
-      'warn',
-      `WhatsApp realtime group metadata failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+      );
+      if (stopped) return;
+      emitContactEvents(
+        {
+          logger: {
+            info: (m) => log?.('info', m),
+            warn: (m) => log?.('warn', m),
+            error: (m) => log?.('error', m),
+            debug: (m) => log?.('debug', m),
+          },
+        } as SyncContext,
+        callbacks.onEvent,
+        selfPhone,
+        phoneToName,
+        lidToPhone,
+        phoneToLid,
+        lidToName,
+        chatNames,
+        groupParticipants,
+      );
+      saveIdentityMaps(resolvedSessionDir, { lidToPhone, phoneToLid, phoneToName, lidToName });
+    } catch (err) {
+      log?.('warn', `WhatsApp realtime identity hydration failed: ${whatsappErrorMessage(err)}`);
+    }
+  })();
 
   return {
     async stop() {

@@ -192,6 +192,40 @@ describe('sync module', () => {
       mockExistsSync.mockReturnValue(false);
     });
 
+    it('does not block realtime startup on group metadata hydration', async () => {
+      mockExistsSync.mockReturnValue(true);
+      const { makeWASocket } = await import('@whiskeysockets/baileys');
+      let resolveGroups!: (value: Record<string, any>) => void;
+      const slowGroupFetch = vi.fn(
+        () =>
+          new Promise<Record<string, any>>((resolve) => {
+            resolveGroups = resolve;
+          }),
+      );
+      const { sock, eventHandlers } = createMockSock(undefined, {
+        groupFetchAllParticipating: slowGroupFetch,
+      });
+      vi.mocked(makeWASocket).mockReturnValueOnce(sock as any);
+
+      const { startWhatsAppRealtime } = await import('../sync.js');
+      const onConnected = vi.fn();
+      const handlePromise = startWhatsAppRealtime('/tmp/test-session-realtime', {
+        onEvent: vi.fn(),
+        onConnected,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      triggerOnEvent(eventHandlers, 'connection.update', { connection: 'open' });
+
+      const handle = await handlePromise;
+      expect(onConnected).toHaveBeenCalledWith({ selfPhone: '1234567890' });
+      expect(slowGroupFetch).toHaveBeenCalled();
+
+      resolveGroups({});
+      await vi.advanceTimersByTimeAsync(0);
+      await handle.stop();
+      mockExistsSync.mockReturnValue(false);
+    });
+
     it('reuses existing socket when provided', async () => {
       const { syncWhatsApp } = await import('../sync.js');
       const emit = vi.fn();
@@ -1031,6 +1065,48 @@ describe('sync module', () => {
       expect(knownPhoneContact).toBeDefined();
       expect(knownPhoneContact?.[0].content.metadata.phone).toBe('971508556252');
       expect(knownPhoneContact?.[0].content.metadata.connectorType).toBe('whatsapp');
+    });
+
+    it('stops phone lookup after a transient WhatsApp connection failure', async () => {
+      const { syncWhatsApp } = await import('../sync.js');
+      const emit = vi.fn();
+
+      const mockSock = {
+        user: { id: '1234567890@s.whatsapp.net' },
+        ws: { close: vi.fn() },
+        ev: {
+          on: vi.fn(),
+          off: vi.fn(),
+          buffer: vi.fn(),
+          flush: vi.fn(),
+          removeAllListeners: vi.fn(),
+          process: vi.fn(),
+        },
+        groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+        onWhatsApp: vi.fn().mockRejectedValue(new Error('Connection Closed')),
+      };
+
+      const ctx = {
+        accountId: 'a1',
+        auth: { raw: { sessionDir: '/tmp/test-session-known-phones-closed' } },
+        cursor: null,
+        jobId: 'j1',
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+        signal: AbortSignal.timeout(500),
+        knownPhoneNumbers: Array.from(
+          { length: 120 },
+          (_, i) => `+97150000${String(i).padStart(4, '0')}`,
+        ),
+      };
+
+      const promise = syncWhatsApp(ctx as any, emit, mockSock as any);
+      await vi.advanceTimersByTimeAsync(35_000);
+      await promise;
+
+      expect(mockSock.onWhatsApp).toHaveBeenCalledTimes(1);
+      expect(ctx.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('WhatsApp phone→LID lookup stopped at batch 1/'),
+      );
     });
 
     it('handles extended text messages', async () => {

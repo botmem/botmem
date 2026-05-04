@@ -1,8 +1,7 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { OnModuleInit, Logger } from '@nestjs/common';
+import { OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Job, Queue } from 'bullmq';
-import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -12,8 +11,7 @@ import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { rawEvents, accounts, people, personIdentifiers } from '../db/schema';
-import { rawEventSourceHash } from '../db/raw-event-source-hash';
+import { accounts, people, personIdentifiers } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { BaseConnector } from '@botmem/connector-sdk';
@@ -21,53 +19,16 @@ import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
 import { Traced } from '../tracing/traced.decorator';
+import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
+import { ConnectorSyncPolicyService } from '../connectors/connector-sync-policy.service';
 import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
-
-type AccountFailureStatus = 'reconnect_required' | 'failed';
-
-function classifyAccountFailure(connectorType: string, message: string): AccountFailureStatus {
-  const msg = message.toLowerCase();
-  if (
-    msg.includes('invalid_grant') ||
-    msg.includes('401') ||
-    msg.includes('unauthorized') ||
-    msg.includes('reconnect') ||
-    msg.includes('re-scan qr') ||
-    msg.includes('session expired') ||
-    msg.includes('session files missing') ||
-    msg.includes('no telegram session') ||
-    msg.includes('please re-authenticate')
-  ) {
-    return 'reconnect_required';
-  }
-  if (connectorType === 'photos' && msg.includes('immich') && msg.includes('401')) {
-    return 'reconnect_required';
-  }
-  return 'failed';
-}
-
-function isRecoverableRuntimeFailure(connectorType: string, message: string): boolean {
-  if (connectorType !== 'whatsapp') return false;
-  const msg = message.toLowerCase();
-  return (
-    msg.includes('connection lost during sync') ||
-    msg.includes('connection closed during sync') ||
-    msg.includes('connection lost during realtime sync') ||
-    msg.includes('another whatsapp web session is active')
-  );
-}
-
-function isFatalSyncFailure(connectorType: string, message: string): boolean {
-  const msg = message.toLowerCase();
-  return (
-    classifyAccountFailure(connectorType, message) === 'reconnect_required' ||
-    (connectorType === 'imessage' && msg.includes('bridge not running'))
-  );
-}
 
 @Processor('sync')
 export class SyncProcessor extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(SyncProcessor.name);
+  private readonly rawEventIngest: RawEventIngestService;
+  private readonly syncPolicy: ConnectorSyncPolicyService;
+
   constructor(
     private connectors: ConnectorsService,
     private accountsService: AccountsService,
@@ -83,8 +44,13 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private analytics: AnalyticsService,
     private traceContext: TraceContext,
     private moduleRef: ModuleRef,
+    @Optional() rawEventIngest?: RawEventIngestService,
+    @Optional() syncPolicy?: ConnectorSyncPolicyService,
   ) {
     super();
+    this.rawEventIngest =
+      rawEventIngest ?? new RawEventIngestService(this.dbService, this.crypto, this.memoryQueue);
+    this.syncPolicy = syncPolicy ?? new ConnectorSyncPolicyService();
   }
 
   /** Lazily resolve ImsgTunnelService — returns null if not available. */
@@ -257,48 +223,21 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     connector.on('data', (event: ConnectorDataEvent) => {
       this.events.emitToChannel(`job:${jobId}`, 'connector:data', event);
 
-      // Persist raw event and enqueue embedding — track the promise.
-      // rawEvents is RLS-protected (via account_id → accounts.user_id) so the insert
-      // must run inside withUserId() scope. ownerUserId is resolved above via unscoped bootstrap.
-      const rawEventId = randomUUID();
-      const now = new Date();
-      const sourceHash = rawEventSourceHash(accountId, connectorType, event.sourceId);
-      const insertRawEvent = async () => {
-        const insertFn = (db: typeof this.dbService.db) =>
-          db
-            .insert(rawEvents)
-            .values({
-              id: rawEventId,
-              accountId,
-              connectorType,
-              sourceId: event.sourceId,
-              sourceHash,
-              sourceType: event.sourceType,
-              payload: this.crypto.encrypt(JSON.stringify(event))!,
-              timestamp: new Date(event.timestamp),
-              jobId,
-              createdAt: now,
-            })
-            .onConflictDoNothing({ target: rawEvents.sourceHash })
-            .returning({ id: rawEvents.id });
-        let inserted: Array<{ id: string }>;
-        if (ownerUserId) {
-          inserted = await this.dbService.withUserId(ownerUserId, insertFn);
-        } else {
-          // No ownerUserId — unscoped fallback (orphaned account, should rarely happen)
-          inserted = await insertFn(this.dbService.db);
-        }
-        if (inserted.length === 0) return;
-        totalInserted += inserted.length;
-        await this.memoryQueue.add(
-          'process',
-          { rawEventId, _trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId } },
-          { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+      const writePromise = this.rawEventIngest
+        .ingest({
+          accountId,
+          connectorType,
+          event,
+          jobId,
+          userId: ownerUserId,
+          trace: { traceId: currentTrace.traceId, spanId: currentTrace.spanId },
+        })
+        .then((result) => {
+          if (result.inserted) totalInserted += 1;
+        })
+        .catch((err) =>
+          logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`),
         );
-      };
-      const writePromise = insertRawEvent().catch((err) =>
-        logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`),
-      );
       pendingWrites.push(writePromise);
     });
 
@@ -338,7 +277,12 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           // Proceed without merging saved credentials (e.g. redirectUri)
         }
 
-        const effectiveCursor = connectorType === 'whatsapp' && !job.data.scheduled ? null : cursor;
+        const effectiveCursor = this.syncPolicy.shouldIgnoreCursor(
+          connectorType,
+          job.data.scheduled,
+        )
+          ? null
+          : cursor;
         const rawCtx: SyncContext = {
           accountId,
           auth,
@@ -453,8 +397,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       });
 
       const maxAttempts = job.opts.attempts ?? 1;
-      const fatal = isFatalSyncFailure(connectorType, errMsg);
-      const recoverableRuntimeFailure = isRecoverableRuntimeFailure(connectorType, errMsg);
+      const failurePolicy = this.syncPolicy.classifyFailure(connectorType, errMsg);
+      const fatal = failurePolicy.fatal;
+      const recoverableRuntimeFailure = failurePolicy.recoverableRuntimeFailure;
       const isLastAttempt = fatal || job.attemptsMade >= maxAttempts - 1;
 
       if (isLastAttempt) {
@@ -464,7 +409,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           completedAt: new Date(),
         });
 
-        const accountStatus = classifyAccountFailure(connectorType, errMsg);
+        const accountStatus = failurePolicy.accountStatus;
 
         await this.accountsService.update(
           accountId,

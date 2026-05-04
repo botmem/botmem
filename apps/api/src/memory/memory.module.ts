@@ -22,6 +22,7 @@ import { DecayProcessor } from './decay.processor';
 import { MemoryProcessor } from './memory.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
+import { RawEventPipelineClassifier } from './raw-event-pipeline-classifier.service';
 
 const memoryBaseImports = [
   DbModule,
@@ -47,6 +48,7 @@ const memoryCommonProviders = [
   EnrichService,
   ContentCleaner,
   MemoryService,
+  RawEventPipelineClassifier,
 ];
 
 @Module({
