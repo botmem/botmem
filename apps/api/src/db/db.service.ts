@@ -212,6 +212,21 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
   ],
 };
 
+// Critical indexes must be present after migrations run. Drizzle only applies
+// journaled migrations, so this catches skipped or unjournaled index migrations
+// before the API starts serving slow query paths.
+const REQUIRED_INDEXES: Record<string, string[]> = {
+  jobs: ['idx_jobs_account_id'],
+  raw_events: ['idx_raw_events_account_id', 'idx_raw_events_account_timestamp'],
+  memories: [
+    'idx_memories_account_id',
+    'idx_memories_done_account_connector',
+    'idx_memories_done_account_source',
+    'idx_memories_done_account_factuality',
+    'idx_memories_done_account_event_time',
+  ],
+};
+
 @Injectable()
 export class DbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DbService.name);
@@ -235,8 +250,9 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
 
     await this.runMigrations();
     await this.validateSchema();
+    await this.validateIndexes();
     await this.createRlsPolicies();
-    this.logger.log('PostgreSQL connected, migrations applied, tables ensured');
+    this.logger.log('PostgreSQL connected, migrations applied, schema verified');
   }
 
   async onModuleDestroy() {
@@ -376,6 +392,46 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         throw new Error(
           `Schema validation failed — missing: ${missing.join(', ')}. ` +
             'Check migration files or run drizzle-kit generate.',
+        );
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Verifies critical performance indexes exist after migrations run.
+   * Column validation alone is not enough: missing indexes caused production
+   * dashboards and authenticated API reads to degrade into multi-second scans.
+   */
+  private async validateIndexes() {
+    const client = await this.pool.connect();
+    try {
+      const { rows } = await client.query<{ tablename: string; indexname: string }>(`
+        SELECT tablename, indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+      `);
+
+      const actual = new Map<string, Set<string>>();
+      for (const row of rows) {
+        if (!actual.has(row.tablename)) actual.set(row.tablename, new Set());
+        actual.get(row.tablename)!.add(row.indexname);
+      }
+
+      const missing: string[] = [];
+      for (const [table, indexes] of Object.entries(REQUIRED_INDEXES)) {
+        for (const index of indexes) {
+          if (!actual.get(table)?.has(index)) {
+            missing.push(`"${table}.${index}"`);
+          }
+        }
+      }
+
+      if (missing.length > 0) {
+        throw new Error(
+          `Index validation failed — missing: ${missing.join(', ')}. ` +
+            'Check apps/api/src/db/migrations/meta/_journal.json for the migration entry.',
         );
       }
     } finally {
