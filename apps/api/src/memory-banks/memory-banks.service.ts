@@ -163,18 +163,28 @@ export class MemoryBanksService {
 
   /** Get memory count per memory bank */
   async getMemoryCounts(userId: string): Promise<Record<string, number>> {
-    const result = await this.dbService.userDb(userId, (db) =>
-      db.execute(
-        sql`SELECT b.id, COUNT(m.id) as count
-            FROM memory_banks b
-            LEFT JOIN memory_search_index m ON m.memory_bank_id = b.id AND m.user_id = b.user_id
-            WHERE b.user_id = ${userId}
-            GROUP BY b.id`,
+    const [banksResult, countsResult] = await Promise.all([
+      this.dbService.userDb(userId, (db) =>
+        db.execute(sql`SELECT id FROM memory_banks WHERE user_id = ${userId}`),
       ),
+      this.dbService.userDb(userId, (db) =>
+        db.execute(
+          sql`SELECT memory_bank_id AS id, COUNT(*) AS count
+              FROM memory_search_index
+              WHERE user_id = ${userId}
+              GROUP BY memory_bank_id`,
+        ),
+      ),
+    ]);
+
+    const counted = new Map<string, number>(
+      (countsResult.rows as { id: string | null; count: string }[])
+        .filter((row) => row.id)
+        .map((row) => [row.id!, Number(row.count)]),
     );
     const counts: Record<string, number> = {};
-    for (const row of result.rows as { id: string; count: string }[]) {
-      counts[row.id] = Number(row.count);
+    for (const row of banksResult.rows as { id: string }[]) {
+      counts[row.id] = counted.get(row.id) ?? 0;
     }
     return counts;
   }
