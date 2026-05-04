@@ -32,6 +32,11 @@ export interface PersonRelationshipInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface MemoryPersonLinkInput {
+  personId: string;
+  role: string;
+}
+
 /** Normalize an email: lowercase, trim, strip plus-addressing. */
 export function normalizeEmail(raw: string): string {
   const email = raw.toLowerCase().trim();
@@ -603,6 +608,24 @@ export class PeopleService {
     return { ...base, nameAliases: merged };
   }
 
+  private metadataHasNameAlias(metadata: unknown, alias: string): boolean {
+    const normalized = alias.trim().toLowerCase();
+    if (!normalized) return true;
+    const base = this.decryptJsonb(metadata);
+    if (!base || typeof base !== 'object' || Array.isArray(base)) return false;
+    const aliases = (base as Record<string, unknown>).nameAliases;
+    if (!Array.isArray(aliases)) return false;
+    return aliases.some((item) => {
+      const value =
+        typeof item === 'string'
+          ? item
+          : item && typeof item === 'object'
+            ? String((item as Record<string, unknown>).value || '')
+            : '';
+      return value.trim().toLowerCase() === normalized;
+    });
+  }
+
   private async updateNameAliases(personId: string, aliases: IdentifierInput[]): Promise<void> {
     if (!aliases.some((alias) => alias.type === 'name' && alias.value.trim())) return;
     const rows = await this.dbService.withCurrentUser((db) =>
@@ -688,6 +711,7 @@ export class PeopleService {
     const matchedIds = Array.from(matchedContactIds);
     let personId: string;
     const resolvingPerson = !entityType || entityType === 'person';
+    let shouldCheckDuplicateStructuredIdentifiers = matchedIds.length > 1;
 
     if (matchedIds.length === 0) {
       if (resolvingPerson && !hasDurablePersonIdentifier(identityIdentifiers)) {
@@ -717,34 +741,6 @@ export class PeopleService {
       // below (email, phone, connector ids) are the only automatic merge evidence.
     } else if (matchedIds.length === 1) {
       personId = matchedIds[0];
-      // Update display name if we now have a better one (e.g. resolved from raw ID)
-      const nameIdent = nameAliases[0];
-      if (nameIdent?.value) {
-        const existing = await this.dbService.withCurrentUser((db) =>
-          db
-            .select({ displayName: people.displayName, metadata: people.metadata })
-            .from(people)
-            .where(eq(people.id, personId)),
-        );
-        const rawName = existing[0]?.displayName || '';
-        const currentName = this.crypto.decrypt(rawName) ?? rawName;
-        const patch: Partial<typeof people.$inferInsert> = {
-          metadata: this.encryptJsonb(
-            this.buildNameAliasMetadata(this.decryptJsonb(existing[0]?.metadata), nameAliases),
-          ),
-          updatedAt: new Date(),
-        };
-        if (
-          isCompatiblePersonAlias(currentName, nameIdent.value) &&
-          shouldUpdateDisplayName(currentName, nameIdent.value)
-        ) {
-          patch.displayName = this.crypto.encrypt(nameIdent.value)!;
-          patch.displayNameHash = this.crypto.hmac(nameIdent.value.toLowerCase());
-        }
-        await this.dbService.withCurrentUser((db) =>
-          db.update(people).set(patch).where(eq(people.id, personId)),
-        );
-      }
     } else {
       // Multiple contacts matched — merge them into the first one
       personId = matchedIds[0];
@@ -777,6 +773,7 @@ export class PeopleService {
           (i) => !existingKeys.has(`${i.type}::${this.crypto.hmac(i.value)}`),
         );
         if (newIdents.length) {
+          shouldCheckDuplicateStructuredIdentifiers = true;
           const now = new Date();
           await this.dbService.withCurrentUser((db) =>
             db
@@ -830,14 +827,17 @@ export class PeopleService {
           .from(people)
           .where(eq(people.id, personId)),
       );
+      if (!existing.length) {
+        return (await this.getById(personId))!;
+      }
       const rawName = existing[0]?.displayName || '';
       const currentName = this.crypto.decrypt(rawName) ?? rawName;
-      const patch: Partial<typeof people.$inferInsert> = {
-        metadata: this.encryptJsonb(
+      const patch: Partial<typeof people.$inferInsert> = {};
+      if (!this.metadataHasNameAlias(existing[0]?.metadata, nameIdent.value)) {
+        patch.metadata = this.encryptJsonb(
           this.buildNameAliasMetadata(this.decryptJsonb(existing[0]?.metadata), nameAliases),
-        ),
-        updatedAt: new Date(),
-      };
+        );
+      }
       if (
         isCompatiblePersonAlias(currentName, nameIdent.value) &&
         shouldUpdateDisplayName(currentName, nameIdent.value)
@@ -845,9 +845,12 @@ export class PeopleService {
         patch.displayName = this.crypto.encrypt(nameIdent.value)!;
         patch.displayNameHash = this.crypto.hmac(nameIdent.value.toLowerCase());
       }
-      await this.dbService.withCurrentUser((db) =>
-        db.update(people).set(patch).where(eq(people.id, personId)),
-      );
+      if (Object.keys(patch).length) {
+        patch.updatedAt = new Date();
+        await this.dbService.withCurrentUser((db) =>
+          db.update(people).set(patch).where(eq(people.id, personId)),
+        );
+      }
     }
 
     // Update entityType if caller provides a non-person type and contact is currently person-typed
@@ -869,6 +872,9 @@ export class PeopleService {
     // another contact, absorb that contact automatically.
     // Capped at 5 merges per resolve to prevent infinite loops from circular references.
     try {
+      if (!shouldCheckDuplicateStructuredIdentifiers) {
+        return (await this.getById(personId))!;
+      }
       const allIdentsForContact = await this.dbService.withCurrentUser((db) =>
         db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, personId)),
       );
@@ -1402,6 +1408,52 @@ export class PeopleService {
     } catch (err: unknown) {
       // Contact may have been merged/deleted concurrently — skip silently
       if ((err as { code?: string }).code === '23503') return;
+      throw err;
+    }
+  }
+
+  async linkMemoryBatch(memoryId: string, links: MemoryPersonLinkInput[]): Promise<number> {
+    const unique = new Map<string, MemoryPersonLinkInput>();
+    for (const link of links) {
+      if (!link.personId || !link.role) continue;
+      unique.set(`${link.personId}:${link.role}`, link);
+    }
+    const values = [...unique.values()];
+    if (!values.length) return 0;
+
+    try {
+      const inserted = await this.dbService.withCurrentUser((db) =>
+        db
+          .insert(memoryPeople)
+          .values(
+            values.map((link) => ({
+              id: randomUUID(),
+              memoryId,
+              personId: link.personId,
+              role: link.role,
+            })),
+          )
+          .onConflictDoNothing()
+          .returning({ personId: memoryPeople.personId }),
+      );
+
+      const counts = new Map<string, number>();
+      for (const row of inserted) {
+        counts.set(row.personId, (counts.get(row.personId) || 0) + 1);
+      }
+
+      for (const [personId, count] of counts) {
+        await this.dbService.withCurrentUser((db) =>
+          db
+            .update(people)
+            .set({ memoryCount: sql`${people.memoryCount} + ${count}` })
+            .where(eq(people.id, personId)),
+        );
+      }
+
+      return inserted.length;
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === '23503') return 0;
       throw err;
     }
   }
