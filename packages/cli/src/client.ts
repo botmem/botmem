@@ -412,8 +412,18 @@ export class BotmemClient {
     return this.request('/logs/summary');
   }
 
-  async getVersion(): Promise<{ buildTime: string; gitHash: string; uptime: number }> {
-    return this.request<{ buildTime: string; gitHash: string; uptime: number }>('/version');
+  async getVersion(): Promise<{
+    buildTime: string;
+    uptime: number;
+    version?: string;
+    gitHash?: string;
+  }> {
+    return this.request<{
+      buildTime: string;
+      uptime: number;
+      version?: string;
+      gitHash?: string;
+    }>('/version');
   }
 
   // --- CLI OAuth ---

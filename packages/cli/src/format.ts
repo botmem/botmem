@@ -378,7 +378,12 @@ export function formatAccounts(
     .join('\n');
 }
 
-export function formatVersion(v: { buildTime: string; gitHash: string; uptime: number }): string {
+export function formatVersion(v: {
+  buildTime: string;
+  uptime: number;
+  version?: string;
+  gitHash?: string;
+}): string {
   const secs = v.uptime;
   const days = Math.floor(secs / 86400);
   const hrs = Math.floor((secs % 86400) / 3600);
@@ -391,8 +396,9 @@ export function formatVersion(v: { buildTime: string; gitHash: string; uptime: n
 
   const lines: string[] = [];
   lines.push(`${bold('Botmem API')}`);
+  if (v.version) lines.push(`${dim('Version:')} ${v.version}`);
   lines.push(`${dim('Build:')}   ${v.buildTime}`);
-  lines.push(`${dim('Hash:')}    ${v.gitHash}`);
+  if (v.gitHash) lines.push(`${dim('Hash:')}    ${v.gitHash}`);
   lines.push(`${dim('Uptime:')}  ${uptimeStr}`);
   return lines.join('\n');
 }

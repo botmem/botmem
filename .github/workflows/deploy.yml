@@ -150,6 +150,8 @@ jobs:
             VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
             VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
             VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
             ghcr.io/botmem/botmem:amd64-${{ needs.version.outputs.tag }}
             ghcr.io/botmem/botmem:${{ needs.version.outputs.tag }}
@@ -191,6 +193,8 @@ jobs:
             VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
             VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
             VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
             ghcr.io/botmem/botmem:arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
