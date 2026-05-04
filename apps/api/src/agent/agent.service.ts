@@ -37,6 +37,32 @@ function relativeTime(d: Date | string): string {
   return `${years}y ago`;
 }
 
+function inferBroadQueryWindow(query: string): { from?: string; to?: string } | null {
+  const lower = query.toLowerCase();
+  const now = new Date();
+  const broadIntent =
+    /\b(what happened|life|activity|digest|summary|summarize|recap|overview|recently|lately)\b/.test(
+      lower,
+    );
+  const days =
+    lower.match(/\blast\s+(\d+)\s+(day|days)\b/)?.[1] ??
+    lower.match(/\bover\s+the\s+last\s+(\d+)\s+(day|days)\b/)?.[1];
+  const weeks =
+    lower.match(/\blast\s+(\d+)\s+(week|weeks)\b/)?.[1] ??
+    lower.match(/\bover\s+the\s+last\s+(\d+)\s+(week|weeks)\b/)?.[1];
+  const inferredDays = days ? Number(days) : weeks ? Number(weeks) * 7 : null;
+  if (broadIntent && inferredDays) {
+    return {
+      from: new Date(now.getTime() - inferredDays * 86400000).toISOString(),
+      to: now.toISOString(),
+    };
+  }
+  if (broadIntent) {
+    return { from: new Date(now.getTime() - 14 * 86400000).toISOString(), to: now.toISOString() };
+  }
+  return null;
+}
+
 export interface EnrichedMemory {
   id: string;
   text: string;
@@ -130,13 +156,36 @@ export class AgentService {
       this.logger.debug(`Conversation search failed, falling back to regular search: ${err}`);
     }
 
-    // Fallback: existing search-only path
-    const searchResponse = await this.memoryService.search(
-      query,
-      options?.filters,
-      limit,
-      options?.userId,
-    );
+    const broadWindow = inferBroadQueryWindow(query);
+    if (broadWindow && !options?.filters?.contactId) {
+      const digest = await this.answerBroadTimelineQuery(query, {
+        ...broadWindow,
+        ...options?.filters,
+        limit: Math.max(limit, 120),
+        userId: options?.userId,
+      });
+      if (digest) return digest;
+    }
+
+    let searchResponse: Awaited<ReturnType<MemoryService['search']>>;
+    try {
+      searchResponse = await this.memoryService.search(
+        query,
+        options?.filters,
+        limit,
+        options?.userId,
+      );
+    } catch (err) {
+      this.logger.warn(`Search failed for agent ask, trying timeline digest: ${err}`);
+      const digest = await this.answerBroadTimelineQuery(query, {
+        ...(broadWindow || {}),
+        ...options?.filters,
+        limit: Math.max(limit, 120),
+        userId: options?.userId,
+      });
+      if (digest) return digest;
+      throw err;
+    }
 
     const enriched = await Promise.all(
       searchResponse.items.map((r) => this.enrichMemory(r.id, r.score, options?.userId)),
@@ -146,6 +195,78 @@ export class AgentService {
     const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
 
     return { results: grouped, query, parsed: searchResponse.parsed };
+  }
+
+  private async answerBroadTimelineQuery(
+    query: string,
+    params: {
+      from?: string;
+      to?: string;
+      sourceType?: string;
+      connectorType?: string;
+      fromMe?: boolean;
+      limit: number;
+      userId?: string;
+    },
+  ): Promise<{
+    results: EnrichedMemory[];
+    query: string;
+    answer?: string;
+    parsed?: {
+      temporal: { from: string; to: string } | null;
+      temporalFallback?: boolean;
+      intent: string;
+      cleanQuery: string;
+    };
+  } | null> {
+    const timeline = await this.memoryService.timeline(params);
+    const enriched: EnrichedMemory[] = [];
+    for (const item of timeline.items.slice(0, params.limit)) {
+      const memory = await this.enrichMemory(item.id, undefined, params.userId);
+      if (memory) enriched.push(memory);
+    }
+    if (!enriched.length) return null;
+
+    const memoryLines = enriched
+      .slice(0, 80)
+      .map(
+        (memory) =>
+          `[${memory.eventTime.toISOString()}] [${memory.connectorType}/${memory.sourceType}] ${
+            memory.text
+          }`,
+      )
+      .join('\n');
+    let answer: string | undefined;
+    try {
+      answer = await this.ai.generate(
+        [
+          'Summarize this broad personal-memory timeline for the user.',
+          'Use only the provided memories. Prefer chronology, current/latest state, and user-authored actions.',
+          'Flag uncertainty instead of inventing missing facts.',
+          '',
+          `Question: ${query}`,
+          '',
+          'Timeline:',
+          memoryLines,
+        ].join('\n'),
+      );
+    } catch (err) {
+      this.logger.warn(`Timeline digest generation failed, returning memories only: ${err}`);
+      answer =
+        'I found timeline memories for this broad query, but summarization is unavailable. Use the returned results for a narrower follow-up.';
+    }
+
+    return {
+      results: enriched,
+      query,
+      answer,
+      parsed: {
+        temporal: params.from && params.to ? { from: params.from, to: params.to } : null,
+        temporalFallback: !params.from || !params.to,
+        intent: 'summarize',
+        cleanQuery: query,
+      },
+    };
   }
 
   // ── timeline ───────────────────────────────────────────────────────
@@ -569,7 +690,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
 
     for (const mem of results) {
       const meta = mem.metadata as Record<string, unknown> | null;
-      const threadId = String(meta?.threadId || meta?.thread_id || '');
+      const threadId = String(meta?.threadId || meta?.emailThreadKey || meta?.thread_id || '');
       if (threadId) {
         const existing = threadMap.get(threadId) || [];
         existing.push(mem);
@@ -591,6 +712,24 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     for (const group of threadGroups) {
       // Sort within thread by eventTime ascending (chronological)
       group.sort((a, b) => a.eventTime.getTime() - b.eventTime.getTime());
+      if (group.length > 1) {
+        const latest = group[group.length - 1];
+        const threadMeta = latest.metadata as Record<string, unknown>;
+        const threadId = String(
+          threadMeta.threadId || threadMeta.emailThreadKey || threadMeta.thread_id || '',
+        );
+        const thread = {
+          id: threadId,
+          latestState: latest.text,
+          firstSeenAt: group[0].eventTime.toISOString(),
+          lastSeenAt: latest.eventTime.toISOString(),
+          messageCount: group.length,
+          memoryIds: group.map((m) => m.id),
+        };
+        for (const memory of group) {
+          memory.metadata = { ...memory.metadata, thread };
+        }
+      }
       grouped.push(...group);
     }
     grouped.push(...noThread);

@@ -52,6 +52,7 @@ describe('AgentService', () => {
         fallback: false,
         parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' },
       }),
+      timeline: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       getById: vi.fn().mockResolvedValue(fakeMemory),
       getStats: vi
         .fn()
@@ -131,6 +132,30 @@ describe('AgentService', () => {
         { sourceType: 'email' },
         5,
         undefined,
+      );
+    });
+
+    it('falls back to a timeline digest for broad queries when search fails', async () => {
+      memoryService.search.mockRejectedValueOnce(new Error('too broad'));
+      memoryService.timeline.mockResolvedValueOnce({
+        items: [{ id: 'mem-1' }],
+        total: 1,
+      });
+      memoryService.getById.mockResolvedValueOnce({
+        ...fakeMemory,
+        text: 'Paid and collected the certificate',
+        eventTime: new Date('2026-05-01'),
+      });
+      mockDb.where.mockResolvedValueOnce([]);
+
+      const result = await service.ask('what happened in my life over the last 2 weeks?', {
+        userId: 'user-1',
+      });
+
+      expect(result.answer).toBe('Summary of memories');
+      expect(result.results).toHaveLength(1);
+      expect(memoryService.timeline).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', limit: 120 }),
       );
     });
 

@@ -107,6 +107,7 @@ describe('MemoryService', () => {
       decryptMemoryFieldsWithKeyStrict: vi
         .fn()
         .mockImplementation((m: Record<string, string | null>) => m),
+      encryptMemoryFieldsWithKey: vi.fn().mockImplementation((m: Record<string, string>) => m),
       decryptWithKeyStrict: vi.fn().mockImplementation((v: string) => v),
     };
 
@@ -477,5 +478,16 @@ describe('MemoryService', () => {
 
   it('creates MemoryService with mock dependencies', () => {
     expect(service).toBeDefined();
+  });
+
+  describe('backfillWhatsappSenderNames', () => {
+    it('requires a recovery key before updating encrypted WhatsApp metadata', async () => {
+      userKeyService.getDek.mockResolvedValueOnce(null);
+
+      const result = await service.backfillWhatsappSenderNames('user-1');
+
+      expect(result).toEqual({ updated: 0, scanned: 0, needsRecoveryKey: true });
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
   });
 });

@@ -488,6 +488,7 @@ describe('syncGmail', () => {
             { name: 'Cc', value: 'c@test.com' },
             { name: 'Message-ID', value: '<mid@test>' },
             { name: 'In-Reply-To', value: '<parent@test>' },
+            { name: 'References', value: '<root@test> <parent@test>' },
           ],
         },
         threadId: 'thread-1',
@@ -502,6 +503,9 @@ describe('syncGmail', () => {
     expect(events[0].content.metadata.cc).toBe('c@test.com');
     expect(events[0].content.metadata.messageId).toBe('<mid@test>');
     expect(events[0].content.metadata.inReplyTo).toBe('<parent@test>');
+    expect(events[0].content.metadata.referenceIds).toEqual(['root@test', 'parent@test']);
+    expect(events[0].content.metadata.normalizedSubject).toBe('test');
+    expect(events[0].content.metadata.emailThreadKey).toBe('gmail:thread-1');
     expect(events[0].content.metadata.threadId).toBe('thread-1');
   });
 });

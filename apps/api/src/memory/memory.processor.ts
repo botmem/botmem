@@ -28,6 +28,7 @@ import {
   rawEvents,
   memories,
   memoryLinks,
+  memorySearchIndex,
   settings,
   accounts,
   memoryBanks,
@@ -719,11 +720,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           if (description) {
             const extractedText = truncateMediaText(description);
             currentText = `${extractedText}\n\n${currentText}`;
-            mergedMetadata.mediaExtraction = {
-              ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+            mergedMetadata.mediaExtraction = this.buildMediaExtractionMetadata({
+              existing: mergedMetadata.mediaExtraction as Record<string, unknown>,
               status: 'extracted',
+              source: 'vision_ocr',
               extractedText,
-            };
+              eventTimestamp: event.timestamp,
+            });
           }
         } else {
           mergedMetadata.mediaExtraction = {
@@ -760,11 +763,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         if (fileContent) {
           const extractedText = truncateMediaText(fileContent);
           currentText = `${extractedText}\n\n${currentText}`;
-          mergedMetadata.mediaExtraction = {
-            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+          mergedMetadata.mediaExtraction = this.buildMediaExtractionMetadata({
+            existing: mergedMetadata.mediaExtraction as Record<string, unknown>,
             status: 'extracted',
+            source: 'file_parser',
             extractedText,
-          };
+            eventTimestamp: event.timestamp,
+          });
         } else {
           mergedMetadata.mediaExtraction = {
             ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
@@ -798,11 +803,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         const extractedText = truncateMediaText(transcript);
         if (extractedText) {
           currentText = `${extractedText}\n\n${currentText}`;
-          mergedMetadata.mediaExtraction = {
-            ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
+          mergedMetadata.mediaExtraction = this.buildMediaExtractionMetadata({
+            existing: mergedMetadata.mediaExtraction as Record<string, unknown>,
             status: 'extracted',
+            source: 'audio_transcription',
             extractedText,
-          };
+            eventTimestamp: event.timestamp,
+          });
         } else {
           mergedMetadata.mediaExtraction = {
             ...(mergedMetadata.mediaExtraction as Record<string, unknown>),
@@ -869,6 +876,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             fileName: linked.fileName,
             sizeBytes: linked.buffer.length,
             status: 'extracted',
+            source: 'linked_document_parser',
+            confidence: 0.85,
+            confidenceLabel: 'high',
+            warnings: [],
             extractedText,
             searchSummary,
             searchableText,
@@ -979,7 +990,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     );
     const threadIds = compactStrings([
       mergedMetadata.threadId,
+      mergedMetadata.emailThreadKey,
       mergedMetadata.chatId,
+      ...arrayFromUnknown(mergedMetadata.referenceIds),
       ...embedResult.entities
         .filter((e) => e.type === 'message' && e.id.startsWith('thread:'))
         .map((e) => e.id.replace('thread:', '')),
@@ -1255,6 +1268,24 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         this.logger.warn('Thread linking failed', err instanceof Error ? err.message : String(err));
       }
     }
+    if (
+      mergedMetadata.emailThreadKey &&
+      mergedMetadata.emailThreadKey !== mergedMetadata.threadId
+    ) {
+      try {
+        await this.linkThread(
+          persistedMemoryId,
+          mergedMetadata.emailThreadKey as string,
+          rawEvent.connectorType,
+          ownerUserId ?? undefined,
+        );
+      } catch (err) {
+        this.logger.warn(
+          'Email thread-key linking failed',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
 
     // 12. Create links (best-effort). Recommendation queries are comparatively
     // expensive, so do not block memory creation or bulk rebuild throughput on
@@ -1372,6 +1403,48 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     return cleanGeneratedSearchText(
       await this.ai.generate(prompt, [fileBuffer.toString('base64')], 1),
     );
+  }
+
+  private buildMediaExtractionMetadata(input: {
+    status: string;
+    source: string;
+    extractedText?: string;
+    eventTimestamp?: string;
+    existing?: Record<string, unknown>;
+    extra?: Record<string, unknown>;
+  }): Record<string, unknown> {
+    const warnings: string[] = [];
+    const extractedText = input.extractedText || '';
+    const yearMatches = [...extractedText.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) =>
+      Number(m[1]),
+    );
+    const eventYear = input.eventTimestamp
+      ? new Date(input.eventTimestamp).getUTCFullYear()
+      : undefined;
+    if (eventYear && yearMatches.some((year) => Math.abs(year - eventYear) >= 2)) {
+      warnings.push('ocr_date_disagrees_with_event_time');
+    }
+    if (extractedText.length > 0 && extractedText.length < 24) {
+      warnings.push('very_short_extraction');
+    }
+    const confidence =
+      input.status !== 'extracted'
+        ? 0
+        : warnings.length
+          ? 0.45
+          : input.source === 'vision_ocr'
+            ? 0.7
+            : 0.85;
+    return {
+      ...(input.existing || {}),
+      ...(input.extra || {}),
+      status: input.status,
+      source: input.source,
+      confidence,
+      confidenceLabel: confidence >= 0.8 ? 'high' : confidence >= 0.6 ? 'medium' : 'low',
+      warnings,
+      extractedText: extractedText || undefined,
+    };
   }
 
   private stripInlineMediaContent(metadata: Record<string, unknown>) {
@@ -1789,12 +1862,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   ) {
     const db = this.dbService.db;
     const threadSiblings = await db
-      .select({ id: memories.id })
-      .from(memories)
+      .select({ id: memorySearchIndex.memoryId })
+      .from(memorySearchIndex)
       .where(
         and(
-          eq(memories.connectorType, connectorType),
-          sql`metadata IS NOT NULL AND metadata <> '' AND left(metadata, 1) = '{' AND (metadata::jsonb->>'threadId') = ${threadId}`,
+          eq(memorySearchIndex.connectorType, connectorType),
+          sql`${memorySearchIndex.threadIds} @> ${JSON.stringify([threadId])}::jsonb`,
         ),
       )
       .limit(20);

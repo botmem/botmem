@@ -633,6 +633,12 @@ export class MemoryController {
   }
 
   @RequiresJwt()
+  @Post('backfill-whatsapp-senders')
+  async backfillWhatsappSenders(@CurrentUser() user: { id: string }) {
+    return this.memoryService.backfillWhatsappSenderNames(user.id);
+  }
+
+  @RequiresJwt()
   @Post(':id/pin')
   async pin(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     // IDOR fix: verify memory belongs to user

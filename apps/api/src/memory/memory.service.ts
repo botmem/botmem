@@ -2666,6 +2666,80 @@ export class MemoryService {
     return { items, total };
   }
 
+  async backfillWhatsappSenderNames(userId: string): Promise<{
+    updated: number;
+    scanned: number;
+    needsRecoveryKey?: boolean;
+  }> {
+    const userKey = await this.resolveUserKey(userId);
+    if (!userKey) return { updated: 0, scanned: 0, needsRecoveryKey: true };
+    const userAccountIds = await this.getUserAccountIds(userId);
+    if (!userAccountIds?.length) return { updated: 0, scanned: 0 };
+
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({
+          memory: memories,
+          senderName: people.displayName,
+        })
+        .from(memories)
+        .leftJoin(
+          memoryPeople,
+          and(eq(memoryPeople.memoryId, memories.id), eq(memoryPeople.role, 'sender')),
+        )
+        .leftJoin(people, eq(people.id, memoryPeople.personId))
+        .where(
+          and(
+            eq(memories.connectorType, 'whatsapp'),
+            eq(memories.sourceType, 'message'),
+            inArray(memories.accountId, userAccountIds),
+          ),
+        )
+        .limit(5000),
+    );
+
+    let updated = 0;
+    for (const row of rows) {
+      const mem = this.decryptMemoryAuto(row.memory, userId, userKey);
+      if (this.isLockedMemory(mem)) continue;
+      const metadata = this.metadataObject(mem.metadata);
+      const isIncoming = metadata.fromMe === false || metadata.isFromMe === false;
+      if (!isIncoming) continue;
+      const currentSender =
+        typeof metadata.senderName === 'string' ? metadata.senderName.trim() : '';
+      if (currentSender && currentSender.toLowerCase() !== 'unknown') continue;
+      const fallback = [row.senderName, metadata.senderPhone, metadata.pushName, metadata.senderLid]
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .find(Boolean);
+      if (!fallback) continue;
+
+      metadata.senderName = fallback;
+      const text = mem.text.replace(/^Unknown(?=:|\s+sent\b)/i, fallback);
+      const encrypted = this.crypto.encryptMemoryFieldsWithKey(
+        {
+          text,
+          entities: mem.entities,
+          claims: mem.claims,
+          metadata: JSON.stringify(metadata),
+        },
+        userKey,
+      );
+      await this.dbService.withCurrentUser((db) =>
+        db
+          .update(memories)
+          .set({
+            text: encrypted.text,
+            metadata: encrypted.metadata,
+            searchTokens: sql`to_tsvector('english', ${text})`,
+          })
+          .where(eq(memories.id, mem.id)),
+      );
+      updated += 1;
+    }
+
+    return { updated, scanned: rows.length };
+  }
+
   /** Phase 9: Get memories related to a given memory (via links + vector similarity) */
   async getRelated(memoryId: string, limit = 20) {
     const memory = await this.getById(memoryId);
