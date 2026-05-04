@@ -75,7 +75,6 @@ export function useMemories() {
   });
 
   useEffect(() => {
-    loadMemories();
     connectWs();
   }, [activeMemoryBankId]);
 
