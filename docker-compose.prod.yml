@@ -27,6 +27,8 @@ services:
       - api-data:/app/data
     environment:
       NODE_ENV: production
+      BOTMEM_PROCESS_ROLE: api
+      BOTMEM_DISABLE_QUEUE_WORKERS: 'true'
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,6 +41,29 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 30s
+
+  worker:
+    image: ghcr.io/botmem/botmem:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ['node', 'apps/api/dist/worker.js']
+    env_file: .env.prod
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - api-data:/app/data
+    environment:
+      NODE_ENV: production
+      BOTMEM_PROCESS_ROLE: worker
+      BOTMEM_DISABLE_SCHEDULER: 'true'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 90s
 
   postgres:
     image: pgvector/pgvector:pg16

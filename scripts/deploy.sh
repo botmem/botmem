@@ -129,8 +129,8 @@ fi
 # ── Pull new image ──────────────────────────────────────────────────────────
 docker pull "ghcr.io/botmem/botmem:${IMAGE_TAG}"
 
-# ── Recreate only the API container (infra stays running) ───────────────────
-"${COMPOSE[@]}" up -d --no-deps api
+# ── Recreate app containers (infra stays running) ───────────────────────────
+"${COMPOSE[@]}" up -d --no-deps api worker
 
 # ── Health check via Docker network (port not exposed to host) ──────────────
 check_health() {
@@ -158,6 +158,8 @@ if [ "$HEALTHY" = false ]; then
   echo "==> HEALTH CHECK FAILED after ${HEALTH_TIMEOUT}s"
   echo "==> API container status:"
   "${COMPOSE[@]}" ps api || true
+  echo "==> Worker container status:"
+  "${COMPOSE[@]}" ps worker || true
   echo "==> Recent API logs:"
   docker logs --tail 120 botmem-api-1 || true
 
@@ -168,7 +170,7 @@ if [ "$HEALTHY" = false ]; then
     sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
 
     # Recreate with previous image
-    "${COMPOSE[@]}" up -d --no-deps api
+    "${COMPOSE[@]}" up -d --no-deps api worker
 
     # Wait for rollback to come up
     ROLLBACK_WAIT=60
@@ -194,6 +196,9 @@ if [ "$HEALTHY" = false ]; then
 
   exit 1
 fi
+
+echo "==> Worker status:"
+"${COMPOSE[@]}" ps worker || true
 
 # ── Backfill PostgreSQL search index from the old search collection ─────────
 if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
@@ -223,7 +228,7 @@ if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
     if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$IMAGE_TAG" ]; then
       echo "==> ROLLING BACK API to ${PREV_TAG}"
       sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_TAG}|" "$ENV_FILE"
-      "${COMPOSE[@]}" up -d --no-deps api
+      "${COMPOSE[@]}" up -d --no-deps api worker
     fi
     exit 1
   fi

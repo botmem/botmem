@@ -252,10 +252,20 @@ export const personIdentifiers = pgTable(
   (table) => [
     index('idx_person_identifiers_person_id').on(table.personId),
     index('idx_person_identifiers_value_hash').on(table.identifierType, table.identifierValueHash),
+    index('idx_person_identifiers_lookup').on(
+      table.identifierType,
+      table.identifierValueHash,
+      table.personId,
+    ),
     uniqueIndex('idx_person_identifiers_unique').on(
       table.personId,
       table.identifierType,
       table.identifierValue,
+    ),
+    uniqueIndex('idx_person_identifiers_unique_hash').on(
+      table.personId,
+      table.identifierType,
+      table.identifierValueHash,
     ),
   ],
 );
@@ -278,6 +288,7 @@ export const memoryPeople = pgTable(
   (table) => [
     index('idx_memory_people_person_id').on(table.personId),
     index('idx_memory_people_memory_id').on(table.memoryId),
+    uniqueIndex('idx_memory_people_unique').on(table.memoryId, table.personId, table.role),
   ],
 );
 

@@ -7,7 +7,7 @@ import { PeopleModule } from '../people/people.module';
 import { AccountsModule } from '../accounts/accounts.module';
 import { SettingsModule } from '../settings/settings.module';
 import { CryptoModule } from '../crypto/crypto.module';
-import { JobsModule } from '../jobs/jobs.module';
+import { JobsModule, JobsWorkerModule } from '../jobs/jobs.module';
 import { BillingModule } from '../billing/billing.module';
 import { GeoModule } from '../geo/geo.module';
 import { OllamaService } from './ollama.service';
@@ -23,35 +23,43 @@ import { MemoryProcessor } from './memory.processor';
 import { MemoryService } from './memory.service';
 import { MemoryController } from './memory.controller';
 
+const memoryBaseImports = [
+  DbModule,
+  ConfigModule,
+  EventsModule,
+  PeopleModule,
+  AccountsModule,
+  SettingsModule,
+  CryptoModule,
+  GeoModule,
+  BillingModule,
+  BullModule.registerQueue({ name: 'memory' }),
+  BullModule.registerQueue({ name: 'maintenance' }),
+];
+
+const memoryCommonProviders = [
+  OllamaService,
+  OpenRouterService,
+  GeminiEmbedService,
+  AiCacheService,
+  AiService,
+  PgSearchService,
+  EnrichService,
+  ContentCleaner,
+  MemoryService,
+];
+
 @Module({
-  imports: [
-    DbModule,
-    ConfigModule,
-    EventsModule,
-    PeopleModule,
-    AccountsModule,
-    SettingsModule,
-    CryptoModule,
-    GeoModule,
-    BillingModule,
-    forwardRef(() => JobsModule),
-    BullModule.registerQueue({ name: 'memory' }),
-    BullModule.registerQueue({ name: 'maintenance' }),
-  ],
+  imports: [...memoryBaseImports, forwardRef(() => JobsModule)],
   controllers: [MemoryController],
-  providers: [
-    OllamaService,
-    OpenRouterService,
-    GeminiEmbedService,
-    AiCacheService,
-    AiService,
-    PgSearchService,
-    EnrichService,
-    ContentCleaner,
-    DecayProcessor,
-    MemoryProcessor,
-    MemoryService,
-  ],
+  providers: memoryCommonProviders,
   exports: [OllamaService, AiService, PgSearchService, EnrichService, MemoryService],
 })
 export class MemoryModule {}
+
+@Module({
+  imports: [...memoryBaseImports, forwardRef(() => JobsWorkerModule)],
+  providers: [...memoryCommonProviders, DecayProcessor, MemoryProcessor],
+  exports: [OllamaService, AiService, PgSearchService, EnrichService, MemoryService],
+})
+export class MemoryWorkerModule {}

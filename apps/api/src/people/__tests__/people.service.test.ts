@@ -38,6 +38,7 @@ function makeDb(rows: unknown[][] = []) {
       'values',
       'onConflictDoNothing',
       'onConflictDoUpdate',
+      'returning',
       'update',
       'set',
       'delete',
@@ -218,6 +219,24 @@ describe('PeopleService runtime behavior', () => {
     expect(userKeyService.getDek).toHaveBeenCalledWith('user-1');
     expect(memories).toHaveLength(1);
     globalThis.fetch = originalFetch;
+  });
+
+  it('batch-links memories with deduplication and count updates', async () => {
+    const { service, dbService } = makeDb([
+      [{ personId: 'p1' }, { personId: 'p2' }, { personId: 'p2' }],
+      [],
+      [],
+    ]);
+
+    const count = await service.linkMemoryBatch('m1', [
+      { personId: 'p1', role: 'sender' },
+      { personId: 'p1', role: 'sender' },
+      { personId: 'p2', role: 'recipient' },
+      { personId: 'p2', role: 'mentioned' },
+    ]);
+
+    expect(count).toBe(3);
+    expect(dbService.withCurrentUser).toHaveBeenCalledTimes(3);
   });
 
   it('updates, splits, removes identifiers, and deletes people through guarded paths', async () => {

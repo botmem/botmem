@@ -1186,14 +1186,12 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     }
 
     // Link contacts + threads
-    let contactCount = 0;
+    const memoryPersonLinks: Array<{ personId: string; role: string }> = [];
     if (selfContactId) {
-      await this.contactsService.linkMemory(persistedMemoryId, selfContactId, 'participant');
-      contactCount++;
+      memoryPersonLinks.push({ personId: selfContactId, role: 'participant' });
     }
     for (const { contactId, role } of resolvedContacts) {
-      await this.contactsService.linkMemory(persistedMemoryId, contactId, role);
-      contactCount++;
+      memoryPersonLinks.push({ personId: contactId, role });
     }
     const alreadyLinked = new Set(resolvedContacts.map((c) => c.contactId));
     for (const entity of enrichEntities) {
@@ -1206,9 +1204,8 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           ownerUserId || undefined,
         );
         if (alreadyLinked.has(person.id)) continue;
-        await this.contactsService.linkMemory(persistedMemoryId, person.id, 'mentioned');
+        memoryPersonLinks.push({ personId: person.id, role: 'mentioned' });
         alreadyLinked.add(person.id);
-        contactCount++;
       } catch (err) {
         this.logger.debug(
           `[memory] weak mentioned link skipped for ${entity.value}: ${
@@ -1217,6 +1214,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         );
       }
     }
+    const contactCount = await this.contactsService.linkMemoryBatch(
+      persistedMemoryId,
+      memoryPersonLinks,
+    );
 
     // Thread linking
     for (const entity of embedResult.entities) {
