@@ -2,7 +2,13 @@
  * UI-129 → UI-145: Misc Pages & Features
  */
 import { test, expect } from '@playwright/test';
-import { setupAuthenticatedPage, registerUser, submitRecoveryKey, injectAuth } from './helpers';
+import {
+  completeOnboarding,
+  injectAuth,
+  registerUser,
+  setupAuthenticatedPage,
+  submitRecoveryKey,
+} from './helpers';
 
 test.describe('Misc Pages & Features', () => {
   test('UI-129: /memories redirects to /dashboard', async ({ page }) => {
@@ -12,73 +18,38 @@ test.describe('Misc Pages & Features', () => {
   });
 
   test('UI-130: ReauthModal appears when needsRecoveryKey: true', async ({ page }) => {
-    const user = await registerUser();
-    // Do NOT submit recovery key — this leaves DEK cold
-    // Inject auth with needsRecoveryKey: true
-    await page.goto('/');
-    await page.evaluate(
-      ({ accessToken, userData }) => {
-        localStorage.setItem(
-          'auth-storage',
-          JSON.stringify({
-            state: {
-              user: userData,
-              accessToken,
-              isLoading: false,
-              error: null,
-              recoveryKey: null,
-              needsRecoveryKey: true,
-            },
-            version: 0,
-          }),
-        );
-      },
-      {
-        accessToken: user.accessToken,
-        userData: { id: user.id, email: user.email, name: user.name, onboarded: true },
-      },
-    );
-    await page.goto('/dashboard');
-    await page.waitForLoadState('networkidle');
+    await page.route('**/api/memories/stats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ totalMemories: 0, needsRecoveryKey: true }),
+      });
+    });
+    await setupAuthenticatedPage(page, '/dashboard');
 
-    // ReauthModal should appear
     const modal = page.locator('text=/unlock|recovery key|enter.*key/i').first();
     await expect(modal).toBeVisible({ timeout: 10000 });
   });
 
   test('UI-131: ReauthModal — submit correct recovery key dismisses modal', async ({ page }) => {
     const user = await registerUser();
-    // Inject auth with needsRecoveryKey: true
-    await page.goto('/');
-    await page.evaluate(
-      ({ accessToken, userData }) => {
-        localStorage.setItem(
-          'auth-storage',
-          JSON.stringify({
-            state: {
-              user: userData,
-              accessToken,
-              isLoading: false,
-              error: null,
-              recoveryKey: null,
-              needsRecoveryKey: true,
-            },
-            version: 0,
-          }),
-        );
-      },
-      {
-        accessToken: user.accessToken,
-        userData: { id: user.id, email: user.email, name: user.name, onboarded: true },
-      },
-    );
+    await submitRecoveryKey(user);
+    await completeOnboarding(user);
+    await page.route('**/api/memories/stats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ totalMemories: 0, needsRecoveryKey: true }),
+      });
+    });
+    await injectAuth(page, user);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
 
     // Fill in recovery key
-    const keyInput = page.locator('#recovery-key-input').or(
-      page.getByPlaceholder(/recovery key|paste/i),
-    );
+    const keyInput = page
+      .locator('#recovery-key-input')
+      .or(page.getByPlaceholder(/recovery key|paste/i));
     if (await keyInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await keyInput.fill(user.recoveryKey);
       // Submit
@@ -94,35 +65,22 @@ test.describe('Misc Pages & Features', () => {
 
   test('UI-132: ReauthModal — submit wrong key shows error', async ({ page }) => {
     const user = await registerUser();
-    await page.goto('/');
-    await page.evaluate(
-      ({ accessToken, userData }) => {
-        localStorage.setItem(
-          'auth-storage',
-          JSON.stringify({
-            state: {
-              user: userData,
-              accessToken,
-              isLoading: false,
-              error: null,
-              recoveryKey: null,
-              needsRecoveryKey: true,
-            },
-            version: 0,
-          }),
-        );
-      },
-      {
-        accessToken: user.accessToken,
-        userData: { id: user.id, email: user.email, name: user.name, onboarded: true },
-      },
-    );
+    await submitRecoveryKey(user);
+    await completeOnboarding(user);
+    await page.route('**/api/memories/stats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ totalMemories: 0, needsRecoveryKey: true }),
+      });
+    });
+    await injectAuth(page, user);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
 
-    const keyInput = page.locator('#recovery-key-input').or(
-      page.getByPlaceholder(/recovery key|paste/i),
-    );
+    const keyInput = page
+      .locator('#recovery-key-input')
+      .or(page.getByPlaceholder(/recovery key|paste/i));
     if (await keyInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await keyInput.fill('wrong-recovery-key-value');
       const submitBtn = page.getByRole('button', { name: /unlock|submit|enter/i });
@@ -147,8 +105,10 @@ test.describe('Misc Pages & Features', () => {
       '/oauth/consent?client_id=test&redirect_uri=http://localhost:3000/callback&code_challenge=abc&code_challenge_method=S256',
     );
     await page.waitForLoadState('networkidle');
-    // Consent page should render
-    const consentContent = page.locator('text=/authorize|consent|allow|approve|login/i').first();
+    const consentContent = page
+      .getByRole('heading', { name: /sign in/i })
+      .or(page.locator('text=/authorize|consent|allow|approve|login/i'))
+      .first();
     await expect(consentContent).toBeVisible({ timeout: 10000 });
   });
 
@@ -156,9 +116,12 @@ test.describe('Misc Pages & Features', () => {
     // Full OAuth flow requires auth — just verify page renders
     await page.goto('/oauth/consent?client_id=test&redirect_uri=http://localhost:3000/callback');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('text=/authorize|consent|allow|login/i').first()).toBeVisible({
-      timeout: 10000,
-    });
+    await expect(
+      page
+        .getByRole('heading', { name: /sign in/i })
+        .or(page.locator('text=/authorize|consent|allow|login/i'))
+        .first(),
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test('UI-136: Dark mode toggle', async ({ page }) => {
@@ -167,18 +130,13 @@ test.describe('Misc Pages & Features', () => {
     const themeToggle = page
       .getByRole('button', { name: /theme|dark|light|mode/i })
       .or(page.locator('[aria-label*="theme"], [aria-label*="Theme"]'));
-    if (await themeToggle.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Get initial background color
-      const initialBg = await page.evaluate(() =>
-        getComputedStyle(document.documentElement).getPropertyValue('--color-nb-bg'),
-      );
-      // Click toggle
+    if (
+      await themeToggle
+        .first()
+        .isVisible({ timeout: 5000 })
+        .catch(() => false)
+    ) {
       await themeToggle.first().click();
-      // Background should change
-      const newBg = await page.evaluate(() =>
-        getComputedStyle(document.documentElement).getPropertyValue('--color-nb-bg'),
-      );
-      // At least verify no crash
     }
     await expect(page).toHaveURL(/\/dashboard/);
   });
@@ -212,12 +170,6 @@ test.describe('Misc Pages & Features', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
 
-    // Verify no dark artifacts — check that body doesn't have dark class or bg is not #0D0D0D
-    const hasDarkClass = await page.evaluate(() =>
-      document.documentElement.classList.contains('dark'),
-    );
-    // In light mode, dark class should not be present
-    // (or it might use a different mechanism — just verify no crash)
     await expect(page).toHaveURL(/\/dashboard/);
   });
 
@@ -292,7 +244,12 @@ test.describe('Misc Pages & Features', () => {
       .getByPlaceholder(/search|ask|query/i)
       .or(page.locator('input[type="search"]'))
       .or(page.locator('[class*="search"] input'));
-    if (await searchInput.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await searchInput
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false)
+    ) {
       await searchInput.first().fill('test');
       await searchInput.first().press('Enter');
       // Rate limit message should appear
@@ -311,7 +268,12 @@ test.describe('Misc Pages & Features', () => {
       .getByPlaceholder(/search|ask|query/i)
       .or(page.locator('input[type="search"]'))
       .or(page.locator('[class*="search"] input'));
-    if (await searchInput.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await searchInput
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false)
+    ) {
       await searchInput.first().fill('offline test');
       await searchInput.first().press('Enter');
       // Some error indication should appear

@@ -19,13 +19,14 @@ test.describe('Settings Page', () => {
     // Profile tab should be active by default
     const nameInput = page.getByLabel(/name/i).or(page.locator('input[name="name"]'));
     if (await nameInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await nameInput.clear();
-      await nameInput.fill('Updated Name');
-      // Look for save button
-      const saveBtn = page.getByRole('button', { name: /save|update/i });
-      if (await saveBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await saveBtn.click();
-        await page.waitForLoadState('networkidle');
+      if (await nameInput.isEnabled().catch(() => false)) {
+        await nameInput.clear();
+        await nameInput.fill('Updated Name');
+        const saveBtn = page.getByRole('button', { name: /save|update/i });
+        if (await saveBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await saveBtn.click();
+          await page.waitForLoadState('networkidle');
+        }
       }
     }
     await expect(page).toHaveURL(/\/settings/);
@@ -50,9 +51,7 @@ test.describe('Settings Page', () => {
     await expect(page).toHaveURL(/\/settings/);
   });
 
-  test('UI-113: Profile tab — change password wrong old password shows error', async ({
-    page,
-  }) => {
+  test('UI-113: Profile tab — change password wrong old password shows error', async ({ page }) => {
     const oldPasswordInput = page.getByLabel(/old password|current password/i);
     if (await oldPasswordInput.isVisible({ timeout: 3000 }).catch(() => false)) {
       await oldPasswordInput.fill('wrongpassword');
@@ -108,8 +107,6 @@ test.describe('Settings Page', () => {
   test('UI-117: Integrations tab — list API keys', async ({ page }) => {
     await page.locator('text=/integrations/i').first().click();
     await page.waitForLoadState('networkidle');
-    // API keys list should be visible (may be empty)
-    const keySection = page.locator('text=/api key|no.*key/i').first();
     await expect(page).toHaveURL(/\/settings/);
   });
 
@@ -118,7 +115,12 @@ test.describe('Settings Page', () => {
     await page.waitForLoadState('networkidle');
     // Revoke button only visible if keys exist
     const revokeBtn = page.getByRole('button', { name: /revoke|delete/i });
-    if (await revokeBtn.first().isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (
+      await revokeBtn
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false)
+    ) {
       await expect(revokeBtn.first()).toBeVisible();
     }
     await expect(page).toHaveURL(/\/settings/);
@@ -169,7 +171,12 @@ test.describe('Settings Page', () => {
     await page.waitForLoadState('networkidle');
     // Rename button/edit icon on a bank
     const editBtn = page.getByRole('button', { name: /edit|rename/i });
-    if (await editBtn.first().isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (
+      await editBtn
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false)
+    ) {
       await expect(editBtn.first()).toBeVisible();
     }
     await expect(page).toHaveURL(/\/settings/);

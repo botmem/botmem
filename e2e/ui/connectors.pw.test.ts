@@ -18,7 +18,7 @@ test.describe('Connectors Page', () => {
 
   test('UI-070: Connector card shows name + icon', async ({ page }) => {
     // Each connector card should have a name
-    const cards = page.locator('text=/gmail|slack|whatsapp|imessage|photos|owntracks/i');
+    const cards = page.locator('text=/google|slack|whatsapp|imessage|photos|owntracks/i');
     await expect(cards.first()).toBeVisible({ timeout: 10000 });
   });
 
@@ -35,36 +35,25 @@ test.describe('Connectors Page', () => {
   });
 
   test('UI-073: Click Connect opens ConnectorSetupModal', async ({ page }) => {
-    // Find a "Connect" button on one of the connector cards
-    const connectBtn = page.getByRole('button', { name: /connect/i }).first();
-    if (await connectBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await connectBtn.click();
-      // Modal should open
-      await expect(
-        page.locator('[role="dialog"]').or(page.locator('[class*="modal"]')),
-      ).toBeVisible({ timeout: 5000 });
-    }
+    await page.getByRole('button', { name: /expand google connector/i }).click();
+    await page.getByRole('button', { name: /\+ add account/i }).click();
+    await expect(
+      page
+        .locator('[role="dialog"], [class*="modal"]')
+        .or(page.getByText(/setup|connect/i))
+        .first(),
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test('UI-074: ConnectorSetupModal — Gmail config form', async ({ page }) => {
-    // Click connect on Gmail card
-    const gmailCard = page.locator('text=/gmail/i').first();
-    await expect(gmailCard).toBeVisible({ timeout: 10000 });
-
-    // Find the connect button near Gmail
-    const connectBtn = page.getByRole('button', { name: /connect/i }).first();
-    if (await connectBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await connectBtn.click();
-      await page.waitForLoadState('networkidle');
-      // Check for OAuth fields (Client ID / Client Secret)
-      const modal = page.locator('[role="dialog"]').or(page.locator('[class*="modal"]'));
-      if (await modal.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // Form should have input fields
-        const inputs = modal.locator('input, textarea');
-        const inputCount = await inputs.count();
-        expect(inputCount).toBeGreaterThanOrEqual(0);
-      }
-    }
+    await expect(page.getByRole('button', { name: /expand google connector/i })).toBeVisible({
+      timeout: 10000,
+    });
+    await page.getByRole('button', { name: /expand google connector/i }).click();
+    await page.getByRole('button', { name: /\+ add account/i }).click();
+    await expect(page.locator('text=/google|oauth|connect/i').first()).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('UI-075: ConnectorSetupModal — Gmail in Firebase mode hides OAuth fields', async ({
@@ -169,9 +158,6 @@ test.describe('Connectors Page', () => {
 
   test('UI-088: Connector card for not-yet-supported connector', async ({ page }) => {
     await page.waitForLoadState('networkidle');
-    // Some connectors may show "coming soon" or be disabled
-    const comingSoon = page.locator('text=/coming soon|unavailable/i');
-    // May or may not exist
     await expect(page).toHaveURL(/\/connectors/);
   });
 });

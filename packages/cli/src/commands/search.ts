@@ -11,7 +11,7 @@ function bold(s: string) {
 export async function runSearch(client: BotmemClient, args: string[], json: boolean) {
   // Collect query words (everything that's not a flag or flag value)
   const query: string[] = [];
-  const filters: Record<string, string> = {};
+  const filters: Record<string, string | boolean> = {};
   let limit: number | undefined;
   let memoryBankId: string | undefined;
   let debug = false;
@@ -34,6 +34,8 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
       limit = parseInt(args[++i], 10);
     } else if (a === '--debug') {
       debug = true;
+    } else if (a === '--from-me' || a === '--me') {
+      filters['fromMe'] = true;
     } else if (!a.startsWith('--')) {
       query.push(a);
     }

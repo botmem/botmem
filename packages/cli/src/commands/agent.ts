@@ -36,7 +36,7 @@ export const contextHelp = `
 
 export async function runAsk(client: BotmemClient, args: string[], json: boolean) {
   const query: string[] = [];
-  const filters: Record<string, string> = {};
+  const filters: Record<string, string | boolean> = {};
   let limit: number | undefined;
   let summarize = false;
   let conversationId: string | undefined;
@@ -57,6 +57,8 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
       else filters['connectorType'] = val;
     } else if (a === '--memory-bank') {
       filters['memoryBankId'] = args[++i];
+    } else if (a === '--from-me' || a === '--me') {
+      filters['fromMe'] = true;
     } else if (a === '--limit') {
       limit = parseInt(args[++i], 10);
     } else if (!a.startsWith('--')) {

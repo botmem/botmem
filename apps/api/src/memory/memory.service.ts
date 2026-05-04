@@ -156,6 +156,7 @@ interface SearchFilters {
   factualityLabels?: string[];
   personNames?: string[];
   pinned?: boolean;
+  fromMe?: boolean;
 }
 
 type SearchIntent =
@@ -200,7 +201,7 @@ export interface SearchResult {
   createdAt: Date;
   factuality: unknown;
   entities: string;
-  metadata: string;
+  metadata: unknown;
   accountIdentifier: string | null;
   pinned: boolean;
   score: number;
@@ -362,6 +363,49 @@ export class MemoryService {
   async resolveUserKey(userId?: string | null): Promise<Buffer | null> {
     if (!userId) return null;
     return this.userKeyService.getDek(userId);
+  }
+
+  private isLockedMemory(mem: { text: string }): boolean {
+    return mem.text.startsWith('[Encrypted') || this.crypto.isEncrypted(mem.text);
+  }
+
+  private safeDecryptAppField(value: string | null): string | null {
+    if (!value) return null;
+    const decrypted = this.crypto.decrypt(value);
+    const candidate = decrypted ?? value;
+    return this.crypto.isEncrypted(candidate) ? null : candidate;
+  }
+
+  private factualityForResponse(value: unknown): unknown {
+    if (typeof value !== 'string') return value;
+    const decrypted = this.safeDecryptAppField(value);
+    if (!decrypted) return null;
+    try {
+      return JSON.parse(decrypted);
+    } catch {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return this.crypto.isEncrypted(value) ? null : value;
+      }
+    }
+  }
+
+  private metadataObject(value: unknown): Record<string, unknown> {
+    const parsed = this.parseMaybeJson(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  }
+
+  private matchesFromMeFilter(metadata: unknown, fromMe?: boolean): boolean {
+    if (fromMe === undefined) return true;
+    const object = this.metadataObject(metadata);
+    if (object.fromMe !== undefined) return object.fromMe === fromMe;
+    if (object.isFromMe !== undefined) return object.isFromMe === fromMe;
+    if (object.direction === 'outgoing') return fromMe === true;
+    if (object.direction === 'incoming') return fromMe === false;
+    return false;
   }
 
   /** Check if user has encrypted memories but no decryption key available. */
@@ -1045,7 +1089,7 @@ export class MemoryService {
             diagnostics?.skippedUndecryptableResultIds.push(item.id);
             return false;
           }
-          return true;
+          return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
         }),
         fallback: false,
         resolvedEntities: { contacts: resolvedContacts, topicWords, topicMatchCount },
@@ -1093,7 +1137,7 @@ export class MemoryService {
             diagnostics?.skippedUndecryptableResultIds.push(item.id);
             return false;
           }
-          return true;
+          return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
         }),
         fallback: false,
         parsed: {
@@ -1227,7 +1271,7 @@ export class MemoryService {
           diagnostics?.skippedUndecryptableResultIds.push(item.id);
           return false;
         }
-        return true;
+        return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
       });
     if (diagnostics) {
       for (const [, lanes] of candidateLanes) {
@@ -1408,9 +1452,7 @@ export class MemoryService {
       }
     }
     // Decrypt accountIdentifier
-    const accountIdentifier = row.accountIdentifier
-      ? (this.crypto.decrypt(row.accountIdentifier) ?? row.accountIdentifier)
-      : null;
+    const accountIdentifier = this.safeDecryptAppField(row.accountIdentifier);
     return {
       id: mem.id,
       text: mem.text,
@@ -1421,7 +1463,7 @@ export class MemoryService {
       createdAt: mem.createdAt,
       factuality,
       entities: mem.entities,
-      metadata: this.sanitizeMetadataJsonForResponse(mem.metadata),
+      metadata: this.sanitizeMetadataForResponse(mem.metadata),
       accountIdentifier,
       pinned: mem.pinned,
       score,
@@ -1436,10 +1478,12 @@ export class MemoryService {
     if (!rows.length) return null;
     const resolvedKey = await this.resolveUserKey(userId);
     const mem = this.decryptMemoryAuto(rows[0], userId, resolvedKey);
+    if (this.isLockedMemory(mem)) return null;
     const peopleMap = await this.getPeopleForMemories([id]);
     return {
       ...mem,
-      metadata: this.sanitizeMetadataJsonForResponse(mem.metadata),
+      metadata: this.sanitizeMetadataForResponse(mem.metadata),
+      factuality: this.factualityForResponse(mem.factuality),
       people: peopleMap.get(id) || [],
     };
   }
@@ -1579,8 +1623,13 @@ export class MemoryService {
     return this.stripLargeInlineData(value);
   }
 
+  private sanitizeMetadataForResponse(value: unknown): unknown {
+    if (typeof value === 'string' && this.crypto.isEncrypted(value)) return {};
+    return this.sanitizeMemoryMetadataForResponse(this.parseMaybeJson(value)) ?? {};
+  }
+
   private sanitizeMetadataJsonForResponse(value: unknown): string {
-    return JSON.stringify(this.sanitizeMemoryMetadataForResponse(this.parseMaybeJson(value)) ?? {});
+    return JSON.stringify(this.sanitizeMetadataForResponse(value));
   }
 
   private stripLargeInlineData(value: unknown, parentKey?: string): unknown {
@@ -1628,6 +1677,7 @@ export class MemoryService {
       userId?: string;
       memoryBankId?: string;
       memoryBankIds?: string[];
+      fromMe?: boolean;
     } = {},
   ) {
     const limit = params.limit || 50;
@@ -1677,17 +1727,19 @@ export class MemoryService {
     const listKey = await this.resolveUserKey(params.userId);
     const memoryIds = rows.map((r) => r.memory.id);
     const peopleMap = await this.getPeopleForMemories(memoryIds);
-    const items = rows.map((r) => {
-      const mem = this.decryptMemoryAuto(r.memory, params.userId, listKey);
-      return {
-        ...mem,
-        metadata: this.sanitizeMetadataJsonForResponse(mem.metadata),
-        accountIdentifier: r.accountIdentifier
-          ? (this.crypto.decrypt(r.accountIdentifier) ?? r.accountIdentifier)
-          : null,
-        people: peopleMap.get(r.memory.id) || [],
-      };
-    });
+    const items = rows
+      .map((r) => {
+        const mem = this.decryptMemoryAuto(r.memory, params.userId, listKey);
+        return {
+          ...mem,
+          metadata: this.sanitizeMetadataForResponse(mem.metadata),
+          factuality: this.factualityForResponse(mem.factuality),
+          accountIdentifier: this.safeDecryptAppField(r.accountIdentifier),
+          people: peopleMap.get(r.memory.id) || [],
+        };
+      })
+      .filter((item) => !this.isLockedMemory(item))
+      .filter((item) => this.matchesFromMeFilter(item.metadata, params.fromMe));
 
     return { items, total };
   }
@@ -2543,12 +2595,13 @@ export class MemoryService {
     userId?: string;
     memoryBankId?: string;
     memoryBankIds?: string[];
+    fromMe?: boolean;
   }) {
     const limit = params.limit || 50;
     const userAccountIds = await this.getUserAccountIds(params.userId);
     const conditions: SQLWrapper[] = [eq(memories.pipelineComplete, true)];
     if (userAccountIds !== null) {
-      if (userAccountIds.length === 0) return [];
+      if (userAccountIds.length === 0) return { items: [], total: 0 };
       conditions.push(inArray(memories.accountId, userAccountIds));
     }
     if (params.memoryBankId) {
@@ -2598,10 +2651,18 @@ export class MemoryService {
     );
 
     const timelineKey = await this.resolveUserKey(params.userId);
-    const items = rows.map((r) => ({
-      ...this.decryptMemoryAuto(r.memory, params.userId, timelineKey),
-      accountIdentifier: r.accountIdentifier,
-    }));
+    const items = rows
+      .map((r) => {
+        const mem = this.decryptMemoryAuto(r.memory, params.userId, timelineKey);
+        return {
+          ...mem,
+          metadata: this.sanitizeMetadataForResponse(mem.metadata),
+          factuality: this.factualityForResponse(mem.factuality),
+          accountIdentifier: this.safeDecryptAppField(r.accountIdentifier),
+        };
+      })
+      .filter((item) => !this.isLockedMemory(item))
+      .filter((item) => this.matchesFromMeFilter(item.metadata, params.fromMe));
     return { items, total };
   }
 

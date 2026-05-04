@@ -404,26 +404,24 @@ describe('CLI E2E Tests', () => {
   // -------------------------------------------------------------------------
   // CLI-026: timeline (JSON)
   // -------------------------------------------------------------------------
-  it('CLI-026: timeline --json returns array', () => {
+  it('CLI-026: timeline --json returns items and total', () => {
     const { stdout, exitCode } = cli('timeline --json --limit 5');
     expect(exitCode).toBe(0);
     const data = JSON.parse(stdout);
-    // Timeline returns a plain array, not {items, total}
-    expect(Array.isArray(data)).toBe(true);
+    expect(data).toHaveProperty('items');
+    expect(data).toHaveProperty('total');
+    expect(Array.isArray(data.items)).toBe(true);
   });
 
   // -------------------------------------------------------------------------
   // CLI-027: timeline with date range
   // -------------------------------------------------------------------------
   it('CLI-027: timeline respects --from and --to', () => {
-    const { stdout, exitCode } = cli(
-      'timeline --json --from 2020-01-01 --to 2020-12-31 --limit 5',
-    );
+    const { stdout, exitCode } = cli('timeline --json --from 2020-01-01 --to 2020-12-31 --limit 5');
     expect(exitCode).toBe(0);
     const data = JSON.parse(stdout);
-    // Timeline returns a plain array
-    expect(Array.isArray(data)).toBe(true);
-    for (const item of data) {
+    expect(Array.isArray(data.items)).toBe(true);
+    for (const item of data.items) {
       const t = new Date(item.eventTime).getTime();
       expect(t).toBeGreaterThanOrEqual(new Date('2020-01-01').getTime());
       expect(t).toBeLessThanOrEqual(new Date('2021-01-01').getTime());

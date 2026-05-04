@@ -70,7 +70,7 @@ export class SearchMemoriesDto {
   /** Legacy CLI/API filters shape: { connectorType, sourceType, contactId, ... } */
   @IsOptional()
   @IsObject()
-  filters?: Record<string, string>;
+  filters?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()
@@ -93,4 +93,8 @@ export class SearchMemoriesDto {
   @IsOptional()
   @IsBoolean()
   debug?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  fromMe?: boolean;
 }

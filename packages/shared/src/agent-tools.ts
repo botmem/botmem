@@ -92,6 +92,11 @@ const searchArgs: Record<string, AgentToolArg> = {
     type: 'string',
     description: 'Filter by a specific person/contact UUID from a previous result.',
   },
+  from_me: {
+    type: 'boolean',
+    description:
+      'Only return messages authored by the Botmem user when connector metadata supports it.',
+  },
   date_from: {
     type: 'string',
     description:
@@ -160,6 +165,12 @@ const connectorFilterArg: AgentToolArg = {
     'Filter by connector type. Common values: gmail, slack, whatsapp, imessage, photos, locations. Use sources/status to discover what is currently available.',
 };
 
+const fromMeArg: AgentToolArg = {
+  type: 'boolean',
+  description:
+    'Only return messages authored by the Botmem user when connector metadata supports it.',
+};
+
 const statusMcpDescription = `Get a connector-agnostic Botmem status snapshot.
 
 Returns memory counts, connected accounts, registered connector manifests, queue health, and the latest observed account update/sync time. Use this first when you need to understand what data sources exist, whether ingestion is healthy, or whether there is any data to query. This tool does not return encrypted memory text.`;
@@ -183,6 +194,7 @@ Use this after search, ask, list, or timeline returns a memory id and you need t
 const listArgs: Record<string, AgentToolArg> = {
   connector_type: connectorFilterArg,
   source_type: sourceFilterArg,
+  from_me: fromMeArg,
   limit: limitArg(50, 'Maximum number of memories to return. Default: 50.'),
   offset: {
     type: 'number',
@@ -215,6 +227,7 @@ const timelineArgs: Record<string, AgentToolArg> = {
   },
   connector_type: connectorFilterArg,
   source_type: sourceFilterArg,
+  from_me: fromMeArg,
   limit: limitArg(50, 'Maximum number of timeline memories to return. Default: 50.'),
   text_max_length: textMaxLengthArg,
 };
@@ -247,6 +260,7 @@ export const AGENT_COMMANDS = [
           description: 'Filter by connector (gmail, slack, whatsapp, imessage, locations)',
         },
         { flag: '--contact <id>', description: 'Filter by contact UUID' },
+        { flag: '--from-me, --me', description: 'Only return messages authored by you' },
         { flag: '--memory-bank <id>', description: 'Filter by memory bank ID' },
         { flag: '--limit <n>', description: 'Max results (default: 20)' },
         { flag: '--debug', description: 'Include search planner and lane diagnostics' },
@@ -314,6 +328,7 @@ export const AGENT_COMMANDS = [
         { flag: '--query <text>', description: 'Filter by text content' },
         { flag: '--connector <type>', description: 'Filter by connector' },
         { flag: '--source <type>', description: 'Filter by source type' },
+        { flag: '--from-me, --me', description: 'Only return messages authored by you' },
         { flag: '--limit <n>', description: 'Max results (default: 50)' },
         { flag: '--json', description: 'Output raw JSON' },
       ],

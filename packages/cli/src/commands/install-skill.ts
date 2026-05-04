@@ -160,7 +160,7 @@ export interface Memory {
   entities: string | null;
   claims: string | null;
   weights: string | null;
-  metadata: string | null;
+  metadata: Record<string, unknown> | string | null;
   embeddingStatus: string;
   createdAt: string;
   accountIdentifier?: string | null;
@@ -175,7 +175,7 @@ export interface SearchResult {
   eventTime: string;
   factuality: string;
   entities: string;
-  metadata: string;
+  metadata: Record<string, unknown> | string | null;
   accountIdentifier: string | null;
   score: number;
   weights: {

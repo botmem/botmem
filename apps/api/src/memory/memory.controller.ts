@@ -315,7 +315,11 @@ export class MemoryController {
     @Query('query') query?: string,
     @Query('limit') limit?: string,
     @Query('memoryBankId') memoryBankId?: string,
+    @Query('fromMe') fromMe?: string,
   ) {
+    if (await this.memoryService.needsRecoveryKey(user.id)) {
+      return { items: [], total: 0, needsRecoveryKey: true };
+    }
     return this.memoryService.timeline({
       from,
       to,
@@ -326,6 +330,7 @@ export class MemoryController {
       userId: user.id,
       memoryBankId,
       memoryBankIds: user.memoryBankIds,
+      fromMe: fromMe === undefined ? undefined : fromMe === 'true' || fromMe === '1',
     });
   }
 
@@ -496,6 +501,7 @@ export class MemoryController {
 
   @Get(':id')
   async getById(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    if (await this.memoryService.needsRecoveryKey(user.id)) return { needsRecoveryKey: true };
     return this.memoryService.getById(id, user.id);
   }
 
@@ -523,6 +529,7 @@ export class MemoryController {
     if (dto.timeRange?.from) filters.from = dto.timeRange.from;
     if (dto.timeRange?.to) filters.to = dto.timeRange.to;
     if (dto.pinned !== undefined) filters.pinned = dto.pinned;
+    if (dto.fromMe !== undefined) filters.fromMe = dto.fromMe;
 
     const result = await this.memoryService.search(
       dto.query,

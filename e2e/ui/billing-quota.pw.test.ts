@@ -13,8 +13,8 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await navigateAs(page, user, '/settings');
-  // Click the Billing tab
-  await page.locator('text=/billing/i').first().click();
+  await page.getByRole('button', { name: /billing/i }).click();
+  await expect(page.getByRole('heading', { name: /billing/i })).toBeVisible();
 });
 
 test('UI-QUOTA-001: Billing tab shows MEMORY USAGE heading', async ({ page }) => {
@@ -23,15 +23,9 @@ test('UI-QUOTA-001: Billing tab shows MEMORY USAGE heading', async ({ page }) =>
   const billingContent = page.locator('text=/billing/i').first();
   await expect(billingContent).toBeVisible({ timeout: 10000 });
 
-  // Check for either self-hosted message or quota bar
-  const selfHosted = page.locator('text=/all features unlocked/i');
-  const quotaBar = page.locator('text=/memory usage/i');
-
-  // One of these should be visible
-  const isSelfHosted = await selfHosted.isVisible().catch(() => false);
-  const hasQuota = await quotaBar.isVisible().catch(() => false);
-
-  expect(isSelfHosted || hasQuota).toBe(true);
+  await expect(page.locator('text=/all features unlocked|memory usage/i')).toBeVisible({
+    timeout: 10000,
+  });
 });
 
 test('UI-QUOTA-002: Self-hosted mode shows ALL FEATURES UNLOCKED', async ({ page }) => {
@@ -39,7 +33,8 @@ test('UI-QUOTA-002: Self-hosted mode shows ALL FEATURES UNLOCKED', async ({ page
   const selfHosted = page.locator('text=/all features unlocked/i');
   const quotaBar = page.locator('text=/memory usage/i');
 
-  const isSelfHosted = await selfHosted.isVisible({ timeout: 5000 }).catch(() => false);
+  await expect(selfHosted.or(quotaBar)).toBeVisible({ timeout: 10000 });
+  const isSelfHosted = await selfHosted.isVisible().catch(() => false);
 
   if (isSelfHosted) {
     await expect(selfHosted).toBeVisible();

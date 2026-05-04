@@ -2,41 +2,26 @@
  * UI-021 → UI-028: Onboarding flow
  */
 import { test, expect } from '@playwright/test';
-import { registerUser, submitRecoveryKey, injectAuth } from './helpers';
+import {
+  completeOnboarding,
+  injectAuth,
+  injectAuthForOnboarding,
+  registerUser,
+  submitRecoveryKey,
+} from './helpers';
 
 test.describe('Onboarding', () => {
   test('UI-021: Onboarding multi-step flow renders', async ({ page }) => {
     const user = await registerUser();
     await submitRecoveryKey(user);
-    // Inject auth with onboarded: false
-    await page.goto('/');
-    await page.evaluate(
-      ({ accessToken, userData }) => {
-        localStorage.setItem(
-          'auth-storage',
-          JSON.stringify({
-            state: {
-              user: userData,
-              accessToken,
-              isLoading: false,
-              error: null,
-              recoveryKey: null,
-              needsRecoveryKey: false,
-            },
-            version: 0,
-          }),
-        );
-      },
-      {
-        accessToken: user.accessToken,
-        userData: { id: user.id, email: user.email, name: user.name, onboarded: false },
-      },
-    );
+    await injectAuthForOnboarding(page, user);
     await page.goto('/onboarding');
-    // Should show step progress indicator
-    await expect(page.locator('[class*="progress"], [role="progressbar"]').or(
-      page.locator('text=/step/i'),
-    )).toBeVisible({ timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+
+    await expect(page).toHaveURL(/\/onboarding/);
+    await expect(page.locator('text=/welcome|get started|connect|demo|skip/i').first()).toBeVisible(
+      { timeout: 10000 },
+    );
   });
 
   test('UI-022: Onboarding step 1 — welcome screen', async ({ page }) => {
@@ -184,9 +169,9 @@ test.describe('Onboarding', () => {
     await page.waitForLoadState('networkidle');
 
     // Look for skip button
-    const skipBtn = page.getByRole('button', { name: /skip/i }).or(
-      page.getByRole('link', { name: /skip/i }),
-    );
+    const skipBtn = page
+      .getByRole('button', { name: /skip/i })
+      .or(page.getByRole('link', { name: /skip/i }));
     if (await skipBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await skipBtn.click();
       // Should navigate to dashboard
@@ -224,9 +209,9 @@ test.describe('Onboarding', () => {
     await page.waitForLoadState('networkidle');
 
     // Skip through onboarding
-    const skipBtn = page.getByRole('button', { name: /skip/i }).or(
-      page.getByRole('link', { name: /skip/i }),
-    );
+    const skipBtn = page
+      .getByRole('button', { name: /skip/i })
+      .or(page.getByRole('link', { name: /skip/i }));
     if (await skipBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await skipBtn.click();
       await page.waitForURL(/\/dashboard/, { timeout: 10000 });
@@ -269,9 +254,9 @@ test.describe('Onboarding', () => {
     await page.goto('/onboarding');
 
     // Skip to complete
-    const skipBtn = page.getByRole('button', { name: /skip/i }).or(
-      page.getByRole('link', { name: /skip/i }),
-    );
+    const skipBtn = page
+      .getByRole('button', { name: /skip/i })
+      .or(page.getByRole('link', { name: /skip/i }));
     if (await skipBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await skipBtn.click();
       await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
@@ -281,42 +266,10 @@ test.describe('Onboarding', () => {
   test('UI-028: Onboarding — already onboarded user redirects to dashboard', async ({ page }) => {
     const user = await registerUser();
     await submitRecoveryKey(user);
-    // Complete onboarding via API
-    await fetch('http://localhost:12412/api/me', {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${user.accessToken}`,
-      },
-      body: JSON.stringify({ onboarded: true }),
-    });
-
-    await page.goto('/');
-    await page.evaluate(
-      ({ accessToken, userData }) => {
-        localStorage.setItem(
-          'auth-storage',
-          JSON.stringify({
-            state: {
-              user: userData,
-              accessToken,
-              isLoading: false,
-              error: null,
-              recoveryKey: null,
-              needsRecoveryKey: false,
-            },
-            version: 0,
-          }),
-        );
-      },
-      {
-        accessToken: user.accessToken,
-        userData: { id: user.id, email: user.email, name: user.name, onboarded: true },
-      },
-    );
+    await completeOnboarding(user);
+    await injectAuth(page, user);
 
     await page.goto('/onboarding');
-    // Should redirect away from onboarding
     await page.waitForURL(/\/dashboard|\/me/, { timeout: 10000 });
     expect(page.url()).not.toContain('/onboarding');
   });

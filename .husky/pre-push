@@ -14,10 +14,12 @@ pnpm --filter @botmem/cli test
 # 3. Confirm web coverage thresholds before CI.
 pnpm --filter @botmem/web test:coverage
 
-# 4. Run Playwright e2e tests if the API server is running (advisory — failures don't block push)
+# 4. Run e2e tests. The API server must already be running on localhost:12412.
 if curl -sf http://localhost:12412/api/version > /dev/null 2>&1; then
-  echo "API server detected — running Playwright e2e tests..."
-  cd e2e && npx playwright test --reporter=line || echo "⚠ Playwright tests had failures (non-blocking — CI is the gate)"
+  echo "API server detected - running e2e tests..."
+  pnpm test:e2e
+  pnpm test:e2e:ui --reporter=line
 else
-  echo "API server not running — skipping Playwright e2e tests (start with 'pnpm dev' to include)"
+  echo "API server not running - start it with 'pnpm dev' or 'pnpm --filter @botmem/api start' before pushing."
+  exit 1
 fi
