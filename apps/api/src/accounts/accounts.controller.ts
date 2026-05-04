@@ -12,7 +12,7 @@ import {
 import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
-import { memories, memoryPeople, people, jobs } from '../db/schema';
+import { memoryPeople, people, jobs, memorySearchIndex } from '../db/schema';
 import { sql, eq, inArray, desc } from 'drizzle-orm';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
@@ -117,27 +117,31 @@ export class AccountsController {
     });
 
     return this.dbService.withCurrentUser(async (db) => {
-      // Count actual memories per account from DB
-      const memoryCounts = await db
-        .select({ accountId: memories.accountId, count: sql<number>`count(*)::int` })
-        .from(memories)
-        .groupBy(memories.accountId);
+      // Count searchable memories per account from the indexed projection. The memories table
+      // carries encrypted payloads and is expensive to aggregate on dashboard load.
+      const accountIds = rows.map((r) => r.id);
+      const memoryCounts = accountIds.length
+        ? await db
+            .select({ accountId: memorySearchIndex.accountId, count: sql<number>`count(*)::int` })
+            .from(memorySearchIndex)
+            .where(inArray(memorySearchIndex.accountId, accountIds))
+            .groupBy(memorySearchIndex.accountId)
+        : [];
       const memoryCountMap = new Map(memoryCounts.map((c) => [c.accountId, c.count]));
 
       // Count contacts and groups per account via memoryPeople → memories
-      const accountIds = rows.map((r) => r.id);
       const contactCountRows = accountIds.length
         ? await db
             .select({
-              accountId: memories.accountId,
+              accountId: memorySearchIndex.accountId,
               entityType: people.entityType,
               count: sql<number>`count(distinct ${people.id})::int`,
             })
             .from(memoryPeople)
-            .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+            .innerJoin(memorySearchIndex, eq(memoryPeople.memoryId, memorySearchIndex.memoryId))
             .innerJoin(people, eq(memoryPeople.personId, people.id))
-            .where(inArray(memories.accountId, accountIds))
-            .groupBy(memories.accountId, people.entityType)
+            .where(inArray(memorySearchIndex.accountId, accountIds))
+            .groupBy(memorySearchIndex.accountId, people.entityType)
         : [];
 
       const contactsMap = new Map<string, number>();

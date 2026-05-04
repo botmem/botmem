@@ -12,6 +12,7 @@ import { Traced } from '../tracing/traced.decorator';
 import {
   memories,
   memoryLinks,
+  memorySearchIndex,
   memoryPeople,
   people,
   personIdentifiers,
@@ -468,12 +469,15 @@ export class MemoryService {
     const userAccountIds = await this.getUserAccountIds(userId);
     if (!userAccountIds?.length) return null;
 
+    // Avoid a leading-wildcard scan over encrypted text on every dashboard request.
+    // A small indexed account/event-time sample is enough to validate the cached user key.
     const rows = await this.dbService.withCurrentUser((db) =>
       db
         .select({ text: memories.text })
         .from(memories)
-        .where(and(inArray(memories.accountId, userAccountIds), sql`${memories.text} LIKE '%:%:%'`))
-        .limit(10),
+        .where(inArray(memories.accountId, userAccountIds))
+        .orderBy(desc(memories.eventTime))
+        .limit(25),
     );
 
     return rows.find((row) => this.crypto.isEncrypted(row.text)) ?? null;
@@ -1742,58 +1746,50 @@ export class MemoryService {
   }
 
   async getStats(userId?: string, memoryBankIds?: string[]) {
-    const userAccountIds = await this.getUserAccountIds(userId);
-    const conditions: SQLWrapper[] = [eq(memories.pipelineComplete, true)];
-    // User isolation
-    if (userAccountIds !== null) {
-      if (userAccountIds.length === 0)
-        return { total: 0, bySource: {}, byConnector: {}, byFactuality: {} };
-      conditions.push(inArray(memories.accountId, userAccountIds));
-    }
-    // Memory bank scoping for stats — if memoryBankIds provided (API key), filter by those banks
+    const conditions: SQLWrapper[] = [];
+    if (userId) conditions.push(eq(memorySearchIndex.userId, userId));
     if (memoryBankIds?.length) {
-      conditions.push(inArray(memories.memoryBankId, memoryBankIds));
+      conditions.push(inArray(memorySearchIndex.memoryBankId, memoryBankIds));
     }
-    const doneFilter = and(...conditions)!;
+    const statsFilter = conditions.length ? and(...conditions) : undefined;
 
     const totalRows = await this.dbService.withCurrentUser((db) =>
       db
         .select({ count: sql<number>`COUNT(*)` })
-        .from(memories)
-        .where(doneFilter),
+        .from(memorySearchIndex)
+        .where(statsFilter),
     );
     const total = Number(totalRows[0]?.count) || 0;
 
     const sourceRows = await this.dbService.withCurrentUser((db) =>
       db
-        .select({ key: memories.sourceType, count: sql<number>`COUNT(*)` })
-        .from(memories)
-        .where(doneFilter)
-        .groupBy(memories.sourceType),
+        .select({ key: memorySearchIndex.sourceType, count: sql<number>`COUNT(*)` })
+        .from(memorySearchIndex)
+        .where(statsFilter)
+        .groupBy(memorySearchIndex.sourceType),
     );
     const bySource: Record<string, number> = {};
     for (const r of sourceRows) bySource[r.key] = Number(r.count) || 0;
 
     const connectorRows = await this.dbService.withCurrentUser((db) =>
       db
-        .select({ key: memories.connectorType, count: sql<number>`COUNT(*)` })
-        .from(memories)
-        .where(doneFilter)
-        .groupBy(memories.connectorType),
+        .select({ key: memorySearchIndex.connectorType, count: sql<number>`COUNT(*)` })
+        .from(memorySearchIndex)
+        .where(statsFilter)
+        .groupBy(memorySearchIndex.connectorType),
     );
     const byConnector: Record<string, number> = {};
     for (const r of connectorRows) byConnector[r.key] = Number(r.count) || 0;
 
-    // Use denormalized factuality_label column (plaintext, safe for SQL aggregation)
     const factRows = await this.dbService.withCurrentUser((db) =>
       db
         .select({
-          label: sql<string>`${memories.factualityLabel}`,
+          label: sql<string>`${memorySearchIndex.factualityLabel}`,
           count: sql<number>`COUNT(*)`,
         })
-        .from(memories)
-        .where(doneFilter)
-        .groupBy(memories.factualityLabel),
+        .from(memorySearchIndex)
+        .where(statsFilter)
+        .groupBy(memorySearchIndex.factualityLabel),
     );
     const byFactuality: Record<string, number> = {};
     for (const r of factRows) {
