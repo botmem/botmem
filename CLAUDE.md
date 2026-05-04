@@ -21,7 +21,7 @@ pnpm dev                      # Builds deps, then API + web on :12412
 - People graph nodes must only be created or linked from durable identifiers such as email, phone, platform user id, connector id, or account id. Arbitrary extracted names may be search entities, but must not create or attach people nodes.
 - When replacing storage/search infrastructure, remove the old service and its data only after a fresh backup exists, the replacement database restore/backfill has completed, and the app is confirmed healthy on the new path.
 - Before pushing or deploying, run the same CI gate locally, including coverage (`pnpm test:coverage`) and any build/typecheck command the pipeline will run. Do not rely on a narrower pre-push subset.
-- Drizzle migrations must be journaled in `apps/api/src/db/migrations/meta/_journal.json`; never rely on loose `.sql` files that are absent from the journal, and verify critical indexes after migrations run.
+- Drizzle migrations must be journaled in `apps/api/src/db/migrations/meta/_journal.json`; never rely on loose `.sql` files that are absent from the journal, serialize startup migrations with the Postgres advisory lock, and verify critical indexes after migrations run.
 
 ## Monorepo Structure
 
