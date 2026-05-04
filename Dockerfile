@@ -49,11 +49,17 @@ ENV VITE_AUTH_PROVIDER=$VITE_AUTH_PROVIDER \
     VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID \
     BOTMEM_BUILD_SHA=$BOTMEM_BUILD_SHA \
     BOTMEM_BUILD_VERSION=$BOTMEM_BUILD_VERSION
-RUN pnpm --filter @botmem/shared run build && \
+RUN pnpm install --frozen-lockfile && \
+    pnpm --filter @botmem/shared run build && \
     pnpm --filter @botmem/connector-sdk run build && \
     pnpm --filter '@botmem/connector-*' run build && \
     pnpm --filter @botmem/web run build && \
-    pnpm --filter @botmem/api run build
+    pnpm --filter @botmem/api run build && \
+    if [ -f apps/api/dist/src/main.js ]; then \
+      cp -a apps/api/dist/src/. apps/api/dist/ && rm -rf apps/api/dist/src; \
+    fi && \
+    test -f apps/api/dist/main.js && \
+    test -f apps/api/dist/worker.js
 
 FROM base AS runtime
 WORKDIR /app
@@ -85,6 +91,7 @@ RUN echo "shamefully-hoist=true" > .npmrc && \
     pnpm install --frozen-lockfile --prod --ignore-scripts 2>/dev/null || pnpm install --prod --ignore-scripts
 
 RUN mkdir -p /app/data/whatsapp /data
+RUN test -f apps/api/dist/main.js && test -f apps/api/dist/worker.js
 EXPOSE 12412
 ENV NODE_ENV=production
 ENV PORT=12412
