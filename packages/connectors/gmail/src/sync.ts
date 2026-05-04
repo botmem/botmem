@@ -8,6 +8,29 @@ const CONCURRENCY = 20; // Parallel message fetches
 
 type GmailResponse<T> = { data: T };
 
+function headerValue(headers: gmail_v1.Schema$MessagePartHeader[], name: string): string {
+  const lower = name.toLowerCase();
+  return headers.find((h) => h.name?.toLowerCase() === lower)?.value || '';
+}
+
+function normalizeEmailSubject(subject: string): string {
+  return subject
+    .replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeThreadToken(value: string): string {
+  return value.trim().replace(/^<|>$/g, '').toLowerCase();
+}
+
+function extractReferenceIds(value: string): string[] {
+  const angleIds = value.match(/<[^>]+>/g);
+  const rawIds = angleIds?.length ? angleIds : value.split(/\s+/);
+  return [...new Set(rawIds.map(normalizeThreadToken).filter((id) => id.includes('@')))];
+}
+
 type GmailCursor =
   | {
       kind: 'gmail';
@@ -337,14 +360,15 @@ const KEEP_LABELS = new Set([
 
 function buildEmailEvent(message: gmail_v1.Schema$Message): ConnectorDataEvent | null {
   const headers = message.payload?.headers || [];
-  const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-  const from = headers.find((h) => h.name === 'From')?.value || '';
-  const to = headers.find((h) => h.name === 'To')?.value || '';
-  const cc = headers.find((h) => h.name === 'Cc')?.value || '';
-  const date = headers.find((h) => h.name === 'Date')?.value || '';
-  const messageId = headers.find((h) => h.name === 'Message-ID')?.value || '';
-  const inReplyTo = headers.find((h) => h.name === 'In-Reply-To')?.value || '';
-  const listUnsubscribe = headers.find((h) => h.name === 'List-Unsubscribe')?.value || '';
+  const subject = headerValue(headers, 'Subject');
+  const from = headerValue(headers, 'From');
+  const to = headerValue(headers, 'To');
+  const cc = headerValue(headers, 'Cc');
+  const date = headerValue(headers, 'Date');
+  const messageId = headerValue(headers, 'Message-ID');
+  const inReplyTo = headerValue(headers, 'In-Reply-To');
+  const references = headerValue(headers, 'References');
+  const listUnsubscribe = headerValue(headers, 'List-Unsubscribe');
 
   const labels = message.labelIds || [];
 
@@ -380,6 +404,19 @@ function buildEmailEvent(message: gmail_v1.Schema$Message): ConnectorDataEvent |
     timestamp = new Date().toISOString();
   }
 
+  const normalizedSubject = normalizeEmailSubject(subject);
+  const normalizedMessageId = normalizeThreadToken(messageId);
+  const normalizedInReplyTo = normalizeThreadToken(inReplyTo);
+  const referenceIds = extractReferenceIds(references);
+  const threadKey = message.threadId
+    ? `gmail:${message.threadId}`
+    : [
+        normalizedInReplyTo || referenceIds[0] || normalizedMessageId,
+        normalizedSubject || undefined,
+      ]
+        .filter(Boolean)
+        .join(':');
+
   return {
     sourceType: 'email',
     sourceId: message.id!,
@@ -394,7 +431,13 @@ function buildEmailEvent(message: gmail_v1.Schema$Message): ConnectorDataEvent |
         to,
         cc: cc || undefined,
         messageId: messageId || undefined,
+        normalizedMessageId: normalizedMessageId || undefined,
         inReplyTo: inReplyTo || undefined,
+        normalizedInReplyTo: normalizedInReplyTo || undefined,
+        references: references || undefined,
+        referenceIds: referenceIds.length ? referenceIds : undefined,
+        normalizedSubject: normalizedSubject || undefined,
+        emailThreadKey: threadKey || undefined,
         labels,
         threadId: message.threadId,
         snippet: message.snippet,
