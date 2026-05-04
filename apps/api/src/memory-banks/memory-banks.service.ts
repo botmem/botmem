@@ -167,7 +167,7 @@ export class MemoryBanksService {
       db.execute(
         sql`SELECT b.id, COUNT(m.id) as count
             FROM memory_banks b
-            LEFT JOIN memories m ON m.memory_bank_id = b.id
+            LEFT JOIN memory_search_index m ON m.memory_bank_id = b.id AND m.user_id = b.user_id
             WHERE b.user_id = ${userId}
             GROUP BY b.id`,
       ),

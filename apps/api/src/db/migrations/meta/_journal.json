@@ -155,6 +155,13 @@
       "when": 1777900000000,
       "tag": "0026_reconcile_runtime_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1777902000000,
+      "tag": "0027_dashboard_query_indexes",
+      "breakpoints": true
     }
   ]
 }
