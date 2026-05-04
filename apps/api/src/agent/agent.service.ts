@@ -78,6 +78,7 @@ export class AgentService {
         contactId?: string;
         from?: string;
         to?: string;
+        fromMe?: boolean;
       };
       limit?: number;
       userId?: string;
@@ -99,6 +100,9 @@ export class AgentService {
 
     // Try conversation-powered search first
     try {
+      if (options?.filters?.fromMe !== undefined) {
+        throw new Error('fromMe requires decrypted metadata filtering');
+      }
       const vector = await this.ai.embed(query);
       const filter = options?.filters ? this.buildSearchFilter(options.filters) : undefined;
       const result = await this.searchIndex.conversationSearch(
@@ -538,6 +542,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
     contactId?: string;
     from?: string;
     to?: string;
+    fromMe?: boolean;
   }): Record<string, unknown> {
     const must: Array<Record<string, unknown>> = [];
     if (filters.sourceType) {

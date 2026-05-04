@@ -11,7 +11,7 @@ function truncate(text: string, maxLen: number): string {
 }
 
 export async function runTimeline(client: BotmemClient, args: string[], json: boolean) {
-  const params: Record<string, string | undefined> = {};
+  const params: Record<string, string | boolean | undefined> = {};
   let limit: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
@@ -21,6 +21,7 @@ export async function runTimeline(client: BotmemClient, args: string[], json: bo
     else if (a === '--query') params.query = args[++i];
     else if (a === '--connector') params.connectorType = args[++i];
     else if (a === '--source') params.sourceType = args[++i];
+    else if (a === '--from-me' || a === '--me') params.fromMe = true;
     else if (a === '--limit') limit = parseInt(args[++i], 10);
   }
 

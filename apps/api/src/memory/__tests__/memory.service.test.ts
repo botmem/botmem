@@ -250,14 +250,14 @@ describe('MemoryService', () => {
       expect(cryptoService.decryptMemoryFieldsWithKeyStrict).toHaveBeenCalled();
     });
 
-    it('returns placeholder when user key not available for encrypted memory', async () => {
+    it('returns null when user key not available for encrypted memory', async () => {
       mockDb.where.mockResolvedValueOnce([fakeMemoryRow]);
       userKeyService.getDek.mockResolvedValueOnce(null);
       userKeyService.getKey.mockReturnValueOnce(null);
       cryptoService.isEncrypted.mockReturnValueOnce(true);
 
       const result = await service.getById('mem-1', 'user-1');
-      expect(result!.text).toContain('Encrypted');
+      expect(result).toBeNull();
     });
   });
 

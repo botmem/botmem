@@ -216,6 +216,7 @@ pnpm test         # Run Vitest across all workspaces
 - All timestamps are ISO 8601 strings
 - JSON columns stored as text, parsed at application layer
 - Auth context is encrypted at rest in the `accounts` and `connectorCredentials` tables
+- Authenticated data APIs must never return encrypted memory ciphertext to callers. If user data cannot be decrypted, return a recovery-key/locked response or no data instead of encrypted fields.
 - Connector packages are named `@botmem/connector-<name>`
 - Shared types live in `@botmem/shared` — import from there, not from api internals
 - Tests go in `__tests__/` directories adjacent to source, using Vitest

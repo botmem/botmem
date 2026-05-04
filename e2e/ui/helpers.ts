@@ -2,7 +2,7 @@
  * Shared helpers for Playwright UI tests.
  * Provides user registration via API and authenticated page navigation.
  */
-import { type Page, type BrowserContext, expect } from '@playwright/test';
+import { type Page } from '@playwright/test';
 
 const API_BASE = 'http://localhost:12412/api';
 
@@ -19,7 +19,8 @@ let counter = 0;
 
 /** Generate a unique email for each test. */
 export function uniqueEmail(): string {
-  return `pw-${Date.now()}-${++counter}@test.botmem.xyz`;
+  const suffix = Math.random().toString(36).slice(2, 10);
+  return `pw-${Date.now()}-${process.pid}-${++counter}-${suffix}@test.botmem.xyz`;
 }
 
 /** Register a user via the API and return auth context. */
@@ -63,27 +64,90 @@ export async function submitRecoveryKey(user: TestUser): Promise<void> {
 
 /** Complete onboarding for a user via API. */
 export async function completeOnboarding(user: TestUser): Promise<void> {
-  const res = await fetch(`${API_BASE}/me/onboarding`, {
+  const res = await fetch(`${API_BASE}/user-auth/complete-onboarding`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${user.accessToken}`,
     },
-    body: JSON.stringify({ onboarded: true }),
   });
-  // Some APIs may return 200 or 204 — both are fine
-  if (!res.ok && res.status !== 404) {
-    // Try PATCH /me as fallback
-    const res2 = await fetch(`${API_BASE}/me`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${user.accessToken}`,
+  if (!res.ok) throw new Error(`Complete onboarding failed: ${res.status}`);
+}
+
+/** Seed demo data for a user via API. */
+export async function seedDemoData(user: TestUser): Promise<void> {
+  const res = await fetch(`${API_BASE}/demo/seed`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${user.accessToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(`Demo seed failed: ${res.status} ${await res.text()}`);
+}
+
+/** Register, unlock, onboard, and seed a user for UI tests that need data. */
+export async function createSeededUser(): Promise<TestUser> {
+  const user = await registerUser();
+  await submitRecoveryKey(user);
+  await completeOnboarding(user);
+  await seedDemoData(user);
+  return user;
+}
+
+function authStorageFor(user: TestUser, onboarded: boolean, accessToken = user.accessToken) {
+  return {
+    state: {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        onboarded,
       },
-      body: JSON.stringify({ onboarded: true }),
-    });
-    if (!res2.ok) throw new Error(`Complete onboarding failed: ${res2.status}`);
+      accessToken,
+      isLoading: false,
+      error: null,
+      recoveryKey: null,
+      needsRecoveryKey: false,
+    },
+    version: 2,
+  };
+}
+
+async function browserLogin(
+  page: Page,
+  user: TestUser,
+): Promise<{ accessToken: string; user: TestUser }> {
+  await page.goto('/');
+  const result = await page.evaluate(
+    async ({ email, password }: { email: string; password: string }) => {
+      const res = await fetch('/api/user-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) return { ok: false as const, status: res.status, body: await res.text() };
+      const data = await res.json();
+      return { ok: true as const, accessToken: data.accessToken, user: data.user };
+    },
+    { email: user.email, password: user.password },
+  );
+
+  if (!result.ok) {
+    throw new Error(`Browser login failed: ${result.status} ${result.body}`);
   }
+
+  return {
+    accessToken: result.accessToken,
+    user: {
+      ...user,
+      accessToken: result.accessToken,
+      id: result.user.id,
+      email: result.user.email,
+      name: result.user.name ?? user.name,
+    },
+  };
 }
 
 /**
@@ -91,32 +155,35 @@ export async function completeOnboarding(user: TestUser): Promise<void> {
  * This sets the Zustand persisted auth store in localStorage.
  */
 export async function injectAuth(page: Page, user: TestUser): Promise<void> {
-  await page.goto('/');
+  const login = await browserLogin(page, user);
   await page.evaluate(
-    ({ accessToken, userData }) => {
-      const storeState = {
-        state: {
-          user: userData,
-          accessToken,
-          isLoading: false,
-          error: null,
-          recoveryKey: null,
-          needsRecoveryKey: false,
-        },
-        version: 0,
-      };
-      localStorage.setItem('auth-storage', JSON.stringify(storeState));
+    ({ storeState }) => {
+      localStorage.setItem('botmem-auth', JSON.stringify(storeState));
     },
-    {
-      accessToken: user.accessToken,
-      userData: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        onboarded: true,
-      },
-    },
+    { storeState: authStorageFor(login.user, true, login.accessToken) },
   );
+}
+
+/** Inject auth for onboarding tests while keeping the user marked not onboarded. */
+export async function injectAuthForOnboarding(page: Page, user: TestUser): Promise<void> {
+  const login = await browserLogin(page, user);
+  await page.evaluate(
+    ({ storeState }) => {
+      localStorage.setItem('botmem-auth', JSON.stringify(storeState));
+    },
+    { storeState: authStorageFor(login.user, false, login.accessToken) },
+  );
+}
+
+/** Navigate as an authenticated, onboarded user. */
+export async function navigateAs(
+  page: Page,
+  user: TestUser,
+  targetPath = '/dashboard',
+): Promise<void> {
+  await injectAuth(page, user);
+  await page.goto(targetPath);
+  await page.waitForLoadState('networkidle');
 }
 
 /**

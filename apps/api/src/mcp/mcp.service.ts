@@ -18,6 +18,7 @@ interface MemoryToolParams {
   source_type?: string;
   connector_type?: string;
   contact_id?: string;
+  from_me?: boolean;
   date_from?: string;
   date_to?: string;
   text_max_length?: number;
@@ -27,6 +28,7 @@ interface MemoryToolParams {
 interface ListToolParams {
   source_type?: string;
   connector_type?: string;
+  from_me?: boolean;
   text_max_length?: number;
   limit?: number;
   offset?: number;
@@ -39,6 +41,7 @@ interface TimelineToolParams {
   query?: string;
   source_type?: string;
   connector_type?: string;
+  from_me?: boolean;
   text_max_length?: number;
   limit?: number;
 }
@@ -285,12 +288,14 @@ export class McpService {
     contact_id?: string;
     date_from?: string;
     date_to?: string;
+    from_me?: boolean;
   }): {
     sourceType?: string;
     connectorType?: string;
     contactId?: string;
     from?: string;
     to?: string;
+    fromMe?: boolean;
   } {
     return {
       sourceType: params.source_type,
@@ -298,6 +303,7 @@ export class McpService {
       contactId: params.contact_id,
       from: params.date_from,
       to: params.date_to,
+      fromMe: params.from_me,
     };
   }
 
@@ -692,6 +698,7 @@ export class McpService {
               offset: params.offset,
               sortBy: this.normalizeListSort(params.sort_by),
               userId,
+              fromMe: params.from_me,
             }),
           );
           return this.ok(result, params.text_max_length);
@@ -720,6 +727,7 @@ export class McpService {
               sourceType: params.source_type,
               limit: params.limit,
               userId,
+              fromMe: params.from_me,
             }),
           );
           return this.ok(result, params.text_max_length);

@@ -15,7 +15,7 @@ export interface Memory {
   entities: string | null;
   claims: string | null;
   weights: string | null;
-  metadata: string | null;
+  metadata: Record<string, unknown> | string | null;
   embeddingStatus: string;
   createdAt: string;
   accountIdentifier?: string | null;
@@ -30,7 +30,7 @@ export interface SearchResult {
   eventTime: string;
   factuality: string;
   entities: string;
-  metadata: string;
+  metadata: Record<string, unknown> | string | null;
   accountIdentifier: string | null;
   score: number;
   weights: {
@@ -233,7 +233,7 @@ export class BotmemClient {
 
   async searchMemories(
     query: string,
-    filters?: Record<string, string>,
+    filters?: Record<string, string | boolean>,
     limit?: number,
     memoryBankId?: string,
     debug?: boolean,
@@ -477,7 +477,7 @@ export class BotmemClient {
 
   async agentAsk(
     query: string,
-    filters?: Record<string, string>,
+    filters?: Record<string, string | boolean>,
     limit?: number,
     conversationId?: string,
   ): Promise<Record<string, unknown>> {
@@ -533,6 +533,7 @@ export class BotmemClient {
     sourceType?: string;
     query?: string;
     limit?: number;
+    fromMe?: boolean;
   }): Promise<{ items: Memory[]; total: number }> {
     const qs = new URLSearchParams();
     if (params.from) qs.set('from', params.from);
@@ -541,6 +542,7 @@ export class BotmemClient {
     if (params.sourceType) qs.set('sourceType', params.sourceType);
     if (params.query) qs.set('query', params.query);
     if (params.limit) qs.set('limit', String(params.limit));
+    if (params.fromMe !== undefined) qs.set('fromMe', String(params.fromMe));
     const query = qs.toString();
     return this.request<{ items: Memory[]; total: number }>(
       `/memories/timeline${query ? '?' + query : ''}`,

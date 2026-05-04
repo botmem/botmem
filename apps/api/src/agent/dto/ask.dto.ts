@@ -1,4 +1,13 @@
-import { IsString, IsNotEmpty, IsOptional, IsInt, Min, Max, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  ValidateNested,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AskFiltersDto {
@@ -13,6 +22,10 @@ export class AskFiltersDto {
   @IsOptional()
   @IsString()
   contactId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  fromMe?: boolean;
 }
 
 export class AskDto {

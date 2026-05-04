@@ -591,8 +591,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         });
         if (contact) {
           const nameIdent = identifiers.find((i) => i.type === 'name');
+          const resolvedName =
+            nameIdent?.value ||
+            (contact.displayName
+              ? (this.crypto.decrypt(contact.displayName) ?? contact.displayName)
+              : undefined);
           if (!resolvedContacts.some((c) => c.contactId === contact.id && c.role === role)) {
-            resolvedContacts.push({ contactId: contact.id, role, name: nameIdent?.value });
+            resolvedContacts.push({ contactId: contact.id, role, name: resolvedName });
           }
 
           // Gmail avatar
@@ -678,6 +683,25 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         mimeType: primaryMedia.mimeType || undefined,
         fileName: primaryMedia.fileName || undefined,
       };
+    }
+
+    if (rawEvent.connectorType === 'whatsapp' && event.sourceType === 'message') {
+      const meta = mergedMetadata as Record<string, unknown>;
+      const isIncoming = meta.fromMe === false || meta.isFromMe === false;
+      const senderName =
+        typeof meta.senderName === 'string' && meta.senderName.trim()
+          ? meta.senderName.trim()
+          : undefined;
+      const fallbackSender = compactStrings([
+        resolvedContacts.find((c) => c.role === 'sender')?.name,
+        meta.senderPhone,
+        meta.pushName,
+        meta.senderLid,
+      ])[0];
+      if (isIncoming && !senderName && fallbackSender) {
+        meta.senderName = fallbackSender;
+        currentText = currentText.replace(/^Unknown(?=:|\s+sent\b)/i, fallbackSender);
+      }
     }
 
     if (hasFile && primaryMedia?.kind === 'image') {
