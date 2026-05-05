@@ -1024,7 +1024,20 @@ export class PeopleService {
     }
 
     const idents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, id)),
+      db
+        .select({
+          id: personIdentifiers.id,
+          personId: personIdentifiers.personId,
+          identifierType: personIdentifiers.identifierType,
+          identifierValue: personIdentifiers.identifierValue,
+          identifierValueHash: personIdentifiers.identifierValueHash,
+          connectorType: personIdentifiers.connectorType,
+          confidence: personIdentifiers.confidence,
+          createdAt: personIdentifiers.createdAt,
+        })
+        .from(personIdentifiers)
+        .innerJoin(people, eq(people.id, personIdentifiers.personId))
+        .where(and(eq(personIdentifiers.personId, id), eq(people.userId, userId))),
     );
 
     return {
@@ -1213,8 +1226,11 @@ export class PeopleService {
         .where(conditions.length ? and(...conditions) : undefined),
     );
 
+    const contactIds = allContactRows.map((contact) => contact.id);
     const allIdentRows = await this.dbService.withCurrentUser((db) =>
-      db.select().from(personIdentifiers),
+      contactIds.length
+        ? db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, contactIds))
+        : Promise.resolve([]),
     );
 
     // Build identifier lookup by contactId
@@ -1312,19 +1328,25 @@ export class PeopleService {
   /**
    * Backfill: download all URL-based avatars and convert to base64 data URIs in-place.
    */
-  async backfillAvatarData(): Promise<{ converted: number; failed: number }> {
-    const db = this.dbService.db;
-    const allContacts = await db
-      .select({ id: people.id, avatars: people.avatars })
-      .from(people)
-      .where(
-        sql`${people.avatars} IS NOT NULL AND ${people.avatars}::text != '[]' AND ${people.avatars}::text != '""'`,
-      );
+  async backfillAvatarData(userId?: string): Promise<{ converted: number; failed: number }> {
+    const allContacts = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ id: people.id, avatars: people.avatars })
+        .from(people)
+        .where(
+          userId
+            ? and(
+                eq(people.userId, userId),
+                sql`${people.avatars} IS NOT NULL AND ${people.avatars}::text != '[]' AND ${people.avatars}::text != '""'`,
+              )
+            : sql`${people.avatars} IS NOT NULL AND ${people.avatars}::text != '[]' AND ${people.avatars}::text != '""'`,
+        ),
+    );
 
     // Build auth headers for Immich
     let immichHeaders: Record<string, string> = {};
     try {
-      const allAccounts = await this.accountsService.getAll();
+      const allAccounts = await this.accountsService.getAll(userId);
       const photosAccount = allAccounts.find((a) => a.connectorType === 'photos');
       if (photosAccount?.authContext) {
         const auth =
@@ -1378,10 +1400,12 @@ export class PeopleService {
       }
 
       if (changed) {
-        await db
-          .update(people)
-          .set({ avatars: this.encryptJsonb(updated), updatedAt: new Date() })
-          .where(eq(people.id, contact.id));
+        await this.dbService.withCurrentUser((db) =>
+          db
+            .update(people)
+            .set({ avatars: this.encryptJsonb(updated), updatedAt: new Date() })
+            .where(eq(people.id, contact.id)),
+        );
       }
     }
 
@@ -2186,9 +2210,26 @@ export class PeopleService {
    * Normalize all existing identifiers in the DB: trim, lowercase, reclassify,
    * then deduplicate and merge contacts that now share identifiers.
    */
-  async normalizeAll(): Promise<{ normalized: number; deduped: number; merged: number }> {
+  async normalizeAll(
+    userId?: string,
+  ): Promise<{ normalized: number; deduped: number; merged: number }> {
     const allIdents = await this.dbService.withCurrentUser((db) =>
-      db.select().from(personIdentifiers),
+      userId
+        ? db
+            .select({
+              id: personIdentifiers.id,
+              personId: personIdentifiers.personId,
+              identifierType: personIdentifiers.identifierType,
+              identifierValue: personIdentifiers.identifierValue,
+              identifierValueHash: personIdentifiers.identifierValueHash,
+              connectorType: personIdentifiers.connectorType,
+              confidence: personIdentifiers.confidence,
+              createdAt: personIdentifiers.createdAt,
+            })
+            .from(personIdentifiers)
+            .innerJoin(people, eq(people.id, personIdentifiers.personId))
+            .where(eq(people.userId, userId))
+        : db.select().from(personIdentifiers),
     );
 
     let normalized = 0;
@@ -2229,7 +2270,22 @@ export class PeopleService {
 
     // Pass 2: Remove duplicate identifiers (same contact, same type+hash)
     const remaining = await this.dbService.withCurrentUser((db) =>
-      db.select().from(personIdentifiers),
+      userId
+        ? db
+            .select({
+              id: personIdentifiers.id,
+              personId: personIdentifiers.personId,
+              identifierType: personIdentifiers.identifierType,
+              identifierValue: personIdentifiers.identifierValue,
+              identifierValueHash: personIdentifiers.identifierValueHash,
+              connectorType: personIdentifiers.connectorType,
+              confidence: personIdentifiers.confidence,
+              createdAt: personIdentifiers.createdAt,
+            })
+            .from(personIdentifiers)
+            .innerJoin(people, eq(people.id, personIdentifiers.personId))
+            .where(eq(people.userId, userId))
+        : db.select().from(personIdentifiers),
     );
     const seenPerContact = new Map<string, Set<string>>();
     for (const ident of remaining) {
@@ -2248,7 +2304,22 @@ export class PeopleService {
 
     // Pass 3: Merge contacts that now share non-name identifiers
     const afterDedup = await this.dbService.withCurrentUser((db) =>
-      db.select().from(personIdentifiers),
+      userId
+        ? db
+            .select({
+              id: personIdentifiers.id,
+              personId: personIdentifiers.personId,
+              identifierType: personIdentifiers.identifierType,
+              identifierValue: personIdentifiers.identifierValue,
+              identifierValueHash: personIdentifiers.identifierValueHash,
+              connectorType: personIdentifiers.connectorType,
+              confidence: personIdentifiers.confidence,
+              createdAt: personIdentifiers.createdAt,
+            })
+            .from(personIdentifiers)
+            .innerJoin(people, eq(people.id, personIdentifiers.personId))
+            .where(eq(people.userId, userId))
+        : db.select().from(personIdentifiers),
     );
     // Build value → contactIds map (skip name identifiers) using HMAC hashes
     const valueToContacts = new Map<string, Set<string>>();
@@ -2292,7 +2363,7 @@ export class PeopleService {
    * appears as a non-person entity type in linked memories, update
    * the contact's entityType to the most common non-person type found.
    */
-  async reclassifyEntityTypes(): Promise<{
+  async reclassifyEntityTypes(userId?: string): Promise<{
     reclassified: number;
     details: Array<{ personId: string; displayName: string; oldType: string; newType: string }>;
   }> {
@@ -2312,7 +2383,14 @@ export class PeopleService {
       db
         .select()
         .from(people)
-        .where(sql`COALESCE(${people.entityType}, 'person') = 'person'`),
+        .where(
+          userId
+            ? and(
+                eq(people.userId, userId),
+                sql`COALESCE(${people.entityType}, 'person') = 'person'`,
+              )
+            : sql`COALESCE(${people.entityType}, 'person') = 'person'`,
+        ),
     );
 
     const details: Array<{
