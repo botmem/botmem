@@ -143,7 +143,13 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
 
   private getRealtimeConnector(connectorType: string): BaseConnector | null {
     try {
-      const connector = this.connectors.get(connectorType);
+      const connectorFactory = this.connectors as ConnectorsService & {
+        create?: (id: string) => BaseConnector;
+      };
+      const connector =
+        typeof connectorFactory.create === 'function'
+          ? connectorFactory.create(connectorType)
+          : this.connectors.get(connectorType);
       return connector.supportsRealtime() ? connector : null;
     } catch {
       return null;

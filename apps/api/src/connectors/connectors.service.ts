@@ -13,6 +13,10 @@ export class ConnectorsService {
     return this.registry.get(id);
   }
 
+  create(id: string) {
+    return this.registry.create(id);
+  }
+
   list() {
     return this.registry.list();
   }
