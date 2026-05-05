@@ -424,65 +424,37 @@ export function scoreNameOnlyMerge(nameA: string, nameB: string): MergeEvidence 
 }
 
 export function isDirectNameAutoMergeEligible(nameA: string, nameB: string): boolean {
+  const keyA = exactMultiWordNameAutoMergeKey(nameA);
+  const keyB = exactMultiWordNameAutoMergeKey(nameB);
+  return !!keyA && keyA === keyB;
+}
+
+export function exactMultiWordNameAutoMergeKey(name: string): string | null {
   if (
-    looksLikeIdentifierLabel(nameA) ||
-    looksLikeIdentifierLabel(nameB) ||
-    looksLikeGroupName(nameA) ||
-    looksLikeGroupName(nameB) ||
-    looksLikeCombinedPersonName(nameA) ||
-    looksLikeCombinedPersonName(nameB)
+    looksLikeIdentifierLabel(name) ||
+    looksLikeGroupName(name) ||
+    looksLikeCombinedPersonName(name)
   ) {
-    return false;
+    return null;
   }
 
-  const a = normalizeNameForMerge(nameA);
-  const b = normalizeNameForMerge(nameB);
-  if (!a.length || !b.length) return false;
-  if ((a.length > 1 && new Set(a).size === 1) || (b.length > 1 && new Set(b).size === 1)) {
-    return false;
-  }
+  const tokens = normalizeNameForExactAutoMerge(name);
+  if (tokens.length < 2) return null;
+  if (new Set(tokens).size === 1) return null;
+  const normalized = tokens.join(' ');
+  if (GENERIC_NAMES.has(normalized)) return null;
+  return normalized;
+}
 
-  const normalizedA = a.join(' ');
-  const normalizedB = b.join(' ');
-  if (normalizedA === normalizedB) return true;
-  if (a.slice().sort().join(' ') === b.slice().sort().join(' ')) return true;
-
-  const shorter = a.length <= b.length ? a : b;
-  const longer = a.length <= b.length ? b : a;
-  if (
-    shorter.length >= 2 &&
-    longer.length > shorter.length &&
-    shorter[0] === longer[0] &&
-    shorter[shorter.length - 1] === longer[longer.length - 1] &&
-    shorter.every((token) => longer.includes(token))
-  ) {
-    return true;
-  }
-
-  if (a.length < 2 || b.length < 2 || a.length !== b.length) return false;
-  if (a[0] !== b[0]) return false;
-
-  const lastA = a[a.length - 1];
-  const lastB = b[b.length - 1];
-  const surnameDistance = levenshtein(lastA, lastB);
-  const compatibleSurnameTypo =
-    surnameDistance <= 1 ||
-    ((lastA.startsWith(lastB) || lastB.startsWith(lastA)) &&
-      Math.min(lastA.length, lastB.length) >= 6 &&
-      Math.abs(lastA.length - lastB.length) <= 1);
-  if (!compatibleSurnameTypo) return false;
-
-  for (let i = 1; i < a.length - 1; i++) {
-    if (
-      (a[i].length === 1 && b[i].startsWith(a[i])) ||
-      (b[i].length === 1 && a[i].startsWith(b[i]))
-    ) {
-      continue;
-    }
-    if (a[i] !== b[i] && levenshtein(a[i], b[i]) > 1) return false;
-  }
-
-  return true;
+function normalizeNameForExactAutoMerge(name: string): string[] {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
 }
 
 /** Determine if a name looks like a structured identifier (phone, email, etc.) */
@@ -1771,6 +1743,21 @@ export class PeopleService {
                   )!,
                 );
 
+              // If the deleted source was pinned as the user's self identity, keep
+              // that setting pointing at the surviving merged person.
+              await tx
+                .update(settings)
+                .set({ value: targetId })
+                .where(
+                  and(
+                    inArray(settings.key, [
+                      `selfContactId:${target.userId}`,
+                      `selfPersonId:${target.userId}`,
+                    ]),
+                    eq(settings.value, sourceId),
+                  ),
+                );
+
               // Delete any remaining children (race condition: concurrent workers may have added new ones)
               await tx.delete(personIdentifiers).where(eq(personIdentifiers.personId, sourceId));
               await tx.delete(memoryPeople).where(eq(memoryPeople.personId, sourceId));
@@ -1873,6 +1860,23 @@ export class PeopleService {
       list.push(ident);
       contactIdentsMap.set(ident.personId, list);
     }
+    const hasDurableIdentifier = (personId: string): boolean =>
+      (contactIdentsMap.get(personId) || []).some((ident) => ident.identifierType !== 'name');
+    const sortMergeTargets = (a: (typeof allContacts)[0], b: (typeof allContacts)[0]): number => {
+      const aIdentifiers = (contactIdentsMap.get(a.id) || []).filter(
+        (ident) => ident.identifierType !== 'name',
+      ).length;
+      const bIdentifiers = (contactIdentsMap.get(b.id) || []).filter(
+        (ident) => ident.identifierType !== 'name',
+      ).length;
+      if (aIdentifiers !== bIdentifiers) return bIdentifiers - aIdentifiers;
+      const aAvatars = ((this.decryptJsonb(a.avatars) as unknown[]) || []).length;
+      const bAvatars = ((this.decryptJsonb(b.avatars) as unknown[]) || []).length;
+      if (aAvatars !== bAvatars) return bAvatars - aAvatars;
+      const memoryDelta = (b.memoryCount ?? 0) - (a.memoryCount ?? 0);
+      if (memoryDelta !== 0) return memoryDelta;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    };
 
     const contactById = new Map(allContacts.map((contact) => [contact.id, contact]));
     const byExactIdentifier = new Map<string, Set<string>>();
@@ -1921,11 +1925,7 @@ export class PeopleService {
       const active = ids
         .filter((id) => !mergedAway.has(id) && contactById.has(id))
         .map((id) => contactById.get(id)!)
-        .sort((a, b) => {
-          const memoryDelta = (b.memoryCount ?? 0) - (a.memoryCount ?? 0);
-          if (memoryDelta !== 0) return memoryDelta;
-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        });
+        .sort(sortMergeTargets);
       if (active.length < 2) continue;
       const target = active[0];
       for (const source of active.slice(1)) {
@@ -1936,6 +1936,41 @@ export class PeopleService {
         } catch (err) {
           this.logger.warn(
             `[getSuggestions] exact identifier auto-merge failed for ${source.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    }
+
+    if (mergedAway.size > 0) {
+      allContacts = allContacts.filter((contact) => !mergedAway.has(contact.id));
+    }
+
+    const exactNameGroups = new Map<string, typeof allContacts>();
+    for (const contact of allContacts) {
+      if (!hasDurableIdentifier(contact.id)) continue;
+      const key = exactMultiWordNameAutoMergeKey(contact.displayName);
+      if (!key) continue;
+      const group = exactNameGroups.get(key) || [];
+      group.push(contact);
+      exactNameGroups.set(key, group);
+    }
+
+    for (const group of exactNameGroups.values()) {
+      const active = group
+        .filter((contact) => !mergedAway.has(contact.id) && contactById.has(contact.id))
+        .sort(sortMergeTargets);
+      if (active.length < 2) continue;
+      const target = active[0];
+      for (const source of active.slice(1)) {
+        try {
+          await this.mergePeople(target.id, source.id);
+          mergedAway.add(source.id);
+          contactById.delete(source.id);
+        } catch (err) {
+          this.logger.warn(
+            `[getSuggestions] exact multi-word name auto-merge failed for ${source.id}: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
@@ -2084,14 +2119,10 @@ export class PeopleService {
 
     // Index contacts by exact name and normalized tokens to avoid O(n²) while
     // still catching "AMR ESSAM" inside "HALA AMR ESSAM" style aliases.
-    const byExactName = new Map<string, typeof allContacts>();
     const byToken = new Map<string, typeof allContacts>();
     for (const c of allContacts) {
       const name = c.displayName.toLowerCase().trim();
       if (name.length < 3 || GENERIC_NAMES.has(name)) continue;
-      const list = byExactName.get(name) || [];
-      list.push(c);
-      byExactName.set(name, list);
 
       if (looksLikeIdentifierLabel(c.displayName)) continue;
       for (const token of new Set(normalizeNameForMerge(c.displayName))) {
@@ -2099,16 +2130,6 @@ export class PeopleService {
         const tokenList = byToken.get(token) || [];
         tokenList.push(c);
         byToken.set(token, tokenList);
-      }
-    }
-
-    // Exact/direct name pairs are consumed by the auto-merge pass above.
-    for (const [, group] of byExactName) {
-      if (group.length < 2) continue;
-      for (let i = 0; i < group.length; i++) {
-        for (let j = i + 1; j < group.length; j++) {
-          suggestedPairs.add([group[i].id, group[j].id].sort().join('::'));
-        }
       }
     }
 
@@ -2593,7 +2614,7 @@ export class PeopleService {
   /** Auto-merge duplicate people that share an exact normalized identifier. */
   async autoMerge(userId?: string): Promise<{
     merged: number;
-    byRule: { nonPerson: number; sparseToRich: number };
+    byRule: { nonPerson: number; sparseToRich: number; exactMultiWordName: number };
     details: Array<{ targetId: string; sourceId: string; targetName: string; rule: string }>;
   }> {
     const maxMs = Math.max(
@@ -2613,10 +2634,35 @@ export class PeopleService {
         : Promise.resolve([]),
     );
     const contactById = new Map(allContacts.map((contact) => [contact.id, contact]));
+    const contactIdentsMap = new Map<string, typeof allIdentifiers>();
+    for (const ident of allIdentifiers) {
+      const list = contactIdentsMap.get(ident.personId) || [];
+      list.push(ident);
+      contactIdentsMap.set(ident.personId, list);
+    }
+    const hasDurableIdentifier = (personId: string): boolean =>
+      (contactIdentsMap.get(personId) || []).some((ident) => ident.identifierType !== 'name');
+    const decryptedDisplayName = (contact: (typeof allContacts)[0]): string =>
+      this.crypto.decrypt(contact.displayName) ?? contact.displayName;
+    const sortMergeTargets = (a: (typeof allContacts)[0], b: (typeof allContacts)[0]): number => {
+      const aIdentifiers = (contactIdentsMap.get(a.id) || []).filter(
+        (ident) => ident.identifierType !== 'name',
+      ).length;
+      const bIdentifiers = (contactIdentsMap.get(b.id) || []).filter(
+        (ident) => ident.identifierType !== 'name',
+      ).length;
+      if (aIdentifiers !== bIdentifiers) return bIdentifiers - aIdentifiers;
+      const aAvatars = ((this.decryptJsonb(a.avatars) as unknown[]) || []).length;
+      const bAvatars = ((this.decryptJsonb(b.avatars) as unknown[]) || []).length;
+      if (aAvatars !== bAvatars) return bAvatars - aAvatars;
+      const memoryDelta = (b.memoryCount ?? 0) - (a.memoryCount ?? 0);
+      if (memoryDelta !== 0) return memoryDelta;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    };
 
     const result = {
       merged: 0,
-      byRule: { nonPerson: 0, sparseToRich: 0 },
+      byRule: { nonPerson: 0, sparseToRich: 0, exactMultiWordName: 0 },
       details: [] as Array<{
         targetId: string;
         sourceId: string;
@@ -2669,24 +2715,64 @@ export class PeopleService {
     const mergedAway = new Set<string>();
     for (const ids of identifierComponents.values()) {
       if (!hasBudget()) return result;
-      const active = ids.filter((id) => !mergedAway.has(id) && contactById.has(id));
+      const active = ids
+        .filter((id) => !mergedAway.has(id) && contactById.has(id))
+        .map((id) => contactById.get(id)!)
+        .sort(sortMergeTargets);
       if (active.length < 2) continue;
-      const targetId = active[0];
-      const target = contactById.get(targetId)!;
-      for (const sourceId of active.slice(1)) {
+      const target = active[0];
+      for (const source of active.slice(1)) {
         if (!hasBudget()) return result;
-        const source = contactById.get(sourceId);
-        if (!source) continue;
         try {
-          await this.mergePeople(targetId, sourceId);
-          mergedAway.add(sourceId);
+          await this.mergePeople(target.id, source.id);
+          mergedAway.add(source.id);
+          contactById.delete(source.id);
           result.merged++;
           result.byRule.sparseToRich++;
           result.details.push({
-            targetId,
-            sourceId,
-            targetName: this.crypto.decrypt(target.displayName) ?? target.displayName,
+            targetId: target.id,
+            sourceId: source.id,
+            targetName: decryptedDisplayName(target),
             rule: 'strongIdentifier',
+          });
+        } catch {
+          // Concurrent merge or already merged — continue
+        }
+      }
+    }
+
+    const byExactName = new Map<string, typeof allContacts>();
+    for (const contact of contactById.values()) {
+      if (!hasBudget()) return result;
+      if (mergedAway.has(contact.id) || contact.entityType !== 'person') continue;
+      if (!hasDurableIdentifier(contact.id)) continue;
+      const key = exactMultiWordNameAutoMergeKey(decryptedDisplayName(contact));
+      if (!key) continue;
+      const group = byExactName.get(key) || [];
+      group.push(contact);
+      byExactName.set(key, group);
+    }
+
+    for (const group of byExactName.values()) {
+      if (!hasBudget()) return result;
+      const active = group
+        .filter((contact) => !mergedAway.has(contact.id) && contactById.has(contact.id))
+        .sort(sortMergeTargets);
+      if (active.length < 2) continue;
+      const target = active[0];
+      for (const source of active.slice(1)) {
+        if (!hasBudget()) return result;
+        try {
+          await this.mergePeople(target.id, source.id);
+          mergedAway.add(source.id);
+          contactById.delete(source.id);
+          result.merged++;
+          result.byRule.exactMultiWordName++;
+          result.details.push({
+            targetId: target.id,
+            sourceId: source.id,
+            targetName: decryptedDisplayName(target),
+            rule: 'exactMultiWordName',
           });
         } catch {
           // Concurrent merge or already merged — continue

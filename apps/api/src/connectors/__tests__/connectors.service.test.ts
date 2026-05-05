@@ -44,6 +44,18 @@ describe('ConnectorsService', () => {
     expect(connector.manifest.id).toBe('fake');
   });
 
+  it('creates fresh connector instances so sync listeners cannot bleed across accounts', () => {
+    const service = new ConnectorsService();
+    service.register(() => new FakeConnector());
+
+    const first = service.create('fake');
+    const second = service.create('fake');
+
+    expect(first).not.toBe(second);
+    expect(first).not.toBe(service.get('fake'));
+    expect(second).not.toBe(service.get('fake'));
+  });
+
   it('lists registered connectors', () => {
     const service = new ConnectorsService();
     service.register(() => new FakeConnector());
