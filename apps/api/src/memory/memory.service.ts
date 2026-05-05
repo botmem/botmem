@@ -2054,7 +2054,12 @@ export class MemoryService {
       db
         .select({ value: settings.value })
         .from(settings)
-        .where(eq(settings.key, 'selfContactId'))
+        .where(
+          inArray(
+            settings.key,
+            userId ? [`selfContactId:${userId}`, `selfPersonId:${userId}`] : ['selfContactId'],
+          ),
+        )
         .limit(1),
     );
     const selfContactId = selfRow[0]?.value;

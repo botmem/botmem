@@ -698,11 +698,13 @@ export class PeopleService {
 
     if (!matchedContactIds.size && entityType && entityType !== 'person' && nameAliases[0]) {
       const nameHash = this.crypto.hmac(nameAliases[0].value.toLowerCase());
+      const conditions = [eq(people.entityType, entityType), eq(people.displayNameHash, nameHash)];
+      if (userId) conditions.push(eq(people.userId, userId));
       const rows = await this.dbService.withCurrentUser((db) =>
         db
           .select({ id: people.id })
           .from(people)
-          .where(and(eq(people.entityType, entityType), eq(people.displayNameHash, nameHash)))
+          .where(and(...conditions))
           .limit(1),
       );
       if (rows[0]?.id) matchedContactIds.add(rows[0].id);
@@ -803,8 +805,12 @@ export class PeopleService {
               db
                 .select({ personId: personIdentifiers.personId })
                 .from(personIdentifiers)
+                .innerJoin(people, eq(people.id, personIdentifiers.personId))
                 .where(
-                  sql`${personIdentifiers.identifierType} = ${probe.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(probe.value)}`,
+                  and(
+                    sql`${personIdentifiers.identifierType} = ${probe.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(probe.value)}`,
+                    userId ? eq(people.userId, userId) : undefined,
+                  ),
                 )
                 .limit(1),
             );
@@ -895,7 +901,14 @@ export class PeopleService {
           db
             .select({ personId: personIdentifiers.personId })
             .from(personIdentifiers)
-            .where(and(or(...orConds), sql`${personIdentifiers.personId} != ${personId}`)),
+            .innerJoin(people, eq(people.id, personIdentifiers.personId))
+            .where(
+              and(
+                or(...orConds),
+                sql`${personIdentifiers.personId} != ${personId}`,
+                userId ? eq(people.userId, userId) : undefined,
+              ),
+            ),
         );
         dupeContactIds = [...new Set(dupeRows.map((r) => r.personId))];
       }
@@ -929,8 +942,12 @@ export class PeopleService {
           db
             .select({ personId: personIdentifiers.personId })
             .from(personIdentifiers)
+            .innerJoin(people, eq(people.id, personIdentifiers.personId))
             .where(
-              sql`${personIdentifiers.identifierType} = ${movedIdent.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(movedIdent.value)}`,
+              and(
+                sql`${personIdentifiers.identifierType} = ${movedIdent.type} AND ${personIdentifiers.identifierValueHash} = ${this.crypto.hmac(movedIdent.value)}`,
+                userId ? eq(people.userId, userId) : undefined,
+              ),
             )
             .limit(1),
         );
@@ -1577,6 +1594,9 @@ export class PeopleService {
 
               const target = targetRows[0];
               const source = sourceRows[0];
+              if (target.userId !== source.userId) {
+                throw new Error('Refusing to merge people across different users');
+              }
 
               // Merge avatars (target first, then source, dedup by url)
               const targetAvatars: Array<{ url: string; source: string }> =

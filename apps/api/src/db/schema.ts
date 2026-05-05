@@ -148,7 +148,11 @@ export const memories = pgTable(
     index('idx_memories_connector_type').on(table.connectorType),
     index('idx_memories_memory_bank_id').on(table.memoryBankId),
     index('idx_memories_factuality_label').on(table.factualityLabel),
-    uniqueIndex('idx_memories_source_dedup').on(table.sourceId, table.connectorType),
+    uniqueIndex('idx_memories_source_dedup').on(
+      table.accountId,
+      table.sourceId,
+      table.connectorType,
+    ),
   ],
 );
 

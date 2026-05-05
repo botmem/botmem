@@ -253,7 +253,9 @@ export class BillingService {
           AND NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')
           AND NOT EXISTS (
             SELECT 1 FROM memories m
-            WHERE m.source_id = re.source_id AND m.connector_type = re.connector_type
+            WHERE m.account_id = re.account_id
+              AND m.source_id = re.source_id
+              AND m.connector_type = re.connector_type
           )
         ORDER BY re.created_at ASC
         LIMIT 10000
