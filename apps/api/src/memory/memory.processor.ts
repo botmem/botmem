@@ -2,7 +2,7 @@ import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID, createHash } from 'crypto';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
@@ -493,6 +493,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       .from(memories)
       .where(
         and(
+          eq(memories.accountId, rawEvent.accountId),
           eq(memories.sourceId, event.sourceId),
           eq(memories.connectorType, rawEvent.connectorType),
         ),
@@ -517,10 +518,13 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     let selfContactId: string | null = null;
     const resolvedContacts: Array<{ contactId: string; role: string; name?: string }> = [];
     try {
+      const selfKeys = ownerUserId
+        ? [`selfContactId:${ownerUserId}`, `selfPersonId:${ownerUserId}`, 'selfContactId']
+        : ['selfContactId'];
       const selfRow = await this.dbService.db
         .select({ value: settings.value })
         .from(settings)
-        .where(eq(settings.key, 'selfContactId'))
+        .where(inArray(settings.key, selfKeys))
         .limit(1);
       selfContactId = selfRow[0]?.value || null;
 
@@ -1128,7 +1132,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             pipelineComplete: true,
             createdAt: now,
           })
-          .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] }),
+          .onConflictDoNothing({
+            target: [memories.accountId, memories.sourceId, memories.connectorType],
+          }),
       );
       // 10. Compute search_tokens from plaintext
       await this.dbService.withUserId(ownerUserId, (db) =>
@@ -1139,6 +1145,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             and(
               eq(memories.sourceId, event.sourceId),
               eq(memories.connectorType, rawEvent.connectorType),
+              eq(memories.accountId, rawEvent.accountId),
             ),
           ),
       );
@@ -1166,7 +1173,9 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           pipelineComplete: true,
           createdAt: now,
         })
-        .onConflictDoNothing({ target: [memories.sourceId, memories.connectorType] });
+        .onConflictDoNothing({
+          target: [memories.accountId, memories.sourceId, memories.connectorType],
+        });
       await this.dbService.db
         .update(memories)
         .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
@@ -1174,6 +1183,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           and(
             eq(memories.sourceId, event.sourceId),
             eq(memories.connectorType, rawEvent.connectorType),
+            eq(memories.accountId, rawEvent.accountId),
           ),
         );
     }
@@ -1186,6 +1196,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           and(
             eq(memories.sourceId, event.sourceId),
             eq(memories.connectorType, rawEvent.connectorType),
+            eq(memories.accountId, rawEvent.accountId),
           ),
         )
         .limit(1),

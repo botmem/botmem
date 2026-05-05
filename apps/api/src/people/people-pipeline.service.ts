@@ -140,7 +140,11 @@ export class PeoplePipelineService {
       .select({ id: memories.id })
       .from(memories)
       .where(
-        and(eq(memories.sourceId, raw.sourceId), eq(memories.connectorType, raw.connectorType)),
+        and(
+          eq(memories.accountId, raw.accountId),
+          eq(memories.sourceId, raw.sourceId),
+          eq(memories.connectorType, raw.connectorType),
+        ),
       )
       .limit(1);
 
@@ -182,12 +186,13 @@ export class PeoplePipelineService {
               ELSE 4
             END AS priority,
             row_number() OVER (
-              PARTITION BY re.connector_type, re.source_id
+              PARTITION BY re.account_id, re.connector_type, re.source_id
               ORDER BY re.created_at DESC, re.id ASC
             ) AS rn
           FROM raw_events re
           LEFT JOIN memories m
-            ON m.source_id = re.source_id
+            ON m.account_id = re.account_id
+           AND m.source_id = re.source_id
            AND m.connector_type = re.connector_type
           WHERE
             m.id IS NOT NULL

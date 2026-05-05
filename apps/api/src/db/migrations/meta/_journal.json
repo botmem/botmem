@@ -169,6 +169,13 @@
       "when": 1777903000000,
       "tag": "0028_dashboard_hot_path_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1777950000000,
+      "tag": "0029_scope_memory_dedupe_by_account",
+      "breakpoints": true
     }
   ]
 }
