@@ -176,6 +176,13 @@
       "when": 1777950000000,
       "tag": "0029_scope_memory_dedupe_by_account",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777951000000,
+      "tag": "0030_enforce_people_tenant_boundaries",
+      "breakpoints": true
     }
   ]
 }
