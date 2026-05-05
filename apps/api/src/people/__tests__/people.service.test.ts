@@ -300,6 +300,22 @@ describe('PeopleService runtime behavior', () => {
     expect(Array.isArray(suggestions)).toBe(true);
     expect(auto.merged).toBeGreaterThanOrEqual(0);
   });
+
+  it('does not auto-merge people by matching display names alone', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:Amr Essam')],
+      [identifierRow('i1', 'p1', 'email', 'enc:amr@example.com')],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'Amr Essam'),
+      identifiers: [],
+    });
+
+    const auto = await service.autoMerge('user-1');
+
+    expect(auto.merged).toBe(0);
+    expect(mergeSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('normalizeIdentifier', () => {

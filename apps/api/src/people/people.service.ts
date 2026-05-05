@@ -2609,84 +2609,26 @@ export class PeopleService {
   }
 
   /**
-   * Find all contacts with exactly the same displayName (case-insensitive) and
-   * merge them all into the one with the highest memory count (most recent if tied).
-   * Only runs when displayName is a real name (non-empty).
+   * Legacy no-op kept for callers that still invoke the old endpoint path.
+   * Person records must never be merged by display name alone; only durable
+   * identifiers such as email, phone, or platform ids are acceptable evidence.
    */
   async deduplicateByExactName(displayName: string, userId?: string): Promise<string | undefined> {
     const trimmed = displayName.trim();
-    if (!trimmed) return undefined;
-
-    const normalizedName = normalizeNameForMerge(trimmed);
-    if (
-      normalizedName.length < 2 ||
-      looksLikeIdentifierLabel(trimmed) ||
-      looksLikeGroupName(trimmed) ||
-      looksLikeCombinedPersonName(trimmed)
-    ) {
+    if (!trimmed || looksLikeIdentifierLabel(trimmed) || looksLikeCombinedPersonName(trimmed)) {
       return undefined;
     }
-
-    // Find all contacts with this exact display name (case-insensitive) via HMAC hash
-    const conditions: (SQLWrapper | undefined)[] = [
+    const conditions = [
       sql`${people.displayNameHash} = ${this.crypto.hmac(trimmed.toLowerCase())}`,
     ];
     if (userId) conditions.push(eq(people.userId, userId));
-
     const matches = await this.dbService.withCurrentUser((db) =>
       db
-        .select()
+        .select({ id: people.id })
         .from(people)
         .where(and(...conditions)),
     );
-
-    const eligibleMatches = matches.filter((contact) =>
-      isMergeSuggestionEligibleEntity(contact.entityType),
-    );
-    if (eligibleMatches.length < 2) return eligibleMatches[0]?.id;
-
-    // Pick winner: contact with most memoryPeople rows; break ties by most recent createdAt
-    const memCounts = await this.dbService.withCurrentUser((db) =>
-      db
-        .select({ personId: memoryPeople.personId, count: sql<number>`COUNT(*)` })
-        .from(memoryPeople)
-        .where(
-          inArray(
-            memoryPeople.personId,
-            eligibleMatches.map((c) => c.id),
-          ),
-        )
-        .groupBy(memoryPeople.personId),
-    );
-
-    const countMap = new Map<string, number>();
-    for (const row of memCounts) {
-      countMap.set(row.personId, Number(row.count));
-    }
-
-    eligibleMatches.sort((a, b) => {
-      const countDiff = (countMap.get(b.id) || 0) - (countMap.get(a.id) || 0);
-      if (countDiff !== 0) return countDiff;
-      // Most recent as tiebreaker
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-
-    const winner = eligibleMatches[0];
-    const losers = eligibleMatches.slice(1);
-
-    for (const loser of losers) {
-      try {
-        await this.mergePeople(winner.id, loser.id);
-        this.logger.log(`[deduplicateByExactName] merged ${loser.id} → ${winner.id}`);
-      } catch (err) {
-        // Concurrent merge may have already handled this — ignore
-        this.logger.warn(
-          `[deduplicateByExactName] merge failed for ${loser.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
-    return winner.id;
+    return matches[0]?.id;
   }
 
   /** Auto-merge duplicate people that share an exact normalized identifier. */
@@ -2754,59 +2696,6 @@ export class PeopleService {
       if (!first) continue;
       find(first);
       for (const id of rest) union(first, id);
-    }
-
-    const byExactDisplayName = new Map<string, string[]>();
-    for (const contact of allContacts) {
-      if (!hasBudget()) return result;
-      if (!isMergeSuggestionEligibleEntity(contact.entityType)) continue;
-      const displayName = this.crypto.decrypt(contact.displayName) ?? contact.displayName;
-      if (looksLikeGroupName(displayName)) continue;
-      const normalizedName = normalizeNameForMerge(displayName).join(' ');
-      if (!normalizedName) continue;
-      const ids = byExactDisplayName.get(normalizedName) ?? [];
-      ids.push(contact.id);
-      byExactDisplayName.set(normalizedName, ids);
-    }
-    for (const ids of byExactDisplayName.values()) {
-      const [first, ...rest] = ids;
-      if (!first || rest.length === 0) continue;
-      find(first);
-      for (const id of rest) union(first, id);
-    }
-
-    const directNamePairKeys = new Set<string>();
-    const directNameBuckets = new Map<string, typeof allContacts>();
-    for (const contact of allContacts) {
-      if (!hasBudget()) return result;
-      if (!isMergeSuggestionEligibleEntity(contact.entityType)) continue;
-      const displayName = this.crypto.decrypt(contact.displayName) ?? contact.displayName;
-      const tokens = normalizeNameForMerge(displayName);
-      if (tokens.length === 0 || looksLikeIdentifierLabel(displayName)) continue;
-      for (const token of new Set(tokens)) {
-        if (token.length < 3 || GENERIC_NAMES.has(token)) continue;
-        const bucket = directNameBuckets.get(token) ?? [];
-        bucket.push(contact);
-        directNameBuckets.set(token, bucket);
-      }
-    }
-    for (const bucket of directNameBuckets.values()) {
-      if (!hasBudget()) return result;
-      if (bucket.length < 2 || bucket.length > 100) continue;
-      for (let i = 0; i < bucket.length; i++) {
-        if (!hasBudget()) return result;
-        for (let j = i + 1; j < bucket.length; j++) {
-          if (!hasBudget()) return result;
-          const pairKey = [bucket[i].id, bucket[j].id].sort().join('::');
-          if (directNamePairKeys.has(pairKey)) continue;
-          directNamePairKeys.add(pairKey);
-          const nameA = this.crypto.decrypt(bucket[i].displayName) ?? bucket[i].displayName;
-          const nameB = this.crypto.decrypt(bucket[j].displayName) ?? bucket[j].displayName;
-          if (isDirectNameAutoMergeEligible(nameA, nameB)) {
-            union(bucket[i].id, bucket[j].id);
-          }
-        }
-      }
     }
 
     const identifierComponents = new Map<string, string[]>();
