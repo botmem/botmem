@@ -6,7 +6,7 @@
     <Network>bridge</Network>
     <Shell>sh</Shell>
     <Privileged>false</Privileged>
-    <Support>https://github.com/botmem/botmem/issues</Support>
+    <Support>https://forums.unraid.net/topic/198623-support-botmem-personal-memory-rag-system/</Support>
     <Project>https://github.com/botmem/botmem</Project>
     <Overview>Personal memory system that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Local-first, privacy-focused: your data stays on your server.[br][br]Requires PostgreSQL 16 with pgvector and Redis 7. The companion compose in the Botmem repo exposes PostgreSQL on host port 15432 and Redis on host port 16379, which match this template's defaults.[br][br]AI processing can use local Ollama, Google Gemini, or OpenRouter. Ollama is optional if you configure a cloud backend instead.[br][br][b]Quick start:[/b] Start the companion dependency stack or point DATABASE_URL and REDIS_URL at your existing services, choose an AI backend, generate the required secrets, then open the WebUI and create your first local user. Queue workers run inside the Botmem container for self-hosted installs.</Overview>
     <Category>Productivity: Tools:Utilities</Category>
