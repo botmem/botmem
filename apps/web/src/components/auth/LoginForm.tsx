@@ -5,7 +5,7 @@ import { Button } from '../ui/Button';
 import { useAuth } from '../../hooks/useAuth';
 import { useAuthStore, isFirebaseMode } from '../../store/authStore';
 
-export function LoginForm() {
+export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,7 @@ export function LoginForm() {
     try {
       await login(email, password);
       const user = useAuthStore.getState().user;
-      navigate(user?.onboarded ? '/dashboard' : '/onboarding');
+      navigate(redirectTo || (user?.onboarded ? '/dashboard' : '/onboarding'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

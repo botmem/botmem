@@ -1,5 +1,5 @@
 import { LoginForm } from '../components/auth/LoginForm';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { Logo } from '../components/ui/Logo';
@@ -15,8 +15,16 @@ export function LoginPage() {
   });
 
   const { user, isLoading } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedRedirect = searchParams.get('redirect') || '';
+  const redirectTo =
+    requestedRedirect.startsWith('/') && !requestedRedirect.startsWith('//')
+      ? requestedRedirect
+      : '';
+
   if (isLoading) return <LoadingScreen />;
-  if (user) return <Navigate to={user.onboarded ? '/dashboard' : '/onboarding'} replace />;
+  if (user)
+    return <Navigate to={redirectTo || (user.onboarded ? '/dashboard' : '/onboarding')} replace />;
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row">
@@ -27,7 +35,7 @@ export function LoginPage() {
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6 md:p-8 bg-nb-surface">
-        <LoginForm />
+        <LoginForm redirectTo={redirectTo || undefined} />
       </div>
 
       <div className="hidden md:flex flex-1 bg-nb-bg text-nb-text items-center justify-center p-8 border-l-4 border-nb-border">
