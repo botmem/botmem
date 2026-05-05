@@ -1907,47 +1907,6 @@ export class PeopleService {
       for (const id of rest) union(first, id);
     }
 
-    const byExactDisplayName = new Map<string, string[]>();
-    for (const contact of allContacts) {
-      const normalizedName = normalizeNameForMerge(contact.displayName).join(' ');
-      if (!normalizedName) continue;
-      const ids = byExactDisplayName.get(normalizedName) ?? [];
-      ids.push(contact.id);
-      byExactDisplayName.set(normalizedName, ids);
-    }
-    for (const ids of byExactDisplayName.values()) {
-      const [first, ...rest] = ids;
-      if (!first || rest.length === 0) continue;
-      find(first);
-      for (const id of rest) union(first, id);
-    }
-
-    const directNamePairKeys = new Set<string>();
-    const directNameBuckets = new Map<string, typeof allContacts>();
-    for (const contact of allContacts) {
-      const tokens = normalizeNameForMerge(contact.displayName);
-      if (tokens.length === 0 || looksLikeIdentifierLabel(contact.displayName)) continue;
-      for (const token of new Set(tokens)) {
-        if (token.length < 3 || GENERIC_NAMES.has(token)) continue;
-        const bucket = directNameBuckets.get(token) ?? [];
-        bucket.push(contact);
-        directNameBuckets.set(token, bucket);
-      }
-    }
-    for (const bucket of directNameBuckets.values()) {
-      if (bucket.length < 2 || bucket.length > 100) continue;
-      for (let i = 0; i < bucket.length; i++) {
-        for (let j = i + 1; j < bucket.length; j++) {
-          const pairKey = [bucket[i].id, bucket[j].id].sort().join('::');
-          if (directNamePairKeys.has(pairKey)) continue;
-          directNamePairKeys.add(pairKey);
-          if (isDirectNameAutoMergeEligible(bucket[i].displayName, bucket[j].displayName)) {
-            union(bucket[i].id, bucket[j].id);
-          }
-        }
-      }
-    }
-
     const exactIdentifierComponents = new Map<string, string[]>();
     for (const id of contactById.keys()) {
       if (!parent.has(id)) continue;

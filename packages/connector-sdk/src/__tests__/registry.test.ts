@@ -22,11 +22,19 @@ class TestConnector extends BaseConnector {
     };
   }
 
-  async initiateAuth(): Promise<AuthInitResult> { return { type: 'complete', auth: {} }; }
-  async completeAuth(): Promise<AuthContext> { return {}; }
-  async validateAuth(): Promise<boolean> { return true; }
+  async initiateAuth(): Promise<AuthInitResult> {
+    return { type: 'complete', auth: {} };
+  }
+  async completeAuth(): Promise<AuthContext> {
+    return {};
+  }
+  async validateAuth(): Promise<boolean> {
+    return true;
+  }
   async revokeAuth(): Promise<void> {}
-  async sync(): Promise<SyncResult> { return { cursor: null, hasMore: false, processed: 0 }; }
+  async sync(): Promise<SyncResult> {
+    return { cursor: null, hasMore: false, processed: 0 };
+  }
 }
 
 describe('ConnectorRegistry', () => {
@@ -43,9 +51,21 @@ describe('ConnectorRegistry', () => {
     expect(connector.manifest.id).toBe('test');
   });
 
+  it('creates isolated connector instances from the registered factory', () => {
+    const registry = new ConnectorRegistry();
+    registry.register(() => new TestConnector('test', 'Test'));
+    const first = registry.create('test');
+    const second = registry.create('test');
+    expect(first.manifest.id).toBe('test');
+    expect(second.manifest.id).toBe('test');
+    expect(first).not.toBe(second);
+    expect(first).not.toBe(registry.get('test'));
+  });
+
   it('throws for unknown connector', () => {
     const registry = new ConnectorRegistry();
     expect(() => registry.get('nonexistent')).toThrow('Connector "nonexistent" not found');
+    expect(() => registry.create('nonexistent')).toThrow('Connector "nonexistent" not found');
   });
 
   it('has returns false for unknown', () => {

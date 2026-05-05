@@ -14,14 +14,18 @@ import { CryptoService } from '../crypto/crypto.service';
 import { accounts, people, personIdentifiers } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
-import { BaseConnector } from '@botmem/connector-sdk';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
 import { Traced } from '../tracing/traced.decorator';
 import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
 import { ConnectorSyncPolicyService } from '../connectors/connector-sync-policy.service';
-import type { SyncContext, ConnectorLogger, ConnectorDataEvent } from '@botmem/connector-sdk';
+import {
+  BaseConnector,
+  type SyncContext,
+  type ConnectorLogger,
+  type ConnectorDataEvent,
+} from '@botmem/connector-sdk';
 
 @Processor('sync')
 export class SyncProcessor extends WorkerHost implements OnModuleInit {
@@ -159,7 +163,13 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     let { jobId } = job.data;
     const currentTrace = this.traceContext.current()!;
     const syncStartTime = Date.now();
-    const connector = this.connectors.get(connectorType);
+    const connectorFactory = this.connectors as ConnectorsService & {
+      create?: (id: string) => BaseConnector;
+    };
+    const connector =
+      typeof connectorFactory.create === 'function'
+        ? connectorFactory.create(connectorType)
+        : this.connectors.get(connectorType);
     let account = await this.accountsService.getById(accountId);
 
     if (job.data.scheduled || !jobId) {

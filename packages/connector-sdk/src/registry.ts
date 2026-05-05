@@ -5,10 +5,12 @@ import type { ConnectorManifest } from './types.js';
 
 export class ConnectorRegistry {
   private connectors = new Map<string, BaseConnector>();
+  private factories = new Map<string, () => BaseConnector>();
 
   register(factory: () => BaseConnector): void {
     const connector = factory();
     this.connectors.set(connector.manifest.id, connector);
+    this.factories.set(connector.manifest.id, factory);
   }
 
   get(id: string): BaseConnector {
@@ -19,6 +21,12 @@ export class ConnectorRegistry {
 
   has(id: string): boolean {
     return this.connectors.has(id);
+  }
+
+  create(id: string): BaseConnector {
+    const factory = this.factories.get(id);
+    if (!factory) throw new Error(`Connector "${id}" not found`);
+    return factory();
   }
 
   list(): ConnectorManifest[] {
