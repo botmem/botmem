@@ -14,6 +14,7 @@ import {
   looksLikeIdentifierLabel,
   looksLikeCombinedPersonName,
   isDirectNameAutoMergeEligible,
+  exactMultiWordNameAutoMergeKey,
   shouldUpdateDisplayName,
   hasDurablePersonIdentifier,
   isCompatiblePersonAlias,
@@ -301,7 +302,27 @@ describe('PeopleService runtime behavior', () => {
     expect(auto.merged).toBeGreaterThanOrEqual(0);
   });
 
-  it('does not auto-merge people by matching display names alone', async () => {
+  it('auto-merges exact multi-word display names when both people have durable identifiers', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:AMR ESSAM')],
+      [
+        identifierRow('i1', 'p1', 'email', 'enc:amr@example.com'),
+        identifierRow('i2', 'p2', 'photos_person_id', 'enc:photo-person-1'),
+      ],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'Amr Essam'),
+      identifiers: [],
+    });
+
+    const auto = await service.autoMerge('user-1');
+
+    expect(auto.merged).toBe(1);
+    expect(auto.byRule.exactMultiWordName).toBe(1);
+    expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
+  });
+
+  it('does not auto-merge people by matching display names unless both sides have identifiers', async () => {
     const { service } = makeDb([
       [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:Amr Essam')],
       [identifierRow('i1', 'p1', 'email', 'enc:amr@example.com')],
@@ -315,6 +336,27 @@ describe('PeopleService runtime behavior', () => {
 
     expect(auto.merged).toBe(0);
     expect(mergeSpy).not.toHaveBeenCalled();
+  });
+
+  it('auto-merges exact multi-word names during suggestion loading before suggesting fuzzy pairs', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Amelie Complainville'), personRow('p2', 'enc:AMELIE COMPLAINVILLE')],
+      [
+        identifierRow('i1', 'p1', 'email', 'enc:amelie@example.com'),
+        identifierRow('i2', 'p2', 'photos_person_id', 'enc:photo-person-2'),
+      ],
+      [],
+      [],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'Amelie Complainville'),
+      identifiers: [],
+    });
+
+    const suggestions = await service.getSuggestions('user-1');
+
+    expect(suggestions).toHaveLength(0);
+    expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
   });
 });
 
@@ -617,21 +659,32 @@ describe('isExactIdentifierAutoMergeEligible', () => {
 });
 
 describe('isDirectNameAutoMergeEligible', () => {
-  it('auto-merges exact normalized names, including single-token direct duplicates', () => {
-    expect(isDirectNameAutoMergeEligible('JACK', 'jack')).toBe(true);
-    expect(isDirectNameAutoMergeEligible('Noman', 'NOMAN')).toBe(true);
+  it('auto-merges exact normalized multi-word names only', () => {
+    expect(isDirectNameAutoMergeEligible('Amr Essam', 'AMR ESSAM')).toBe(true);
+    expect(isDirectNameAutoMergeEligible('Amélie Complainville', 'amelie complainville')).toBe(
+      true,
+    );
+    expect(exactMultiWordNameAutoMergeKey('Amr Essam')).toBe('amr essam');
   });
 
-  it('auto-merges direct first/surname typo variants', () => {
-    expect(isDirectNameAutoMergeEligible('Eugenie Gerard', 'Eugenie Gerrard')).toBe(true);
-    expect(isDirectNameAutoMergeEligible('Hisham Issa', 'Hisham Isa')).toBe(true);
+  it('does not auto-merge single-token direct duplicates', () => {
+    expect(isDirectNameAutoMergeEligible('JACK', 'jack')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('Noman', 'NOMAN')).toBe(false);
   });
 
-  it('auto-merges direct middle-name expansions with the same first and surname', () => {
-    expect(isDirectNameAutoMergeEligible('Oana Fayyad', 'OANA AMIRA FAYYAD')).toBe(true);
-    expect(isDirectNameAutoMergeEligible('Reem bin Amer', 'Reem H. Bin Amer')).toBe(true);
-    expect(isDirectNameAutoMergeEligible('Nasser Resheed Asslimy', 'Nasser R. Asslimy')).toBe(true);
-    expect(isDirectNameAutoMergeEligible('Captain Rana Irfan', 'Rana Irfan')).toBe(true);
+  it('does not auto-merge fuzzy typo variants', () => {
+    expect(isDirectNameAutoMergeEligible('Eugenie Gerard', 'Eugenie Gerrard')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('Hisham Issa', 'Hisham Isa')).toBe(false);
+  });
+
+  it('does not auto-merge middle-name expansions or reordered names', () => {
+    expect(isDirectNameAutoMergeEligible('Oana Fayyad', 'OANA AMIRA FAYYAD')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('Reem bin Amer', 'Reem H. Bin Amer')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('Nasser Resheed Asslimy', 'Nasser R. Asslimy')).toBe(
+      false,
+    );
+    expect(isDirectNameAutoMergeEligible('Captain Rana Irfan', 'Rana Irfan')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('Essam Amr', 'Amr Essam')).toBe(false);
   });
 
   it('does not auto-merge prefix-only or combined-person names', () => {
@@ -701,7 +754,8 @@ describe('isCompatiblePersonAlias', () => {
     expect(isCompatiblePersonAlias('Unknown', 'Mohammed Aziz')).toBe(true);
     expect(isCompatiblePersonAlias('+16282448544', 'Mohammed Aziz')).toBe(true);
     expect(isCompatiblePersonAlias('Amr', 'Amr Essam')).toBe(true);
-    expect(isCompatiblePersonAlias('Eugenie Gerard', 'Eugenie Gerrard')).toBe(true);
+    expect(isCompatiblePersonAlias('Eugenie Gerard', 'Eugenie Gerard')).toBe(true);
+    expect(isCompatiblePersonAlias('Eugenie Gerard', 'Eugenie Gerrard')).toBe(false);
   });
 
   it('rejects identifier-shaped aliases for established people', () => {
