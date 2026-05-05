@@ -6,11 +6,11 @@ import { DbModule } from './db/db.module';
 import { ConnectorsModule } from './connectors/connectors.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { AuthModule } from './auth/auth.module';
-import { JobsModule } from './jobs/jobs.module';
+import { JobsModule, JobsWorkerModule } from './jobs/jobs.module';
 import { LogsModule } from './logs/logs.module';
 import { EventsModule } from './events/events.module';
 import { PluginsModule } from './plugins/plugins.module';
-import { MemoryModule } from './memory/memory.module';
+import { MemoryModule, MemoryWorkerModule } from './memory/memory.module';
 import { PeopleModule } from './people/people.module';
 import { SettingsModule } from './settings/settings.module';
 import { AgentModule } from './agent/agent.module';
@@ -38,6 +38,9 @@ import { TracingModule } from './tracing/tracing.module';
 import { GeoModule } from './geo/geo.module';
 import { ImsgTunnelModule } from './imsg-tunnel/imsg-tunnel.module';
 import { StartupTasksService } from './startup/startup-tasks.service';
+import { ConnectorRuntimeModule } from './plugins/connector-runtime.module';
+
+const enableApiWorkers = process.env.BOTMEM_ENABLE_API_WORKERS === 'true';
 
 @Module({
   controllers: [VersionController, HealthController],
@@ -77,6 +80,7 @@ import { StartupTasksService } from './startup/startup-tasks.service';
     DemoModule,
     GeoModule,
     ImsgTunnelModule,
+    ...(enableApiWorkers ? [JobsWorkerModule, MemoryWorkerModule, ConnectorRuntimeModule] : []),
   ],
   providers: [
     {

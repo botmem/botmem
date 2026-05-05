@@ -13,3 +13,5 @@ Planned improvement:
 - Keep `memory_concurrency` conservative on API-facing processes and high only on worker processes.
 
 This would let bulk memory rebuilds saturate Gemini safely without making `botmem.xyz` slow to load.
+
+Self-hosted installs should keep the default single Botmem container for now. `BOTMEM_ENABLE_API_WORKERS=true` is intentional there because the iMessage bridge websocket tunnel lives in the API process; a separate worker cannot see that in-memory tunnel without a Redis-backed tunnel router or another cross-process handoff.
