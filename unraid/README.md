@@ -4,19 +4,18 @@ Template and supporting files for publishing Botmem to [Unraid Community Applica
 
 ## Files
 
-| File                        | Purpose                                                         |
-| --------------------------- | --------------------------------------------------------------- |
-| `botmem.xml`                | Unraid CA Docker template (the main listing)                    |
-| `docker-compose.unraid.yml` | Companion stack for dependencies (PostgreSQL + pgvector, Redis) |
-| `botmem-icon.png`           | App icon (TODO: create 512x512 PNG)                             |
+| File                        | Purpose                                      |
+| --------------------------- | -------------------------------------------- |
+| `botmem.xml`                | Unraid CA Docker template (the main listing) |
+| `docker-compose.unraid.yml` | Companion stack for PostgreSQL and Redis     |
+| `botmem-icon.png`           | App icon used by the template                |
 
 ## Publishing Checklist
 
 ### Prerequisites
 
-- [ ] **Icon**: Create a 512x512 PNG icon, host at `https://raw.githubusercontent.com/botmem/unraid-templates/main/botmem/botmem-icon.png`
-- [ ] **Template repo**: Create `botmem/unraid-templates` GitHub repo with `botmem/botmem.xml` and the icon
-- [ ] **Update TemplateURL** in `botmem.xml` to point to the raw GitHub URL
+- [x] **Icon**: Commit a PNG icon and host it at `https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem-icon.png`
+- [x] **TemplateURL** points to `https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem.xml`
 
 ### Submission Steps
 
@@ -25,28 +24,69 @@ Template and supporting files for publishing Botmem to [Unraid Community Applica
    - Include: description, install instructions, known issues, screenshots
 2. [ ] **Update `<Support>` URL** in `botmem.xml` with the forum thread URL
 3. [ ] **Submit via [CA submission form](https://form.asana.com/?k=qtIUrf5ydiXvXzPI57BiJw&d=714739274360802)**
-   - Provide: template repo URL, forum thread URL, Docker image URL
+   - Provide: Botmem repo URL, forum thread URL, Docker image URL
 4. [ ] **Wait for moderation review** (~48 hours)
 
-### Template Repo Structure
+### Template Location
 
-The `botmem/unraid-templates` repo should look like:
+The template is kept in the main Botmem repo:
 
 ```
-botmem/
-  botmem.xml          # Docker template
-  botmem-icon.png     # 512x512 app icon
-README.md
+unraid/
+  botmem.xml
+  botmem-icon.png
+  docker-compose.unraid.yml
+  README.md
 ```
+
+### Dependency Stack
+
+If the user does not already have PostgreSQL 16 with pgvector and Redis 7, run the companion stack. For self-hosted installs, the Botmem API container runs sync and memory queue workers itself with `BOTMEM_ENABLE_API_WORKERS=true`.
+
+```bash
+mkdir -p /mnt/user/appdata/botmem
+cp docker-compose.unraid.yml /mnt/user/appdata/botmem/docker-compose.unraid.yml
+cd /mnt/user/appdata/botmem
+POSTGRES_PASSWORD="$(openssl rand -base64 36)" docker compose -f docker-compose.unraid.yml up -d
+mkdir -p /mnt/user/appdata/botmem/data /mnt/user/appdata/botmem/plugins
+chown -R 1000:1000 /mnt/user/appdata/botmem/data /mnt/user/appdata/botmem/plugins
+```
+
+The compose file exposes dependencies on non-conflicting host ports:
+
+- PostgreSQL: `host.docker.internal:15432`
+- Redis: `host.docker.internal:16379`
+
+Those ports match the defaults in `botmem.xml`.
 
 ### Testing on Unraid
 
 Before submitting, test the template on your own Unraid server:
 
-1. Add the template repo URL in Unraid: Settings > Docker > Template Repositories
-2. Install from Apps tab — search for "botmem"
-3. Verify all config fields render correctly
-4. Confirm the container starts and the WebUI is accessible
+1. Copy or publish `botmem.xml` so Unraid can read it.
+   - Local test path: `/boot/config/plugins/dockerMan/templates-user/my-botmem.xml`
+   - Repository test path: Settings > Docker > Template Repositories
+2. Install from Apps/Docker tab and verify all config fields render correctly.
+3. Generate required secrets with `openssl rand -base64 48` and set:
+   - `APP_SECRET`
+   - `JWT_ACCESS_SECRET`
+   - `JWT_REFRESH_SECRET`
+   - `OAUTH_JWT_SECRET`
+   - `ENCRYPTION_SALT`
+4. Confirm the container starts and the WebUI is accessible at `http://<unraid-ip>:12412`.
+5. Confirm `BOTMEM_ENABLE_API_WORKERS=true` is set in the Botmem container.
+6. Create a local test user in the WebUI.
+7. Connect an iMessage account with the bridge setup flow, then sync with:
+
+```bash
+botmem config set-host http://<unraid-ip>:12412
+botmem login
+botmem accounts --toon
+botmem sync <imessage-account-id>
+botmem search "imessage" --connector imessage --limit 5 --toon
+```
+
+The validation is only complete when the sync job finishes, iMessage memories are visible in the dashboard, contacts are resolved, and `botmem search` returns the ingested messages.
 
 ### Env Vars for Unraid Users
 
@@ -54,9 +94,24 @@ Users need to configure at minimum:
 
 - `DATABASE_URL` — PostgreSQL connection string
 - `REDIS_URL` — Redis connection string
-- `DATABASE_URL` + `` — PostgreSQL search index search
 - `APP_SECRET` — encryption key (generate with `openssl rand -base64 48`)
 - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — JWT signing keys
-- `OLLAMA_BASE_URL` — Ollama endpoint (if using local AI)
+- `OAUTH_JWT_SECRET` — connector OAuth state signing key
+- `ENCRYPTION_SALT` — deployment-specific encryption salt
+- `BOTMEM_ENABLE_API_WORKERS=true` — runs queue workers inside the app container for self-hosted installs
+- One AI backend:
+  - Ollama: set `AI_BACKEND=ollama` and `OLLAMA_BASE_URL`
+  - Gemini: set `AI_BACKEND=gemini` and `GEMINI_API_KEY`
+  - OpenRouter: set `AI_BACKEND=openrouter` and `OPENROUTER_API_KEY`
 
-The template defaults use `host.docker.internal` which resolves to the Unraid host, making it easy to point to other containers running on the same server.
+The template adds `--add-host=host.docker.internal:host-gateway`, so `host.docker.internal` resolves to the Unraid host from the Botmem container. This makes it easy to point Botmem at dependency containers exposed on host ports.
+
+### Sensible Defaults
+
+- Data persists under `/mnt/user/appdata/botmem/data` and is mounted to `/app/data`, matching the Docker image runtime.
+- The Botmem image runs as user `node` (`uid 1000`), so `/mnt/user/appdata/botmem/data` and `/mnt/user/appdata/botmem/plugins` must be writable/readable by uid `1000`.
+- Plugins mount read-only from `/mnt/user/appdata/botmem/plugins` to `/plugins`, with `PLUGINS_DIR=/plugins`.
+- `AUTH_PROVIDER=local` for self-hosted installs.
+- `BOTMEM_ENABLE_API_WORKERS=true` so connector sync and memory processing run in the same Botmem app container.
+- `AI_BACKEND=ollama` by default, matching a common Unraid local-AI setup, but Ollama is optional. Set `AI_BACKEND=gemini` or `AI_BACKEND=openrouter` and provide the matching API key if you do not run Ollama.
+- Gemini and OpenRouter fields are present as advanced alternatives.

@@ -5,11 +5,10 @@ import { test, expect } from '@playwright/test';
 import { registerUser, loginViaUI, uniqueEmail, submitRecoveryKey } from './helpers';
 
 test.describe('Landing & Auth Pages', () => {
-  test('UI-001: Landing page renders without auth', async ({ page }) => {
+  test('UI-001: App-first root renders signup without auth in local mode', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/botmem/i);
-    // Landing page should be visible for unauthenticated users
-    await expect(page.locator('nav')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /create account/i })).toBeVisible();
   });
 
   test('UI-002: Landing page hero video is device-aware', async ({ page }) => {
@@ -22,15 +21,13 @@ test.describe('Landing & Auth Pages', () => {
     }
   });
 
-  test('UI-003: Landing page nav links work (login, signup, pricing)', async ({ page }) => {
+  test('UI-003: Root signup links to login in local mode', async ({ page }) => {
     await page.goto('/');
-    // Check signup link
-    const signupLink = page.getByRole('link', { name: /sign\s*up|get\s*started/i }).first();
-    await expect(signupLink).toBeVisible();
+    const loginLink = page.getByRole('link', { name: /sign\s*in/i }).first();
+    await expect(loginLink).toBeVisible();
 
-    // Check navigation works
-    await signupLink.click();
-    await expect(page).toHaveURL(/\/signup/);
+    await loginLink.click();
+    await expect(page).toHaveURL(/\/login/);
   });
 
   test('UI-004: Login page — email + password form renders', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, lazy, Suspense, type ReactNode } from 'react';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { useAuth } from './hooks/useAuth';
 import { useAuthStore } from './store/authStore';
 import { posthog, identifyUser } from './lib/posthog';
 import { api } from './lib/api';
+import { isFirebaseMode } from './lib/auth-provider';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })));
@@ -111,8 +112,9 @@ function ScrollToTop() {
 function LandingOrApp() {
   const { user, isLoading } = useAuth();
 
-  // Show landing page immediately while auth loads — no loading screen for visitors
-  if (isLoading || !user) return <LandingPage />;
+  // Hosted Firebase uses the public marketing surface. Self-hosted/local installs are app-first.
+  if (isLoading) return isFirebaseMode ? <LandingPage /> : <LoadingScreen />;
+  if (!user) return isFirebaseMode ? <LandingPage /> : <SignupPage />;
   if (!user.onboarded) return <Navigate to="/onboarding" replace />;
   return (
     <>
@@ -124,6 +126,8 @@ function LandingOrApp() {
 
 /** Shared route tree — used by both client (BrowserRouter) and SSR (StaticRouter) */
 export function AppRoutes() {
+  const publicMarketingPage = (page: ReactNode) => (isFirebaseMode ? page : <SignupPage />);
+
   return (
     <>
       <AuthInitializer />
@@ -137,11 +141,11 @@ export function AppRoutes() {
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/landing" element={<LandingPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-            <Route path="/data-policy" element={<DataPolicyPage />} />
+            <Route path="/landing" element={publicMarketingPage(<LandingPage />)} />
+            <Route path="/pricing" element={publicMarketingPage(<PricingPage />)} />
+            <Route path="/privacy" element={publicMarketingPage(<PrivacyPage />)} />
+            <Route path="/terms" element={publicMarketingPage(<TermsPage />)} />
+            <Route path="/data-policy" element={publicMarketingPage(<DataPolicyPage />)} />
             <Route path="/oauth/consent" element={<OAuthConsentPage />} />
             <Route path="/cli-login" element={<CliLoginPage />} />
             <Route
