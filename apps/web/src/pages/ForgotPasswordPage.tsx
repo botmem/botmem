@@ -4,8 +4,15 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 export function ForgotPasswordPage() {
+  usePageMeta({
+    title: 'Forgot Password',
+    description: 'Reset access to your Botmem personal memory account.',
+    robots: 'noindex, nofollow',
+  });
+
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);

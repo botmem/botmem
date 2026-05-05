@@ -4,8 +4,15 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 export function ResetPasswordPage() {
+  usePageMeta({
+    title: 'Reset Password',
+    description: 'Set a new password for your Botmem personal memory account.',
+    robots: 'noindex, nofollow',
+  });
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [token] = useState(() => searchParams.get('token') || '');

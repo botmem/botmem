@@ -11,6 +11,7 @@ export function SignupPage() {
     title: 'Sign Up — Create Your Personal Memory',
     description:
       'Create a free Botmem account. Connect Gmail, Slack, WhatsApp, iMessage, photos, and locations into one searchable AI-powered personal memory. Open source, self-hosted, privacy-first.',
+    robots: 'noindex, nofollow',
   });
 
   const { user, isLoading } = useAuth();
