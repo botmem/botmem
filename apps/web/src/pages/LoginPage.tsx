@@ -11,6 +11,7 @@ export function LoginPage() {
     title: 'Sign In — Access Your Personal Memory',
     description:
       'Log in to your Botmem personal memory dashboard. Search across Gmail, Slack, WhatsApp, iMessage, photos, and locations in one place.',
+    robots: 'noindex, nofollow',
   });
 
   const { user, isLoading } = useAuth();

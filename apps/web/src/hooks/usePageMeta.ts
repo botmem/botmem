@@ -6,6 +6,7 @@ interface PageMeta {
   canonical?: string;
   ogTitle?: string;
   ogDescription?: string;
+  robots?: string;
 }
 
 const BASE_URL = 'https://botmem.xyz';
@@ -31,7 +32,14 @@ function setCanonical(href: string) {
   el.href = href;
 }
 
-export function usePageMeta({ title, description, canonical, ogTitle, ogDescription }: PageMeta) {
+export function usePageMeta({
+  title,
+  description,
+  canonical,
+  ogTitle,
+  ogDescription,
+  robots = 'index, follow',
+}: PageMeta) {
   useEffect(() => {
     const prevTitle = document.title;
 
@@ -43,9 +51,10 @@ export function usePageMeta({ title, description, canonical, ogTitle, ogDescript
     setMeta('og:url', canonical ?? `${BASE_URL}${window.location.pathname}`, 'property');
     setMeta('twitter:title', ogTitle ?? title, 'name');
     setMeta('twitter:description', ogDescription ?? description, 'name');
+    setMeta('robots', robots);
 
     return () => {
       document.title = prevTitle;
     };
-  }, [title, description, canonical, ogTitle, ogDescription]);
+  }, [title, description, canonical, ogTitle, ogDescription, robots]);
 }
