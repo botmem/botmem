@@ -271,6 +271,74 @@ describe('SyncProcessor', () => {
     );
   });
 
+  it('fails sync when raw event enqueue fails after insert', async () => {
+    const {
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+      mockConnector,
+    } = createMockDeps();
+    (memoryQueue.add as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('redis unavailable'),
+    );
+    mockConnector.sync.mockImplementation(async () => {
+      mockConnector.emit('data', {
+        sourceType: 'message',
+        sourceId: 'msg-1',
+        timestamp: new Date().toISOString(),
+        content: { text: 'hello' },
+      });
+      return { cursor: null, hasMore: false, processed: 1 };
+    });
+
+    const processor = new SyncProcessor(
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+    );
+
+    await expect(
+      processor.process({
+        data: { accountId: 'acc-1', connectorType: 'gmail', jobId: 'j1' },
+        opts: { attempts: 1 },
+        attemptsMade: 0,
+      } as unknown as import('bullmq').Job),
+    ).rejects.toThrow('redis unavailable');
+
+    expect(jobsService.updateJob).toHaveBeenCalledWith(
+      'j1',
+      expect.objectContaining({ status: 'failed', error: 'redis unavailable' }),
+    );
+    expect(logsService.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: 'error',
+        message: expect.stringContaining('Failed to persist/enqueue event msg-1'),
+      }),
+    );
+  });
+
   it('passes known owner phone numbers to WhatsApp connector sync', async () => {
     const {
       connectors,

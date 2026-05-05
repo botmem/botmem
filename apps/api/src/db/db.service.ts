@@ -234,6 +234,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DbService.name);
   public db!: NodePgDatabase<typeof schema>;
   private pool!: Pool;
+  private poolEnded = false;
 
   constructor(
     private config: ConfigService,
@@ -247,6 +248,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 30000,
     });
+    this.poolEnded = false;
 
     this.db = drizzle(this.pool, { schema });
 
@@ -258,6 +260,8 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    if (this.poolEnded || !this.pool) return;
+    this.poolEnded = true;
     await this.pool.end();
   }
 
