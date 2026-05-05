@@ -1124,7 +1124,7 @@ export class PeopleService {
     );
     const total = countResult[0].count;
 
-    // Get selfPersonId to pin it first (per-user key, then global fallback)
+    // Get selfPersonId to pin it first. Self identity is scoped per user.
     let selfPersonId = '';
     if (params.userId) {
       const perUserRow = await this.dbService.withCurrentUser((db) =>
@@ -1140,16 +1140,6 @@ export class PeopleService {
           .limit(1),
       );
       selfPersonId = perUserRow[0]?.value || '';
-    }
-    if (!selfPersonId) {
-      const globalRow = await this.dbService.withCurrentUser((db) =>
-        db
-          .select({ value: settings.value })
-          .from(settings)
-          .where(inArray(settings.key, ['selfPersonId', 'selfContactId']))
-          .limit(1),
-      );
-      selfPersonId = globalRow[0]?.value || '';
     }
 
     // Paginate: self-contact first, then by cached memory count desc
