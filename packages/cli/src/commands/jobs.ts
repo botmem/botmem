@@ -55,19 +55,21 @@ export async function runAccounts(client: BotmemClient, json: boolean) {
 
 export async function runPipeline(client: BotmemClient, args: string[], json: boolean) {
   const sub = args[0] || 'debt';
-  let limit: number | undefined;
   let connectorType: string | undefined;
   let sourceType: string | undefined;
   for (let i = 1; i < args.length; i++) {
-    if (args[i] === '--limit') limit = parseInt(args[++i], 10);
     if (args[i] === '--connector') connectorType = args[++i];
     if (args[i] === '--source') sourceType = args[++i];
   }
 
   if (sub === 'repair') {
-    const result = await client.repairRawEventDebt({ limit, connectorType, sourceType });
+    const result = {
+      error:
+        'raw-event repair has been removed; quota-blocked events resume automatically on upgrade',
+    };
     if (json) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Re-enqueued ${result.enqueued} raw event(s).`);
+    else console.error(result.error);
+    process.exitCode = 1;
     return;
   }
 

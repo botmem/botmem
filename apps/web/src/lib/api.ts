@@ -555,24 +555,6 @@ export const api = {
       { method: 'POST' },
     ),
 
-  repairRawEventDebt: (params?: {
-    limit?: number;
-    connectorType?: string;
-    sourceType?: string;
-  }) => {
-    const query = new URLSearchParams();
-    if (params?.limit) query.set('limit', String(params.limit));
-    if (params?.connectorType) query.set('connectorType', params.connectorType);
-    if (params?.sourceType) query.set('sourceType', params.sourceType);
-    const qs = query.toString();
-    return request<{
-      enqueued: number;
-      limit: number;
-      connectorType: string | null;
-      sourceType: string | null;
-    }>(`/memories/raw-events/repair${qs ? `?${qs}` : ''}`, { method: 'POST' });
-  },
-
   // Backfill
   backfillEnrich: (connectorType?: string) =>
     request<{ jobId: string | null; enqueued: number; total: number; message?: string }>(

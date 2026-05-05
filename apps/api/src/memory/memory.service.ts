@@ -547,7 +547,7 @@ export class MemoryService {
         .where(
           and(
             inArray(rawEvents.accountId, userAccountIds),
-            inArray(rawEvents.processingState, ['pending', 'failed']),
+            inArray(rawEvents.processingState, ['pending', 'failed', 'quota_blocked']),
             sql`${rawEvents.sourceType} NOT IN ('contact', 'group')`,
           ),
         )

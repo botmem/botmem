@@ -58,6 +58,7 @@ type RawEventProcessingState =
   | 'skipped_contact'
   | 'skipped_empty'
   | 'deduped'
+  | 'quota_blocked'
   | 'failed';
 
 type LoadedRawEvent = typeof rawEvents.$inferSelect;
@@ -1075,7 +1076,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           `[memory:quota] Skipped — reached ${quota.limit} memory limit (free plan).`,
           parentJobId,
         );
-        await this.markRawEventState(rawEventId, 'failed');
+        await this.markRawEventState(rawEventId, 'quota_blocked');
         await this.advanceAndComplete(parentJobId);
         return;
       }

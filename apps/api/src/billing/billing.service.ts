@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import Stripe from 'stripe';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConfigService } from '../config/config.service';
 import { users } from '../db/schema';
@@ -14,6 +16,7 @@ export class BillingService {
   constructor(
     private db: DbService,
     private config: ConfigService,
+    @Optional() @InjectQueue('memory') private memoryQueue?: Queue,
   ) {
     if (!this.config.isSelfHosted) {
       this.stripe = new Stripe(this.config.stripeSecretKey);
@@ -53,6 +56,7 @@ export class BillingService {
       customer: customerId,
       mode: 'subscription',
       line_items: [{ price: this.config.stripePriceId, quantity: 1 }],
+      subscription_data: { metadata: { userId } },
       success_url: `${this.config.frontendUrl}/settings?tab=billing&success=1`,
       cancel_url: `${this.config.frontendUrl}/settings?tab=billing`,
       client_reference_id: userId,
@@ -148,12 +152,16 @@ export class BillingService {
             })
             .where(eq(users.id, userId)),
         );
+        await this.enqueueRawEventDebtForUser(userId, 'checkout.session.completed');
         this.logger.log(`User ${userId} subscribed (checkout completed)`);
         break;
       }
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
+        const userId =
+          subscription.metadata?.userId ||
+          (await this.findUserIdByStripeCustomer(subscription.customer as string));
         const status =
           subscription.status === 'active'
             ? 'active'
@@ -175,6 +183,9 @@ export class BillingService {
             })
             .where(eq(users.stripeCustomerId, subscription.customer as string)),
         );
+        if (userId && ['active', 'trialing'].includes(status)) {
+          await this.enqueueRawEventDebtForUser(userId, 'customer.subscription.updated');
+        }
         this.logger.log(`Subscription ${subscription.id} updated → ${status}`);
         break;
       }
@@ -211,6 +222,60 @@ export class BillingService {
 
       default:
         this.logger.debug(`Unhandled Stripe event: ${event.type}`);
+    }
+  }
+
+  private async findUserIdByStripeCustomer(
+    customerId: string | null | undefined,
+  ): Promise<string | null> {
+    if (!customerId) return null;
+    const rows = await this.db.systemDb((db) =>
+      db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.stripeCustomerId, customerId))
+        .limit(1),
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  private async enqueueRawEventDebtForUser(userId: string, reason: string): Promise<void> {
+    if (!this.memoryQueue) return;
+
+    const result = await this.db.systemDb((db) =>
+      db.execute<{ id: string }>(sql`
+        SELECT re.id
+        FROM raw_events re
+        INNER JOIN accounts a ON a.id = re.account_id
+        WHERE a.user_id = ${userId}
+          AND re.processing_state IN ('pending', 'failed', 'quota_blocked')
+          AND re.source_type NOT IN ('contact', 'group')
+          AND NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')
+          AND NOT EXISTS (
+            SELECT 1 FROM memories m
+            WHERE m.source_id = re.source_id AND m.connector_type = re.connector_type
+          )
+        ORDER BY re.created_at ASC
+        LIMIT 10000
+      `),
+    );
+
+    let enqueued = 0;
+    for (const row of result.rows) {
+      await this.memoryQueue.add(
+        'process',
+        { rawEventId: row.id },
+        {
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 5000 },
+          jobId: `quota-resume:${row.id}`,
+        },
+      );
+      enqueued++;
+    }
+
+    if (enqueued > 0) {
+      this.logger.log(`Enqueued ${enqueued} raw event(s) after ${reason} for user ${userId}`);
     }
   }
 }

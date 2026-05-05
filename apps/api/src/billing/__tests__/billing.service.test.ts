@@ -490,6 +490,38 @@ describe('BillingService', () => {
         } as unknown as import('stripe').Stripe.Event;
         await expect(service.handleWebhookEvent(event)).resolves.toBeUndefined();
       });
+
+      it('enqueues raw event debt after checkout completion', async () => {
+        const memoryQueue = { add: vi.fn().mockResolvedValue({}) };
+        const execute = vi.fn().mockResolvedValue({ rows: [{ id: 'raw-1' }, { id: 'raw-2' }] });
+        (mockDb as typeof mockDb & { execute: typeof execute }).execute = execute;
+        service = new BillingService(
+          dbService as unknown as import('../../db/db.service').DbService,
+          config as unknown as ConfigService,
+          memoryQueue as never,
+        );
+
+        const event = {
+          type: 'checkout.session.completed',
+          data: {
+            object: {
+              client_reference_id: 'user-1',
+              customer: 'cus_123',
+              subscription: 'sub_123',
+            },
+          },
+        } as unknown as import('stripe').Stripe.Event;
+
+        await service.handleWebhookEvent(event);
+
+        expect(execute).toHaveBeenCalled();
+        expect(memoryQueue.add).toHaveBeenCalledTimes(2);
+        expect(memoryQueue.add).toHaveBeenCalledWith(
+          'process',
+          { rawEventId: 'raw-1' },
+          expect.objectContaining({ jobId: 'quota-resume:raw-1' }),
+        );
+      });
     });
   });
 
