@@ -6,7 +6,7 @@
  * JSON-RPC relay, and session lifecycle.
  */
 
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import {
   randomBytes,
   randomUUID,
@@ -18,13 +18,21 @@ import {
   type KeyObject,
 } from 'node:crypto';
 import { WebSocket } from 'ws';
+import Redis from 'ioredis';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { ConfigService } from '../config/config.service';
 // accounts schema import removed — using raw SQL to bypass RLS
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface PendingRpc {
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingRelayRpc {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -94,25 +102,43 @@ function decryptPayload(key: Buffer, payload: Buffer): string {
 const RPC_TIMEOUT_MS = 30_000;
 const GRACE_PERIOD_MS = 60_000;
 const TOKEN_PREFIX = 'imsg_bt_';
+const RELAY_REQUEST_CHANNEL = 'imsg:tunnel:rpc:request';
+const RELAY_RESPONSE_CHANNEL = 'imsg:tunnel:rpc:response';
+const RELAY_STATUS_METHOD = '__status';
 
 // ── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable()
-export class ImsgTunnelService implements OnModuleDestroy {
+export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ImsgTunnelService.name);
   private sessions = new Map<string, ImsgTunnelSession>(); // sessionId → session
   private accountSessions = new Map<string, string>(); // accountId → sessionId
   private statusListeners = new Map<string, Set<(connected: boolean) => void>>();
+  private redisPub: Redis | null = null;
+  private redisSub: Redis | null = null;
+  private pendingRelayRpc = new Map<string, PendingRelayRpc>();
 
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
+    @Optional() private config?: ConfigService,
   ) {}
+
+  onModuleInit() {
+    this.setupRedisRelay();
+  }
 
   onModuleDestroy() {
     for (const session of this.sessions.values()) {
       this.destroySession(session.sessionId);
     }
+    for (const [, pending] of this.pendingRelayRpc) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('iMessage relay shutting down'));
+    }
+    this.pendingRelayRpc.clear();
+    this.redisSub?.disconnect();
+    this.redisPub?.disconnect();
   }
 
   // ── Token Management ────────────────────────────────────────────────────
@@ -198,6 +224,26 @@ export class ImsgTunnelService implements OnModuleDestroy {
     method: string,
     params?: Record<string, unknown>,
   ): Promise<unknown> {
+    if (!this.isConnected(accountId)) {
+      return this.sendRelayedRpcRequest(accountId, method, params);
+    }
+    return this.sendLocalRpcRequest(accountId, method, params);
+  }
+
+  async hasConnectedBridge(accountId: string): Promise<boolean> {
+    if (this.isConnected(accountId)) return true;
+    try {
+      return (await this.sendRelayedRpcRequest(accountId, RELAY_STATUS_METHOD)) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async sendLocalRpcRequest(
+    accountId: string,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<unknown> {
     const sessionId = this.accountSessions.get(accountId);
     if (!sessionId) throw new Error('No bridge session for this account');
 
@@ -228,6 +274,34 @@ export class ImsgTunnelService implements OnModuleDestroy {
       // Encrypt and send
       const encrypted = encryptPayload(session.sessionKey!, JSON.stringify(request));
       session.bridgeWs!.send(encrypted);
+    });
+  }
+
+  private async sendRelayedRpcRequest(
+    accountId: string,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<unknown> {
+    if (!this.redisPub || !this.redisSub) {
+      throw new Error('No bridge session for this account');
+    }
+
+    const requestId = randomUUID();
+    const payload = JSON.stringify({ requestId, accountId, method, params });
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRelayRpc.delete(requestId);
+        reject(new Error(`Bridge RPC ${method} timed out after ${RPC_TIMEOUT_MS}ms`));
+      }, RPC_TIMEOUT_MS);
+
+      this.pendingRelayRpc.set(requestId, { resolve, reject, timer });
+
+      this.redisPub!.publish(RELAY_REQUEST_CHANNEL, payload).catch((err) => {
+        clearTimeout(timer);
+        this.pendingRelayRpc.delete(requestId);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      });
     });
   }
 
@@ -390,6 +464,113 @@ export class ImsgTunnelService implements OnModuleDestroy {
       for (const listener of listeners) {
         listener(connected);
       }
+    }
+  }
+
+  private setupRedisRelay(): void {
+    if (!this.config?.redisUrl) return;
+
+    this.redisPub = new Redis(this.config.redisUrl, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+    });
+    this.redisSub = new Redis(this.config.redisUrl, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+    });
+
+    this.redisPub.on('error', (err) =>
+      this.logger.warn(`iMessage relay publisher error: ${err.message}`),
+    );
+    this.redisSub.on('error', (err) =>
+      this.logger.warn(`iMessage relay subscriber error: ${err.message}`),
+    );
+
+    this.redisSub.on('message', (channel, message) => {
+      if (channel === RELAY_REQUEST_CHANNEL) {
+        this.handleRelayRequest(message).catch((err) =>
+          this.logger.warn(
+            `Failed to handle iMessage relay request: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          ),
+        );
+      } else if (channel === RELAY_RESPONSE_CHANNEL) {
+        this.handleRelayResponse(message);
+      }
+    });
+
+    this.redisSub
+      .subscribe(RELAY_REQUEST_CHANNEL, RELAY_RESPONSE_CHANNEL)
+      .catch((err) => this.logger.warn(`Failed to subscribe iMessage relay: ${err.message}`));
+  }
+
+  private async handleRelayRequest(message: string): Promise<void> {
+    if (!this.redisPub) return;
+
+    let request: {
+      requestId?: string;
+      accountId?: string;
+      method?: string;
+      params?: Record<string, unknown>;
+    };
+    try {
+      request = JSON.parse(message);
+    } catch {
+      return;
+    }
+
+    const { requestId, accountId, method, params } = request;
+    if (!requestId || !accountId || !method) return;
+
+    // Only the process that owns the bridge WebSocket should answer.
+    if (!this.isConnected(accountId)) return;
+
+    try {
+      const result =
+        method === RELAY_STATUS_METHOD
+          ? true
+          : await this.sendLocalRpcRequest(accountId, method, params);
+      await this.redisPub.publish(
+        RELAY_RESPONSE_CHANNEL,
+        JSON.stringify({ requestId, ok: true, result }),
+      );
+    } catch (err) {
+      await this.redisPub.publish(
+        RELAY_RESPONSE_CHANNEL,
+        JSON.stringify({
+          requestId,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
+  private handleRelayResponse(message: string): void {
+    let response: {
+      requestId?: string;
+      ok?: boolean;
+      result?: unknown;
+      error?: string;
+    };
+    try {
+      response = JSON.parse(message);
+    } catch {
+      return;
+    }
+
+    if (!response.requestId) return;
+    const pending = this.pendingRelayRpc.get(response.requestId);
+    if (!pending) return;
+
+    clearTimeout(pending.timer);
+    this.pendingRelayRpc.delete(response.requestId);
+
+    if (response.ok) {
+      pending.resolve(response.result);
+    } else {
+      pending.reject(new Error(response.error || 'Bridge RPC failed'));
     }
   }
 }
