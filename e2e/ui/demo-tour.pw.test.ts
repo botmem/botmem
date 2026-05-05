@@ -161,7 +161,7 @@ test.describe('Tour targets & Demo Banner', () => {
 
   test.beforeAll(async () => {
     user = await createSeededUser();
-  });
+  }, 60_000);
 
   test('All tour targets exist on their respective pages', async ({ page }) => {
     await injectOnboardedAuthWithDemo(page, user);
