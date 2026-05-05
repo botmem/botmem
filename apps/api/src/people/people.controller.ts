@@ -63,14 +63,14 @@ export class PeopleController {
 
   @RequiresJwt()
   @Post('reclassify')
-  async reclassify(@CurrentUser() _user: { id: string }) {
-    return this.peopleService.reclassifyEntityTypes();
+  async reclassify(@CurrentUser() user: { id: string }) {
+    return this.peopleService.reclassifyEntityTypes(user.id);
   }
 
   @RequiresJwt()
   @Post('backfill-avatars')
-  async backfillAvatars(@CurrentUser() _user: { id: string }) {
-    return this.peopleService.backfillAvatarData();
+  async backfillAvatars(@CurrentUser() user: { id: string }) {
+    return this.peopleService.backfillAvatarData(user.id);
   }
 
   @Get(':id/avatar')
@@ -104,7 +104,7 @@ export class PeopleController {
     const getImmichKey = async () => {
       if (immichApiKey !== null) return immichApiKey;
       try {
-        const allAccounts = await this.accountsService.getAll();
+        const allAccounts = await this.accountsService.getAll(user.id);
         const photosAccount = allAccounts.find((a) => a.connectorType === 'photos');
         if (photosAccount?.authContext) {
           const auth =
@@ -262,8 +262,8 @@ export class PeopleController {
 
   @RequiresJwt()
   @Post('normalize')
-  async normalize(@CurrentUser() _user: { id: string }) {
-    return this.peopleService.normalizeAll();
+  async normalize(@CurrentUser() user: { id: string }) {
+    return this.peopleService.normalizeAll(user.id);
   }
 
   @RequiresJwt()
