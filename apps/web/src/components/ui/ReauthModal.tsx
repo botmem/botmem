@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 import { useAuthStore } from '../../store/authStore';
 import { useMemoryStore } from '../../store/memoryStore';
-import { api } from '../../lib/api';
 
 interface ReauthModalProps {
   open: boolean;
@@ -21,7 +20,6 @@ export function ReauthModal({ open, onClose }: ReauthModalProps) {
     setLoading(true);
     try {
       await submitRecoveryKey(recoveryKey.trim());
-      await api.repairRawEventDebt({ limit: 10000 }).catch(() => null);
       // Reset memory store so it reconnects WS and re-fetches everything
       const memStore = useMemoryStore.getState();
       memStore.reset();

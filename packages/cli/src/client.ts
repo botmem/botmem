@@ -388,26 +388,6 @@ export class BotmemClient {
     return this.request<RawEventDebt>(`/memories/raw-events/debt${query ? '?' + query : ''}`);
   }
 
-  async repairRawEventDebt(params?: {
-    limit?: number;
-    connectorType?: string;
-    sourceType?: string;
-  }): Promise<{
-    enqueued: number;
-    limit: number;
-    connectorType: string | null;
-    sourceType: string | null;
-  }> {
-    const qs = new URLSearchParams();
-    if (params?.limit) qs.set('limit', String(params.limit));
-    if (params?.connectorType) qs.set('connectorType', params.connectorType);
-    if (params?.sourceType) qs.set('sourceType', params.sourceType);
-    const query = qs.toString();
-    return this.request(`/memories/raw-events/repair${query ? '?' + query : ''}`, {
-      method: 'POST',
-    });
-  }
-
   async getLogSummary(): Promise<Record<string, unknown>> {
     return this.request('/logs/summary');
   }

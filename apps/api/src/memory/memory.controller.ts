@@ -210,7 +210,7 @@ export class MemoryController {
   ) {
     const filters = [
       sql`a.user_id = ${user.id}`,
-      sql`re.processing_state IN ('pending', 'failed')`,
+      sql`re.processing_state IN ('pending', 'failed', 'quota_blocked')`,
       sql`re.source_type NOT IN ('contact', 'group')`,
       sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
       sql`NOT EXISTS (
@@ -243,59 +243,6 @@ export class MemoryController {
     return {
       total: groups.reduce((sum, row) => sum + Number(row.count || 0), 0),
       groups,
-    };
-  }
-
-  @RequiresJwt()
-  @Post('raw-events/repair')
-  async repairRawEventDebt(
-    @CurrentUser() user: { id: string },
-    @Query('limit') limitParam?: string,
-    @Query('connectorType') connectorType?: string,
-    @Query('sourceType') sourceType?: string,
-  ) {
-    const limit = Math.min(parseInt(limitParam || '200', 10) || 200, 10000);
-    const filters = [
-      sql`a.user_id = ${user.id}`,
-      sql`re.processing_state IN ('pending', 'failed')`,
-      sql`re.source_type NOT IN ('contact', 'group')`,
-      sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
-      sql`NOT EXISTS (
-        SELECT 1 FROM memories m
-        WHERE m.source_id = re.source_id AND m.connector_type = re.connector_type
-      )`,
-    ];
-    if (connectorType) filters.push(sql`re.connector_type = ${connectorType}`);
-    if (sourceType) filters.push(sql`re.source_type = ${sourceType}`);
-
-    const result = await this.dbService.db.execute(sql`
-      SELECT re.id
-      FROM raw_events re
-      INNER JOIN accounts a ON a.id = re.account_id
-      WHERE ${sql.join(filters, sql` AND `)}
-      ORDER BY re.created_at ASC
-      LIMIT ${limit}
-    `);
-
-    let enqueued = 0;
-    for (const row of result.rows as Array<{ id: string }>) {
-      await this.memoryQueue.add(
-        'process',
-        { rawEventId: row.id },
-        {
-          attempts: 5,
-          backoff: { type: 'exponential', delay: 5000 },
-          jobId: `repair:${row.id}`,
-        },
-      );
-      enqueued++;
-    }
-
-    return {
-      enqueued,
-      limit,
-      connectorType: connectorType ?? null,
-      sourceType: sourceType ?? null,
     };
   }
 
