@@ -519,14 +519,16 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const resolvedContacts: Array<{ contactId: string; role: string; name?: string }> = [];
     try {
       const selfKeys = ownerUserId
-        ? [`selfContactId:${ownerUserId}`, `selfPersonId:${ownerUserId}`, 'selfContactId']
-        : ['selfContactId'];
-      const selfRow = await this.dbService.db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(inArray(settings.key, selfKeys))
-        .limit(1);
-      selfContactId = selfRow[0]?.value || null;
+        ? [`selfContactId:${ownerUserId}`, `selfPersonId:${ownerUserId}`]
+        : [];
+      if (selfKeys.length) {
+        const selfRow = await this.dbService.db
+          .select({ value: settings.value })
+          .from(settings)
+          .where(inArray(settings.key, selfKeys))
+          .limit(1);
+        selfContactId = selfRow[0]?.value || null;
+      }
 
       const buckets: Array<{ entityType: string; role: string; identifiers: IdentifierInput[] }> =
         [];

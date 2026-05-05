@@ -115,12 +115,16 @@ export class MeService {
     const contactIdCounts = new Map<string, number>();
     for (const lookup of lookups) {
       const hash = this.crypto.hmac(lookup.value);
+      const conditions: SQLWrapper[] = [
+        eq(personIdentifiers.identifierType, lookup.type),
+        eq(personIdentifiers.identifierValueHash, hash),
+      ];
+      if (userId) conditions.push(eq(people.userId, userId));
       const rows = await db
         .select({ personId: personIdentifiers.personId })
         .from(personIdentifiers)
-        .where(
-          sql`${personIdentifiers.identifierType} = ${lookup.type} AND ${personIdentifiers.identifierValueHash} = ${hash}`,
-        );
+        .innerJoin(people, eq(people.id, personIdentifiers.personId))
+        .where(and(...conditions));
       for (const row of rows) {
         contactIdCounts.set(row.personId, (contactIdCounts.get(row.personId) || 0) + 1);
       }
@@ -147,12 +151,10 @@ export class MeService {
   private async resolveSelfContactId(userId?: string): Promise<string | null> {
     const db = this.dbService.db;
 
-    // Check per-user manual override first, then global fallback
+    // Check per-user manual override. Do not fall back to a global self contact
+    // when a user is present; that can pin another tenant's identity.
     const settingKey = userId ? `${SELF_CONTACT_ID_KEY}:${userId}` : SELF_CONTACT_ID_KEY;
-    let [row] = await db.select().from(settings).where(eq(settings.key, settingKey));
-    if (!row && userId) {
-      [row] = await db.select().from(settings).where(eq(settings.key, SELF_CONTACT_ID_KEY));
-    }
+    const [row] = await db.select().from(settings).where(eq(settings.key, settingKey));
 
     if (row?.value) {
       // Verify it still exists (and belongs to user if userId given)
