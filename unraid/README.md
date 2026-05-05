@@ -4,11 +4,13 @@ Template and supporting files for publishing Botmem to [Unraid Community Applica
 
 ## Files
 
-| File                        | Purpose                                      |
-| --------------------------- | -------------------------------------------- |
-| `botmem.xml`                | Unraid CA Docker template (the main listing) |
-| `docker-compose.unraid.yml` | Companion stack for PostgreSQL and Redis     |
-| `botmem-icon.png`           | App icon used by the template                |
+| File                          | Purpose                                      |
+| ----------------------------- | -------------------------------------------- |
+| `botmem.xml`                  | Unraid CA Docker template (the main listing) |
+| `docker-compose.unraid.yml`   | Companion stack for PostgreSQL and Redis     |
+| `botmem-icon.png`             | App icon used by the template                |
+| `support-thread.md`           | Draft body for the required forum thread     |
+| `community-app-submission.md` | Draft payload for the CA submission form     |
 
 ## Publishing Checklist
 
@@ -19,12 +21,16 @@ Template and supporting files for publishing Botmem to [Unraid Community Applica
 
 ### Submission Steps
 
-1. [ ] **Create Unraid forum support thread** at [forums.unraid.net](https://forums.unraid.net/) — category: Docker Containers
+1. [x] **Create Unraid forum support thread** at [forums.unraid.net](https://forums.unraid.net/) — category: Docker Containers
    - Title: `[Support] Botmem — Personal Memory RAG System`
    - Include: description, install instructions, known issues, screenshots
-2. [ ] **Update `<Support>` URL** in `botmem.xml` with the forum thread URL
+   - Draft: `unraid/support-thread.md`
+   - Posted URL: https://forums.unraid.net/topic/198623-support-botmem-personal-memory-rag-system/
+   - Note: posted under Docker Engine because Docker Containers only allows Community Developers to create new topics; the thread is pending moderator approval and can be moved by a moderator.
+2. [x] **Update `<Support>` URL** in `botmem.xml` with the forum thread URL
 3. [ ] **Submit via [CA submission form](https://form.asana.com/?k=qtIUrf5ydiXvXzPI57BiJw&d=714739274360802)**
    - Provide: Botmem repo URL, forum thread URL, Docker image URL
+   - Draft payload: `unraid/community-app-submission.md`
 4. [ ] **Wait for moderation review** (~48 hours)
 
 ### Template Location
