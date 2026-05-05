@@ -11,6 +11,7 @@ import { ConnectorsService } from '../connectors/connectors.service';
 import { ConnectorsModule } from '../connectors/connectors.module';
 import { CryptoModule } from '../crypto/crypto.module';
 import { DbModule } from '../db/db.module';
+import { DbService } from '../db/db.service';
 import { PgSearchService } from '../memory/pg-search.service';
 import { PeopleService } from '../people/people.service';
 import { PeoplePipelineService } from '../people/people-pipeline.service';
@@ -46,6 +47,12 @@ function numberArg(name: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function stringArg(name: string): string | undefined {
+  const prefix = `${name}=`;
+  const value = process.argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
+  return value?.trim() || undefined;
+}
+
 async function main() {
   const app = await NestFactory.createApplicationContext(PeoplePipelineCliModule, {
     logger: ['log', 'warn', 'error'],
@@ -62,15 +69,35 @@ async function main() {
     console.log(`memory queue paused=${await memoryQueue.isPaused()}`);
     await memoryQueue.close();
 
+    const db = app.get(DbService);
+    const userId =
+      stringArg('--user-id') || (await resolveUserIdByEmail(db, stringArg('--user-email')));
+    if (userId) {
+      console.log(`people rebuild scoped to user=${userId}`);
+    } else {
+      console.log('people rebuild scope=all-users');
+    }
+
     const result = await pipeline.rebuildFromExistingData({
       reset: hasFlag('--reset'),
       limit: numberArg('--limit'),
+      userId,
     });
     const validation = await pipeline.validateNoNameOnlyPeople();
     console.log(JSON.stringify({ result, validation }, null, 2));
   } finally {
     await app.close();
   }
+}
+
+async function resolveUserIdByEmail(db: DbService, email?: string): Promise<string | undefined> {
+  if (!email) return undefined;
+  const rows = await db.queryRaw<{ id: string }>(
+    'SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1',
+    [email],
+  );
+  if (!rows[0]?.id) throw new Error(`User not found for email ${email}`);
+  return rows[0].id;
 }
 
 async function registerBuiltInConnectors(connectors: ConnectorsService) {

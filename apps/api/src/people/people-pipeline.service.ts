@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, eq, like, or } from 'drizzle-orm';
+import { and, eq, inArray, like, or } from 'drizzle-orm';
 import { rawEvents, memories, accounts, settings } from '../db/schema';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -60,20 +60,71 @@ export class PeoplePipelineService {
     private peopleService: PeopleService,
   ) {}
 
-  async resetPeopleGraph(): Promise<void> {
+  async resetPeopleGraph(userId?: string): Promise<void> {
     await this.dbService.systemDb(async (db) => {
-      await db.delete(mergeDismissals);
-      await db.delete(personRelationships);
-      await db.delete(memoryPeople);
-      await db.delete(personIdentifiers);
-      await db.delete(people);
+      if (!userId) {
+        await db.delete(mergeDismissals);
+        await db.delete(personRelationships);
+        await db.delete(memoryPeople);
+        await db.delete(personIdentifiers);
+        await db.delete(people);
+        await db
+          .delete(settings)
+          .where(or(like(settings.key, 'selfContactId%'), like(settings.key, 'selfPersonId%')));
+        return;
+      }
+
+      const userPeople = db.select({ id: people.id }).from(people).where(eq(people.userId, userId));
+      const userAccounts = db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(eq(accounts.userId, userId));
+      const userMemories = db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(inArray(memories.accountId, userAccounts));
+
+      await db
+        .delete(mergeDismissals)
+        .where(
+          or(
+            inArray(mergeDismissals.personId1, userPeople),
+            inArray(mergeDismissals.personId2, userPeople),
+          ),
+        );
+      await db
+        .delete(personRelationships)
+        .where(
+          or(
+            eq(personRelationships.userId, userId),
+            inArray(personRelationships.sourcePersonId, userPeople),
+            inArray(personRelationships.targetPersonId, userPeople),
+          ),
+        );
+      await db
+        .delete(memoryPeople)
+        .where(
+          or(
+            inArray(memoryPeople.personId, userPeople),
+            inArray(memoryPeople.memoryId, userMemories),
+          ),
+        );
+      await db.delete(personIdentifiers).where(inArray(personIdentifiers.personId, userPeople));
+      await db.delete(people).where(eq(people.userId, userId));
       await db
         .delete(settings)
-        .where(or(like(settings.key, 'selfContactId%'), like(settings.key, 'selfPersonId%')));
+        .where(
+          or(
+            eq(settings.key, `selfContactId:${userId}`),
+            eq(settings.key, `selfPersonId:${userId}`),
+          ),
+        );
     });
   }
 
-  async rebuildFromExistingData(options: { reset?: boolean; limit?: number } = {}): Promise<{
+  async rebuildFromExistingData(
+    options: { reset?: boolean; limit?: number; userId?: string } = {},
+  ): Promise<{
     scanned: number;
     resolved: number;
     linked: number;
@@ -82,7 +133,7 @@ export class PeoplePipelineService {
     failed: number;
   }> {
     if (options.reset) {
-      await this.resetPeopleGraph();
+      await this.resetPeopleGraph(options.userId);
     }
 
     let offset = 0;
@@ -98,7 +149,7 @@ export class PeoplePipelineService {
         options.limit == null
           ? PEOPLE_PIPELINE_BATCH_SIZE
           : Math.min(PEOPLE_PIPELINE_BATCH_SIZE, options.limit - scanned);
-      const events = await this.loadPeoplePipelineEvents(batchLimit, offset);
+      const events = await this.loadPeoplePipelineEvents(batchLimit, offset, options.userId);
       if (!events.length) break;
       offset += events.length;
 
@@ -163,6 +214,7 @@ export class PeoplePipelineService {
   private async loadPeoplePipelineEvents(
     limit: number,
     offset: number,
+    userId?: string,
   ): Promise<PeoplePipelineEvent[]> {
     const rows = await this.dbService.queryRaw<PeoplePipelineEvent>(
       `
@@ -190,15 +242,19 @@ export class PeoplePipelineService {
               ORDER BY re.created_at DESC, re.id ASC
             ) AS rn
           FROM raw_events re
+          JOIN accounts a ON a.id = re.account_id
           LEFT JOIN memories m
             ON m.account_id = re.account_id
            AND m.source_id = re.source_id
            AND m.connector_type = re.connector_type
           WHERE
-            m.id IS NOT NULL
-            OR re.source_type IN ('contact', 'group')
-            OR re.source_id LIKE 'wa-group:%'
-            OR re.source_id LIKE 'telegram:contact:%'
+            ($3::text IS NULL OR a.user_id = $3::text)
+            AND (
+              m.id IS NOT NULL
+              OR re.source_type IN ('contact', 'group')
+              OR re.source_id LIKE 'wa-group:%'
+              OR re.source_id LIKE 'telegram:contact:%'
+            )
         )
         SELECT
           "rawEventId",
@@ -224,7 +280,7 @@ export class PeoplePipelineService {
           "rawEventId" ASC
         LIMIT $1 OFFSET $2
       `,
-      [limit, offset],
+      [limit, offset, userId ?? null],
     );
     return rows;
   }
