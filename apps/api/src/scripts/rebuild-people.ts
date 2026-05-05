@@ -65,26 +65,31 @@ async function main() {
     const memoryQueue = new Queue('memory', {
       connection: { url: config.redisUrl, maxRetriesPerRequest: null },
     });
-    await memoryQueue.pause();
-    console.log(`memory queue paused=${await memoryQueue.isPaused()}`);
-    await memoryQueue.close();
+    try {
+      await memoryQueue.pause();
+      console.log(`memory queue paused=${await memoryQueue.isPaused()}`);
 
-    const db = app.get(DbService);
-    const userId =
-      stringArg('--user-id') || (await resolveUserIdByEmail(db, stringArg('--user-email')));
-    if (userId) {
-      console.log(`people rebuild scoped to user=${userId}`);
-    } else {
-      console.log('people rebuild scope=all-users');
+      const db = app.get(DbService);
+      const userId =
+        stringArg('--user-id') || (await resolveUserIdByEmail(db, stringArg('--user-email')));
+      if (userId) {
+        console.log(`people rebuild scoped to user=${userId}`);
+      } else {
+        console.log('people rebuild scope=all-users');
+      }
+
+      const result = await pipeline.rebuildFromExistingData({
+        reset: hasFlag('--reset'),
+        limit: numberArg('--limit'),
+        userId,
+      });
+      const validation = await pipeline.validateNoNameOnlyPeople();
+      console.log(JSON.stringify({ result, validation }, null, 2));
+    } finally {
+      await memoryQueue.resume();
+      console.log(`memory queue paused=${await memoryQueue.isPaused()}`);
+      await memoryQueue.close();
     }
-
-    const result = await pipeline.rebuildFromExistingData({
-      reset: hasFlag('--reset'),
-      limit: numberArg('--limit'),
-      userId,
-    });
-    const validation = await pipeline.validateNoNameOnlyPeople();
-    console.log(JSON.stringify({ result, validation }, null, 2));
   } finally {
     await app.close();
   }

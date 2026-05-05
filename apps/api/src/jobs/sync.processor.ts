@@ -245,9 +245,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         .then((result) => {
           if (result.inserted) totalInserted += 1;
         })
-        .catch((err) =>
-          logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`),
-        );
+        .catch((err) => {
+          logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`);
+          throw err;
+        });
       pendingWrites.push(writePromise);
     });
 
@@ -349,9 +350,9 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       });
 
       // Wait for all pending DB writes / embed enqueues to finish
-      await Promise.allSettled(pendingWrites);
+      await Promise.all(pendingWrites);
 
-      const pipelineTotal = totalInserted || totalProcessed;
+      const pipelineTotal = totalInserted;
       if (pipelineTotal === 0) {
         // Nothing to process through pipeline — mark done immediately
         await this.jobsService.updateJob(jobId, {
@@ -383,8 +384,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           status: 'connected',
           lastError: null,
         });
-        await Promise.allSettled(pendingWrites);
-        const pipelineTotal = totalInserted || totalProcessed;
+        await Promise.all(pendingWrites);
+        const pipelineTotal = totalInserted;
         if (pipelineTotal === 0) {
           await this.jobsService.updateJob(jobId, {
             status: 'done',

@@ -26,7 +26,10 @@ async function bootstrap() {
   app.enableShutdownHooks();
   logger.log('Botmem queue worker started');
 
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.log('Shutting down worker...');
     await app.close();
     process.exit(0);

@@ -71,4 +71,17 @@ describe('DbService (mock)', () => {
     );
     expect(client.release).toHaveBeenCalledOnce();
   });
+
+  it('only ends the pool once during repeated shutdown hooks', async () => {
+    const pool = {
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new DbService({ databaseUrl: 'postgres://test' } as never);
+    (service as unknown as { pool: typeof pool }).pool = pool;
+
+    await service.onModuleDestroy();
+    await service.onModuleDestroy();
+
+    expect(pool.end).toHaveBeenCalledOnce();
+  });
 });
