@@ -21,7 +21,7 @@ export class WsTunnelTransport implements RpcTransport {
   ) {}
 
   async connect(): Promise<void> {
-    if (!this.tunnelService.isConnected(this.accountId)) {
+    if (!(await this.tunnelService.hasConnectedBridge(this.accountId))) {
       throw new Error(
         'iMessage bridge is not connected. Ask the user to run the bridge on their Mac.',
       );
