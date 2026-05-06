@@ -670,6 +670,8 @@ describe('isDirectNameAutoMergeEligible', () => {
   it('does not auto-merge single-token direct duplicates', () => {
     expect(isDirectNameAutoMergeEligible('JACK', 'jack')).toBe(false);
     expect(isDirectNameAutoMergeEligible('Noman', 'NOMAN')).toBe(false);
+    expect(isDirectNameAutoMergeEligible('E.A.', 'E A')).toBe(false);
+    expect(exactMultiWordNameAutoMergeKey('E.A.')).toBeNull();
   });
 
   it('does not auto-merge fuzzy typo variants', () => {
