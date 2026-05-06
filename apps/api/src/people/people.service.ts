@@ -1237,15 +1237,20 @@ export class PeopleService {
     );
 
     const contactById = new Map(allContactRows.map((contact) => [contact.id, contact]));
-    const matchedIds: string[] = [];
-    const matchedSet = new Set<string>();
-    const addMatch = (id: string) => {
-      if (matchedSet.has(id) || matchedIds.length >= maxResults) return;
-      matchedSet.add(id);
-      matchedIds.push(id);
+    const matches = new Map<string, { score: number; order: number }>();
+    const addMatch = (id: string, score: number, order: number) => {
+      const existing = matches.get(id);
+      if (
+        !existing ||
+        score > existing.score ||
+        (score === existing.score && order < existing.order)
+      ) {
+        matches.set(id, { score, order });
+      }
     };
 
-    for (const c of allContactRows) {
+    for (let index = 0; index < allContactRows.length; index++) {
+      const c = allContactRows[index];
       const decryptedName = this.crypto.decrypt(c.displayName) ?? c.displayName;
       const lowerName = decryptedName.toLowerCase();
       const normName = decryptedName
@@ -1254,13 +1259,13 @@ export class PeopleService {
         .toLowerCase();
 
       if (lowerName.includes(lowerQuery) || normName.includes(normQuery)) {
-        addMatch(c.id);
-        if (matchedIds.length >= maxResults) break;
+        const exact = lowerName === lowerQuery || normName === normQuery;
+        const prefix = lowerName.startsWith(lowerQuery) || normName.startsWith(normQuery);
+        addMatch(c.id, exact ? 100 : prefix ? 80 : 60, index);
       }
     }
 
-    const contactIds =
-      matchedIds.length >= maxResults ? matchedIds : allContactRows.map((contact) => contact.id);
+    const contactIds = allContactRows.map((contact) => contact.id);
     const allIdentRows = await this.dbService.withCurrentUser((db) =>
       contactIds.length
         ? db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, contactIds))
@@ -1275,22 +1280,24 @@ export class PeopleService {
       identsByContact.set(ident.personId, list);
     }
 
-    if (matchedIds.length < maxResults) {
-      for (const c of allContactRows) {
-        if (matchedSet.has(c.id)) continue;
-
-        // Check identifiers
-        const idents = identsByContact.get(c.id) || [];
-        for (const i of idents) {
-          const decryptedValue = this.crypto.decrypt(i.identifierValue) ?? i.identifierValue;
-          if (decryptedValue.toLowerCase().includes(lowerQuery)) {
-            addMatch(c.id);
-            break;
-          }
+    for (let index = 0; index < allContactRows.length; index++) {
+      const c = allContactRows[index];
+      const idents = identsByContact.get(c.id) || [];
+      for (const i of idents) {
+        const decryptedValue = this.crypto.decrypt(i.identifierValue) ?? i.identifierValue;
+        const lowerValue = decryptedValue.toLowerCase();
+        if (lowerValue.includes(lowerQuery)) {
+          const exact = lowerValue === lowerQuery;
+          const prefix = lowerValue.startsWith(lowerQuery);
+          addMatch(c.id, exact ? 95 : prefix ? 75 : 55, index);
         }
-        if (matchedIds.length >= maxResults) break;
       }
     }
+
+    const matchedIds = [...matches.entries()]
+      .sort(([, a], [, b]) => b.score - a.score || a.order - b.order)
+      .slice(0, maxResults)
+      .map(([id]) => id);
 
     const results: PersonWithIdentifiers[] = [];
     for (const id of matchedIds) {

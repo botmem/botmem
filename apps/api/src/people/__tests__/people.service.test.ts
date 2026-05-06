@@ -487,6 +487,25 @@ describe('PeopleService runtime behavior', () => {
     expect(results.map((result) => result.displayName)).toEqual(['Alice Alpha', 'Alice Beta']);
     expect(getByIdSpy).not.toHaveBeenCalled();
   });
+
+  it('searches identifiers across all user-scoped people before applying the result limit', async () => {
+    const { service } = makeDb([
+      [
+        personRow('p1', 'enc:Alice Alpha'),
+        personRow('p2', 'enc:Alice Beta'),
+        personRow('p3', 'enc:Bob Exact Handle'),
+      ],
+      [
+        identifierRow('i1', 'p1', 'email', 'enc:alpha@example.com'),
+        identifierRow('i2', 'p2', 'email', 'enc:beta@example.com'),
+        identifierRow('i3', 'p3', 'imessage_handle', 'enc:alice'),
+      ],
+    ]);
+
+    const results = await service.search('alice', 'user-1', 'person', 2);
+
+    expect(results.map((result) => result.id)).toEqual(['p3', 'p1']);
+  });
 });
 
 describe('normalizeIdentifier', () => {
