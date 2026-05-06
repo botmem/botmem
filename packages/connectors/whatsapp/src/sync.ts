@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { promisify } from 'util';
 import { inflate } from 'zlib';
 import { isAbsolute, join, resolve } from 'path';
+import { createHash } from 'crypto';
 import type { SyncContext, ConnectorDataEvent, ConnectorLogger } from '@botmem/connector-sdk';
 import { isNoise } from '@botmem/connector-sdk';
 import { useAtomicMultiFileAuthState, flushPendingWrites } from './atomic-auth-state.js';
@@ -51,6 +52,19 @@ function storeMessage(
 async function getMessage(key: proto.IMessageKey): Promise<proto.IMessage | undefined> {
   const storeKey = `${key.remoteJid}:${key.id}`;
   return messageStore.get(storeKey);
+}
+
+export function stableMessageId(msg: WAMessage, processed = 0): string {
+  if (msg.key?.id) return msg.key.id;
+  const payload = JSON.stringify({
+    remoteJid: msg.key?.remoteJid || '',
+    participant: msg.key?.participant || '',
+    fromMe: msg.key?.fromMe || false,
+    timestamp: msg.messageTimestamp || '',
+    message: msg.message || {},
+    processed,
+  });
+  return createHash('sha256').update(payload).digest('hex').slice(0, 24);
 }
 
 /** Simple CacheStore implementation for msgRetryCounterCache */
@@ -895,7 +909,7 @@ async function buildMessageEvent(
   }
 
   const msgTs = Number(msg.messageTimestamp || 0);
-  const messageId = msg.key?.id || `${Date.now()}`;
+  const messageId = stableMessageId(msg);
   let fileBase64: string | undefined;
   let fileMimetype: string | undefined;
   let fileFileName: string | undefined;
@@ -1641,7 +1655,7 @@ export async function syncWhatsApp(
     }
 
     const msgTs = Number(msg.messageTimestamp || 0);
-    const sourceId = `wa-msg:${msg.key?.id || `${Date.now()}:${processed}`}`;
+    const sourceId = `wa-msg:${stableMessageId(msg, processed)}`;
     if (emittedSourceIds.has(sourceId)) {
       ctx.logger.info(`Message filtered duplicate-in-run sourceId=${sourceId}`);
       return;

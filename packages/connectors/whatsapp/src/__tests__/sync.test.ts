@@ -153,6 +153,30 @@ describe('sync module', () => {
     });
   });
 
+  describe('stableMessageId', () => {
+    it('does not use wall-clock time when Baileys omits a message id', async () => {
+      const { stableMessageId } = await import('../sync.js');
+      const msg = {
+        key: {
+          remoteJid: '12345@s.whatsapp.net',
+          participant: '67890@s.whatsapp.net',
+          fromMe: false,
+        },
+        messageTimestamp: 1770000000,
+        message: {
+          imageMessage: {
+            mimetype: 'image/jpeg',
+            caption: 'Receipt',
+            mediaKey: new Uint8Array([1, 2, 3]),
+          },
+        },
+      };
+
+      expect(stableMessageId(msg as any)).toBe(stableMessageId(msg as any));
+      expect(stableMessageId(msg as any)).not.toContain(String(Date.now()));
+    });
+  });
+
   describe('syncWhatsApp', () => {
     it('throws when no session dir', async () => {
       const { syncWhatsApp } = await import('../sync.js');
