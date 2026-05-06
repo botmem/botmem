@@ -414,10 +414,10 @@ export const api = {
   },
   getContact: <T = ApiContact>(id: string) => request<T>(`/people/${id}`),
   getContactMemories: (id: string) => request<ApiContactMemory[]>(`/people/${id}/memories`),
-  searchContacts: <T = ApiContact>(query: string, entityType?: string) =>
+  searchContacts: <T = ApiContact>(query: string, entityType?: string, limit = 25) =>
     request<T[]>('/people/search', {
       method: 'POST',
-      body: JSON.stringify({ query, entityType }),
+      body: JSON.stringify({ query, entityType, limit }),
     }),
   updateContact: (
     id: string,

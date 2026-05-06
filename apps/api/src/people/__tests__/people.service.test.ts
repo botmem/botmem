@@ -14,6 +14,7 @@ import {
   looksLikeIdentifierLabel,
   looksLikeCombinedPersonName,
   isDirectNameAutoMergeEligible,
+  exactDisplayNameAutoMergeKey,
   exactMultiWordNameAutoMergeKey,
   shouldUpdateDisplayName,
   hasDurablePersonIdentifier,
@@ -322,6 +323,57 @@ describe('PeopleService runtime behavior', () => {
     expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
   });
 
+  it('auto-merges exact case-only single-token labels when both rows have durable identifiers', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:EMAARPROP'), personRow('p2', 'enc:EmaarProp')],
+      [
+        {
+          ...identifierRow('i1', 'p1', 'imessage_handle', 'enc:EMAARPROP'),
+          identifierValueHash: 'hash:emaarprop-1',
+        },
+        {
+          ...identifierRow('i2', 'p2', 'imessage_handle', 'enc:EmaarProp'),
+          identifierValueHash: 'hash:emaarprop-2',
+        },
+      ],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'EMAARPROP'),
+      identifiers: [],
+    });
+
+    const auto = await service.autoMerge('user-1');
+
+    expect(auto.merged).toBe(1);
+    expect(auto.byRule.exactMultiWordName).toBe(1);
+    expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
+  });
+
+  it('does not auto-merge common single-token first names by casing alone', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Mohamed'), personRow('p2', 'enc:MOHAMED')],
+      [
+        {
+          ...identifierRow('i1', 'p1', 'phone', 'enc:+971500000001'),
+          identifierValueHash: 'hash:+971500000001',
+        },
+        {
+          ...identifierRow('i2', 'p2', 'phone', 'enc:+971500000002'),
+          identifierValueHash: 'hash:+971500000002',
+        },
+      ],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'Mohamed'),
+      identifiers: [],
+    });
+
+    const auto = await service.autoMerge('user-1');
+
+    expect(auto.merged).toBe(0);
+    expect(mergeSpy).not.toHaveBeenCalled();
+  });
+
   it('keeps the avatar-bearing row as target when exact names auto-merge', async () => {
     const avatarRow = {
       ...personRow('p2', 'enc:AMR ESSAM'),
@@ -389,6 +441,51 @@ describe('PeopleService runtime behavior', () => {
 
     expect(suggestions).toHaveLength(0);
     expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
+  });
+
+  it('auto-merges exact case-only names during suggestion loading instead of suggesting them', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:EMAARPROP'), personRow('p2', 'enc:EmaarProp')],
+      [
+        {
+          ...identifierRow('i1', 'p1', 'imessage_handle', 'enc:EMAARPROP'),
+          identifierValueHash: 'hash:emaarprop-1',
+        },
+        {
+          ...identifierRow('i2', 'p2', 'imessage_handle', 'enc:EmaarProp'),
+          identifierValueHash: 'hash:emaarprop-2',
+        },
+      ],
+      [],
+      [],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...personRow('p1', 'EMAARPROP'),
+      identifiers: [],
+    });
+
+    const suggestions = await service.getSuggestions('user-1');
+
+    expect(suggestions).toHaveLength(0);
+    expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
+  });
+
+  it('bounds people search and returns decrypted rows without per-match hydration', async () => {
+    const { service } = makeDb([
+      [
+        personRow('p1', 'enc:Alice Alpha'),
+        personRow('p2', 'enc:Alice Beta'),
+        personRow('p3', 'enc:Alice Gamma'),
+      ],
+      [identifierRow('i1', 'p1', 'email', 'enc:alice@example.com')],
+    ]);
+    const getByIdSpy = vi.spyOn(service, 'getById');
+
+    const results = await service.search('alice', 'user-1', 'person', 2);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((result) => result.displayName)).toEqual(['Alice Alpha', 'Alice Beta']);
+    expect(getByIdSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -697,6 +794,7 @@ describe('isDirectNameAutoMergeEligible', () => {
       true,
     );
     expect(exactMultiWordNameAutoMergeKey('Amr Essam')).toBe('amr essam');
+    expect(exactDisplayNameAutoMergeKey('EMAARPROP')).toBe('emaarprop');
   });
 
   it('does not auto-merge single-token direct duplicates', () => {
@@ -704,6 +802,7 @@ describe('isDirectNameAutoMergeEligible', () => {
     expect(isDirectNameAutoMergeEligible('Noman', 'NOMAN')).toBe(false);
     expect(isDirectNameAutoMergeEligible('E.A.', 'E A')).toBe(false);
     expect(exactMultiWordNameAutoMergeKey('E.A.')).toBeNull();
+    expect(exactDisplayNameAutoMergeKey('Mohamed')).toBeNull();
   });
 
   it('does not auto-merge fuzzy typo variants', () => {
