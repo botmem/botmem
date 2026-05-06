@@ -87,6 +87,16 @@ interface PrimaryMedia {
   hasFetchableUrl: boolean;
 }
 
+const CONNECTOR_LABELS: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
+  slack: 'Slack',
+  gmail: 'Gmail',
+  outlook: 'Outlook',
+  imessage: 'iMessage',
+  photos: 'Photos',
+};
+
 const MAX_MEDIA_TEXT_CHARS = 8_000;
 const MAX_IMAGE_DESCRIPTION_BYTES = 12 * 1024 * 1024;
 const MAX_LINKED_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -147,6 +157,10 @@ function cleanGeneratedSearchText(value: string): string {
     .replace(/\*\*([^*\n]+)\*\*/g, '$1')
     .replace(/^\s*[-*]\s+/gm, '')
     .trim();
+}
+
+function connectorLabel(connectorType: string): string {
+  return CONNECTOR_LABELS[connectorType] || connectorType;
 }
 
 @Processor('memory', {
@@ -911,6 +925,25 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       }
     }
 
+    const memorySourceType = this.memorySourceTypeForEvent(event.sourceType, primaryMedia);
+    if (primaryMedia) {
+      currentText = this.buildMediaMemoryText({
+        connectorType: rawEvent.connectorType,
+        originalSourceType: event.sourceType,
+        media: primaryMedia,
+        metadata: mergedMetadata,
+        originalText: embedText,
+        currentText,
+      });
+      mergedMetadata.mediaMemory = {
+        sourceConnector: rawEvent.connectorType,
+        sourceLabel: connectorLabel(rawEvent.connectorType),
+        originalSourceType: event.sourceType,
+        memorySourceType,
+        representedAs: memorySourceType,
+      };
+    }
+
     // 7. Generate embedding
     const maxChars = 6000;
     const truncatedText =
@@ -1015,7 +1048,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const searchIndexPayload: Record<string, unknown> = {
       schema_version: MEMORY_INDEX_SCHEMA_VERSION,
       text: truncatedText,
-      source_type: event.sourceType,
+      source_type: memorySourceType,
       connector_type: rawEvent.connectorType,
       event_time: event.timestamp,
       account_id: rawEvent.accountId,
@@ -1043,7 +1076,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     try {
       const enrichResult = await this.enrichService.enrichInline({
         text: currentText,
-        sourceType: event.sourceType,
+        sourceType: memorySourceType,
         connectorType: rawEvent.connectorType,
         metadata: mergedMetadata,
       });
@@ -1119,7 +1152,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             accountId: rawEvent.accountId,
             memoryBankId,
             connectorType: rawEvent.connectorType,
-            sourceType: event.sourceType,
+            sourceType: memorySourceType,
             sourceId: event.sourceId,
             text: insertText,
             eventTime: new Date(event.timestamp),
@@ -1160,7 +1193,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           accountId: rawEvent.accountId,
           memoryBankId,
           connectorType: rawEvent.connectorType,
-          sourceType: event.sourceType,
+          sourceType: memorySourceType,
           sourceId: event.sourceId,
           text: insertText,
           eventTime: new Date(event.timestamp),
@@ -1313,14 +1346,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     void this.pluginRegistry.fireHook('afterIngest', {
       id: persistedMemoryId,
       text: embedText,
-      sourceType: event.sourceType,
+      sourceType: memorySourceType,
       connectorType: rawEvent.connectorType,
       eventTime: new Date(event.timestamp),
     });
     void this.pluginRegistry.fireHook('afterEmbed', {
       id: persistedMemoryId,
       text: embedText,
-      sourceType: event.sourceType,
+      sourceType: memorySourceType,
       connectorType: rawEvent.connectorType,
       eventTime: new Date(event.timestamp),
     });
@@ -1328,7 +1361,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // Emit memory updated event
     this.events.emitToChannel('memories', 'memory:updated', {
       memoryId: persistedMemoryId,
-      sourceType: event.sourceType,
+      sourceType: memorySourceType,
       connectorType: rawEvent.connectorType,
       text: currentText.slice(0, 100),
     });
@@ -1344,7 +1377,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
     this.analytics.capture('memory_complete', {
       memory_id: persistedMemoryId,
-      source_type: event.sourceType,
+      source_type: memorySourceType,
       connector_type: rawEvent.connectorType,
     });
 
@@ -1399,6 +1432,58 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     };
   }
 
+  private memorySourceTypeForEvent(sourceType: string, media: PrimaryMedia | null): string {
+    if (!media) return sourceType;
+    if (sourceType === 'photo') return 'photo';
+    if (sourceType === 'file') return 'file';
+    return 'file';
+  }
+
+  private buildMediaMemoryText(input: {
+    connectorType: string;
+    originalSourceType: string;
+    media: PrimaryMedia;
+    metadata: Record<string, unknown>;
+    originalText: string;
+    currentText: string;
+  }): string {
+    const extraction = input.metadata.mediaExtraction as Record<string, unknown> | undefined;
+    const extractedText =
+      typeof extraction?.extractedText === 'string' ? extraction.extractedText.trim() : '';
+    const originalText = input.originalText.trim();
+    const withoutExtraction =
+      extractedText && input.currentText.startsWith(extractedText)
+        ? input.currentText.slice(extractedText.length).trim()
+        : input.currentText.trim();
+    const messageText = originalText || withoutExtraction;
+    const warnings = Array.isArray(extraction?.warnings)
+      ? extraction.warnings.map((w) => String(w)).filter(Boolean)
+      : [];
+    const confidenceLabel =
+      typeof extraction?.confidenceLabel === 'string' ? extraction.confidenceLabel : undefined;
+    const sourceName = connectorLabel(input.connectorType);
+    const lines = [
+      `File from ${sourceName}`,
+      `Connector: ${input.connectorType}`,
+      `Original source type: ${input.originalSourceType}`,
+      `Media type: ${input.media.kind}`,
+      input.media.mimeType ? `MIME type: ${input.media.mimeType}` : '',
+      input.media.fileName ? `Filename: ${input.media.fileName}` : '',
+      messageText ? `Message context:\n${messageText}` : '',
+      extractedText
+        ? [
+            `Extracted media text (${confidenceLabel || 'unknown'} confidence):`,
+            extractedText,
+            warnings.length ? `Extraction warnings: ${warnings.join(', ')}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : '',
+    ].filter(Boolean);
+
+    return lines.join('\n\n');
+  }
+
   private async describeImageForSearch(
     fileBuffer: Buffer,
     mimeType: string,
@@ -1406,9 +1491,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   ): Promise<string> {
     const prompt = [
       'Extract searchable information from this image for a private memory system.',
-      'Include any visible text exactly enough to search it, then summarize the scene, people, places, document type, dates, names, organizations, and identifiers.',
+      'First transcribe visible text. Then, only if visually clear, summarize the scene, people, places, document type, dates, names, organizations, and identifiers.',
       'If this is a document/photo of a document, prioritize OCR-like text and official fields over visual style.',
-      'Do not invent missing details. Keep it concise.',
+      'If text or visual details are unclear, say they are unclear instead of guessing.',
+      'Do not infer facts that are not directly visible in the image. Keep it concise.',
       'Return plain text only. Do not return JSON, Markdown, or fenced code blocks.',
       fileName ? `Filename: ${fileName}` : '',
       mimeType ? `MIME type: ${mimeType}` : '',

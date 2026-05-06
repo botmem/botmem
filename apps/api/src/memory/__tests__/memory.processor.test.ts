@@ -143,6 +143,57 @@ describe('buildWhatsAppContactIdentity', () => {
 });
 
 describe('media extraction metadata', () => {
+  it('represents message media as a file memory with connector provenance and extraction evidence', () => {
+    const proto = MemoryProcessor.prototype as unknown as {
+      memorySourceTypeForEvent(sourceType: string, media: unknown): string;
+      buildMediaMemoryText(input: {
+        connectorType: string;
+        originalSourceType: string;
+        media: {
+          kind: string;
+          mimeType: string;
+          fileName?: string;
+          hasInlineContent: boolean;
+          hasFetchableUrl: boolean;
+        };
+        metadata: Record<string, unknown>;
+        originalText: string;
+        currentText: string;
+      }): string;
+    };
+    const media = {
+      kind: 'image',
+      mimeType: 'image/jpeg',
+      fileName: 'receipt.jpg',
+      hasInlineContent: true,
+      hasFetchableUrl: false,
+    };
+
+    expect(proto.memorySourceTypeForEvent('message', media)).toBe('file');
+
+    const text = proto.buildMediaMemoryText({
+      connectorType: 'whatsapp',
+      originalSourceType: 'message',
+      media,
+      metadata: {
+        mediaExtraction: {
+          extractedText: 'Visible total: AED 120',
+          confidenceLabel: 'medium',
+          warnings: ['ocr_date_disagrees_with_event_time'],
+        },
+      },
+      originalText: 'Mom sent an image',
+      currentText: 'Visible total: AED 120\n\nMom sent an image',
+    });
+
+    expect(text).toContain('File from WhatsApp');
+    expect(text).toContain('Connector: whatsapp');
+    expect(text).toContain('Original source type: message');
+    expect(text).toContain('Extracted media text (medium confidence):');
+    expect(text).toContain('Visible total: AED 120');
+    expect(text).toContain('Extraction warnings: ocr_date_disagrees_with_event_time');
+  });
+
   it('records low-confidence warnings when OCR dates disagree with event time', () => {
     const metadata = (
       MemoryProcessor.prototype as unknown as {

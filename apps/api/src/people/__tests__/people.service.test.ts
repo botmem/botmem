@@ -406,6 +406,32 @@ describe('PeopleService runtime behavior', () => {
     expect(mergeSpy).toHaveBeenCalledWith('p2', 'p1');
   });
 
+  it('preserves source and target avatars when people are merged', () => {
+    const { service } = makeDb();
+    const merged = (
+      service as unknown as {
+        mergeAvatarLists(
+          targetAvatars: unknown,
+          sourceAvatars: unknown,
+        ): Array<{
+          url: string;
+          source: string;
+        }>;
+      }
+    ).mergeAvatarLists(
+      [{ url: 'data:image/png;base64,target', source: 'gmail' }],
+      [
+        { url: 'data:image/png;base64:source', source: 'immich' },
+        { url: 'data:image/png;base64,target', source: 'gmail' },
+      ],
+    );
+
+    expect(merged).toEqual([
+      { url: 'data:image/png;base64,target', source: 'gmail' },
+      { url: 'data:image/png;base64:source', source: 'immich' },
+    ]);
+  });
+
   it('does not auto-merge people by matching display names unless both sides have identifiers', async () => {
     const { service } = makeDb([
       [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:Amr Essam')],

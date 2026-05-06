@@ -566,6 +566,36 @@ export class PeopleService {
     return value;
   }
 
+  private mergeAvatarLists(
+    targetAvatars: unknown,
+    sourceAvatars: unknown,
+  ): Array<{ url: string; source: string }> {
+    const normalize = (value: unknown): Array<{ url: string; source: string }> => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((avatar) => {
+          if (!avatar || typeof avatar !== 'object') return null;
+          const raw = avatar as Record<string, unknown>;
+          const url = String(raw.url || '').trim();
+          if (!url) return null;
+          return {
+            url,
+            source: String(raw.source || 'unknown'),
+          };
+        })
+        .filter((avatar): avatar is { url: string; source: string } => avatar !== null);
+    };
+
+    const merged = normalize(targetAvatars);
+    const seenUrls = new Set(merged.map((avatar) => avatar.url));
+    for (const avatar of normalize(sourceAvatars)) {
+      if (seenUrls.has(avatar.url)) continue;
+      merged.push(avatar);
+      seenUrls.add(avatar.url);
+    }
+    return merged;
+  }
+
   private buildNameAliasMetadata(
     metadata: unknown,
     aliases: IdentifierInput[],
@@ -1627,17 +1657,10 @@ export class PeopleService {
               }
 
               // Merge avatars (target first, then source, dedup by url)
-              const targetAvatars: Array<{ url: string; source: string }> =
-                (this.decryptJsonb(target.avatars) as Array<{ url: string; source: string }>) || [];
-              const sourceAvatars: Array<{ url: string; source: string }> =
-                (this.decryptJsonb(source.avatars) as Array<{ url: string; source: string }>) || [];
-              const seenUrls = new Set(targetAvatars.map((a) => a.url));
-              for (const avatar of sourceAvatars) {
-                if (!seenUrls.has(avatar.url)) {
-                  targetAvatars.push(avatar);
-                  seenUrls.add(avatar.url);
-                }
-              }
+              const targetAvatars = this.mergeAvatarLists(
+                this.decryptJsonb(target.avatars),
+                this.decryptJsonb(source.avatars),
+              );
 
               // Prefer a real name over phone numbers / raw IDs
               // Decrypt display names for comparison
