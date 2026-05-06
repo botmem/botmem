@@ -5,6 +5,7 @@ Local-first platform that ingests events from multiple data sources (emails, mes
 ## Agent Workflow
 
 - People graph nodes must only be created or linked from durable identifiers such as email, phone, platform user id, connector id, or account id. Arbitrary extracted names may be search entities, but must not create or attach people nodes.
+- Search/entity-resolution fixes must be evidence-based and user-agnostic. Do not hardcode vendor, person, organization, travel, or topic terms from one user's data to tune retrieval behavior.
 
 ## Quick Start
 

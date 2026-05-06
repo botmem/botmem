@@ -283,6 +283,33 @@ export class MemoryController {
     });
   }
 
+  @Get('activity')
+  async activity(
+    @CurrentUser() user: { id: string; memoryBankIds?: string[] },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('connectorType') connectorType?: string,
+    @Query('sourceType') sourceType?: string,
+    @Query('query') query?: string,
+    @Query('limit') limit?: string,
+    @Query('memoryBankId') memoryBankId?: string,
+  ) {
+    if (await this.memoryService.needsRecoveryKey(user.id)) {
+      return { items: [], total: 0, needsRecoveryKey: true };
+    }
+    return this.memoryService.activity({
+      from,
+      to,
+      connectorType,
+      sourceType,
+      query,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      userId: user.id,
+      memoryBankId,
+      memoryBankIds: user.memoryBankIds,
+    });
+  }
+
   @Get('entities/types')
   getEntityTypes() {
     return { types: this.memoryService.getEntityTypes() };

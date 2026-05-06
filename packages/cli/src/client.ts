@@ -529,6 +529,27 @@ export class BotmemClient {
     );
   }
 
+  async getActivity(params: {
+    from?: string;
+    to?: string;
+    connectorType?: string;
+    sourceType?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<{ items: Memory[]; total: number }> {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.connectorType) qs.set('connectorType', params.connectorType);
+    if (params.sourceType) qs.set('sourceType', params.sourceType);
+    if (params.query) qs.set('query', params.query);
+    if (params.limit) qs.set('limit', String(params.limit));
+    const query = qs.toString();
+    return this.request<{ items: Memory[]; total: number }>(
+      `/memories/activity${query ? '?' + query : ''}`,
+    );
+  }
+
   async getRelated(
     memoryId: string,
     limit?: number,

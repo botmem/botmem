@@ -17,6 +17,7 @@ describe('agent tool registry', () => {
     expect(AGENT_COMMANDS_BY_ID.stats?.cli?.name).toBe('stats');
     expect(AGENT_COMMANDS_BY_ID.status?.cli?.name).toBe('status');
     expect(AGENT_COMMANDS_BY_ID.timeline?.cli?.name).toBe('timeline');
+    expect(AGENT_COMMANDS_BY_ID.activity?.cli?.name).toBe('activity');
   });
 
   it('keeps location semantics visible in MCP descriptions', () => {
