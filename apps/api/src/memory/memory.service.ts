@@ -118,7 +118,11 @@ const LEXICAL_QUERY_FILLER_WORDS = new Set([
   'info',
   'information',
   'know',
+  'latest',
+  'newest',
   'please',
+  'recent',
+  'recently',
   'show',
   'tell',
   'what',
@@ -137,6 +141,21 @@ function buildLexicalQuery(query: string, topicWords: string[] = []): string {
     .map((word) => word.replace(/'s$/i, '').replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, ''))
     .filter((word) => word.length >= 2 && !LEXICAL_QUERY_FILLER_WORDS.has(word));
   return words.join(' ');
+}
+
+function searchCoverageTerms(query: string, topicWords: string[] = []): string[] {
+  return [...new Set(buildLexicalQuery(query, topicWords).split(/\s+/).filter(Boolean))];
+}
+
+function queryTokenCoverage(text: string, terms: string[]): number {
+  if (!terms.length) return 0;
+  const normalized = stripAccents(text.toLowerCase());
+  let matches = 0;
+  for (const term of terms) {
+    const needle = stripAccents(term.toLowerCase());
+    if (needle && normalized.includes(needle)) matches++;
+  }
+  return matches / terms.length;
 }
 
 interface SearchFilters {
@@ -181,6 +200,7 @@ interface SearchDiagnostics {
     id: string;
     score: number;
     semantic: number;
+    queryCoverage?: number;
     lanes: string[];
   }>;
   entityResolutionFallback?: 'disabled' | 'reran_without_entities';
@@ -707,13 +727,21 @@ export class MemoryService {
   }
 
   private diversifyResults(
-    candidates: Array<{ id: string; row: any; score: number; weights: any }>,
+    candidates: Array<{
+      id: string;
+      row: any;
+      score: number;
+      weights: any;
+      queryCoverage?: number;
+    }>,
     limit: number,
     diversityFactor = DIVERSITY_FACTOR_DEFAULT,
-  ): Array<{ id: string; row: any; score: number; weights: any }> {
+  ): Array<{ id: string; row: any; score: number; weights: any; queryCoverage?: number }> {
     if (candidates.length <= 1) return candidates.slice(0, limit);
 
-    const sorted = [...candidates].sort((a, b) => b.score - a.score);
+    const sorted = [...candidates].sort(
+      (a, b) => b.score - a.score || (b.queryCoverage ?? 0) - (a.queryCoverage ?? 0),
+    );
 
     // Group by connector type
     const groups = new Map<string, typeof sorted>();
@@ -1132,14 +1160,51 @@ export class MemoryService {
         topScore: items[0]?.score,
       });
 
+      const filteredItems = items.filter((item) => {
+        if (item.text.startsWith('[Encrypted')) {
+          diagnostics?.skippedUndecryptableResultIds.push(item.id);
+          return false;
+        }
+        return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
+      });
+
+      if (filteredItems.length === 0 && !options?.noEntityResolution) {
+        const fallbackResult = await this.search(
+          query,
+          filters,
+          limit,
+          userId,
+          memoryBankId,
+          memoryBankIds,
+          diversityFactor,
+          { ...options, noEntityResolution: true },
+        );
+        if (fallbackResult.items.length > 0) {
+          return {
+            ...fallbackResult,
+            fallback: true,
+            resolvedEntities: {
+              contacts: resolvedContacts,
+              topicWords,
+              topicMatchCount,
+            },
+            diagnostics: fallbackResult.diagnostics
+              ? {
+                  ...fallbackResult.diagnostics,
+                  resolvedEntities: {
+                    contacts: resolvedContacts,
+                    mode: 'hint',
+                    topicWords,
+                  },
+                  entityResolutionFallback: 'reran_without_entities',
+                }
+              : undefined,
+          };
+        }
+      }
+
       return {
-        items: items.filter((item) => {
-          if (item.text.startsWith('[Encrypted')) {
-            diagnostics?.skippedUndecryptableResultIds.push(item.id);
-            return false;
-          }
-          return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
-        }),
+        items: filteredItems,
         fallback: false,
         resolvedEntities: { contacts: resolvedContacts, topicWords, topicMatchCount },
         parsed: {
@@ -1189,9 +1254,10 @@ export class MemoryService {
           return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
         }),
         fallback: false,
+        resolvedEntities: { contacts: resolvedContacts, topicWords, topicMatchCount },
         parsed: {
           temporal: nlq.temporal,
-          entities: [],
+          entities: resolvedContacts.map((c) => ({ id: c.id, displayName: c.displayName })),
           intent: nlq.intent,
           cleanQuery: nlq.cleanQuery,
           sourceType: nlq.sourceTypeHint ?? undefined,
@@ -1300,12 +1366,18 @@ export class MemoryService {
       candidateRows.push({ id, row });
     }
 
-    // Score all candidates with contact boost
+    // Score all candidates with contact and topical coverage boosts.
+    // The coverage term set is derived only from the user's query and resolved
+    // topic words, so generic org/brand/person terms do not need hard-coded
+    // special cases to rank well when entity resolution falls back.
+    const coverageTerms = searchCoverageTerms(embeddingQuery, hasContacts ? topicWords : []);
+    const coverageById = new Map<string, number>();
     const scoredCandidates: Array<{
       id: string;
       row: (typeof candidateRows)[0]['row'];
       score: number;
       weights: SearchResult['weights'];
+      queryCoverage: number;
     }> = [];
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
@@ -1334,13 +1406,28 @@ export class MemoryService {
           ? 1.22
           : 1.0;
       const recencyMultiplier = plannedIntent === 'recent_activity' ? 1.08 : 1.0;
+      const memoryForCoverage = this.decryptMemoryAuto(row.memory, userId, resolvedKey);
+      const queryCoverage = queryTokenCoverage(memoryForCoverage.text, coverageTerms);
+      coverageById.set(id, queryCoverage);
+      const coverageMultiplier =
+        coverageTerms.length >= 2
+          ? 0.75 + queryCoverage * 0.5
+          : coverageTerms.length === 1
+            ? 0.85 + queryCoverage * 0.3
+            : 1.0;
       const boostedScore = Math.min(
-        score * contactMultiplier * locationMultiplier * recencyMultiplier,
+        score * contactMultiplier * locationMultiplier * recencyMultiplier * coverageMultiplier,
         1.0,
       );
       const boostedWeights = { ...weights, final: boostedScore };
 
-      scoredCandidates.push({ id, row, score: boostedScore, weights: boostedWeights });
+      scoredCandidates.push({
+        id,
+        row,
+        score: boostedScore,
+        weights: boostedWeights,
+        queryCoverage,
+      });
     }
 
     const exactLaneIds = new Set(
@@ -1371,6 +1458,7 @@ export class MemoryService {
         id: c.id,
         score: c.score,
         semantic: semanticScores.get(c.id) ?? 0,
+        queryCoverage: coverageById.get(c.id),
         lanes: [...(candidateLanes.get(c.id) ?? new Set())],
       }));
     }

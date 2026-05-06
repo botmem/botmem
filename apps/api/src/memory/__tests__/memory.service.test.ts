@@ -243,6 +243,119 @@ describe('MemoryService', () => {
       expect(searchIndexService.hybridSearch).toHaveBeenCalledTimes(2);
     });
 
+    it('reruns empty pure contact-like queries without entity resolution', async () => {
+      (service as unknown as { contactsCache: Map<string, unknown> }).contactsCache.set(
+        '__none__',
+        {
+          expires: Date.now() + 60_000,
+          data: [{ id: 'person-1', displayName: 'Acme', entityType: 'person' }],
+        },
+      );
+      searchIndexService.hybridSearch
+        .mockResolvedValueOnce({ results: [], facetCounts: [], found: 0 })
+        .mockResolvedValueOnce({
+          results: [{ id: 'mem-1', score: 0.88 }],
+          facetCounts: [],
+          found: 1,
+        });
+      searchIndexService.textSearch
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'mem-1', score: 0.88 }]);
+      vi.spyOn(
+        service as unknown as { fetchMemoryRowsBatch: (ids: string[]) => unknown },
+        'fetchMemoryRowsBatch',
+      ).mockResolvedValueOnce(
+        new Map([
+          [
+            'mem-1',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                text: 'Acme itinerary and ticket details',
+              },
+              accountIdentifier: null,
+            },
+          ],
+        ]),
+      );
+
+      const result = await service.search(
+        'Acme',
+        { connectorType: 'gmail' },
+        5,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          debug: true,
+        },
+      );
+
+      expect(result.items).toHaveLength(1);
+      expect(result.fallback).toBe(true);
+      expect(result.diagnostics?.entityResolutionFallback).toBe('reran_without_entities');
+      expect(result.items[0].text).toContain('Acme itinerary');
+    });
+
+    it('ranks fallback candidates by dynamic query token coverage', async () => {
+      searchIndexService.hybridSearch.mockResolvedValueOnce({
+        results: [
+          { id: 'noise', score: 0.82 },
+          { id: 'relevant', score: 0.82 },
+        ],
+        facetCounts: [],
+        found: 2,
+      });
+      searchIndexService.textSearch.mockResolvedValueOnce([
+        { id: 'noise', score: 0.82 },
+        { id: 'relevant', score: 0.82 },
+      ]);
+      vi.spyOn(
+        service as unknown as { fetchMemoryRowsBatch: (ids: string[]) => unknown },
+        'fetchMemoryRowsBatch',
+      ).mockResolvedValueOnce(
+        new Map([
+          [
+            'noise',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                id: 'noise',
+                text: 'Latest account statement and money transfer receipt',
+              },
+              accountIdentifier: null,
+            },
+          ],
+          [
+            'relevant',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                id: 'relevant',
+                text: 'Latest Acme booking ticket confirmation and itinerary',
+              },
+              accountIdentifier: null,
+            },
+          ],
+        ]),
+      );
+
+      const result = await service.search(
+        'latest Acme booking ticket',
+        { connectorType: 'gmail' },
+        5,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { debug: true, noEntityResolution: true },
+      );
+
+      expect(result.items.map((item) => item.id)).toEqual(['relevant', 'noise']);
+      expect(result.diagnostics?.topScoreComponents[0].queryCoverage).toBe(1);
+    });
+
     it('returns empty when user has no accounts', async () => {
       // getUserAccountIds returns empty array for user with no accounts
       mockDb.where.mockResolvedValueOnce([]); // accounts query
