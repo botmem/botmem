@@ -56,6 +56,7 @@ function createMockClient(): BotmemClient {
       uptime: 3600,
     }),
     getTimeline: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    getActivity: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getRelated: vi.fn().mockResolvedValue({ items: [], source: null }),
     searchEntities: vi.fn().mockResolvedValue({ entities: [], total: 0 }),
     getEntityGraph: vi.fn().mockResolvedValue({
@@ -138,6 +139,17 @@ describe('runSearch', () => {
       { sourceType: 'email', connectorType: 'gmail' },
       5,
       'bank-1',
+    );
+  });
+
+  it('should pass from-me filter', async () => {
+    const client = createMockClient();
+    await runSearch(client, ['test', '--from-me'], false);
+    expect(client.searchMemories).toHaveBeenCalledWith(
+      'test',
+      { fromMe: true },
+      undefined,
+      undefined,
     );
   });
 
@@ -611,6 +623,12 @@ describe('runTimeline', () => {
     });
   });
 
+  it('should pass from-me filter to timeline', async () => {
+    const client = createMockClient();
+    await runTimeline(client, ['--from-me'], false);
+    expect(client.getTimeline).toHaveBeenCalledWith({ fromMe: true, limit: undefined });
+  });
+
   it('should output JSON', async () => {
     const client = createMockClient();
     await runTimeline(client, [], true);
@@ -647,6 +665,48 @@ describe('runTimeline', () => {
     await runTimeline(client, [], false);
     // Should contain date headers and items
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Meeting at 10am'));
+  });
+});
+
+describe('runActivity', () => {
+  let runActivity: typeof import('../commands/activity.js').runActivity;
+
+  beforeEach(async () => {
+    ({ runActivity } = await import('../commands/activity.js'));
+  });
+
+  it('should request authored activity with filters and limit', async () => {
+    const client = createMockClient();
+    await runActivity(
+      client,
+      [
+        '--from',
+        '2025-01-01',
+        '--to',
+        '2025-01-31',
+        '--connector',
+        'whatsapp',
+        '--source',
+        'message',
+        '--limit',
+        '10',
+      ],
+      false,
+    );
+
+    expect(client.getActivity).toHaveBeenCalledWith({
+      from: '2025-01-01',
+      to: '2025-01-31',
+      connectorType: 'whatsapp',
+      sourceType: 'message',
+      limit: 10,
+    });
+  });
+
+  it('should output JSON', async () => {
+    const client = createMockClient();
+    await runActivity(client, [], true);
+    expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
   });
 });
 

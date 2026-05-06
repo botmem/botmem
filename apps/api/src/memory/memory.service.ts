@@ -183,6 +183,7 @@ interface SearchDiagnostics {
     semantic: number;
     lanes: string[];
   }>;
+  entityResolutionFallback?: 'disabled' | 'reran_without_entities';
   schemaStatus?: Awaited<ReturnType<PgSearchService['getSchemaStatus']>>;
 }
 
@@ -405,6 +406,21 @@ export class MemoryService {
     if (object.isFromMe !== undefined) return object.isFromMe === fromMe;
     if (object.direction === 'outgoing') return fromMe === true;
     if (object.direction === 'incoming') return fromMe === false;
+    return false;
+  }
+
+  private matchesActivityFilter(item: {
+    sourceType?: string | null;
+    connectorType?: string | null;
+    metadata?: unknown;
+  }): boolean {
+    if (this.matchesFromMeFilter(item.metadata, true)) return true;
+
+    const sourceType = item.sourceType?.toLowerCase();
+    const connectorType = item.connectorType?.toLowerCase();
+    if (sourceType === 'photo' || sourceType === 'location') return true;
+    if (connectorType === 'photos' || connectorType === 'locations') return true;
+
     return false;
   }
 
@@ -813,7 +829,7 @@ export class MemoryService {
     memoryBankId?: string,
     memoryBankIds?: string[],
     diversityFactor?: number,
-    options?: { debug?: boolean },
+    options?: { debug?: boolean; noEntityResolution?: boolean },
   ): Promise<SearchResponse> {
     if (!query.trim()) return { items: [], fallback: false };
 
@@ -883,9 +899,18 @@ export class MemoryService {
       .map((w) => w.replace(/'s$/i, ''))
       .filter((w) => w.length >= 2);
 
-    const entityResult = await this.resolveEntities(queryWords, userId);
+    const entityResult = options?.noEntityResolution
+      ? {
+          contacts: [],
+          topicWords: queryWords.filter((w) => !MINIMAL_STOPS.has(w)),
+          contactIds: [],
+        }
+      : await this.resolveEntities(queryWords, userId);
     const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
     const hasContacts = resolvedContacts.length > 0;
+    if (diagnostics && options?.noEntityResolution) {
+      diagnostics.entityResolutionFallback = 'disabled';
+    }
 
     // --- Build Qdrant-format filter (Postgres searchService converts internally) ---
     const tsFilter = this.buildQdrantFilter(effectiveFilters);
@@ -1179,6 +1204,45 @@ export class MemoryService {
     }
 
     if (!allCandidateIds.size) {
+      if (
+        hasContacts &&
+        topicWords.length > 0 &&
+        topicMatchCount === 0 &&
+        !options?.noEntityResolution
+      ) {
+        const fallbackResult = await this.search(
+          query,
+          filters,
+          limit,
+          userId,
+          memoryBankId,
+          memoryBankIds,
+          diversityFactor,
+          { ...options, noEntityResolution: true },
+        );
+        if (fallbackResult.items.length > 0) {
+          return {
+            ...fallbackResult,
+            fallback: true,
+            resolvedEntities: {
+              contacts: resolvedContacts,
+              topicWords,
+              topicMatchCount,
+            },
+            diagnostics: fallbackResult.diagnostics
+              ? {
+                  ...fallbackResult.diagnostics,
+                  resolvedEntities: {
+                    contacts: resolvedContacts,
+                    mode: 'hint',
+                    topicWords,
+                  },
+                  entityResolutionFallback: 'reran_without_entities',
+                }
+              : undefined,
+          };
+        }
+      }
       return {
         items: [],
         fallback: false,
@@ -1285,6 +1349,46 @@ export class MemoryService {
         semantic: semanticScores.get(c.id) ?? 0,
         lanes: [...(candidateLanes.get(c.id) ?? new Set())],
       }));
+    }
+
+    if (
+      hasContacts &&
+      topicWords.length > 0 &&
+      topicMatchCount === 0 &&
+      !options?.noEntityResolution
+    ) {
+      const fallbackResult = await this.search(
+        query,
+        filters,
+        limit,
+        userId,
+        memoryBankId,
+        memoryBankIds,
+        diversityFactor,
+        { ...options, noEntityResolution: true },
+      );
+      if (fallbackResult.items.length > 0) {
+        return {
+          ...fallbackResult,
+          fallback: true,
+          resolvedEntities: {
+            contacts: resolvedContacts,
+            topicWords,
+            topicMatchCount,
+          },
+          diagnostics: fallbackResult.diagnostics
+            ? {
+                ...fallbackResult.diagnostics,
+                resolvedEntities: {
+                  contacts: resolvedContacts,
+                  mode: 'hint',
+                  topicWords,
+                },
+                entityResolutionFallback: 'reran_without_entities',
+              }
+            : undefined,
+        };
+      }
     }
 
     // Fire afterSearch hook (fire-and-forget)
@@ -2749,6 +2853,28 @@ export class MemoryService {
       .filter((item) => !this.isLockedMemory(item))
       .filter((item) => this.matchesFromMeFilter(item.metadata, params.fromMe));
     return { items, total };
+  }
+
+  async activity(params: {
+    from?: string;
+    to?: string;
+    connectorType?: string;
+    sourceType?: string;
+    query?: string;
+    limit?: number;
+    userId?: string;
+    memoryBankId?: string;
+    memoryBankIds?: string[];
+  }) {
+    const requestedLimit = params.limit ?? 50;
+    const timeline = await this.timeline({
+      ...params,
+      limit: Math.min(Math.max(requestedLimit * 3, requestedLimit), 500),
+    });
+    const items = timeline.items
+      .filter((item) => this.matchesActivityFilter(item))
+      .slice(0, requestedLimit);
+    return { items, total: items.length };
   }
 
   async backfillWhatsappSenderNames(userId: string): Promise<{

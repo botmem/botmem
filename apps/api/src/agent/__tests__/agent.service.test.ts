@@ -175,6 +175,36 @@ describe('AgentService', () => {
 
       expect(memoryService.getById).toHaveBeenCalledWith('mem-1', 'user-1');
     });
+
+    it('adds thread metadata to related email results', async () => {
+      memoryService.search.mockResolvedValueOnce({
+        items: [
+          { id: 'mem-1', score: 0.9 },
+          { id: 'mem-2', score: 0.8 },
+        ],
+        fallback: false,
+        parsed: { temporal: null, intent: 'recall', cleanQuery: 'booking' },
+      });
+      memoryService.getById.mockImplementation((id: string) =>
+        Promise.resolve({
+          ...fakeMemory,
+          id,
+          text: id === 'mem-1' ? 'Original booking' : 'Booking changed',
+          eventTime: new Date(id === 'mem-1' ? '2026-04-01' : '2026-04-02'),
+          metadata: JSON.stringify({ threadId: 'gmail-thread-1' }),
+        }),
+      );
+
+      const result = await service.ask('booking update');
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0].metadata.thread).toMatchObject({
+        id: 'gmail-thread-1',
+        latestState: 'Booking changed',
+        messageCount: 2,
+        memoryIds: ['mem-1', 'mem-2'],
+      });
+    });
   });
 
   describe('remember', () => {

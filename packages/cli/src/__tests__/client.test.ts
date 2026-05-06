@@ -409,6 +409,18 @@ describe('BotmemClient', () => {
     });
   });
 
+  describe('getActivity', () => {
+    it('should GET /memories/activity with params', async () => {
+      mockFetch.mockReturnValue(jsonResponse({ items: [], total: 0 }));
+      await client.getActivity({ from: '2025-01-01', connectorType: 'whatsapp', limit: 10 });
+      const url = mockFetch.mock.calls[0][0];
+      expect(url).toContain('/memories/activity');
+      expect(url).toContain('from=2025-01-01');
+      expect(url).toContain('connectorType=whatsapp');
+      expect(url).toContain('limit=10');
+    });
+  });
+
   describe('getRelated', () => {
     it('should GET /memories/:id/related', async () => {
       mockFetch.mockReturnValue(jsonResponse({ items: [], source: null }));

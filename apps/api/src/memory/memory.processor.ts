@@ -1058,6 +1058,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         parentJobId,
       );
     }
+    enrichFactuality = this.guardMediaFactuality(enrichFactuality, mergedMetadata);
 
     // Compute weights
     const ageDays = (Date.now() - new Date(event.timestamp).getTime()) / (1000 * 60 * 60 * 24);
@@ -1458,6 +1459,31 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       confidenceLabel: confidence >= 0.8 ? 'high' : confidence >= 0.6 ? 'medium' : 'low',
       warnings,
       extractedText: extractedText || undefined,
+    };
+  }
+
+  private guardMediaFactuality(
+    factuality: { label: string; confidence: number; rationale: string } | null,
+    metadata: Record<string, unknown>,
+  ): { label: string; confidence: number; rationale: string } | null {
+    const extraction = metadata.mediaExtraction as Record<string, unknown> | undefined;
+    const confidence =
+      typeof extraction?.confidence === 'number' ? extraction.confidence : undefined;
+    const warnings = Array.isArray(extraction?.warnings) ? extraction.warnings : [];
+    if (confidence === undefined || (confidence >= 0.6 && warnings.length === 0)) {
+      return factuality;
+    }
+
+    return {
+      label: 'UNVERIFIED',
+      confidence: Math.min(factuality?.confidence ?? 0.5, Math.max(confidence, 0.35)),
+      rationale: [
+        factuality?.rationale || 'Media-derived memory',
+        `Media extraction confidence is ${confidence.toFixed(2)}`,
+        warnings.length ? `warnings: ${warnings.join(', ')}` : '',
+      ]
+        .filter(Boolean)
+        .join('; '),
     };
   }
 

@@ -4,6 +4,7 @@ import {
   shouldMergeEntityResolutionBucket,
 } from '../connector-normalizers/whatsapp-group-identity';
 import { buildWhatsAppContactIdentity } from '../connector-normalizers/whatsapp-contact-identity';
+import { MemoryProcessor } from '../memory.processor';
 
 describe('shouldMergeEntityResolutionBucket', () => {
   it('never fuses person entities before person resolution', () => {
@@ -138,5 +139,52 @@ describe('buildWhatsAppContactIdentity', () => {
     );
 
     expect(result).toBeNull();
+  });
+});
+
+describe('media extraction metadata', () => {
+  it('records low-confidence warnings when OCR dates disagree with event time', () => {
+    const metadata = (
+      MemoryProcessor.prototype as unknown as {
+        buildMediaExtractionMetadata(input: {
+          status: string;
+          source: string;
+          extractedText?: string;
+          eventTimestamp?: string;
+        }): Record<string, unknown>;
+      }
+    ).buildMediaExtractionMetadata({
+      status: 'extracted',
+      source: 'vision_ocr',
+      extractedText: 'Official document dated 2021',
+      eventTimestamp: '2026-05-01T00:00:00.000Z',
+    });
+
+    expect(metadata.confidenceLabel).toBe('low');
+    expect(metadata.warnings).toContain('ocr_date_disagrees_with_event_time');
+    expect(metadata.extractedText).toContain('Official document');
+  });
+
+  it('downgrades factuality when media extraction is low-confidence', () => {
+    const factuality = (
+      MemoryProcessor.prototype as unknown as {
+        guardMediaFactuality(
+          factuality: { label: string; confidence: number; rationale: string },
+          metadata: Record<string, unknown>,
+        ): { label: string; confidence: number; rationale: string };
+      }
+    ).guardMediaFactuality(
+      { label: 'FACT', confidence: 0.95, rationale: 'Model said so' },
+      {
+        mediaExtraction: {
+          confidence: 0.45,
+          warnings: ['ocr_date_disagrees_with_event_time'],
+        },
+      },
+    );
+
+    expect(factuality.label).toBe('UNVERIFIED');
+    expect(factuality.confidence).toBeLessThan(0.6);
+    expect(factuality.rationale).toContain('ocr_date_disagrees_with_event_time');
   });
 });

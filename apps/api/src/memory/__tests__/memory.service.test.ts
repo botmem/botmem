@@ -200,6 +200,49 @@ describe('MemoryService', () => {
       expect(result.diagnostics?.schemaStatus?.status).toBe('current');
     });
 
+    it('reruns mixed topical searches without entity resolution when entity hints have no topic evidence', async () => {
+      (service as unknown as { contactsCache: Map<string, unknown> }).contactsCache.set(
+        '__none__',
+        {
+          expires: Date.now() + 60_000,
+          data: [{ id: 'person-1', displayName: 'Acme Booking', entityType: 'person' }],
+        },
+      );
+      searchIndexService.hybridSearch
+        .mockResolvedValueOnce({ results: [], facetCounts: [], found: 0 })
+        .mockResolvedValueOnce({
+          results: [{ id: 'mem-1', score: 0.92 }],
+          facetCounts: [],
+          found: 1,
+        });
+      searchIndexService.textSearch
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'mem-1', score: 0.92 }]);
+      vi.spyOn(
+        service as unknown as { fetchMemoryRowsBatch: (ids: string[]) => unknown },
+        'fetchMemoryRowsBatch',
+      ).mockResolvedValueOnce(
+        new Map([['mem-1', { memory: fakeMemoryRow, accountIdentifier: null }]]),
+      );
+
+      const result = await service.search(
+        'latest Acme booking email',
+        { connectorType: 'gmail' },
+        5,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { debug: true },
+      );
+
+      expect(result.items).toHaveLength(1);
+      expect(result.fallback).toBe(true);
+      expect(result.resolvedEntities?.contacts[0].displayName).toBe('Acme Booking');
+      expect(result.diagnostics?.entityResolutionFallback).toBe('reran_without_entities');
+      expect(searchIndexService.hybridSearch).toHaveBeenCalledTimes(2);
+    });
+
     it('returns empty when user has no accounts', async () => {
       // getUserAccountIds returns empty array for user with no accounts
       mockDb.where.mockResolvedValueOnce([]); // accounts query
@@ -320,6 +363,26 @@ describe('MemoryService', () => {
         offset: 5,
       });
       // No crash = success with filters applied
+    });
+  });
+
+  describe('timeline', () => {
+    it('returns metadata as a parsed object and supports fromMe filtering', async () => {
+      mockDb.where.mockResolvedValueOnce([{ count: 1 }]);
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          memory: {
+            ...fakeMemoryRow,
+            metadata: JSON.stringify({ fromMe: true, senderName: 'Me' }),
+          },
+          accountIdentifier: 'me@example.com',
+        },
+      ]);
+
+      const result = await service.timeline({ fromMe: true });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].metadata).toEqual({ fromMe: true, senderName: 'Me' });
     });
   });
 
@@ -497,6 +560,85 @@ describe('MemoryService', () => {
 
       expect(result).toEqual({ updated: 0, scanned: 0, needsRecoveryKey: true });
       expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it('uses linked sender people before falling back to platform ids', async () => {
+      userKeyService.getDek.mockResolvedValueOnce(Buffer.from('userkey'));
+      vi.spyOn(
+        service as unknown as { getUserAccountIds: (userId?: string) => Promise<string[]> },
+        'getUserAccountIds',
+      ).mockResolvedValueOnce(['acc-1']);
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          memory: {
+            ...fakeMemoryRow,
+            connectorType: 'whatsapp',
+            sourceType: 'message',
+            text: 'Unknown: hello',
+            metadata: JSON.stringify({ fromMe: false, senderLid: '123456@lid' }),
+          },
+          senderName: 'Alice Sender',
+        },
+      ]);
+
+      const result = await service.backfillWhatsappSenderNames('user-1');
+
+      expect(result).toEqual({ updated: 1, scanned: 1 });
+      expect(cryptoService.encryptMemoryFieldsWithKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: 'Alice Sender: hello',
+          metadata: expect.stringContaining('Alice Sender'),
+        }),
+        Buffer.from('userkey'),
+      );
+    });
+  });
+
+  describe('activity', () => {
+    it('returns authored messages plus user-owned photos and locations', async () => {
+      const timelineItems: Awaited<ReturnType<typeof service.timeline>>['items'] = [
+        {
+          id: 'incoming-message',
+          sourceType: 'message',
+          connectorType: 'whatsapp',
+          metadata: { fromMe: false },
+        },
+        {
+          id: 'outgoing-message',
+          sourceType: 'message',
+          connectorType: 'whatsapp',
+          metadata: { direction: 'outgoing' },
+        },
+        {
+          id: 'photo',
+          sourceType: 'photo',
+          connectorType: 'photos',
+          metadata: {},
+        },
+        {
+          id: 'location',
+          sourceType: 'location',
+          connectorType: 'locations',
+          metadata: {},
+        },
+      ];
+      const timelineSpy = vi.spyOn(service, 'timeline').mockResolvedValueOnce({
+        items: timelineItems,
+        total: 4,
+      });
+
+      const result = await service.activity({ userId: 'user-1', limit: 25 });
+
+      expect(timelineSpy).toHaveBeenCalledWith({
+        userId: 'user-1',
+        limit: 75,
+      });
+      expect(result.items.map((item) => item.id)).toEqual([
+        'outgoing-message',
+        'photo',
+        'location',
+      ]);
+      expect(result.total).toBe(3);
     });
   });
 });

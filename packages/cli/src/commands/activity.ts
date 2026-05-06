@@ -1,0 +1,63 @@
+import type { BotmemClient } from '../client.js';
+import { bold, dim } from '../format.js';
+import { registryCliHelp } from '../command-registry.js';
+
+export const activityHelp = registryCliHelp('activity', 'botmem activity [options]');
+
+function truncate(text: string, maxLen: number): string {
+  const oneLine = text.replace(/\n/g, ' ').trim();
+  if (oneLine.length <= maxLen) return oneLine;
+  return oneLine.slice(0, maxLen - 1) + '\u2026';
+}
+
+export async function runActivity(client: BotmemClient, args: string[], json: boolean) {
+  const params: Record<string, string | undefined> = {};
+  let limit: number | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--from') params.from = args[++i];
+    else if (a === '--to') params.to = args[++i];
+    else if (a === '--query') params.query = args[++i];
+    else if (a === '--connector') params.connectorType = args[++i];
+    else if (a === '--source') params.sourceType = args[++i];
+    else if (a === '--limit') limit = parseInt(args[++i], 10);
+  }
+
+  const result = await client.getActivity({ ...params, limit });
+
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (!result.items.length) {
+    console.log(dim('No authored activity found in the specified range.'));
+    return;
+  }
+
+  console.log(
+    bold(`Activity: ${result.total} memories`) +
+      (params.from || params.to ? dim(` (${params.from || '...'} → ${params.to || '...'})`) : ''),
+  );
+  console.log('');
+
+  let currentDate = '';
+  for (const m of result.items) {
+    const date = m.eventTime ? new Date(m.eventTime).toLocaleDateString() : 'unknown';
+    if (date !== currentDate) {
+      currentDate = date;
+      console.log(bold(`\n--- ${date} ---`));
+    }
+    const time = m.eventTime
+      ? new Date(m.eventTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
+    console.log(
+      `  ${dim(time)} ${dim(`[${m.sourceType}/${m.connectorType}]`)} ${truncate(m.text, 100)}`,
+    );
+    console.log(`         ${dim(m.id)}`);
+  }
+
+  console.log('');
+  console.log(dim(`Showing ${result.items.length} of ${result.total}`));
+}

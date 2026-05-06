@@ -14,6 +14,7 @@ import { runMemories, runMemory, runStats } from './commands/memories.js';
 import { runContacts, runContact } from './commands/contacts.js';
 import { runJobs, runSync, runRetry, runAccounts, runPipeline } from './commands/jobs.js';
 import { runTimeline, timelineHelp } from './commands/timeline.js';
+import { runActivity, activityHelp } from './commands/activity.js';
 import { runEntities, runRelated, entitiesHelp, relatedHelp } from './commands/entities.js';
 import { runVersion, versionHelp } from './commands/version.js';
 import { runAsk, runContext, askHelp, contextHelp } from './commands/agent.js';
@@ -144,6 +145,7 @@ const HELP = `
     ask <query>             Natural language query (agent)
     context <contactId>     Full contact context (agent)
     timeline                Query memories by time range
+    activity                Query user-authored activity by time range
     related <id>            Find memories related to a given memory
     entities search <q>     Search extracted entities (people, orgs, topics)
     entities graph <value>  Show entity graph with relationships
@@ -188,6 +190,7 @@ const HELP = `
     botmem status
     botmem sync abc123
     botmem timeline --from 2025-01-01 --to 2025-01-31
+    botmem activity --from 2025-01-01 --to 2025-01-31
     botmem related abc123-def456
     botmem entities search "Assad"
     botmem ask "what did Ahmed say?" --json
@@ -202,6 +205,7 @@ const COMMAND_HELP: Record<string, string> = {
   version: versionHelp,
   'memory-banks': memoryBanksHelp,
   timeline: timelineHelp,
+  activity: activityHelp,
   related: relatedHelp,
   entities: entitiesHelp,
   memories: registryCliHelp('memories', 'botmem memories [options]'),
@@ -789,6 +793,9 @@ async function main() {
         break;
       case 'timeline':
         await runTimeline(client, commandArgs, json);
+        break;
+      case 'activity':
+        await runActivity(client, commandArgs, json);
         break;
       case 'related':
         await runRelated(client, commandArgs, json);

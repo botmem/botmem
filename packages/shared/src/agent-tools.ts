@@ -350,6 +350,29 @@ export const AGENT_COMMANDS = [
     },
   },
   {
+    id: 'activity',
+    cli: {
+      name: 'activity',
+      summary: 'Query user-authored activity by time range',
+      description: 'Query user-authored activity by time range.',
+      usage: ['botmem activity [options]'],
+      args: {},
+      options: [
+        { flag: '--from <date>', description: 'Start date (ISO 8601, e.g. 2025-01-01)' },
+        { flag: '--to <date>', description: 'End date (ISO 8601, e.g. 2025-01-31)' },
+        { flag: '--query <text>', description: 'Filter by text content' },
+        { flag: '--connector <type>', description: 'Filter by connector' },
+        { flag: '--source <type>', description: 'Filter by source type' },
+        { flag: '--limit <n>', description: 'Max results (default: 50)' },
+        { flag: '--json', description: 'Output raw JSON' },
+      ],
+      examples: [
+        'botmem activity --from 2025-01-01 --to 2025-01-31',
+        'botmem activity --connector whatsapp --limit 20',
+      ],
+    },
+  },
+  {
     id: 'memories',
     cli: {
       name: 'memories',
