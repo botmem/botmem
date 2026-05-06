@@ -356,6 +356,73 @@ describe('MemoryService', () => {
       expect(result.diagnostics?.topScoreComponents[0].queryCoverage).toBe(1);
     });
 
+    it('boosts recency and source metadata for latest booking intent without hard-coded brands', async () => {
+      searchIndexService.hybridSearch.mockResolvedValueOnce({
+        results: [
+          { id: 'generic-booking', score: 0.82 },
+          { id: 'source-matched', score: 0.82 },
+        ],
+        facetCounts: [],
+        found: 2,
+      });
+      searchIndexService.textSearch.mockResolvedValueOnce([
+        { id: 'generic-booking', score: 0.82 },
+        { id: 'source-matched', score: 0.82 },
+      ]);
+      vi.spyOn(
+        service as unknown as { fetchMemoryRowsBatch: (ids: string[]) => unknown },
+        'fetchMemoryRowsBatch',
+      ).mockResolvedValueOnce(
+        new Map([
+          [
+            'generic-booking',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                id: 'generic-booking',
+                text: 'Booking ticket confirmation for a cinema event',
+                eventTime: new Date('2024-01-01T00:00:00.000Z'),
+                metadata: JSON.stringify({ from: 'tickets@example-cinema.test' }),
+              },
+              accountIdentifier: null,
+            },
+          ],
+          [
+            'source-matched',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                id: 'source-matched',
+                text: 'Booking ticket confirmation',
+                eventTime: new Date(),
+                metadata: JSON.stringify({
+                  from: 'updates@northstarair.example',
+                  subject: 'NorthstarAir booking ticket',
+                }),
+              },
+              accountIdentifier: null,
+            },
+          ],
+        ]),
+      );
+
+      const result = await service.search(
+        'latest northstarair booking ticket',
+        { connectorType: 'gmail' },
+        5,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { debug: true, noEntityResolution: true },
+      );
+
+      expect(result.items.map((item) => item.id)).toEqual(['source-matched', 'generic-booking']);
+      expect(result.diagnostics?.topScoreComponents[0].sourceBoost).toBeGreaterThan(1);
+      expect(result.diagnostics?.topScoreComponents[0].recencyBoost).toBeGreaterThan(1);
+      expect(result.diagnostics?.topScoreComponents[1].negativePrior).toBeLessThan(1);
+    });
+
     it('returns empty when user has no accounts', async () => {
       // getUserAccountIds returns empty array for user with no accounts
       mockDb.where.mockResolvedValueOnce([]); // accounts query

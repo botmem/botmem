@@ -194,7 +194,7 @@ export function looksLikeGroupName(name: string): boolean {
   if (!normalized) return false;
   if (/^(dm|chat|group|conversation)\s+(with|for)\b/.test(normalized)) return true;
   if (/\b(group chat|whatsapp group|slack channel|telegram group)\b/.test(normalized)) return true;
-  return /[/|;&+]/.test(name);
+  return /[/|;&+<>]/.test(name);
 }
 
 export function looksLikeCombinedPersonName(name: string): boolean {
@@ -1140,10 +1140,15 @@ export class PeopleService {
   }
 
   private isGroupLikeContact(
-    contact: { entityType?: string | null },
+    contact: { entityType?: string | null; displayName?: string | null },
     identifiers: Array<{ identifierType: string; identifierValue: string }>,
   ): boolean {
     if (contact.entityType === 'group') return true;
+    const displayName =
+      typeof contact.displayName === 'string'
+        ? (this.crypto.decrypt(contact.displayName) ?? contact.displayName)
+        : '';
+    if (displayName && looksLikeGroupName(displayName)) return true;
     return identifiers.some((ident) =>
       isGroupLikeIdentifier(
         ident.identifierType,
@@ -2449,10 +2454,34 @@ export class PeopleService {
             .where(eq(people.userId, userId))
         : db.select().from(personIdentifiers),
     );
+    const idsByPerson = new Map<
+      string,
+      Array<{ identifierType: string; identifierValue: string }>
+    >();
+    for (const ident of afterDedup) {
+      const list = idsByPerson.get(ident.personId) || [];
+      list.push({
+        identifierType: ident.identifierType,
+        identifierValue: this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue,
+      });
+      idsByPerson.set(ident.personId, list);
+    }
+    const peopleForMerge = await this.dbService.withCurrentUser((db) => {
+      const ids = Array.from(idsByPerson.keys());
+      if (ids.length === 0) return Promise.resolve([]);
+      return db.select().from(people).where(inArray(people.id, ids));
+    });
+    const groupLikePersonIds = new Set(
+      peopleForMerge
+        .filter((person) => this.isGroupLikeContact(person, idsByPerson.get(person.id) || []))
+        .map((person) => person.id),
+    );
+
     // Build value → contactIds map (skip name identifiers) using HMAC hashes
     const valueToContacts = new Map<string, Set<string>>();
     for (const ident of afterDedup) {
       if (ident.identifierType === 'name') continue;
+      if (groupLikePersonIds.has(ident.personId)) continue;
       const key = `${ident.identifierType}::${ident.identifierValueHash || ''}`;
       const set = valueToContacts.get(key) || new Set();
       set.add(ident.personId);

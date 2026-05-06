@@ -238,4 +238,72 @@ describe('media extraction metadata', () => {
     expect(factuality.confidence).toBeLessThan(0.6);
     expect(factuality.rationale).toContain('ocr_date_disagrees_with_event_time');
   });
+
+  it('represents linked documents as file memories with connector provenance', () => {
+    const proto = MemoryProcessor.prototype as unknown as {
+      buildLinkedDocumentMemoryText(input: {
+        connectorType: string;
+        originalSourceType: string;
+        documents: Record<string, unknown>[];
+        originalText: string;
+        currentText: string;
+      }): string;
+    };
+
+    const text = proto.buildLinkedDocumentMemoryText({
+      connectorType: 'whatsapp',
+      originalSourceType: 'message',
+      originalText: 'Here is the document link',
+      currentText: 'raw search text',
+      documents: [
+        {
+          status: 'extracted',
+          fileName: 'certificate.pdf',
+          mimeType: 'application/pdf',
+          searchSummary: 'Official certificate details',
+          extractedText: 'Certificate number 123',
+        },
+      ],
+    });
+
+    expect(text).toContain('File from WhatsApp');
+    expect(text).toContain('Connector: whatsapp');
+    expect(text).toContain('Original source type: message');
+    expect(text).toContain('Linked file 1');
+    expect(text).toContain('Filename: certificate.pdf');
+    expect(text).toContain('Extracted document text:');
+  });
+});
+
+describe('email thread aggregate helpers', () => {
+  it('normalizes Re/Fwd chains into one canonical thread summary', () => {
+    const proto = MemoryProcessor.prototype as unknown as {
+      buildEmailThreadAggregateText(input: {
+        subject?: string;
+        messages: Array<{ eventTime: Date; text: string }>;
+      }): string;
+    };
+
+    const text = proto.buildEmailThreadAggregateText({
+      subject: 'Booking update',
+      messages: [
+        {
+          eventTime: new Date('2026-05-02T12:00:00.000Z'),
+          text: 'Re: Booking update\nThe booking is confirmed.',
+        },
+        {
+          eventTime: new Date('2026-05-01T09:00:00.000Z'),
+          text: 'Fwd: Booking update\nInitial request with passenger details.',
+        },
+      ],
+    });
+
+    expect(text).toContain('Email thread: Booking update');
+    expect(text).toContain('Latest state:');
+    expect(text).toContain('The booking is confirmed');
+    expect(text).toContain('Messages: 2');
+    expect(text.indexOf('2026-05-01T09:00:00.000Z')).toBeLessThan(
+      text.indexOf('2026-05-02T12:00:00.000Z'),
+    );
+  });
 });

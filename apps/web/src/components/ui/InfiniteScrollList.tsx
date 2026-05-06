@@ -66,11 +66,14 @@ export function InfiniteScrollList<T>({
       );
       observer.observe(sentinel);
     }
+    const scrollParent = sentinel.parentElement;
     window.addEventListener('scroll', checkSentinel, { passive: true });
+    scrollParent?.addEventListener('scroll', checkSentinel, { passive: true });
     window.addEventListener('resize', checkSentinel);
     return () => {
       observer?.disconnect();
       window.removeEventListener('scroll', checkSentinel);
+      scrollParent?.removeEventListener('scroll', checkSentinel);
       window.removeEventListener('resize', checkSentinel);
     };
   }, [checkSentinel, disabled, requestMore]);

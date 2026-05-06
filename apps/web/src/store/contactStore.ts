@@ -245,7 +245,11 @@ export const useContactStore = create<ContactState>((set, get) => ({
       selectedId: state.selectedId === sourceId ? targetId : state.selectedId,
     }));
     try {
-      await api.mergeContacts(targetId, sourceId);
+      const merged = await api.mergeContacts(targetId, sourceId);
+      const parsed = parseContact(merged as ApiContact);
+      set((state) => ({
+        contacts: state.contacts.map((contact) => (contact.id === targetId ? parsed : contact)),
+      }));
     } catch (err) {
       console.error('Failed to merge contacts:', err);
       // Reload on failure to restore correct state

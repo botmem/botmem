@@ -158,6 +158,95 @@ function queryTokenCoverage(text: string, terms: string[]): number {
   return matches / terms.length;
 }
 
+const RECENCY_INTENT_TERMS = new Set(['latest', 'newest', 'recent', 'recently']);
+const GENERIC_BOOKING_TERMS = new Set([
+  'booking',
+  'booked',
+  'ticket',
+  'tickets',
+  'confirmation',
+  'confirm',
+  'reservation',
+  'receipt',
+]);
+
+function hasRecencyIntent(query: string): boolean {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .some((word) => RECENCY_INTENT_TERMS.has(word.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '')));
+}
+
+function distinctiveCoverageTerms(terms: string[]): string[] {
+  return terms.filter((term) => term.length >= 4 && !GENERIC_BOOKING_TERMS.has(term));
+}
+
+function objectText(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) return value.map(objectText).filter(Boolean).join(' ');
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !/base64|thumbnail|token|secret|credential|auth/i.test(key))
+      .map(([, child]) => objectText(child))
+      .filter(Boolean)
+      .join(' ');
+  }
+  return '';
+}
+
+function scoreQueryIntent(input: {
+  query: string;
+  coverageTerms: string[];
+  text: string;
+  metadata: unknown;
+  eventTime: Date;
+  weights: { recency?: number };
+}): {
+  sourceBoost: number;
+  recencyBoost: number;
+  negativePrior: number;
+  distinctiveCoverage: number;
+} {
+  const normalizedText = stripAccents(input.text.toLowerCase());
+  const metadataText = stripAccents(objectText(input.metadata).toLowerCase());
+  const distinctiveTerms = distinctiveCoverageTerms(input.coverageTerms);
+  const distinctiveMatches = distinctiveTerms.filter(
+    (term) => normalizedText.includes(term) || metadataText.includes(term),
+  ).length;
+  const distinctiveCoverage = distinctiveTerms.length
+    ? distinctiveMatches / distinctiveTerms.length
+    : 0;
+
+  const metadataMatches = distinctiveTerms.filter((term) => metadataText.includes(term)).length;
+  const sourceBoost =
+    metadataMatches > 0
+      ? 1 + Math.min(0.25, (metadataMatches / Math.max(distinctiveTerms.length, 1)) * 0.25)
+      : 1;
+
+  const recencyBoost = hasRecencyIntent(input.query)
+    ? 0.86 + Math.max(0, Math.min(1, input.weights.recency ?? 0)) * 0.32
+    : 1;
+
+  const queryHasGenericBooking = input.coverageTerms.some((term) =>
+    GENERIC_BOOKING_TERMS.has(term),
+  );
+  const textHasGenericBooking = [...GENERIC_BOOKING_TERMS].some((term) =>
+    normalizedText.includes(term),
+  );
+  const negativePrior =
+    queryHasGenericBooking &&
+    textHasGenericBooking &&
+    distinctiveTerms.length > 0 &&
+    distinctiveMatches === 0
+      ? 0.72
+      : 1;
+
+  return { sourceBoost, recencyBoost, negativePrior, distinctiveCoverage };
+}
+
 interface SearchFilters {
   sourceType?: string;
   connectorType?: string;
@@ -201,6 +290,10 @@ interface SearchDiagnostics {
     score: number;
     semantic: number;
     queryCoverage?: number;
+    distinctiveCoverage?: number;
+    sourceBoost?: number;
+    recencyBoost?: number;
+    negativePrior?: number;
     lanes: string[];
   }>;
   entityResolutionFallback?: 'disabled' | 'reran_without_entities';
@@ -1372,6 +1465,15 @@ export class MemoryService {
     // special cases to rank well when entity resolution falls back.
     const coverageTerms = searchCoverageTerms(embeddingQuery, hasContacts ? topicWords : []);
     const coverageById = new Map<string, number>();
+    const intentScoreById = new Map<
+      string,
+      {
+        distinctiveCoverage: number;
+        sourceBoost: number;
+        recencyBoost: number;
+        negativePrior: number;
+      }
+    >();
     const scoredCandidates: Array<{
       id: string;
       row: (typeof candidateRows)[0]['row'];
@@ -1409,6 +1511,15 @@ export class MemoryService {
       const memoryForCoverage = this.decryptMemoryAuto(row.memory, userId, resolvedKey);
       const queryCoverage = queryTokenCoverage(memoryForCoverage.text, coverageTerms);
       coverageById.set(id, queryCoverage);
+      const intentScore = scoreQueryIntent({
+        query,
+        coverageTerms,
+        text: memoryForCoverage.text,
+        metadata: memoryForCoverage.metadata,
+        eventTime: row.memory.eventTime,
+        weights,
+      });
+      intentScoreById.set(id, intentScore);
       const coverageMultiplier =
         coverageTerms.length >= 2
           ? 0.75 + queryCoverage * 0.5
@@ -1416,7 +1527,14 @@ export class MemoryService {
             ? 0.85 + queryCoverage * 0.3
             : 1.0;
       const boostedScore = Math.min(
-        score * contactMultiplier * locationMultiplier * recencyMultiplier * coverageMultiplier,
+        score *
+          contactMultiplier *
+          locationMultiplier *
+          recencyMultiplier *
+          coverageMultiplier *
+          intentScore.sourceBoost *
+          intentScore.recencyBoost *
+          intentScore.negativePrior,
         1.0,
       );
       const boostedWeights = { ...weights, final: boostedScore };
@@ -1459,6 +1577,10 @@ export class MemoryService {
         score: c.score,
         semantic: semanticScores.get(c.id) ?? 0,
         queryCoverage: coverageById.get(c.id),
+        distinctiveCoverage: intentScoreById.get(c.id)?.distinctiveCoverage,
+        sourceBoost: intentScoreById.get(c.id)?.sourceBoost,
+        recencyBoost: intentScoreById.get(c.id)?.recencyBoost,
+        negativePrior: intentScoreById.get(c.id)?.negativePrior,
         lanes: [...(candidateLanes.get(c.id) ?? new Set())],
       }));
     }

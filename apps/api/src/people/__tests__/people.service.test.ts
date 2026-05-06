@@ -189,6 +189,20 @@ describe('PeopleService runtime behavior', () => {
     expect(searched[0].displayName).toBe('Amr Essam');
   });
 
+  it('excludes list-like group rows from person search results', async () => {
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Amr Essam'), personRow('g1', 'enc:Amr <> George intro')],
+      [
+        identifierRow('i1', 'p1', 'phone', 'enc:+971502284498'),
+        identifierRow('g-phone', 'g1', 'phone', 'enc:+120363371012965120'),
+      ],
+    ]);
+
+    const searched = await service.search('amr', 'user-1', 'person');
+
+    expect(searched.map((person) => person.displayName)).toEqual(['Amr Essam']);
+  });
+
   it('updates avatars, links memories, and decrypts memory rows', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async () => ({
@@ -1085,6 +1099,7 @@ describe('scoreNameOnlyMerge', () => {
     expect(looksLikeGroupName('FARAJ, AMR ESSAM MOHAMED')).toBe(false);
     expect(looksLikeGroupName('DM WITH AMR ESSAM')).toBe(true);
     expect(looksLikeGroupName('Family / Dubai')).toBe(true);
+    expect(looksLikeGroupName('Amr <> George intro')).toBe(true);
   });
 
   it('only allows person entities into merge suggestions', () => {

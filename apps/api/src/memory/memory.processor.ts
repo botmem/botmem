@@ -2,7 +2,7 @@ import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { randomUUID, createHash } from 'crypto';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql, inArray, desc } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
@@ -156,6 +156,13 @@ function cleanGeneratedSearchText(value: string): string {
     .replace(/\s*```$/i, '')
     .replace(/\*\*([^*\n]+)\*\*/g, '$1')
     .replace(/^\s*[-*]\s+/gm, '')
+    .trim();
+}
+
+function normalizeEmailThreadSubject(value: unknown): string {
+  return String(value || '')
+    .replace(/^\s*((re|fw|fwd)\s*:\s*)+/i, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -925,7 +932,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       }
     }
 
-    const memorySourceType = this.memorySourceTypeForEvent(event.sourceType, primaryMedia);
+    const linkedDocumentCount = arrayFromUnknown(mergedMetadata.linkedDocuments).filter(
+      (doc) =>
+        doc && typeof doc === 'object' && (doc as Record<string, unknown>).status === 'extracted',
+    ).length;
+    const memorySourceType =
+      !primaryMedia && linkedDocumentCount > 0
+        ? 'file'
+        : this.memorySourceTypeForEvent(event.sourceType, primaryMedia);
     if (primaryMedia) {
       currentText = this.buildMediaMemoryText({
         connectorType: rawEvent.connectorType,
@@ -941,6 +955,22 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         originalSourceType: event.sourceType,
         memorySourceType,
         representedAs: memorySourceType,
+      };
+    } else if (linkedDocumentCount > 0) {
+      currentText = this.buildLinkedDocumentMemoryText({
+        connectorType: rawEvent.connectorType,
+        originalSourceType: event.sourceType,
+        documents: arrayFromUnknown(mergedMetadata.linkedDocuments) as Record<string, unknown>[],
+        originalText: embedText,
+        currentText,
+      });
+      mergedMetadata.mediaMemory = {
+        sourceConnector: rawEvent.connectorType,
+        sourceLabel: connectorLabel(rawEvent.connectorType),
+        originalSourceType: event.sourceType,
+        memorySourceType,
+        representedAs: memorySourceType,
+        linkedDocumentCount,
       };
     }
 
@@ -1334,6 +1364,28 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         );
       }
     }
+    if (rawEvent.connectorType === 'gmail' && threadIds.length > 0) {
+      try {
+        await this.upsertEmailThreadAggregate({
+          rawEvent,
+          ownerUserId,
+          memoryBankId,
+          threadId: String(
+            mergedMetadata.emailThreadKey || mergedMetadata.threadId || threadIds[0],
+          ),
+          subject: normalizeEmailThreadSubject(mergedMetadata.subject),
+          currentMemoryId: persistedMemoryId,
+          currentText,
+          currentEventTime: new Date(event.timestamp),
+          currentPeopleNames: peopleNames,
+          currentPersonIds: resolvedContacts.map((c) => c.contactId),
+        });
+      } catch (err) {
+        this.logger.warn(
+          `[thread] aggregate update failed for ${persistedMemoryId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     // 12. Create links (best-effort). Recommendation queries are comparatively
     // expensive, so do not block memory creation or bulk rebuild throughput on
@@ -1482,6 +1534,42 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     ].filter(Boolean);
 
     return lines.join('\n\n');
+  }
+
+  private buildLinkedDocumentMemoryText(input: {
+    connectorType: string;
+    originalSourceType: string;
+    documents: Record<string, unknown>[];
+    originalText: string;
+    currentText: string;
+  }): string {
+    const sourceName = connectorLabel(input.connectorType);
+    const extractedDocs = input.documents.filter((doc) => doc.status === 'extracted');
+    const docSections = extractedDocs.map((doc, index) => {
+      const fileName = typeof doc.fileName === 'string' ? doc.fileName : '';
+      const mimeType = typeof doc.mimeType === 'string' ? doc.mimeType : '';
+      const summary = typeof doc.searchSummary === 'string' ? doc.searchSummary.trim() : '';
+      const extractedText =
+        typeof doc.extractedText === 'string' ? truncateMediaText(doc.extractedText) : '';
+      return [
+        `Linked file ${index + 1}`,
+        fileName ? `Filename: ${fileName}` : '',
+        mimeType ? `MIME type: ${mimeType}` : '',
+        summary ? `Document summary:\n${summary}` : '',
+        extractedText ? `Extracted document text:\n${extractedText}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    });
+    const messageText = input.originalText.trim();
+    const lines = [
+      `File from ${sourceName}`,
+      `Connector: ${input.connectorType}`,
+      `Original source type: ${input.originalSourceType}`,
+      messageText ? `Message context:\n${messageText}` : '',
+      ...docSections,
+    ].filter(Boolean);
+    return lines.length ? lines.join('\n\n') : input.currentText;
   }
 
   private async describeImageForSearch(
@@ -2017,6 +2105,186 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         // FK violation — sibling not yet committed; skip
       }
     }
+  }
+
+  private buildEmailThreadAggregateText(input: {
+    subject?: string;
+    messages: Array<{ eventTime: Date; text: string }>;
+  }): string {
+    const sorted = [...input.messages].sort(
+      (a, b) => a.eventTime.getTime() - b.eventTime.getTime(),
+    );
+    const latest = sorted.at(-1);
+    const lines = [
+      `Email thread${input.subject ? `: ${input.subject}` : ''}`,
+      latest ? `Latest state:\n${latest.text.slice(0, 1_200)}` : '',
+      `Messages: ${sorted.length}`,
+      'Timeline:',
+      ...sorted.slice(-12).map((message) => {
+        const preview = message.text.replace(/\s+/g, ' ').slice(0, 220);
+        return `- ${message.eventTime.toISOString()}: ${preview}`;
+      }),
+    ].filter(Boolean);
+    return lines.join('\n\n');
+  }
+
+  private async upsertEmailThreadAggregate(input: {
+    rawEvent: LoadedRawEvent;
+    ownerUserId: string | null;
+    memoryBankId: string | null;
+    threadId: string;
+    subject?: string;
+    currentMemoryId: string;
+    currentText: string;
+    currentEventTime: Date;
+    currentPeopleNames: string[];
+    currentPersonIds: string[];
+  }) {
+    if (!input.ownerUserId || !input.threadId) return;
+    const aggregateSourceId = `email-thread:${input.threadId}`;
+    const threadRows = await this.dbService.systemDb((db) =>
+      db
+        .select({
+          id: memories.id,
+          text: memorySearchIndex.text,
+          eventTime: memories.eventTime,
+          sourceType: memories.sourceType,
+        })
+        .from(memorySearchIndex)
+        .innerJoin(memories, eq(memorySearchIndex.memoryId, memories.id))
+        .where(
+          and(
+            eq(memorySearchIndex.connectorType, input.rawEvent.connectorType),
+            eq(memorySearchIndex.accountId, input.rawEvent.accountId),
+            sql`${memorySearchIndex.threadIds} @> ${JSON.stringify([input.threadId])}::jsonb`,
+            sql`${memories.sourceType} <> 'email_thread'`,
+          ),
+        )
+        .orderBy(desc(memories.eventTime))
+        .limit(50),
+    );
+    const byId = new Map<string, { eventTime: Date; text: string }>();
+    for (const row of threadRows) {
+      byId.set(row.id, { eventTime: row.eventTime, text: row.text });
+    }
+    byId.set(input.currentMemoryId, {
+      eventTime: input.currentEventTime,
+      text: input.currentText,
+    });
+    const messages = [...byId.values()];
+    if (messages.length < 2) return;
+
+    const aggregateText = this.buildEmailThreadAggregateText({
+      subject: input.subject,
+      messages,
+    });
+    const aggregateId =
+      (
+        await this.dbService.systemDb((db) =>
+          db
+            .select({ id: memories.id })
+            .from(memories)
+            .where(
+              and(
+                eq(memories.accountId, input.rawEvent.accountId),
+                eq(memories.connectorType, input.rawEvent.connectorType),
+                eq(memories.sourceId, aggregateSourceId),
+              ),
+            )
+            .limit(1),
+        )
+      )[0]?.id || randomUUID();
+    const latestEventTime = messages.reduce(
+      (latest, message) => (message.eventTime > latest ? message.eventTime : latest),
+      messages[0].eventTime,
+    );
+    const metadata = {
+      threadAggregate: true,
+      threadId: input.threadId,
+      emailThreadKey: input.threadId,
+      subject: input.subject || undefined,
+      messageCount: messages.length,
+      sourceMemoryIds: [input.currentMemoryId, ...threadRows.map((row) => row.id)].filter(
+        (id, index, all) => all.indexOf(id) === index,
+      ),
+    };
+    const userKey = await this.userKeyService.getDek(input.ownerUserId);
+    if (!userKey) return;
+    const encrypted = this.crypto.encryptMemoryFieldsWithKey(
+      {
+        text: stripNullBytes(aggregateText),
+        entities: '[]',
+        claims: '[]',
+        metadata: stripNullBytes(JSON.stringify(metadata)),
+      },
+      userKey,
+    );
+    const now = new Date();
+    const weights = { semantic: 0, recency: 0.9, importance: 0.65, trust: 0.8, final: 0 };
+    await this.dbService.withUserId(input.ownerUserId, (db) =>
+      db
+        .insert(memories)
+        .values({
+          id: aggregateId,
+          accountId: input.rawEvent.accountId,
+          memoryBankId: input.memoryBankId,
+          connectorType: input.rawEvent.connectorType,
+          sourceType: 'email_thread',
+          sourceId: aggregateSourceId,
+          text: encrypted.text,
+          eventTime: latestEventTime,
+          ingestTime: now,
+          metadata: encrypted.metadata,
+          entities: encrypted.entities,
+          claims: encrypted.claims,
+          factuality: this.crypto.encrypt(
+            JSON.stringify({
+              label: 'UNVERIFIED',
+              confidence: 0.75,
+              rationale: 'Aggregate of related email messages in the same thread.',
+            }),
+          )!,
+          factualityLabel: 'UNVERIFIED',
+          weights,
+          embeddingStatus: 'done',
+          pipelineComplete: true,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [memories.accountId, memories.sourceId, memories.connectorType],
+          set: {
+            text: encrypted.text,
+            eventTime: latestEventTime,
+            metadata: encrypted.metadata,
+            weights,
+            embeddingStatus: 'done',
+            pipelineComplete: true,
+          },
+        }),
+    );
+    await this.dbService.withUserId(input.ownerUserId, (db) =>
+      db
+        .update(memories)
+        .set({ searchTokens: sql`to_tsvector('english', ${aggregateText})` })
+        .where(eq(memories.id, aggregateId)),
+    );
+    const vector = await this.ai.embed(aggregateText.slice(0, 6000));
+    await this.searchIndex.upsert(aggregateId, vector, {
+      schema_version: MEMORY_INDEX_SCHEMA_VERSION,
+      text: aggregateText.slice(0, 6000),
+      source_type: 'email_thread',
+      connector_type: input.rawEvent.connectorType,
+      event_time: latestEventTime,
+      account_id: input.rawEvent.accountId,
+      user_id: input.ownerUserId,
+      memory_bank_id: input.memoryBankId,
+      people: input.currentPeopleNames,
+      person_ids: input.currentPersonIds,
+      person_aliases: input.currentPeopleNames,
+      thread_ids: [input.threadId],
+      transaction_tokens:
+        aggregateText.match(/[a-z0-9]+(?:[._-][a-z0-9]+)*|\d+(?:[.,]\d+)?/gi) ?? [],
+    });
   }
 
   private async createLinks(memoryId: string): Promise<void> {

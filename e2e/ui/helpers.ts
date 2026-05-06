@@ -118,7 +118,7 @@ async function browserLogin(
   page: Page,
   user: TestUser,
 ): Promise<{ accessToken: string; user: TestUser }> {
-  await page.goto('/');
+  await page.goto('/login', { waitUntil: 'networkidle' });
   const result = await page.evaluate(
     async ({ email, password }: { email: string; password: string }) => {
       const res = await fetch('/api/user-auth/login', {
