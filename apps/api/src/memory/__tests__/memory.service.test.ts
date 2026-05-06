@@ -368,6 +368,7 @@ describe('MemoryService', () => {
 
   describe('timeline', () => {
     it('returns metadata as a parsed object and supports fromMe filtering', async () => {
+      vi.spyOn(service, 'getPeopleForMemories').mockResolvedValueOnce(new Map());
       mockDb.where.mockResolvedValueOnce([{ count: 1 }]);
       mockDb.limit.mockResolvedValueOnce([
         {
@@ -383,6 +384,35 @@ describe('MemoryService', () => {
 
       expect(result.items).toHaveLength(1);
       expect(result.items[0].metadata).toEqual({ fromMe: true, senderName: 'Me' });
+    });
+
+    it('hydrates missing WhatsApp sender names from linked sender people', async () => {
+      vi.spyOn(service, 'getPeopleForMemories').mockResolvedValueOnce(
+        new Map([
+          ['mem-1', [{ role: 'sender', personId: 'person-1', displayName: 'Linked Sender' }]],
+        ]),
+      );
+      mockDb.where.mockResolvedValueOnce([{ count: 1 }]);
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          memory: {
+            ...fakeMemoryRow,
+            connectorType: 'whatsapp',
+            sourceType: 'message',
+            metadata: JSON.stringify({ fromMe: false, senderLid: '123456' }),
+          },
+          accountIdentifier: 'wa@example.com',
+        },
+      ]);
+
+      const result = await service.timeline({ connectorType: 'whatsapp' });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].metadata).toMatchObject({
+        fromMe: false,
+        senderLid: '123456',
+        senderName: 'Linked Sender',
+      });
     });
   });
 
