@@ -493,6 +493,30 @@ export class MemoryService {
     return map;
   }
 
+  private metadataForResponseWithLinkedPeople(
+    memory: Pick<typeof memories.$inferSelect, 'connectorType' | 'sourceType' | 'metadata'>,
+    linkedPeople?: { role: string; displayName: string }[],
+  ): unknown {
+    const metadata = this.sanitizeMetadataForResponse(memory.metadata);
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata;
+
+    const object = { ...(metadata as Record<string, unknown>) };
+    if (memory.connectorType !== 'whatsapp' || memory.sourceType !== 'message') return object;
+
+    const isIncoming = object.fromMe === false || object.isFromMe === false;
+    if (!isIncoming) return object;
+
+    const currentSender = typeof object.senderName === 'string' ? object.senderName.trim() : '';
+    if (currentSender && currentSender.toLowerCase() !== 'unknown') return object;
+
+    const linkedSender = linkedPeople?.find((person) => person.role === 'sender')?.displayName;
+    const fallback = [linkedSender, object.senderPhone, object.pushName, object.senderLid]
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .find(Boolean);
+    if (fallback) object.senderName = fallback;
+    return object;
+  }
+
   /** Invalidate contacts cache (call after contact writes) */
   invalidateContactsCache(userId?: string) {
     if (userId) {
@@ -2840,12 +2864,13 @@ export class MemoryService {
     );
 
     const timelineKey = await this.resolveUserKey(params.userId);
+    const peopleMap = await this.getPeopleForMemories(rows.map((row) => row.memory.id));
     const items = rows
       .map((r) => {
         const mem = this.decryptMemoryAuto(r.memory, params.userId, timelineKey);
         return {
           ...mem,
-          metadata: this.sanitizeMetadataForResponse(mem.metadata),
+          metadata: this.metadataForResponseWithLinkedPeople(mem, peopleMap.get(mem.id)),
           factuality: this.factualityForResponse(mem.factuality),
           accountIdentifier: this.safeDecryptAppField(r.accountIdentifier),
         };
