@@ -440,6 +440,7 @@ export function exactMultiWordNameAutoMergeKey(name: string): string | null {
 
   const tokens = normalizeNameForExactAutoMerge(name);
   if (tokens.length < 2) return null;
+  if (tokens.some((token) => token.length < 2)) return null;
   if (new Set(tokens).size === 1) return null;
   const normalized = tokens.join(' ');
   if (GENERIC_NAMES.has(normalized)) return null;
