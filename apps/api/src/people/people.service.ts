@@ -429,6 +429,31 @@ export function isDirectNameAutoMergeEligible(nameA: string, nameB: string): boo
   return !!keyA && keyA === keyB;
 }
 
+export function exactDisplayNameAutoMergeKey(name: string): string | null {
+  if (
+    looksLikeIdentifierLabel(name) ||
+    looksLikeGroupName(name) ||
+    looksLikeCombinedPersonName(name)
+  ) {
+    return null;
+  }
+
+  const tokens = normalizeNameForExactAutoMerge(name);
+  if (tokens.length === 0) return null;
+  if (tokens.some((token) => token.length < 2)) return null;
+  if (new Set(tokens).size === 1 && tokens.length > 1) return null;
+  const normalized = tokens.join(' ');
+  if (GENERIC_NAMES.has(normalized)) return null;
+
+  if (tokens.length === 1) {
+    const token = tokens[0];
+    if (token.length < 4) return null;
+    if (COMMON_FIRST_NAMES.has(token)) return null;
+  }
+
+  return normalized;
+}
+
 export function exactMultiWordNameAutoMergeKey(name: string): string | null {
   if (
     looksLikeIdentifierLabel(name) ||
@@ -1187,9 +1212,14 @@ export class PeopleService {
     query: string,
     userId?: string,
     entityType?: string,
+    limit = 25,
   ): Promise<PersonWithIdentifiers[]> {
-    const lowerQuery = query.toLowerCase();
-    const normQuery = query
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return [];
+
+    const maxResults = Math.max(1, Math.min(Number.isFinite(limit) ? Math.floor(limit) : 25, 100));
+    const lowerQuery = trimmedQuery.toLowerCase();
+    const normQuery = trimmedQuery
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
@@ -1206,7 +1236,31 @@ export class PeopleService {
         .where(conditions.length ? and(...conditions) : undefined),
     );
 
-    const contactIds = allContactRows.map((contact) => contact.id);
+    const contactById = new Map(allContactRows.map((contact) => [contact.id, contact]));
+    const matchedIds: string[] = [];
+    const matchedSet = new Set<string>();
+    const addMatch = (id: string) => {
+      if (matchedSet.has(id) || matchedIds.length >= maxResults) return;
+      matchedSet.add(id);
+      matchedIds.push(id);
+    };
+
+    for (const c of allContactRows) {
+      const decryptedName = this.crypto.decrypt(c.displayName) ?? c.displayName;
+      const lowerName = decryptedName.toLowerCase();
+      const normName = decryptedName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+      if (lowerName.includes(lowerQuery) || normName.includes(normQuery)) {
+        addMatch(c.id);
+        if (matchedIds.length >= maxResults) break;
+      }
+    }
+
+    const contactIds =
+      matchedIds.length >= maxResults ? matchedIds : allContactRows.map((contact) => contact.id);
     const allIdentRows = await this.dbService.withCurrentUser((db) =>
       contactIds.length
         ? db.select().from(personIdentifiers).where(inArray(personIdentifiers.personId, contactIds))
@@ -1221,38 +1275,42 @@ export class PeopleService {
       identsByContact.set(ident.personId, list);
     }
 
-    const matchedIds = new Set<string>();
+    if (matchedIds.length < maxResults) {
+      for (const c of allContactRows) {
+        if (matchedSet.has(c.id)) continue;
 
-    for (const c of allContactRows) {
-      const decryptedName = this.crypto.decrypt(c.displayName) ?? c.displayName;
-      const lowerName = decryptedName.toLowerCase();
-      const normName = decryptedName
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
-
-      if (lowerName.includes(lowerQuery) || normName.includes(normQuery)) {
-        matchedIds.add(c.id);
-        continue;
-      }
-
-      // Check identifiers
-      const idents = identsByContact.get(c.id) || [];
-      for (const i of idents) {
-        const decryptedValue = this.crypto.decrypt(i.identifierValue) ?? i.identifierValue;
-        if (decryptedValue.toLowerCase().includes(lowerQuery)) {
-          matchedIds.add(c.id);
-          break;
+        // Check identifiers
+        const idents = identsByContact.get(c.id) || [];
+        for (const i of idents) {
+          const decryptedValue = this.crypto.decrypt(i.identifierValue) ?? i.identifierValue;
+          if (decryptedValue.toLowerCase().includes(lowerQuery)) {
+            addMatch(c.id);
+            break;
+          }
         }
+        if (matchedIds.length >= maxResults) break;
       }
     }
 
     const results: PersonWithIdentifiers[] = [];
     for (const id of matchedIds) {
-      const c = await this.getById(id);
-      if (c) results.push(c);
+      const c = contactById.get(id);
+      if (!c) continue;
+      const idents = identsByContact.get(c.id) || [];
+      results.push({
+        ...c,
+        displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
+        avatars: this.decryptJsonb(c.avatars),
+        metadata: this.decryptJsonb(c.metadata),
+        identifiers: idents.map((i) => ({
+          id: i.id,
+          identifierType: i.identifierType,
+          identifierValue: this.crypto.decrypt(i.identifierValue) ?? i.identifierValue,
+          connectorType: i.connectorType,
+          confidence: i.confidence,
+        })),
+      });
     }
-
     return results;
   }
 
@@ -1951,7 +2009,7 @@ export class PeopleService {
     const exactNameGroups = new Map<string, typeof allContacts>();
     for (const contact of allContacts) {
       if (!hasDurableIdentifier(contact.id)) continue;
-      const key = exactMultiWordNameAutoMergeKey(contact.displayName);
+      const key = exactDisplayNameAutoMergeKey(contact.displayName);
       if (!key) continue;
       const group = exactNameGroups.get(key) || [];
       group.push(contact);
@@ -1971,7 +2029,7 @@ export class PeopleService {
           contactById.delete(source.id);
         } catch (err) {
           this.logger.warn(
-            `[getSuggestions] exact multi-word name auto-merge failed for ${source.id}: ${
+            `[getSuggestions] exact display name auto-merge failed for ${source.id}: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
@@ -2138,7 +2196,9 @@ export class PeopleService {
     const comparePair = (c1: (typeof allContacts)[0], c2: (typeof allContacts)[0]) => {
       const pairKey = [c1.id, c2.id].sort().join('::');
       if (dismissedPairs.has(pairKey) || suggestedPairs.has(pairKey)) return;
-      if (isDirectNameAutoMergeEligible(c1.displayName, c2.displayName)) return;
+      const exactNameKey1 = exactDisplayNameAutoMergeKey(c1.displayName);
+      const exactNameKey2 = exactDisplayNameAutoMergeKey(c2.displayName);
+      if (exactNameKey1 && exactNameKey1 === exactNameKey2) return;
       if (
         (looksLikeIdentifierLabel(c1.displayName) || looksLikeIdentifierLabel(c2.displayName)) &&
         !shareNonNameIdentifier(c1.id, c2.id)
@@ -2747,7 +2807,7 @@ export class PeopleService {
       if (!hasBudget()) return result;
       if (mergedAway.has(contact.id) || contact.entityType !== 'person') continue;
       if (!hasDurableIdentifier(contact.id)) continue;
-      const key = exactMultiWordNameAutoMergeKey(decryptedDisplayName(contact));
+      const key = exactDisplayNameAutoMergeKey(decryptedDisplayName(contact));
       if (!key) continue;
       const group = byExactName.get(key) || [];
       group.push(contact);
