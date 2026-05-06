@@ -201,6 +201,26 @@ describe('contactStore', () => {
     expect(trackEvent).toHaveBeenCalledWith('contact_merge');
   });
 
+  it('replaces the target contact with merged API data so source avatars are preserved', async () => {
+    useContactStore.setState({
+      contacts: [{ ...(rawAlice as any), avatars: [] }, rawBob as any],
+      total: 2,
+      selectedId: 'c1',
+    });
+    vi.mocked(api.mergeContacts).mockResolvedValue({
+      ...rawAlice,
+      avatars: [{ url: '/bob.png', source: 'whatsapp' }],
+    } as never);
+
+    await useContactStore.getState().mergeContacts('c1', 'c2');
+
+    expect(useContactStore.getState().contacts).toHaveLength(1);
+    expect(useContactStore.getState().contacts[0]).toMatchObject({
+      id: 'c1',
+      avatars: [{ url: '/bob.png', source: 'whatsapp' }],
+    });
+  });
+
   it('dismisses, undismisses, and reinserts suggestions', async () => {
     const suggestion = { contact1: rawAlice as any, contact2: rawBob as any, reason: 'duplicate' };
     useContactStore.setState({ suggestions: [suggestion] });

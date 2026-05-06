@@ -65,4 +65,29 @@ describe('ContactDetailPanel', () => {
     expect(screen.getByText('Group Detail')).toBeInTheDocument();
     expect(screen.queryByText('Merge another person into this one')).not.toBeInTheDocument();
   });
+
+  it('hides merge controls for list-like group names even when typed as person', () => {
+    render(
+      <ContactDetailPanel
+        contact={{
+          ...baseContact,
+          displayName: 'Amr <> George intro',
+          identifiers: [
+            {
+              id: 'phone',
+              type: 'phone',
+              value: '+971500000000',
+              isPrimary: true,
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Group Detail')).toBeInTheDocument();
+    expect(screen.queryByText('Merge another person into this one')).not.toBeInTheDocument();
+  });
 });

@@ -12,6 +12,14 @@ const SELF_COLOR = 'var(--color-nb-lime)';
 
 function isGroupLikeContact(contact: ContactDetailPanelProps['contact']): boolean {
   if (contact.entityType === 'group') return true;
+  const normalizedName = contact.displayName.trim().toLowerCase();
+  if (
+    /^(dm|chat|group|conversation)\s+(with|for)\b/.test(normalizedName) ||
+    /\b(group chat|whatsapp group|slack channel|telegram group)\b/.test(normalizedName) ||
+    /[/|;&+<>]/.test(contact.displayName)
+  ) {
+    return true;
+  }
   return contact.identifiers.some((ident) => {
     const digits = ident.value.replace(/\D/g, '');
     return (

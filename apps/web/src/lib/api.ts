@@ -428,7 +428,7 @@ export const api = {
     },
   ) => request<ApiContact>(`/people/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   mergeContacts: (targetId: string, sourceId: string) =>
-    request<{ ok: boolean }>(`/people/${targetId}/merge`, {
+    request<ApiContact>(`/people/${targetId}/merge`, {
       method: 'POST',
       body: JSON.stringify({ sourceId }),
     }),
