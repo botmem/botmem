@@ -322,6 +322,38 @@ describe('PeopleService runtime behavior', () => {
     expect(mergeSpy).toHaveBeenCalledWith('p1', 'p2');
   });
 
+  it('keeps the avatar-bearing row as target when exact names auto-merge', async () => {
+    const avatarRow = {
+      ...personRow('p2', 'enc:AMR ESSAM'),
+      avatars: '[{"url":"data:image/png;base64,abc","source":"immich"}]',
+      memoryCount: 1,
+    };
+    const { service } = makeDb([
+      [
+        {
+          ...personRow('p1', 'enc:Amr Essam'),
+          memoryCount: 100,
+        },
+        avatarRow,
+      ],
+      [
+        identifierRow('i1', 'p1', 'email', 'enc:amr@example.com'),
+        identifierRow('i2', 'p2', 'photos_person_id', 'enc:photo-person-1'),
+      ],
+    ]);
+    const mergeSpy = vi.spyOn(service, 'mergePeople').mockResolvedValue({
+      ...avatarRow,
+      displayName: 'Amr Essam',
+      identifiers: [],
+    });
+
+    const auto = await service.autoMerge('user-1');
+
+    expect(auto.merged).toBe(1);
+    expect(auto.byRule.exactMultiWordName).toBe(1);
+    expect(mergeSpy).toHaveBeenCalledWith('p2', 'p1');
+  });
+
   it('does not auto-merge people by matching display names unless both sides have identifiers', async () => {
     const { service } = makeDb([
       [personRow('p1', 'enc:Amr Essam'), personRow('p2', 'enc:Amr Essam')],
