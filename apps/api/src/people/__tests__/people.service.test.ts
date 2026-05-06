@@ -11,6 +11,7 @@ import {
   looksLikeGroupName,
   isExactIdentifierAutoMergeEligible,
   isGroupScopedIdentifier,
+  isGroupLikeIdentifier,
   looksLikeIdentifierLabel,
   looksLikeCombinedPersonName,
   isDirectNameAutoMergeEligible,
@@ -80,7 +81,7 @@ function makeDb(rows: unknown[][] = []) {
     userKeyService as never,
     accountsService as never,
   );
-  return { service, dbService, crypto, userKeyService, accountsService };
+  return { service, db, dbService, crypto, userKeyService, accountsService };
 }
 
 const personRow = (id = 'p1', displayName = 'enc:Amr Essam') => ({
@@ -532,6 +533,55 @@ describe('PeopleService runtime behavior', () => {
 
     expect(results.map((result) => result.id)).toEqual(['p3', 'p1']);
   });
+
+  it('keeps WhatsApp group-shaped records out of person search results', async () => {
+    const groupish = {
+      ...personRow('groupish', 'enc:Project Room'),
+      entityType: 'person',
+    };
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Project Lead'), groupish],
+      [
+        identifierRow('i1', 'p1', 'email', 'enc:lead@example.com'),
+        identifierRow('g1', 'groupish', 'phone', 'enc:+120363371012965120'),
+      ],
+    ]);
+
+    const peopleResults = await service.search('project', 'user-1', 'person', 10);
+
+    expect(peopleResults.map((contact) => contact.id)).toEqual(['p1']);
+  });
+
+  it('allows WhatsApp group-shaped legacy rows to be found from the group tab', async () => {
+    const groupish = {
+      ...personRow('groupish', 'enc:Project Room'),
+      entityType: 'person',
+    };
+    const { service } = makeDb([
+      [personRow('p1', 'enc:Project Lead'), groupish],
+      [
+        identifierRow('i1', 'p1', 'email', 'enc:lead@example.com'),
+        identifierRow('g1', 'groupish', 'phone', 'enc:+120363371012965120'),
+      ],
+    ]);
+
+    const groupResults = await service.search('project', 'user-1', 'group', 10);
+
+    expect(groupResults.map((contact) => contact.id)).toEqual(['groupish']);
+  });
+
+  it('refuses to merge group-shaped records through the people merge path', async () => {
+    const { service } = makeDb([
+      [personRow('target', 'enc:Project Room')],
+      [personRow('source', 'enc:Project Lead')],
+      [identifierRow('source-group', 'source', 'phone', 'enc:+120363371012965120')],
+      [identifierRow('target-email', 'target', 'email', 'enc:lead@example.com')],
+    ]);
+
+    await expect(service.mergePeople('target', 'source')).rejects.toThrow(
+      'Refusing to merge groups through the people merge path',
+    );
+  });
 });
 
 describe('normalizeIdentifier', () => {
@@ -820,6 +870,7 @@ describe('isExactIdentifierAutoMergeEligible', () => {
 
   it('rejects group-scoped identifiers as person auto-merge evidence', () => {
     expect(isGroupScopedIdentifier('whatsapp_group_jid')).toBe(true);
+    expect(isGroupLikeIdentifier('phone', '+120363410677585590')).toBe(true);
     expect(isExactIdentifierAutoMergeEligible('whatsapp_group_jid', '120363410677585590')).toBe(
       false,
     );

@@ -10,6 +10,17 @@ import { useContactStore } from '../../store/contactStore';
 
 const SELF_COLOR = 'var(--color-nb-lime)';
 
+function isGroupLikeContact(contact: ContactDetailPanelProps['contact']): boolean {
+  if (contact.entityType === 'group') return true;
+  return contact.identifiers.some((ident) => {
+    const digits = ident.value.replace(/\D/g, '');
+    return (
+      ident.type === 'whatsapp_group_jid' ||
+      (ident.type === 'phone' && digits.startsWith('120363') && digits.length >= 15)
+    );
+  });
+}
+
 interface ContactDetailPanelProps {
   contact: {
     id: string;
@@ -55,6 +66,7 @@ export function ContactDetailPanel({
     mergeContacts,
     contacts: allContacts,
   } = useContactStore();
+  const groupLike = isGroupLikeContact(contact);
 
   useEffect(() => {
     setEditName(contact.displayName);
@@ -78,7 +90,12 @@ export function ContactDetailPanel({
     mergeTimerRef.current = setTimeout(() => {
       const term = mergeSearch.toLowerCase();
       const results = allContacts
-        .filter((c) => c.id !== contact.id && c.displayName.toLowerCase().includes(term))
+        .filter(
+          (c) =>
+            c.id !== contact.id &&
+            c.entityType === 'person' &&
+            c.displayName.toLowerCase().includes(term),
+        )
         .slice(0, 6);
       setMergeResults(results);
     }, 150);
@@ -119,7 +136,7 @@ export function ContactDetailPanel({
         >
           {isSelf
             ? 'You'
-            : contact.entityType === 'group'
+            : groupLike
               ? 'Group Detail'
               : contact.entityType === 'device'
                 ? 'Device Detail'
@@ -218,73 +235,75 @@ export function ContactDetailPanel({
         </div>
 
         {/* Merge another person into this one */}
-        <div>
-          <button
-            onClick={() => {
-              setShowMergeSearch(!showMergeSearch);
-              setMergeSearch('');
-            }}
-            className="w-full border-2 border-nb-border px-3 py-1.5 font-mono text-xs font-bold uppercase bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors flex items-center justify-center gap-2"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
+        {!groupLike && (
+          <div>
+            <button
+              onClick={() => {
+                setShowMergeSearch(!showMergeSearch);
+                setMergeSearch('');
+              }}
+              className="w-full border-2 border-nb-border px-3 py-1.5 font-mono text-xs font-bold uppercase bg-nb-surface text-nb-text hover:bg-nb-lime hover:text-black cursor-pointer transition-colors flex items-center justify-center gap-2"
             >
-              <path d="M7 1v12M1 7h12" />
-            </svg>
-            Merge another person into this one
-          </button>
-          {showMergeSearch && (
-            <div className="mt-2 border-2 border-nb-border bg-nb-surface-muted p-2">
-              <input
-                type="text"
-                id="merge-contact-search"
-                name="merge-contact-search"
-                value={mergeSearch}
-                onChange={(e) => setMergeSearch(e.target.value)}
-                placeholder="Search person to absorb..."
-                className="w-full border-2 border-nb-border bg-nb-surface font-mono text-xs text-nb-text px-2 py-1.5 placeholder:text-nb-muted"
-              />
-              {mergeResults.length > 0 && (
-                <div className="mt-1 flex flex-col gap-0.5">
-                  {mergeResults.map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => handleMergeInto(r.id)}
-                      className="text-left px-2 py-1.5 border border-nb-border font-mono text-xs text-nb-text hover:bg-nb-red hover:text-white cursor-pointer transition-colors flex items-center gap-2"
-                    >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 12 12"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M7 1v12M1 7h12" />
+              </svg>
+              Merge another person into this one
+            </button>
+            {showMergeSearch && (
+              <div className="mt-2 border-2 border-nb-border bg-nb-surface-muted p-2">
+                <input
+                  type="text"
+                  id="merge-contact-search"
+                  name="merge-contact-search"
+                  value={mergeSearch}
+                  onChange={(e) => setMergeSearch(e.target.value)}
+                  placeholder="Search person to absorb..."
+                  className="w-full border-2 border-nb-border bg-nb-surface font-mono text-xs text-nb-text px-2 py-1.5 placeholder:text-nb-muted"
+                />
+                {mergeResults.length > 0 && (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {mergeResults.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => handleMergeInto(r.id)}
+                        className="text-left px-2 py-1.5 border border-nb-border font-mono text-xs text-nb-text hover:bg-nb-red hover:text-white cursor-pointer transition-colors flex items-center gap-2"
                       >
-                        <path d="M9 3L3 6l6 3" />
-                        <line x1="10" y1="6" x2="3" y2="6" />
-                      </svg>
-                      <span className="truncate">{r.displayName}</span>
-                      <span className="font-mono text-[9px] text-nb-muted ml-auto shrink-0">
-                        merge in
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {mergeSearch.trim() && mergeResults.length === 0 && (
-                <p className="font-mono text-[11px] text-nb-muted mt-1">No matches</p>
-              )}
-              <p className="font-mono text-[9px] text-nb-muted mt-1.5">
-                Their identifiers and memories will be absorbed into {contact.displayName}
-              </p>
-            </div>
-          )}
-        </div>
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path d="M9 3L3 6l6 3" />
+                          <line x1="10" y1="6" x2="3" y2="6" />
+                        </svg>
+                        <span className="truncate">{r.displayName}</span>
+                        <span className="font-mono text-[9px] text-nb-muted ml-auto shrink-0">
+                          merge in
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {mergeSearch.trim() && mergeResults.length === 0 && (
+                  <p className="font-mono text-[11px] text-nb-muted mt-1">No matches</p>
+                )}
+                <p className="font-mono text-[9px] text-nb-muted mt-1.5">
+                  Their identifiers and memories will be absorbed into {contact.displayName}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Linked memories */}
         <div>

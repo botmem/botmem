@@ -222,6 +222,16 @@ export function isGroupScopedIdentifier(identifierType: string): boolean {
   );
 }
 
+export function looksLikeWhatsAppGroupPhone(value: string): boolean {
+  const digits = value.replace(/\D/g, '');
+  return digits.startsWith('120363') && digits.length >= 15;
+}
+
+export function isGroupLikeIdentifier(identifierType: string, identifierValue: string): boolean {
+  if (isGroupScopedIdentifier(identifierType)) return true;
+  return identifierType === 'phone' && looksLikeWhatsAppGroupPhone(identifierValue);
+}
+
 export function hasDurablePersonIdentifier(identifiers: IdentifierInput[]): boolean {
   return identifiers.some((ident) => ident.type !== 'name' && !isGroupScopedIdentifier(ident.type));
 }
@@ -1129,6 +1139,19 @@ export class PeopleService {
     return identifiers.every((i) => this.isDeviceIdentifier(i));
   }
 
+  private isGroupLikeContact(
+    contact: { entityType?: string | null },
+    identifiers: Array<{ identifierType: string; identifierValue: string }>,
+  ): boolean {
+    if (contact.entityType === 'group') return true;
+    return identifiers.some((ident) =>
+      isGroupLikeIdentifier(
+        ident.identifierType,
+        this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue,
+      ),
+    );
+  }
+
   async list(
     params: { limit?: number; offset?: number; entityType?: string; userId?: string } = {},
   ): Promise<{
@@ -1215,7 +1238,11 @@ export class PeopleService {
     // Filter out device-only contacts
     const filteredPaged = paged.filter((c) => {
       const idents = identsByContact.get(c.id) || [];
-      return !this.isDeviceOnlyContact(idents);
+      if (this.isDeviceOnlyContact(idents)) return false;
+      const groupLike = this.isGroupLikeContact(c, idents);
+      if (params.entityType === 'person' && groupLike) return false;
+      if (params.entityType === 'group' && !groupLike) return false;
+      return true;
     });
 
     const items: PersonWithIdentifiers[] = filteredPaged.map((c) => {
@@ -1258,7 +1285,9 @@ export class PeopleService {
     // Fetch contacts (scoped to user) and filter in-memory after decryption.
     const conditions: SQLWrapper[] = [];
     if (userId) conditions.push(eq(people.userId, userId));
-    if (entityType) conditions.push(eq(people.entityType, entityType));
+    if (entityType && entityType !== 'person' && entityType !== 'group') {
+      conditions.push(eq(people.entityType, entityType));
+    }
     const allContactRows = await this.dbService.withCurrentUser((db) =>
       db
         .select()
@@ -1313,6 +1342,9 @@ export class PeopleService {
     for (let index = 0; index < allContactRows.length; index++) {
       const c = allContactRows[index];
       const idents = identsByContact.get(c.id) || [];
+      const groupLike = this.isGroupLikeContact(c, idents);
+      if (entityType === 'person' && groupLike) continue;
+      if (entityType === 'group' && !groupLike) continue;
       for (const i of idents) {
         const decryptedValue = this.crypto.decrypt(i.identifierValue) ?? i.identifierValue;
         const lowerValue = decryptedValue.toLowerCase();
@@ -1325,6 +1357,14 @@ export class PeopleService {
     }
 
     const matchedIds = [...matches.entries()]
+      .filter(([id]) => {
+        const c = contactById.get(id);
+        if (!c) return false;
+        const groupLike = this.isGroupLikeContact(c, identsByContact.get(id) || []);
+        if (entityType === 'person' && groupLike) return false;
+        if (entityType === 'group' && !groupLike) return false;
+        return true;
+      })
       .sort(([, a], [, b]) => b.score - a.score || a.order - b.order)
       .slice(0, maxResults)
       .map(([id]) => id);
@@ -1656,6 +1696,21 @@ export class PeopleService {
                 throw new Error('Refusing to merge people across different users');
               }
 
+              const sourceIds = await tx
+                .select()
+                .from(personIdentifiers)
+                .where(eq(personIdentifiers.personId, sourceId));
+              const targetIds = await tx
+                .select()
+                .from(personIdentifiers)
+                .where(eq(personIdentifiers.personId, targetId));
+              if (
+                this.isGroupLikeContact(target, targetIds) ||
+                this.isGroupLikeContact(source, sourceIds)
+              ) {
+                throw new Error('Refusing to merge groups through the people merge path');
+              }
+
               // Merge avatars (target first, then source, dedup by url)
               const targetAvatars = this.mergeAvatarLists(
                 this.decryptJsonb(target.avatars),
@@ -1695,14 +1750,6 @@ export class PeopleService {
               const displayNameHash = this.crypto.hmac(chosenName.toLowerCase());
 
               // Move identifiers from source to target, skipping duplicates
-              const sourceIds = await tx
-                .select()
-                .from(personIdentifiers)
-                .where(eq(personIdentifiers.personId, sourceId));
-              const targetIds = await tx
-                .select()
-                .from(personIdentifiers)
-                .where(eq(personIdentifiers.personId, targetId));
               const targetIdKeys = new Set(
                 targetIds.map((i) => `${i.identifierType}::${i.identifierValueHash || ''}`),
               );
