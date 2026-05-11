@@ -1,6 +1,6 @@
 import { google, type gmail_v1 } from 'googleapis';
 import type { SyncContext, ConnectorDataEvent, ProgressEvent } from '@botmem/connector-sdk';
-import { isNoise, isAutomatedSender } from '@botmem/connector-sdk';
+import { isNoise, isOtp, isAutomatedSender } from '@botmem/connector-sdk';
 import { createOAuth2Client } from './oauth.js';
 
 const BATCH_SIZE = 500; // Gmail API max for messages.list
@@ -371,27 +371,28 @@ function buildEmailEvent(message: gmail_v1.Schema$Message): ConnectorDataEvent |
   const listUnsubscribe = headerValue(headers, 'List-Unsubscribe');
 
   const labels = message.labelIds || [];
+  const body = extractBody(message.payload);
+  const attachments = extractAttachments(message.payload);
+  const fullText = `${subject}\n\n${body}`;
+  const isTransactional = isTransactionalEmail(fullText, attachments.length > 0);
 
   // Filter by Gmail label: skip CATEGORY_PROMOTIONS and CATEGORY_SOCIAL
   // unless the message also has a KEEP label (e.g. STARRED, IMPORTANT)
   const hasNoiseLabel = labels.some((l) => NOISE_LABELS.has(l));
   const hasKeepLabel = labels.some((l) => KEEP_LABELS.has(l));
-  if (hasNoiseLabel && !hasKeepLabel) return null;
+  if (hasNoiseLabel && !hasKeepLabel && !isTransactional) return null;
 
   // Filter by List-Unsubscribe header (marketing/newsletter)
   // but keep if it has a keep label (user explicitly cares about it)
-  if (listUnsubscribe && !hasKeepLabel) return null;
+  if (listUnsubscribe && !hasKeepLabel && !isTransactional) return null;
 
-  // Filter by automated sender patterns
-  if (isAutomatedSender({ from })) return null;
+  if (isOtp(fullText)) return null;
 
-  const body = extractBody(message.payload);
-  const attachments = extractAttachments(message.payload);
-
-  const fullText = `${subject}\n\n${body}`;
-
-  // Apply shared noise filter on subject + body
-  if (isNoise(fullText, { from, labels })) return null;
+  // Apply shared noise filters on subject + body. Transactional emails are valuable
+  // even when sent by automated/no-reply systems.
+  if (!isTransactional && (isAutomatedSender({ from }) || isNoise(fullText, { from, labels }))) {
+    return null;
+  }
 
   // Prefer Gmail internalDate (epoch ms, always reliable) over parsed Date header
   let timestamp: string;
@@ -445,6 +446,39 @@ function buildEmailEvent(message: gmail_v1.Schema$Message): ConnectorDataEvent |
       },
     },
   };
+}
+
+function isTransactionalEmail(text: string, hasAttachment: boolean): boolean {
+  if (!text) return false;
+
+  const transactionalPatterns = [
+    /\bflight\s+(?:booking|confirmation|details|itinerary|ticket|reservation)\b/i,
+    /\b(?:booking|reservation)\s+(?:is\s+)?(?:confirmed|confirmation|reference|code)\b/i,
+    /\b(?:ticket|e-?ticket|itinerary)\b/i,
+    /\b(?:pnr|booking reference|reservation code)\b/i,
+    /\b(?:boarding pass|check[- ]?in)\b/i,
+    /\b(?:invoice|receipt|statement|payment|refund|tax credit note)\b/i,
+    /\b(?:order|purchase)\s*(?:#|number|confirmation|confirmed)\b/i,
+    /\bshipping\s*(?:confirm|notification|update)\b/i,
+    /\btracking\s*(?:number|#|info)\b/i,
+    /\bdelivery\s*(?:confirm|notification|update)\b/i,
+    /\byour\s+order\b/i,
+  ];
+
+  if (transactionalPatterns.some((pattern) => pattern.test(text))) return true;
+
+  // Attachments with user-specific document language are commonly receipts,
+  // tickets, statements, or confirmations and should not be dropped as marketing.
+  if (
+    hasAttachment &&
+    /\b(?:attached|attachment|pdf|document|statement|invoice|ticket|booking|reservation)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /** Strip HTML tags and decode common entities to plain text. */

@@ -458,6 +458,67 @@ describe('syncGmail', () => {
     );
   });
 
+  it('keeps transactional flight bookings from automated senders', async () => {
+    mockList.mockResolvedValue({ data: { messages: [{ id: 'msg-1' }], nextPageToken: null } });
+    mockGet.mockResolvedValue({
+      data: {
+        id: 'msg-1',
+        internalDate: '1777640400000',
+        payload: {
+          headers: [
+            { name: 'Subject', value: 'Your booking is confirmed - DKHE86' },
+            { name: 'From', value: 'no-reply@emirates.example' },
+            { name: 'To', value: 'traveller@example.com' },
+            { name: 'List-Unsubscribe', value: '<mailto:unsubscribe@example.com>' },
+          ],
+          parts: [
+            {
+              mimeType: 'text/plain',
+              body: {
+                data: Buffer.from(
+                  'Your flight booking is confirmed. Booking reference DKHE86. Flight itinerary attached.',
+                ).toString('base64url'),
+              },
+            },
+          ],
+        },
+        labelIds: ['CATEGORY_PROMOTIONS'],
+      },
+    });
+
+    const events: ConnectorDataEvent[] = [];
+    await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
+
+    expect(events).toHaveLength(1);
+    expect(events[0].content.text).toContain('DKHE86');
+  });
+
+  it('still skips non-transactional automated marketing email', async () => {
+    mockList.mockResolvedValue({ data: { messages: [{ id: 'msg-1' }], nextPageToken: null } });
+    mockGet.mockResolvedValue({
+      data: {
+        id: 'msg-1',
+        payload: {
+          headers: [
+            { name: 'Subject', value: 'Weekly deals' },
+            { name: 'From', value: 'notifications@shop.example' },
+            { name: 'List-Unsubscribe', value: '<mailto:unsubscribe@example.com>' },
+          ],
+          body: {
+            data: Buffer.from('Save today. Unsubscribe here.').toString('base64url'),
+          },
+          mimeType: 'text/plain',
+        },
+        labelIds: ['CATEGORY_PROMOTIONS'],
+      },
+    });
+
+    const events: ConnectorDataEvent[] = [];
+    await syncGmail(makeCtx(), (e) => events.push(e), vi.fn());
+
+    expect(events).toHaveLength(0);
+  });
+
   it('uses clientId/clientSecret from auth.raw', async () => {
     mockList.mockResolvedValue({ data: { messages: [], nextPageToken: null } });
 
