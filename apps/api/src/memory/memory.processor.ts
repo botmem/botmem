@@ -85,6 +85,7 @@ interface PrimaryMedia {
   fileName?: string;
   hasInlineContent: boolean;
   hasFetchableUrl: boolean;
+  connectorUri?: string;
 }
 
 const CONNECTOR_LABELS: Record<string, string> = {
@@ -701,7 +702,11 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
     // 3. Media/file processing — extract searchable text where possible
     const primaryMedia = this.resolvePrimaryMedia(mergedMetadata, event.sourceType);
-    const hasFile = !!(primaryMedia?.hasInlineContent || primaryMedia?.hasFetchableUrl);
+    const hasFile = !!(
+      primaryMedia?.hasInlineContent ||
+      primaryMedia?.hasFetchableUrl ||
+      primaryMedia?.connectorUri
+    );
     const fileMime = primaryMedia?.mimeType || '';
     let currentText = embedText;
 
@@ -1472,7 +1477,15 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const kind = mediaKindFromMime(mimeType, metadata.messageType, sourceType);
     const hasInlineContent = typeof metadata.fileBase64 === 'string' && metadata.fileBase64 !== '';
     const hasFetchableUrl = typeof metadata.fileUrl === 'string' && metadata.fileUrl !== '';
-    if (!mimeType && !fileName && kind === 'unknown' && !hasInlineContent && !hasFetchableUrl) {
+    const connectorUri = String(firstAttachment?.uri || metadata.fileUri || '').trim();
+    if (
+      !mimeType &&
+      !fileName &&
+      kind === 'unknown' &&
+      !hasInlineContent &&
+      !hasFetchableUrl &&
+      !connectorUri
+    ) {
       return null;
     }
     return {
@@ -1481,6 +1494,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       fileName: fileName || undefined,
       hasInlineContent,
       hasFetchableUrl,
+      connectorUri: connectorUri || undefined,
     };
   }
 
@@ -1674,10 +1688,15 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
 
   private async getFileBuffer(
     metadata: Record<string, unknown>,
-    rawEvent: { accountId: string; connectorType: string },
+    rawEvent: { accountId: string; connectorType: string; sourceId: string },
   ): Promise<Buffer> {
     const fileBase64 = (metadata.fileBase64 as string) || '';
     if (fileBase64) return Buffer.from(fileBase64, 'base64');
+
+    const connectorUri = this.resolveConnectorAttachmentUri(metadata);
+    if (connectorUri) {
+      return this.fetchConnectorAttachment(connectorUri, rawEvent);
+    }
 
     const fileUrl = (metadata.fileUrl as string) || '';
     const mimetype = normalizeMimeType(
@@ -1695,6 +1714,52 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       throw new Error(`File download failed: ${res.status} ${res.statusText}`);
     }
     return Buffer.from(await res.arrayBuffer());
+  }
+
+  private resolveConnectorAttachmentUri(metadata: Record<string, unknown>): string {
+    const attachments = arrayFromUnknown(metadata.attachments);
+    const firstAttachment = attachments.find((item) => item && typeof item === 'object') as
+      | Record<string, unknown>
+      | undefined;
+    return String(firstAttachment?.uri || metadata.fileUri || '').trim();
+  }
+
+  private async fetchConnectorAttachment(
+    connectorUri: string,
+    rawEvent: { accountId: string; connectorType: string; sourceId: string },
+  ): Promise<Buffer> {
+    if (rawEvent.connectorType === 'gmail') {
+      return this.fetchGmailAttachment(connectorUri, rawEvent);
+    }
+    throw new Error(`Connector attachment fetch is not implemented for ${rawEvent.connectorType}`);
+  }
+
+  private async fetchGmailAttachment(
+    connectorUri: string,
+    rawEvent: { accountId: string; connectorType: string; sourceId: string },
+  ): Promise<Buffer> {
+    const match = connectorUri.match(/^gmail:\/\/attachment\/(.+)$/);
+    if (!match?.[1]) throw new Error(`Unsupported Gmail attachment URI: ${connectorUri}`);
+
+    const headers = await this.buildAuthHeaders(rawEvent.accountId, rawEvent.connectorType);
+    if (!headers.Authorization)
+      throw new Error('Gmail attachment fetch requires OAuth credentials');
+
+    const messageId = encodeURIComponent(rawEvent.sourceId);
+    const attachmentId = encodeURIComponent(match[1]);
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`,
+      {
+        headers,
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Gmail attachment download failed: ${res.status} ${res.statusText}`);
+    }
+    const data = (await res.json()) as { data?: string };
+    if (!data.data) throw new Error('Gmail attachment response did not include data');
+    return Buffer.from(data.data, 'base64url');
   }
 
   private async fetchLinkedDocument(
