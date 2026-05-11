@@ -2468,7 +2468,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     } catch {
       return {};
     }
-    const authContext = account.authContext ? JSON.parse(account.authContext) : null;
+    let authContext = account.authContext ? JSON.parse(account.authContext) : null;
+    if (connectorType === 'gmail') {
+      authContext = await this.refreshGmailAuthIfNeeded(accountId, authContext);
+    }
     if (!authContext?.accessToken) return {};
     switch (connectorType) {
       case 'slack':
@@ -2478,6 +2481,67 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       default:
         return { Authorization: `Bearer ${authContext.accessToken}` };
     }
+  }
+
+  private async refreshGmailAuthIfNeeded(
+    accountId: string,
+    authContext: Record<string, unknown> | null,
+  ): Promise<Record<string, unknown> | null> {
+    if (!authContext) return authContext;
+
+    const accessToken = typeof authContext.accessToken === 'string' ? authContext.accessToken : '';
+    const refreshToken =
+      typeof authContext.refreshToken === 'string' ? authContext.refreshToken : '';
+    const raw =
+      authContext.raw && typeof authContext.raw === 'object'
+        ? (authContext.raw as Record<string, unknown>)
+        : {};
+    const clientId = typeof raw.clientId === 'string' ? raw.clientId : '';
+    const clientSecret = typeof raw.clientSecret === 'string' ? raw.clientSecret : '';
+    const expiresAt =
+      typeof authContext.expiresAt === 'string' ? Date.parse(authContext.expiresAt) : NaN;
+    const shouldRefresh =
+      refreshToken &&
+      clientId &&
+      clientSecret &&
+      (!accessToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now() + 60_000);
+
+    if (!shouldRefresh) return authContext;
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(
+        `Gmail OAuth refresh failed: ${response.status} ${response.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`,
+      );
+    }
+
+    const tokens = (await response.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    };
+    if (!tokens.access_token) {
+      throw new Error('Gmail OAuth refresh did not return an access token');
+    }
+
+    const refreshed = {
+      ...authContext,
+      accessToken: tokens.access_token,
+      expiresAt: new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000).toISOString(),
+    };
+    await this.accountsService.update(accountId, { authContext: JSON.stringify(refreshed) });
+    return refreshed;
   }
 
   private addLog(
