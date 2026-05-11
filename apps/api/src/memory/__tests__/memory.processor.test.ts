@@ -289,6 +289,48 @@ describe('media extraction metadata', () => {
     );
   });
 
+  it('refreshes expired Gmail OAuth tokens before building auth headers', async () => {
+    const accountsService = {
+      getById: vi.fn().mockResolvedValue({
+        authContext: JSON.stringify({
+          accessToken: 'expired-token',
+          refreshToken: 'refresh-token',
+          expiresAt: '2020-01-01T00:00:00.000Z',
+          raw: {
+            clientId: 'client-id',
+            clientSecret: 'client-secret',
+            redirectUri: 'https://example.com/callback',
+          },
+        }),
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    };
+    const processor = Object.create(MemoryProcessor.prototype) as {
+      accountsService: typeof accountsService;
+      buildAuthHeaders(accountId: string, connectorType: string): Promise<Record<string, string>>;
+    };
+    processor.accountsService = accountsService;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'fresh-token', expires_in: 3600 }),
+    } as Response);
+
+    const headers = await processor.buildAuthHeaders('account-1', 'gmail');
+
+    expect(headers).toEqual({ Authorization: 'Bearer fresh-token' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://oauth2.googleapis.com/token',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.any(URLSearchParams),
+      }),
+    );
+    const savedAuth = JSON.parse(accountsService.update.mock.calls[0][1].authContext);
+    expect(savedAuth.accessToken).toBe('fresh-token');
+    expect(savedAuth.refreshToken).toBe('refresh-token');
+    expect(new Date(savedAuth.expiresAt).getTime()).toBeGreaterThan(Date.now());
+  });
+
   it('uses connector-native attachments before generic URLs', async () => {
     const processor = Object.create(MemoryProcessor.prototype) as {
       getFileBuffer(
