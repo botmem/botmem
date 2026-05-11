@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildWhatsAppGroupIdentity,
   shouldMergeEntityResolutionBucket,
@@ -143,6 +143,10 @@ describe('buildWhatsAppContactIdentity', () => {
 });
 
 describe('media extraction metadata', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('represents message media as a file memory with connector provenance and extraction evidence', () => {
     const proto = MemoryProcessor.prototype as unknown as {
       memorySourceTypeForEvent(sourceType: string, media: unknown): string;
@@ -214,6 +218,103 @@ describe('media extraction metadata', () => {
     expect(metadata.confidenceLabel).toBe('low');
     expect(metadata.warnings).toContain('ocr_date_disagrees_with_event_time');
     expect(metadata.extractedText).toContain('Official document');
+  });
+
+  it('treats Gmail attachment URIs as fetchable media', () => {
+    const media = (
+      MemoryProcessor.prototype as unknown as {
+        resolvePrimaryMedia(
+          metadata: Record<string, unknown>,
+          sourceType: unknown,
+        ): {
+          kind: string;
+          mimeType: string;
+          fileName?: string;
+          hasInlineContent: boolean;
+          hasFetchableUrl: boolean;
+          connectorUri?: string;
+        } | null;
+      }
+    ).resolvePrimaryMedia(
+      {
+        attachments: [
+          {
+            uri: 'gmail://attachment/att-123',
+            mimeType: 'application/pdf',
+            filename: 'Flight Booking.pdf',
+          },
+        ],
+      },
+      'email',
+    );
+
+    expect(media).toEqual({
+      kind: 'file',
+      mimeType: 'application/pdf',
+      fileName: 'Flight Booking.pdf',
+      hasInlineContent: false,
+      hasFetchableUrl: false,
+      connectorUri: 'gmail://attachment/att-123',
+    });
+  });
+
+  it('downloads Gmail attachment bytes from the Gmail API', async () => {
+    const processor = Object.create(MemoryProcessor.prototype) as {
+      fetchGmailAttachment(
+        connectorUri: string,
+        rawEvent: { accountId: string; connectorType: string; sourceId: string },
+      ): Promise<Buffer>;
+      buildAuthHeaders: () => Promise<Record<string, string>>;
+    };
+    processor.buildAuthHeaders = vi
+      .fn()
+      .mockResolvedValue({ Authorization: 'Bearer access-token' });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: Buffer.from('pdf bytes').toString('base64url') }),
+    } as Response);
+
+    const buffer = await processor.fetchGmailAttachment('gmail://attachment/att-123', {
+      accountId: 'account-1',
+      connectorType: 'gmail',
+      sourceId: 'message-1',
+    });
+
+    expect(buffer.toString()).toBe('pdf bytes');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/message-1/attachments/att-123',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer access-token' },
+      }),
+    );
+  });
+
+  it('uses connector-native attachments before generic URLs', async () => {
+    const processor = Object.create(MemoryProcessor.prototype) as {
+      getFileBuffer(
+        metadata: Record<string, unknown>,
+        rawEvent: { accountId: string; connectorType: string; sourceId: string },
+      ): Promise<Buffer>;
+      fetchConnectorAttachment: () => Promise<Buffer>;
+    };
+    processor.fetchConnectorAttachment = vi.fn().mockResolvedValue(Buffer.from('attachment'));
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const buffer = await processor.getFileBuffer(
+      {
+        fileUrl: 'https://example.com/should-not-be-fetched.pdf',
+        attachments: [{ uri: 'gmail://attachment/att-123', mimeType: 'application/pdf' }],
+      },
+      { accountId: 'account-1', connectorType: 'gmail', sourceId: 'message-1' },
+    );
+
+    expect(buffer.toString()).toBe('attachment');
+    expect(processor.fetchConnectorAttachment).toHaveBeenCalledWith('gmail://attachment/att-123', {
+      accountId: 'account-1',
+      connectorType: 'gmail',
+      sourceId: 'message-1',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('downgrades factuality when media extraction is low-confidence', () => {
