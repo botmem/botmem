@@ -12,6 +12,7 @@ import {
   Logger,
   DefaultValuePipe,
   ParseIntPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -32,6 +33,9 @@ import { ReadOnly } from '../user-auth/decorators/read-only.decorator';
 import { SearchMemoriesDto } from './dto/search-memories.dto';
 import { AskMemoriesDto } from './dto/ask-memories.dto';
 import { AnalyticsService } from '../analytics/analytics.service';
+
+const RAW_EVENT_RETRY_STATES = new Set(['pending', 'failed', 'quota_blocked']);
+const ACTIVE_JOB_STATES = new Set(['active', 'waiting', 'delayed', 'paused', 'prioritized']);
 
 @ApiTags('Memories')
 @ApiBearerAuth()
@@ -183,10 +187,23 @@ export class MemoryController {
           });
 
           // Re-enqueue through pipeline with generous retries
+          const jobId = `memory-retry-${rawRows[0].id}`;
+          const existingJob = await this.memoryQueue.getJob(jobId);
+          if (existingJob && ACTIVE_JOB_STATES.has(await existingJob.getState())) {
+            continue;
+          }
+          if (existingJob) await existingJob.remove().catch(() => undefined);
+
           await this.memoryQueue.add(
             'process',
             { rawEventId: rawRows[0].id },
-            { attempts: 5, backoff: { type: 'exponential', delay: 10000 } },
+            {
+              attempts: 5,
+              backoff: { type: 'exponential', delay: 10000 },
+              jobId,
+              removeOnComplete: { age: 86400, count: 20000 },
+              removeOnFail: { age: 604800, count: 20000 },
+            },
           );
           enqueued++;
         } catch (err: unknown) {
@@ -199,6 +216,122 @@ export class MemoryController {
 
       return { enqueued, errors, total: failed.length };
     });
+  }
+
+  @RequiresJwt()
+  @Post('raw-events/retry-debt')
+  async retryRawEventDebt(
+    @CurrentUser() user: { id: string },
+    @Body()
+    body: {
+      connectorType?: string;
+      sourceType?: string;
+      from?: string;
+      to?: string;
+      limit?: number | string;
+      states?: string[];
+    } = {},
+  ) {
+    const needsRecoveryKey = await this.memoryService.needsRecoveryKey(user.id);
+    if (needsRecoveryKey) {
+      return {
+        enqueued: 0,
+        skippedExistingJob: 0,
+        total: 0,
+        needsRecoveryKey: true,
+        message: 'Recovery key required before encrypted raw events can be retried',
+      };
+    }
+
+    const limit = Math.min(Math.max(parseInt(String(body.limit ?? '200'), 10) || 200, 1), 2000);
+    const from = this.parseOptionalDate(body.from, 'from');
+    const to = this.parseOptionalDate(body.to, 'to');
+    if (from && to && from > to) {
+      throw new BadRequestException('from must be before or equal to to');
+    }
+
+    const states = (body.states?.length ? body.states : ['pending', 'failed'])
+      .map((state) => String(state).trim())
+      .filter(Boolean);
+    const invalidStates = states.filter((state) => !RAW_EVENT_RETRY_STATES.has(state));
+    if (invalidStates.length) {
+      throw new BadRequestException(`Unsupported retry state(s): ${invalidStates.join(', ')}`);
+    }
+
+    const filters = [
+      sql`a.user_id = ${user.id}`,
+      sql`re.processing_state IN (${sql.join(
+        states.map((state) => sql`${state}`),
+        sql`, `,
+      )})`,
+      sql`re.source_type NOT IN ('contact', 'group')`,
+      sql`NOT (re.connector_type = 'telegram' AND re.source_id LIKE 'telegram:contact:%')`,
+      sql`NOT EXISTS (
+        SELECT 1 FROM memories m
+        WHERE m.account_id = re.account_id
+          AND m.source_id = re.source_id
+          AND m.connector_type = re.connector_type
+      )`,
+    ];
+    if (body.connectorType) filters.push(sql`re.connector_type = ${body.connectorType}`);
+    if (body.sourceType) filters.push(sql`re.source_type = ${body.sourceType}`);
+    if (from) filters.push(sql`re.timestamp >= ${from}`);
+    if (to) filters.push(sql`re.timestamp <= ${to}`);
+
+    const result = await this.dbService.db.execute(sql`
+      SELECT
+        re.id AS "rawEventId",
+        re.processing_state AS "processingState"
+      FROM raw_events re
+      INNER JOIN accounts a ON a.id = re.account_id
+      WHERE ${sql.join(filters, sql` AND `)}
+      ORDER BY re.timestamp ASC, re.created_at ASC
+      LIMIT ${limit}
+    `);
+
+    const rows = result.rows as Array<{ rawEventId: string; processingState: string }>;
+    let enqueued = 0;
+    let skippedExistingJob = 0;
+    let errors = 0;
+
+    for (const row of rows) {
+      const jobId = `raw-event-retry-${row.rawEventId}`;
+      try {
+        const existingJob = await this.memoryQueue.getJob(jobId);
+        if (existingJob && ACTIVE_JOB_STATES.has(await existingJob.getState())) {
+          skippedExistingJob++;
+          continue;
+        }
+        if (existingJob) await existingJob.remove().catch(() => undefined);
+
+        await this.dbService.db
+          .update(rawEvents)
+          .set({ processingState: 'pending' })
+          .where(eq(rawEvents.id, row.rawEventId));
+
+        await this.memoryQueue.add(
+          'process',
+          { rawEventId: row.rawEventId },
+          {
+            attempts: 5,
+            backoff: { type: 'exponential', delay: 10000 },
+            jobId,
+            removeOnComplete: { age: 86400, count: 20000 },
+            removeOnFail: { age: 604800, count: 20000 },
+          },
+        );
+        enqueued++;
+      } catch (err: unknown) {
+        errors++;
+        this.logger.error(
+          `[retry-raw-event-debt] ${row.rawEventId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    return { enqueued, skippedExistingJob, errors, total: rows.length };
   }
 
   @RequiresJwt()
@@ -246,6 +379,15 @@ export class MemoryController {
       total: groups.reduce((sum, row) => sum + Number(row.count || 0), 0),
       groups,
     };
+  }
+
+  private parseOptionalDate(value: string | undefined, field: string): Date | undefined {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`${field} must be a valid ISO date`);
+    }
+    return parsed;
   }
 
   @RequiresJwt()
