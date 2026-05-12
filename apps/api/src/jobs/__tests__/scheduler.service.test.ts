@@ -12,6 +12,7 @@ describe('SchedulerService', () => {
   let maintenanceQueue: { upsertJobScheduler: ReturnType<typeof vi.fn> };
   let accountsService: { getAll: ReturnType<typeof vi.fn> };
   let configService: { decayCron: string };
+  let connectorsService: { getSyncConfig: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     syncQueue = {
@@ -32,11 +33,19 @@ describe('SchedulerService', () => {
       decayCron: '0 3 * * *',
     };
 
+    connectorsService = {
+      getSyncConfig: vi.fn((connectorType: string) => ({
+        defaultSchedule: connectorType === 'whatsapp' ? 'manual' : 'daily',
+        configurable: connectorType !== 'whatsapp',
+      })),
+    };
+
     service = new SchedulerService(
       syncQueue,
       maintenanceQueue,
       accountsService,
       configService as unknown as ConfigService,
+      connectorsService as never,
     );
   });
 
@@ -81,6 +90,11 @@ describe('SchedulerService', () => {
       expect(syncQueue.add).not.toHaveBeenCalled();
     });
 
+    it('does not add scheduled jobs for WhatsApp', async () => {
+      await service.setSchedule('acc-1', 'whatsapp', 'daily');
+      expect(syncQueue.add).not.toHaveBeenCalled();
+    });
+
     it('removes existing repeatable job before adding new one', async () => {
       syncQueue.getRepeatableJobs.mockResolvedValueOnce([
         { name: 'scheduled:acc-1', key: 'old-key' },
@@ -98,6 +112,7 @@ describe('SchedulerService', () => {
       accountsService.getAll.mockResolvedValueOnce([
         { id: 'acc-1', connectorType: 'gmail', schedule: 'hourly' },
         { id: 'acc-2', connectorType: 'slack', schedule: 'daily' },
+        { id: 'acc-3', connectorType: 'whatsapp', schedule: 'daily' },
       ]);
 
       await service.syncAllSchedules();

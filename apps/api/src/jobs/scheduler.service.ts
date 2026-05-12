@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { AccountsService } from '../accounts/accounts.service';
 import { ConfigService } from '../config/config.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 
 const SCHEDULE_CRON: Record<string, string> = {
   hourly: '0 * * * *',
@@ -17,6 +18,7 @@ export class SchedulerService implements OnModuleInit {
     @InjectQueue('maintenance') private maintenanceQueue: Queue,
     private accountsService: AccountsService,
     private config: ConfigService,
+    private connectors: ConnectorsService,
   ) {}
 
   async onModuleInit() {
@@ -57,6 +59,8 @@ export class SchedulerService implements OnModuleInit {
         await this.syncQueue.removeRepeatableByKey(rj.key);
       }
     }
+
+    if (!this.connectors.getSyncConfig(connectorType).configurable) return;
 
     const cron = SCHEDULE_CRON[schedule];
     if (!cron) return; // 'manual' has no cron

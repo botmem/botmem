@@ -36,6 +36,22 @@ class FakeConnector extends BaseConnector {
   }
 }
 
+class ManagedSyncConnector extends FakeConnector {
+  readonly manifest: ConnectorManifest = {
+    id: 'managed',
+    name: 'Managed',
+    description: 'Managed sync connector',
+    color: '#000',
+    icon: 'test',
+    authType: 'api-key',
+    configSchema: { type: 'object', properties: { key: { type: 'string' } } },
+    entities: ['person'],
+    pipeline: { clean: true, embed: true, enrich: true },
+    trustScore: 0.7,
+    sync: { defaultSchedule: 'manual', configurable: false },
+  };
+}
+
 describe('ConnectorsService', () => {
   it('registers and gets a connector', () => {
     const service = new ConnectorsService();
@@ -74,6 +90,25 @@ describe('ConnectorsService', () => {
     service.register(() => new FakeConnector());
     const schema = service.getSchema('fake');
     expect(schema).toEqual({ type: 'object', properties: { key: { type: 'string' } } });
+  });
+
+  it('returns SDK manifest sync config with daily configurable defaults', () => {
+    const service = new ConnectorsService();
+    service.register(() => new FakeConnector());
+    service.register(() => new ManagedSyncConnector());
+
+    expect(service.getSyncConfig('fake')).toEqual({
+      defaultSchedule: 'daily',
+      configurable: true,
+    });
+    expect(service.getSyncConfig('managed')).toEqual({
+      defaultSchedule: 'manual',
+      configurable: false,
+    });
+    expect(service.getSyncConfig('unknown')).toEqual({
+      defaultSchedule: 'daily',
+      configurable: true,
+    });
   });
 
   it('exposes registry', () => {

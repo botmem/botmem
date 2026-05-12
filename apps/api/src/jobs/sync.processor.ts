@@ -17,6 +17,7 @@ import { ConfigService } from '../config/config.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
+import { PeopleService, type IdentifierInput } from '../people/people.service';
 import { Traced } from '../tracing/traced.decorator';
 import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
 import { ConnectorSyncPolicyService } from '../connectors/connector-sync-policy.service';
@@ -26,6 +27,23 @@ import {
   type ConnectorLogger,
   type ConnectorDataEvent,
 } from '@botmem/connector-sdk';
+
+interface AppleContactIdentity {
+  source: 'apple_contacts';
+  contact: {
+    id?: string;
+    displayName?: string;
+    givenName?: string;
+    familyName?: string;
+    nickname?: string;
+    organization?: string;
+    jobTitle?: string;
+    birthday?: string;
+    emails?: string[];
+    phones?: string[];
+    imageAvailable?: boolean;
+  };
+}
 
 @Processor('sync')
 export class SyncProcessor extends WorkerHost implements OnModuleInit {
@@ -64,6 +82,43 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     } catch {
       return null;
     }
+  }
+
+  /** Lazily resolve PeopleService — returns null if not available. */
+  private getPeopleService(): PeopleService | null {
+    try {
+      return this.moduleRef.get(PeopleService, { strict: false });
+    } catch {
+      return null;
+    }
+  }
+
+  private buildAppleContactIdentifiers(
+    contact: AppleContactIdentity['contact'],
+  ): IdentifierInput[] {
+    const identifiers: IdentifierInput[] = [];
+    for (const email of contact.emails ?? []) {
+      if (email.trim()) identifiers.push({ type: 'email', value: email, connectorType: 'apple' });
+    }
+    for (const phone of contact.phones ?? []) {
+      if (phone.trim()) identifiers.push({ type: 'phone', value: phone, connectorType: 'apple' });
+    }
+    if (contact.id?.trim()) {
+      identifiers.push({
+        type: 'apple_contact_id',
+        value: contact.id,
+        connectorType: 'apple',
+      });
+    }
+    const aliases = [
+      contact.displayName,
+      [contact.givenName, contact.familyName].filter(Boolean).join(' '),
+      contact.nickname,
+    ];
+    for (const alias of aliases) {
+      if (alias?.trim()) identifiers.push({ type: 'name', value: alias, connectorType: 'apple' });
+    }
+    return identifiers;
   }
 
   private async getKnownPhoneNumbers(ownerUserId: string | undefined): Promise<string[]> {
@@ -159,7 +214,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       _trace?: { traceId: string; spanId: string };
     }>,
   ) {
-    const { accountId, connectorType } = job.data;
+    const { accountId } = job.data;
+    const connectorType = job.data.connectorType === 'imessage' ? 'apple' : job.data.connectorType;
     let { jobId } = job.data;
     const currentTrace = this.traceContext.current()!;
     const syncStartTime = Date.now();
@@ -224,6 +280,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     let knownTotal = 0;
     let degradedReason: string | null = null;
     const pendingWrites: Promise<void>[] = [];
+    const pendingIdentityWrites: Promise<void>[] = [];
     const knownPhoneNumbers =
       connectorType === 'whatsapp' ? await this.getKnownPhoneNumbers(ownerUserId) : [];
     if (knownPhoneNumbers.length) {
@@ -269,6 +326,29 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       degradedReason = event?.message || 'Connector completed with warnings';
       logger.warn(degradedReason);
     });
+    connector.on('identity', (event: AppleContactIdentity) => {
+      if (event?.source !== 'apple_contacts') return;
+      const peopleService = this.getPeopleService();
+      if (!peopleService) {
+        const message = 'Apple Contacts identity sync skipped: PeopleService unavailable';
+        degradedReason = degradedReason ?? message;
+        logger.warn(message);
+        return;
+      }
+      const identifiers = this.buildAppleContactIdentifiers(event.contact);
+      const hasDurable = identifiers.some((identifier) => identifier.type !== 'name');
+      if (!hasDurable) return;
+      const promise = peopleService
+        .resolvePerson(identifiers, 'person', ownerUserId)
+        .catch((err) => {
+          logger.warn(
+            `Failed to resolve Apple contact ${event.contact.id || event.contact.displayName || 'unknown'}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+      pendingIdentityWrites.push(promise.then(() => undefined));
+    });
 
     try {
       let hasMore = true;
@@ -306,25 +386,19 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
         const ctx = connector.wrapSyncContext(rawCtx);
 
-        // Inject tunnel transport for remote iMessage bridge (lazy — module may not be loaded)
-        if (
-          connectorType === 'imessage' &&
-          account.tunnelMode &&
-          'setTunnelTransport' in connector
-        ) {
+        // Inject tunnel transport for remote Apple bridge (lazy — module may not be loaded)
+        if (connectorType === 'apple' && account.tunnelMode && 'setTunnelTransport' in connector) {
           const tunnel = this.getImsgTunnel();
           if (!tunnel) {
-            throw new Error(
-              'iMessage tunnel service is unavailable. Restart Botmem and try again.',
-            );
+            throw new Error('Apple tunnel service is unavailable. Restart Botmem and try again.');
           }
           const { WsTunnelTransport } = await import('../imsg-tunnel/ws-tunnel-transport');
           (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
             new WsTunnelTransport(tunnel, accountId),
           );
-        } else if (connectorType === 'imessage') {
+        } else if (connectorType === 'apple') {
           throw new Error(
-            'Legacy local iMessage TCP bridge is no longer supported. Reconnect iMessage from connector setup, run the generated bridge command, then retry sync.',
+            'Legacy local Apple TCP bridge is no longer supported. Reconnect Apple from connector setup, run the generated bridge command, then retry sync.',
           );
         }
 
@@ -342,6 +416,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         // Refresh account for next iteration
         account = await this.accountsService.getById(accountId);
       }
+
+      await Promise.all(pendingIdentityWrites);
 
       await this.accountsService.update(accountId, {
         lastSyncAt: new Date(),
@@ -384,7 +460,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           status: 'connected',
           lastError: null,
         });
-        await Promise.all(pendingWrites);
+        await Promise.all([...pendingWrites, ...pendingIdentityWrites]);
         const pipelineTotal = totalInserted;
         if (pipelineTotal === 0) {
           await this.jobsService.updateJob(jobId, {
@@ -444,7 +520,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       throw err;
     } finally {
       // Wait for all pending DB writes to complete before removing listeners
-      await Promise.allSettled(pendingWrites);
+      await Promise.allSettled([...pendingWrites, ...pendingIdentityWrites]);
       connector.removeAllListeners();
     }
   }

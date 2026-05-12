@@ -187,6 +187,8 @@ export class AuthService implements OnModuleInit {
   }
 
   async initiate(connectorType: string, config: Record<string, unknown>, userId?: string) {
+    const requestedConnectorType = connectorType;
+    connectorType = connectorType === 'imessage' ? 'apple' : connectorType;
     const connector = this.connectors.get(connectorType);
     const { returnTo, ...connectorConfig } = config;
 
@@ -230,10 +232,16 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    // iMessage bridge mode: reuse token if present, upsert account, DON'T auto-sync
-    if (connectorType === 'imessage' && mergedConfig.authMethod === 'bridge') {
+    // Apple bridge mode: reuse token if present, upsert account, DON'T auto-sync
+    if (connectorType === 'apple' && mergedConfig.authMethod === 'bridge') {
       const myIdentifier = String(mergedConfig.myIdentifier || '');
-      const identifier = myIdentifier || 'imessage';
+      const identifier = myIdentifier || 'apple';
+      const selectedSources =
+        mergedConfig.selectedSources &&
+        typeof mergedConfig.selectedSources === 'object' &&
+        !Array.isArray(mergedConfig.selectedSources)
+          ? mergedConfig.selectedSources
+          : { contacts: true, imessages: true };
 
       const lockKey = `${connectorType}:${identifier}`;
       const acquired = await this.oauthState.acquireCreateLock(lockKey);
@@ -242,16 +250,16 @@ export class AuthService implements OnModuleInit {
       }
 
       try {
-        const existing = await this.accountsService.findByTypeAndIdentifier(
-          connectorType,
-          identifier,
-          userId,
-        );
+        const existing =
+          (await this.accountsService.findByTypeAndIdentifier(connectorType, identifier, userId)) ??
+          (requestedConnectorType === 'imessage'
+            ? await this.accountsService.findByTypeAndIdentifier('imessage', identifier, userId)
+            : null);
         const { randomBytes } = await import('node:crypto');
         const bridgeToken =
-          getBridgeToken(existing?.authContext) ?? 'imsg_bt_' + randomBytes(32).toString('hex');
+          getBridgeToken(existing?.authContext) ?? 'apple_bt_' + randomBytes(32).toString('hex');
         const authContext = {
-          raw: { myIdentifier, tunnelMode: true, bridgeToken },
+          raw: { myIdentifier, tunnelMode: true, bridgeToken, selectedSources },
         };
         const account = existing
           ? await this.accountsService.update(existing.id, {

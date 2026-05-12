@@ -33,6 +33,7 @@ export const CONNECTOR_TYPES = [
   'outlook',
   'slack',
   'whatsapp',
+  'apple',
   'imessage',
   'telegram',
   'photos',
@@ -56,6 +57,7 @@ Tips:
 - Use natural language queries; search is semantic, not keyword-only
 - Combine filters to narrow results, for example connector_type="gmail" + source_type="email"
 - Use connector_type="locations" for OwnTracks location pings
+- For exact identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, and short all-caps codes, search the exact identifier first
 - Results are sorted by weighted score, not pure event time`;
 
 const askMcpDescription = `Ask a question about the user's personal memories. Retrieves relevant memories via semantic search, enriches them with contact and entity data, and returns the context needed to answer the question.
@@ -69,7 +71,7 @@ Difference from search:
 - search returns raw ranked results; use it for lookup and browsing
 - ask returns enriched memories and optional synthesized answer/context; use it for answering questions
 
-For latest/current-state questions, prefer explicit date_from/date_to filters when available and inspect eventTime. source_type="location" is OwnTracks; GPS-bearing photos are source_type="photo".`;
+For latest/current-state questions, prefer explicit date_from/date_to filters when available and inspect eventTime. For exact identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, and short all-caps codes, use search first and ask only after retrieval. source_type="location" is OwnTracks; GPS-bearing photos are source_type="photo".`;
 
 const searchArgs: Record<string, AgentToolArg> = {
   query: {
@@ -181,7 +183,7 @@ Returns source_type counts, connector_type counts, factuality counts, and regist
 
 const listMcpDescription = `List recent memories directly from the memory store.
 
-Use this for browsing, latest/current-state questions, or when weighted semantic search is the wrong sort. Results are sorted by eventTime descending by default and can be sorted by ingestTime descending. Supports connector_type and source_type filters.`;
+Use this for browsing, latest/current-state questions, or when weighted semantic search is the wrong sort. Results are sorted by eventTime descending by default and can be sorted by ingestTime descending. Supports connector_type and source_type filters. For "latest booking", "latest flight", and similar questions, list recent email memories for the relevant connector when exact search does not already answer the question.`;
 
 const timelineMcpDescription = `Browse memories by event-time range.
 

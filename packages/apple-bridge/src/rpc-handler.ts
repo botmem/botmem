@@ -4,6 +4,7 @@
  */
 
 import type { ImsgDatabase } from './db.js';
+import { listAppleContacts } from './contacts.js';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -22,7 +23,7 @@ interface JsonRpcResponse {
 export class RpcHandler {
   constructor(private db: ImsgDatabase) {}
 
-  handle(request: JsonRpcRequest): JsonRpcResponse {
+  async handle(request: JsonRpcRequest): Promise<JsonRpcResponse> {
     const { id, method, params } = request;
 
     try {
@@ -49,6 +50,11 @@ export class RpcHandler {
           };
           const messages = this.db.messagesHistory(chatId, opts);
           return { jsonrpc: '2.0', id, result: { messages } };
+        }
+
+        case 'contacts.list': {
+          const contacts = await listAppleContacts();
+          return { jsonrpc: '2.0', id, result: { contacts } };
         }
 
         case 'ping': {

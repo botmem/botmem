@@ -20,10 +20,10 @@ export const connectorConfigs: ConnectorConfig[] = [
     description: 'Import workspace messages',
   },
   {
-    type: 'imessage',
-    label: 'iMessage',
-    color: getConnectorColor('imessage'),
-    description: 'Import iMessage conversations',
+    type: 'apple',
+    label: 'Apple',
+    color: getConnectorColor('apple'),
+    description: 'Import Apple Contacts and iMessages',
   },
   {
     type: 'photos',

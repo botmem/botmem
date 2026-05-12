@@ -53,7 +53,7 @@ export class TunnelClient extends EventEmitter {
     this.setStatus('connecting');
 
     const ws = new WebSocket(this.opts.serverUrl, {
-      headers: { 'User-Agent': 'botmem-imsg-bridge/0.1' },
+      headers: { 'User-Agent': 'botmem-apple-bridge/0.1' },
     });
     this.ws = ws;
 
@@ -181,7 +181,7 @@ export class TunnelClient extends EventEmitter {
 
   // ── Encrypted message handling ──────────────────────────────────────────
 
-  private handleEncryptedMessage(ws: WebSocket, encrypted: Buffer): void {
+  private async handleEncryptedMessage(ws: WebSocket, encrypted: Buffer): Promise<void> {
     if (!this.sessionKey) return;
 
     try {
@@ -194,7 +194,7 @@ export class TunnelClient extends EventEmitter {
 
       // Dispatch to RPC handler
       const startedAt = Date.now();
-      const response = this.opts.rpcHandler.handle(request);
+      const response = await this.opts.rpcHandler.handle(request);
       const elapsedMs = Date.now() - startedAt;
       if (elapsedMs >= 1000) {
         this.emit('log', `RPC ${request.method} (id=${request.id}) completed in ${elapsedMs}ms`);

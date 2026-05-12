@@ -138,6 +138,8 @@ describe('McpService', () => {
     expect(instructions).toContain('Use ask');
     expect(instructions).toContain('date_from');
     expect(instructions).toContain('date_to');
+    expect(instructions).toContain('exact identifier');
+    expect(instructions).toContain('before using any other recall');
 
     service.onModuleDestroy();
   });

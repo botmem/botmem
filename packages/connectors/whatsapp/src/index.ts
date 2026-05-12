@@ -64,6 +64,7 @@ export class WhatsAppConnector extends BaseConnector {
     entities: ['person', 'message'],
     pipeline: { clean: true, embed: true, enrich: false },
     trustScore: 0.8,
+    sync: { defaultSchedule: 'manual', configurable: false },
   };
 
   private sessionCounter = 0;

@@ -3,6 +3,7 @@ export type BuiltinConnectorType =
   | 'whatsapp'
   | 'telegram'
   | 'slack'
+  | 'apple'
   | 'imessage'
   | 'photos'
   | 'locations';
@@ -50,6 +51,10 @@ export interface ConnectorManifest {
     enrich?: boolean;
   };
   trustScore: number;
+  sync?: {
+    defaultSchedule?: SyncSchedule;
+    configurable?: boolean;
+  };
   weights?: {
     semantic?: number;
     recency?: number;

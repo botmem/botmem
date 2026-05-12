@@ -50,7 +50,7 @@ export class AccountsService {
         identifier: this.crypto.encrypt(data.identifier)!,
         identifierHash: this.crypto.hmac(data.identifier),
         status: data.status || 'connected',
-        schedule: 'manual',
+        schedule: this.connectors.getSyncConfig(data.connectorType).defaultSchedule,
         authContext: this.crypto.encrypt(data.authContext || null),
         tunnelMode: data.tunnelMode ?? true,
         itemsSynced: 0,

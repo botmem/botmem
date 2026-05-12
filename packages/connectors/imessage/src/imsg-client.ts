@@ -48,6 +48,21 @@ export interface Message {
   reply_to_guid?: string;
 }
 
+export interface AppleContact {
+  id: string;
+  displayName?: string;
+  givenName?: string;
+  familyName?: string;
+  middleName?: string;
+  nickname?: string;
+  organization?: string;
+  jobTitle?: string;
+  birthday?: string;
+  emails: string[];
+  phones: string[];
+  imageAvailable?: boolean;
+}
+
 // ── Client ───────────────────────────────────────────────────────────────────
 
 export class ImsgClient {
@@ -89,5 +104,13 @@ export class ImsgClient {
       messages: Message[];
     };
     return result.messages;
+  }
+
+  /** List local Apple Contacts from the Mac running the bridge. */
+  async contactsList(): Promise<AppleContact[]> {
+    const result = (await this.transport.call('contacts.list', {})) as {
+      contacts: AppleContact[];
+    };
+    return result.contacts;
   }
 }

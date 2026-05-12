@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import botmemPlugin from '../src/index';
 import { OpenClawPluginApi, OpenClawToolDef } from '../src/types';
+import { BOTMEM_SYSTEM_INSTRUCTIONS } from '../src/templates/memory-instructions';
 
 vi.mock('@toon-format/toon', () => ({
   encode: (data: unknown) => `TOON:${JSON.stringify(data)}`,
@@ -67,6 +68,13 @@ describe('botmemPlugin', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].event).toBe('before_agent_start');
+  });
+
+  it('instructs agents to prefer live Botmem for exact identifiers', () => {
+    expect(BOTMEM_SYSTEM_INSTRUCTIONS).toContain('use botmem');
+    expect(BOTMEM_SYSTEM_INSTRUCTIONS).toContain('before any other recall');
+    expect(BOTMEM_SYSTEM_INSTRUCTIONS).toContain('exact identifier');
+    expect(BOTMEM_SYSTEM_INSTRUCTIONS).toContain('latest booking');
   });
 
   it('registers a service', () => {

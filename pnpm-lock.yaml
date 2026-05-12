@@ -662,7 +662,7 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  packages/imsg-bridge:
+  packages/apple-bridge:
     dependencies:
       better-sqlite3:
         specifier: ^12.9.0

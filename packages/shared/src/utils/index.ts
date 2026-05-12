@@ -50,6 +50,7 @@ export const CONNECTOR_COLORS: Record<string, string> = {
   gmail: '#FF6B9D',
   whatsapp: '#22C55E',
   slack: '#A855F7',
+  apple: '#4ECDC4',
   imessage: '#4ECDC4',
   photos: '#FFE66D',
   'photos-immich': '#FFE66D',

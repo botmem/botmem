@@ -1,5 +1,5 @@
 /**
- * WebSocket gateway for iMessage bridge tunnel connections.
+ * WebSocket gateway for Apple bridge tunnel connections.
  *
  * Protocol:
  *   1. Bridge connects to /imsg-tunnel

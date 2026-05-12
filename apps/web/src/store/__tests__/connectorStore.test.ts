@@ -74,6 +74,35 @@ describe('connectorStore', () => {
       expect(accounts).toHaveLength(1);
       expect(accounts[0].type).toBe('gmail');
       expect(accounts[0].status).toBe('connected');
+      expect(accounts[0].schedule).toBe('daily');
+    });
+
+    it('creates local WhatsApp account without scheduled sync on API failure', async () => {
+      useConnectorStore.setState({
+        manifests: [
+          {
+            id: 'whatsapp',
+            name: 'WhatsApp',
+            description: 'Import chat messages from WhatsApp',
+            color: '#22C55E',
+            icon: 'message-circle',
+            authType: 'qr-code',
+            configSchema: {},
+            entities: ['person', 'message'],
+            pipeline: { clean: true, embed: true, enrich: false },
+            trustScore: 0.8,
+            sync: { defaultSchedule: 'manual', configurable: false },
+          },
+        ],
+      });
+      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('fail'),
+      );
+      await useConnectorStore.getState().addAccount('whatsapp', 'whatsapp');
+      const accounts = useConnectorStore.getState().accounts;
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].type).toBe('whatsapp');
+      expect(accounts[0].schedule).toBe('manual');
     });
   });
 

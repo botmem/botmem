@@ -10,6 +10,7 @@ import type {
   PipelineContext,
 } from '@botmem/connector-sdk';
 import { ImsgClient } from './imsg-client.js';
+import type { AppleContact } from './imsg-client.js';
 import type { RpcTransport } from './transport.js';
 
 /** Tapback/reaction prefixes used by iMessage */
@@ -31,6 +32,27 @@ const TAPBACK_PREFIXES = [
 const PROGRESS_INTERVAL = 50; // emit progress every N messages
 const BRIDGE_PREFLIGHT_TIMEOUT_MS = 3000;
 
+export interface AppleSelectedSources {
+  contacts: boolean;
+  imessages: boolean;
+}
+
+export interface AppleIdentityEvent {
+  source: 'apple_contacts';
+  contact: AppleContact;
+}
+
+function normalizeSelectedSources(raw: unknown): AppleSelectedSources {
+  const value =
+    raw && typeof raw === 'object'
+      ? (raw as Partial<Record<keyof AppleSelectedSources, unknown>>)
+      : {};
+  return {
+    contacts: value.contacts !== false,
+    imessages: value.imessages !== false,
+  };
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -45,14 +67,14 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
   }
 }
 
-export class IMessageConnector extends BaseConnector {
+export class AppleConnector extends BaseConnector {
   /** Optional tunnel transport injected by SyncProcessor for remote mode. */
   private tunnelTransport: RpcTransport | null = null;
 
   readonly manifest: ConnectorManifest = {
-    id: 'imessage',
-    name: 'iMessage',
-    description: 'Import iMessage conversations via the Botmem bridge tunnel',
+    id: 'apple',
+    name: 'Apple',
+    description: 'Import Apple Contacts and iMessage conversations via the Botmem bridge tunnel',
     color: '#4ECDC4',
     icon: 'smartphone',
     authType: 'local-tool',
@@ -65,6 +87,12 @@ export class IMessageConnector extends BaseConnector {
           title: 'Your Email or Phone',
           description:
             'Your iMessage email or phone number (used to identify you in conversations)',
+        },
+        selectedSources: {
+          type: 'object',
+          title: 'Apple Data Sources',
+          description: 'Choose which local Apple data sources this bridge can sync',
+          default: { contacts: true, imessages: true },
         },
         authMethod: {
           type: 'string',
@@ -154,6 +182,7 @@ export class IMessageConnector extends BaseConnector {
     // Bridge (tunnel) mode — token generated server-side, no connectivity check needed
     if (config.authMethod === 'bridge' || config.tunnelMode) {
       const myIdentifier = (config.myIdentifier as string) || '';
+      const selectedSources = normalizeSelectedSources(config.selectedSources);
       return {
         type: 'complete',
         auth: {
@@ -161,17 +190,24 @@ export class IMessageConnector extends BaseConnector {
             myIdentifier,
             tunnelMode: true,
             bridgeToken: config.bridgeToken as string,
+            selectedSources,
           },
         },
       };
     }
 
-    throw new Error('iMessage must be connected through the Botmem bridge setup flow.');
+    throw new Error('Apple must be connected through the Botmem bridge setup flow.');
   }
 
   async completeAuth(params: Record<string, unknown>): Promise<AuthContext> {
     const myIdentifier = (params.myIdentifier as string) || '';
-    return { raw: { myIdentifier, tunnelMode: true } };
+    return {
+      raw: {
+        myIdentifier,
+        tunnelMode: true,
+        selectedSources: normalizeSelectedSources(params.selectedSources),
+      },
+    };
   }
 
   async validateAuth(auth: AuthContext): Promise<boolean> {
@@ -188,6 +224,8 @@ export class IMessageConnector extends BaseConnector {
   }
 
   async sync(ctx: SyncContext): Promise<SyncResult> {
+    const selectedSources = normalizeSelectedSources(ctx.auth.raw?.selectedSources);
+
     // Choose transport: tunnel (remote) or TCP (local)
     let transport: RpcTransport;
 
@@ -196,7 +234,7 @@ export class IMessageConnector extends BaseConnector {
       transport = this.tunnelTransport;
     } else {
       throw new Error(
-        'iMessage bridge tunnel is not connected. Run the bridge command from connector setup, then retry sync.',
+        'Apple bridge tunnel is not connected. Run the bridge command from connector setup, then retry sync.',
       );
     }
 
@@ -205,17 +243,32 @@ export class IMessageConnector extends BaseConnector {
       await withTimeout(
         client.connect(),
         BRIDGE_PREFLIGHT_TIMEOUT_MS,
-        'iMessage bridge tunnel is not connected',
+        'Apple bridge tunnel is not connected',
       );
     } catch (err) {
       client.disconnect();
       throw new Error(
-        'iMessage bridge not connected. Start the Botmem iMessage bridge from connector setup, then run `botmem sync <account-id>`.',
+        'Apple bridge not connected. Start the Botmem Apple bridge from connector setup, then run `botmem sync <account-id>`.',
         { cause: err },
       );
     }
 
     try {
+      if (selectedSources.contacts) {
+        await this.syncContacts(client, ctx);
+      } else {
+        ctx.logger.info('Apple Contacts sync skipped by selected data sources');
+      }
+
+      if (!selectedSources.imessages) {
+        ctx.logger.info('iMessage sync skipped by selected data sources');
+        return {
+          cursor: ctx.cursor,
+          hasMore: false,
+          processed: 0,
+        };
+      }
+
       const chats = await client.chatsList(10_000);
       // Process most recently active chats first
       chats.sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''));
@@ -321,6 +374,32 @@ export class IMessageConnector extends BaseConnector {
       this.clearTunnelTransport();
     }
   }
+
+  private async syncContacts(client: ImsgClient, ctx: SyncContext): Promise<void> {
+    try {
+      const contacts = await client.contactsList();
+      let processed = 0;
+      for (const contact of contacts) {
+        if (ctx.signal.aborted) break;
+        const hasDurableIdentifier =
+          Boolean(contact.id) || contact.emails.length > 0 || contact.phones.length > 0;
+        if (!hasDurableIdentifier) continue;
+        this.emit('identity', {
+          source: 'apple_contacts',
+          contact,
+        } satisfies AppleIdentityEvent);
+        processed++;
+      }
+      ctx.logger.info(`Synced ${processed} Apple contact identit${processed === 1 ? 'y' : 'ies'}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emit('degraded', {
+        message: `Apple Contacts sync failed; continuing with iMessages: ${message}`,
+      });
+    }
+  }
 }
 
-export default () => new IMessageConnector();
+export { AppleConnector as IMessageConnector };
+
+export default () => new AppleConnector();

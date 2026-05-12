@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ConnectorAccount, SyncSchedule } from '@botmem/shared';
+import type { ConnectorAccount, ConnectorManifest, SyncSchedule } from '@botmem/shared';
 import { cn, formatRelative, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -42,6 +42,7 @@ interface ConnectorAccountRowProps {
   onRemove: (id: string) => void;
   onSyncNow: (id: string, memoryBankId?: string) => void;
   onEdit?: (id: string) => void;
+  syncConfig?: ConnectorManifest['sync'];
 }
 
 export function ConnectorAccountRow({
@@ -50,12 +51,18 @@ export function ConnectorAccountRow({
   onRemove,
   onSyncNow,
   onEdit,
+  syncConfig,
 }: ConnectorAccountRowProps) {
   const { memoryBanks, activeMemoryBankId } = useMemoryBankStore();
   const defaultBankId = activeMemoryBankId || memoryBanks.find((b) => b.isDefault)?.id;
   const [selectedBankId, setSelectedBankId] = useState(defaultBankId);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const showBankSelector = memoryBanks.length > 1;
+  const scheduleConfig = {
+    defaultSchedule: syncConfig?.defaultSchedule ?? 'daily',
+    configurable: syncConfig?.configurable ?? true,
+  };
+  const usesManagedSync = !scheduleConfig.configurable;
 
   return (
     <div className="border-3 border-nb-border bg-nb-surface">
@@ -122,24 +129,30 @@ export function ConnectorAccountRow({
                 {actionLabel(account, authType)}
               </Button>
             )}
-          <select
-            id="sync-schedule"
-            name="sync-schedule"
-            value={account.schedule}
-            onChange={(e) =>
-              useConnectorStore
-                .getState()
-                .updateSchedule(account.id, e.target.value as SyncSchedule)
-            }
-            aria-label="Select sync schedule"
-            className="appearance-none border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-text px-2 py-1.5 focus:outline-none focus:border-nb-lime cursor-pointer"
-          >
-            {SCHEDULE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          {usesManagedSync ? (
+            <span className="border-2 border-nb-border bg-nb-surface px-2 py-1.5 font-mono text-xs uppercase text-nb-muted">
+              REALTIME
+            </span>
+          ) : (
+            <select
+              id="sync-schedule"
+              name="sync-schedule"
+              value={account.schedule}
+              onChange={(e) =>
+                useConnectorStore
+                  .getState()
+                  .updateSchedule(account.id, e.target.value as SyncSchedule)
+              }
+              aria-label="Select sync schedule"
+              className="appearance-none border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-text px-2 py-1.5 focus:outline-none focus:border-nb-lime cursor-pointer"
+            >
+              {SCHEDULE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
           <Button
             size="sm"
             variant="secondary"
@@ -199,12 +212,13 @@ export function ConnectorAccountRow({
                   : 'Warning: '}
             </span>
             {account.lastError}
-            {account.type === 'imessage' && account.status === 'failed' && (
-              <span className="block mt-1 text-nb-muted">
-                Start the Botmem iMessage bridge from connector setup, then run `botmem sync{' '}
-                {account.id}`.
-              </span>
-            )}
+            {(account.type === 'apple' || account.type === 'imessage') &&
+              account.status === 'failed' && (
+                <span className="block mt-1 text-nb-muted">
+                  Start the Botmem Apple bridge from connector setup, then run `botmem sync{' '}
+                  {account.id}`.
+                </span>
+              )}
           </p>
         </div>
       )}

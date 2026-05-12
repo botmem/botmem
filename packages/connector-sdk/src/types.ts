@@ -1,4 +1,5 @@
 export type AuthType = 'oauth2' | 'qr-code' | 'phone-code' | 'api-key' | 'local-tool';
+export type SyncSchedule = 'hourly' | 'every-6h' | 'daily' | 'manual';
 
 export interface ConnectorManifest {
   id: string;
@@ -21,6 +22,12 @@ export interface ConnectorManifest {
 
   /** Base trust score for memories from this connector (0-1) */
   trustScore: number;
+
+  /** Connector-owned sync scheduling behavior. Defaults: defaultSchedule=daily, configurable=true. */
+  sync?: {
+    defaultSchedule?: SyncSchedule;
+    configurable?: boolean;
+  };
 
   /** Weight coefficients for scoring formula. Defaults: semantic=0.40, recency=0.25, importance=0.20, trust=0.15 */
   weights?: {

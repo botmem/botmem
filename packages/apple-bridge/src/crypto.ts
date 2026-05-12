@@ -1,5 +1,5 @@
 /**
- * End-to-end encryption for the iMessage bridge tunnel.
+ * End-to-end encryption for the Apple bridge tunnel.
  *
  * Protocol:
  *   1. Both sides generate ephemeral X25519 key pairs

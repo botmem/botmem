@@ -60,6 +60,8 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
       set((state) => ({ accounts: [...state.accounts, account] }));
     } catch {
       // Fallback to local-only
+      const manifest = _get().manifests.find((m) => m.id === type);
+      const defaultSchedule = manifest?.sync?.defaultSchedule ?? 'daily';
       set((state) => ({
         accounts: [
           ...state.accounts,
@@ -68,7 +70,7 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
             type,
             identifier,
             status: 'connected' as const,
-            schedule: 'hourly' as const,
+            schedule: defaultSchedule,
             lastSync: null,
             memoriesIngested: 0,
             contactsCount: 0,

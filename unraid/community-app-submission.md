@@ -1,6 +1,6 @@
 # Botmem Community Applications Submission
 
-Use this as the working payload for the Unraid Community Applications submission form:
+Use this as the working payload for the Unraid Community Applications repository addition form:
 
 https://form.asana.com/?k=qtIUrf5ydiXvXzPI57BiJw&d=714739274360802
 
@@ -14,7 +14,84 @@ https://form.asana.com/?k=qtIUrf5ydiXvXzPI57BiJw&d=714739274360802
 - Support thread: https://forums.unraid.net/topic/198623-support-botmem-personal-memory-rag-system/
 - CA form submitted: pending
 
-## Submission Fields
+## Required Form Fields
+
+Forum Nick Name:
+
+```text
+Amr Essam
+```
+
+Communication Preference:
+
+```text
+Forum PM
+```
+
+Real Name:
+
+```text
+Optional
+```
+
+About You:
+
+```text
+Optional
+```
+
+GitHub URL:
+
+```text
+https://github.com/botmem/botmem
+```
+
+Yes, I have GitHub 2FA Enabled:
+
+```text
+Confirmed
+```
+
+Preferred Repository Name:
+
+```text
+Botmem
+```
+
+I have viewed and agree to the policies for Community Applications:
+
+```text
+I agree
+```
+
+Support or Project XML entries added:
+
+```text
+Confirmed
+```
+
+Any further comments:
+
+```text
+Botmem's Docker template is available at:
+https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem.xml
+
+The template includes both:
+- <Support>https://forums.unraid.net/topic/198623-support-botmem-personal-memory-rag-system/</Support>
+- <Project>https://github.com/botmem/botmem</Project>
+
+Botmem is a beta self-hosted personal memory/RAG system. It requires PostgreSQL 16+ with pgvector and Redis 7+. Users can install those dependencies separately from Community Applications or run the companion dependency stack in unraid/docker-compose.unraid.yml.
+
+The container image is:
+ghcr.io/botmem/botmem:latest
+
+The app icon is:
+https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem-icon.png
+```
+
+## App Listing Reference
+
+The form does not currently ask for these app-level fields directly, but they are useful if the moderation team asks for details.
 
 Application name:
 
@@ -108,7 +185,7 @@ true
 
 ## Before Final Submission
 
-1. Create the Unraid forum thread using `unraid/support-thread.md`.
-2. Replace `<Support>` in `unraid/botmem.xml` with the forum thread URL.
-3. Commit and push the support URL change.
-4. Submit the CA form with the final raw template URL.
+1. Confirm the Unraid forum nickname and communication preference.
+2. Confirm GitHub 2FA is enabled for the account/org that owns `botmem/botmem`.
+3. Submit the CA form with the repository URL and comments above.
+4. Update `CA form submitted` status after submission.
