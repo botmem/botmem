@@ -51,7 +51,7 @@ interface GetMemoryToolParams {
   text_max_length?: number;
 }
 
-const MCP_INSTRUCTIONS = `Botmem is the user's personal memory server. Its nickname is "botmem".
+const MCP_INSTRUCTIONS = `Botmem is the user's personal memory server. Its nickname is "botmem". When the user asks to use botmem, answer from these Botmem tools before using any other recall, session search, browser, shell, or mailbox tool.
 
 Start with status or sources when you need to discover what connectors, accounts, source types, or queue states are available.
 
@@ -61,7 +61,9 @@ Temporal queries are supported. Prefer date_from and date_to with ISO 8601 dates
 
 Results are compact by default. Long text fields are returned as excerpts with text_truncated=true; use the memory id for follow-up detail rather than asking for huge result sets.
 
-Start with small limits, then refine by connector_type, source_type, contact_id, date_from, or date_to. source_type="location" is an explicit location stream; GPS-bearing photos remain source_type="photo".`;
+Start with small limits, then refine by connector_type, source_type, contact_id, date_from, or date_to. source_type="location" is an explicit location stream; GPS-bearing photos remain source_type="photo".
+
+For identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, or short all-caps codes, run search on the exact identifier with connector_type/source_type filters before paraphrasing. If an exact identifier misses, broaden to the vendor and topic, then list recent memories for the likely connector/source sorted by eventTime or ingestTime. For "latest flight/booking" style questions, prefer recent email memories and inspect eventTime; do not conclude absence until exact-code search and recent connector listing have both failed.`;
 
 const DEFAULT_TEXT_MAX_LENGTH = 500;
 const MAX_TEXT_MAX_LENGTH = 2000;

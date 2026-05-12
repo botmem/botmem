@@ -1,5 +1,5 @@
 /**
- * Pre-flight checks for the iMessage bridge.
+ * Pre-flight checks for the Apple bridge.
  * Verifies: macOS, chat.db readable, SQLite works.
  */
 

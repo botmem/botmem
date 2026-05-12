@@ -10,6 +10,8 @@ vi.mock('../../lib/api', () => ({
     hasCredentials: vi.fn().mockResolvedValue({ hasSavedCredentials: false }),
     listConnectors: vi.fn().mockResolvedValue({ connectors: [] }),
     listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
+    getBridgeStatus: vi.fn().mockResolvedValue({ connected: false }),
+    triggerSync: vi.fn().mockResolvedValue({ job: { id: 'j1' } }),
   },
 }));
 
@@ -55,21 +57,36 @@ describe('ConnectorSetupModal', () => {
 
   it('renders nothing when not open', () => {
     const { container } = render(
-      <ConnectorSetupModal open={false} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      <ConnectorSetupModal
+        open={false}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
     );
     expect(container.innerHTML).toBe('');
   });
 
   it('renders modal with title when open', () => {
     render(
-      <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
     );
     expect(screen.getByText('Connect GMAIL')).toBeInTheDocument();
   });
 
   it('renders form fields from manifest schema', async () => {
     render(
-      <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
     );
     // Wait for fields to render
     expect(await screen.findByText('Client ID')).toBeInTheDocument();
@@ -78,9 +95,45 @@ describe('ConnectorSetupModal', () => {
 
   it('renders CONNECT button', async () => {
     render(
-      <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
     );
     expect(await screen.findByText('CONNECT')).toBeInTheDocument();
+  });
+
+  it('renders Apple source checkboxes checked by default', () => {
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'Contacts' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'iMessages' })).toBeChecked();
   });
 
   describe('Firebase mode field hiding', () => {
@@ -94,7 +147,12 @@ describe('ConnectorSetupModal', () => {
 
     it('hides clientId and clientSecret fields in Firebase mode', async () => {
       render(
-        <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+        <ConnectorSetupModal
+          open={true}
+          onClose={vi.fn()}
+          connectorType="gmail"
+          onConnect={vi.fn()}
+        />,
       );
       // Should still render the connect button
       expect(await screen.findByText('CONNECT')).toBeInTheDocument();
@@ -105,7 +163,12 @@ describe('ConnectorSetupModal', () => {
 
     it('still renders the modal title in Firebase mode', async () => {
       render(
-        <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+        <ConnectorSetupModal
+          open={true}
+          onClose={vi.fn()}
+          connectorType="gmail"
+          onConnect={vi.fn()}
+        />,
       );
       expect(screen.getByText('Connect GMAIL')).toBeInTheDocument();
     });
@@ -118,7 +181,12 @@ describe('ConnectorSetupModal', () => {
 
     it('shows clientId and clientSecret fields in local mode', async () => {
       render(
-        <ConnectorSetupModal open={true} onClose={vi.fn()} connectorType="gmail" onConnect={vi.fn()} />
+        <ConnectorSetupModal
+          open={true}
+          onClose={vi.fn()}
+          connectorType="gmail"
+          onConnect={vi.fn()}
+        />,
       );
       expect(await screen.findByText('Client ID')).toBeInTheDocument();
       expect(await screen.findByText('Client Secret')).toBeInTheDocument();

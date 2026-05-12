@@ -31,6 +31,7 @@ const fallbackFields: Record<
 > = {
   gmail: [{ name: 'email', label: 'Gmail Address', placeholder: 'you@gmail.com' }],
   slack: [{ name: 'workspace', label: 'Workspace Name', placeholder: 'my-workspace' }],
+  apple: [{ name: 'appleId', label: 'Apple ID', placeholder: 'you@icloud.com' }],
   imessage: [{ name: 'appleId', label: 'Apple ID', placeholder: 'you@icloud.com' }],
   photos: [{ name: 'host', label: 'Immich Server URL', placeholder: 'http://localhost:2283' }],
 };
@@ -466,7 +467,7 @@ function PhoneCodeAuthView({
   );
 }
 
-// --- Bridge Auth View (iMessage remote tunnel) ---
+// --- Bridge Auth View (Apple remote tunnel) ---
 
 type BridgeStep = 'email' | 'command' | 'connected';
 
@@ -482,6 +483,7 @@ function BridgeAuthView({
   const fetchAccounts = useConnectorStore((s) => s.fetchAccounts);
   const [step, setStep] = useState<BridgeStep>('email');
   const [myIdentifier, setMyIdentifier] = useState('');
+  const [selectedSources, setSelectedSources] = useState({ contacts: true, imessages: true });
   const [bridgeCommand, setBridgeCommand] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -506,6 +508,7 @@ function BridgeAuthView({
         myIdentifier,
         authMethod: 'bridge',
         tunnelMode: true,
+        selectedSources,
       });
 
       if (result.type === 'complete' && result.account) {
@@ -517,7 +520,7 @@ function BridgeAuthView({
         const token = acct.bridgeToken || '';
         const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const serverUrl = `${wsProto}://${window.location.host}/imsg-tunnel`;
-        const cmd = `npx @botmem/imsg-bridge --token=${token} --server=${serverUrl}`;
+        const cmd = `npx @botmem/apple-bridge --token=${token} --server=${serverUrl}`;
         setBridgeCommand(cmd);
         setStep('command');
 
@@ -567,7 +570,7 @@ function BridgeAuthView({
   const stepNumber = step === 'email' ? 1 : step === 'command' ? 2 : 3;
 
   return (
-    <Modal open onClose={onClose} title="Connect iMessage">
+    <Modal open onClose={onClose} title="Connect Apple">
       <StepIndicator current={stepNumber} total={3} />
 
       {error && (
@@ -580,7 +583,7 @@ function BridgeAuthView({
       {step === 'email' && (
         <form onSubmit={handleEmailSubmit} className="flex flex-col gap-4">
           <p className="font-mono text-xs text-nb-muted uppercase">
-            Enter your iMessage email or phone number to identify you in conversations
+            Enter your iMessage email or phone number to identify you in conversations.
           </p>
           <Input
             label="Your Email or Phone"
@@ -590,7 +593,43 @@ function BridgeAuthView({
             required
             autoFocus
           />
-          <Button type="submit" disabled={loading}>
+          <fieldset className="border-3 border-nb-border bg-nb-surface/50 p-3">
+            <legend className="px-1 font-display text-xs font-bold uppercase text-nb-muted">
+              Sources
+            </legend>
+            <label className="mt-2 flex items-center gap-3 font-mono text-sm uppercase text-nb-text">
+              <input
+                type="checkbox"
+                className="size-4 accent-nb-lime"
+                checked={selectedSources.contacts}
+                onChange={(event) =>
+                  setSelectedSources((current) => ({
+                    ...current,
+                    contacts: event.target.checked,
+                  }))
+                }
+              />
+              Contacts
+            </label>
+            <label className="mt-2 flex items-center gap-3 font-mono text-sm uppercase text-nb-text">
+              <input
+                type="checkbox"
+                className="size-4 accent-nb-lime"
+                checked={selectedSources.imessages}
+                onChange={(event) =>
+                  setSelectedSources((current) => ({
+                    ...current,
+                    imessages: event.target.checked,
+                  }))
+                }
+              />
+              iMessages
+            </label>
+          </fieldset>
+          <Button
+            type="submit"
+            disabled={loading || (!selectedSources.contacts && !selectedSources.imessages)}
+          >
             {loading ? 'SETTING UP...' : 'GENERATE BRIDGE COMMAND'}
           </Button>
         </form>
@@ -600,7 +639,7 @@ function BridgeAuthView({
       {step === 'command' && (
         <div className="flex flex-col gap-4">
           <p className="font-mono text-xs text-nb-muted uppercase">
-            Run this command on the Mac with your iMessages:
+            Run this command on the Mac with your Apple data:
           </p>
 
           <div className="relative">
@@ -622,6 +661,7 @@ function BridgeAuthView({
             </p>
             <ul className="font-mono text-xs text-nb-muted space-y-1">
               <li>• macOS with iMessage signed in</li>
+              <li>• Contacts permission approved when prompted</li>
               <li>• Node.js 20+ installed</li>
               <li>
                 • Full Disk Access for Terminal (System Settings → Privacy → Full Disk Access)
@@ -663,7 +703,7 @@ function BridgeAuthView({
           </div>
           <p className="font-display text-lg font-bold uppercase">Bridge Connected</p>
           <p className="font-mono text-xs text-nb-muted text-center">
-            Your iMessages are being synced securely through an encrypted tunnel.
+            Your selected Apple sources are being synced securely through an encrypted tunnel.
           </p>
           <Button onClick={handleStartSync} disabled={loading}>
             {loading ? 'STARTING SYNC...' : 'START SYNC'}
@@ -927,7 +967,7 @@ export function ConnectorSetupModal({
   const authType = manifests.find((m) => m.id === connectorType)?.authType;
   const isQrAuth = authType === 'qr-code';
   const isPhoneCodeAuth = authType === 'phone-code';
-  const isBridgeAuth = connectorType === 'imessage';
+  const isBridgeAuth = connectorType === 'apple' || connectorType === 'imessage';
 
   const cleanupWs = useCallback(() => {
     if (wsRef.current) {

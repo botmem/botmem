@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Botmem iMessage Bridge CLI.
+ * Botmem Apple Bridge CLI.
  *
  * Usage:
- *   npx @botmem/imsg-bridge --token=<token> [--server=wss://botmem.xyz/imsg-tunnel]
+ *   npx @botmem/apple-bridge --token=<token> [--server=wss://botmem.xyz/imsg-tunnel]
  */
 
 import { Command } from 'commander';
@@ -30,13 +30,13 @@ function error(message = ''): void {
 }
 
 program
-  .name('imsg-bridge')
-  .description('Botmem iMessage Bridge — syncs your iMessages securely')
+  .name('apple-bridge')
+  .description('Botmem Apple Bridge — syncs local Apple data securely')
   .requiredOption('--token <token>', 'Bridge token from your Botmem dashboard')
   .option('--server <url>', 'Botmem server URL', DEFAULT_SERVER)
   .option('--db <path>', 'Path to chat.db', DEFAULT_DB_PATH)
   .action(async (opts: { token: string; server: string; db: string }) => {
-    console.log('\n  BOTMEM iMESSAGE BRIDGE\n');
+    console.log('\n  BOTMEM APPLE BRIDGE\n');
 
     // ── Preflight ─────────────────────────────────────────────────────────
     log('Checking prerequisites...');

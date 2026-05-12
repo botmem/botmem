@@ -49,6 +49,10 @@ describe('AccountsService', () => {
       get: vi.fn().mockReturnValue({
         revokeAuth: vi.fn().mockResolvedValue(undefined),
       }),
+      getSyncConfig: vi.fn((connectorType: string) => ({
+        defaultSchedule: connectorType === 'whatsapp' ? 'manual' : 'daily',
+        configurable: connectorType !== 'whatsapp',
+      })),
     };
     searchIndex = {
       remove: vi.fn().mockResolvedValue(undefined),
@@ -88,6 +92,27 @@ describe('AccountsService', () => {
       expect(result).toBeDefined();
       expect(crypto.encrypt).toHaveBeenCalled();
       expect(crypto.decrypt).toHaveBeenCalled();
+      expect(mockDb.values.mock.calls[0][0]).toMatchObject({ schedule: 'daily' });
+    });
+
+    it('uses manual schedule for WhatsApp accounts', async () => {
+      const account = {
+        id: 'test-id',
+        connectorType: 'whatsapp',
+        identifier: 'whatsapp',
+        authContext: null,
+        status: 'connected',
+      };
+      mockDb = createChainDb([[account]]);
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
+
+      await service.create({
+        connectorType: 'whatsapp',
+        identifier: 'whatsapp',
+      });
+
+      expect(mockDb.values.mock.calls[0][0]).toMatchObject({ schedule: 'manual' });
     });
   });
 

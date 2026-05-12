@@ -10,6 +10,7 @@ import { ConfigService } from '../config/config.service';
 import { SettingsModule } from '../settings/settings.module';
 import { BillingModule } from '../billing/billing.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
+import { PeopleModule } from '../people/people.module';
 
 const jobsImports = [
   BullModule.forRootAsync({
@@ -39,6 +40,7 @@ const jobsImports = [
   SettingsModule,
   BillingModule,
   IngestionModule,
+  PeopleModule,
 ];
 
 @Module({

@@ -58,7 +58,8 @@ export class ConnectorSyncPolicyService {
     const msg = message.toLowerCase();
     return (
       this.classifyAccountFailure(connectorType, message) === 'reconnect_required' ||
-      (connectorType === 'imessage' && msg.includes('bridge not running'))
+      ((connectorType === 'apple' || connectorType === 'imessage') &&
+        msg.includes('bridge not running'))
     );
   }
 }

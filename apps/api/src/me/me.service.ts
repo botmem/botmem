@@ -89,6 +89,7 @@ export class MeService {
           lookups.push({ type: 'slack_id', value: identifier.toLowerCase() });
           break;
         }
+        case 'apple':
         case 'imessage': {
           lookups.push({ type: 'imessage_handle', value: identifier.toLowerCase() });
           // Could also be email or phone

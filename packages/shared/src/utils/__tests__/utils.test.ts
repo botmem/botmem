@@ -138,11 +138,15 @@ describe('CONNECTOR_COLORS', () => {
     expect(CONNECTOR_COLORS.imessage).toBe('#4ECDC4');
   });
 
+  it('has apple color', () => {
+    expect(CONNECTOR_COLORS.apple).toBe('#4ECDC4');
+  });
+
   it('has photos color', () => {
     expect(CONNECTOR_COLORS.photos).toBe('#FFE66D');
   });
 
   it('has all color entries', () => {
-    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(15);
+    expect(Object.keys(CONNECTOR_COLORS)).toHaveLength(16);
   });
 });

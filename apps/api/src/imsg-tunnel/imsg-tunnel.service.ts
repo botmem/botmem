@@ -1,7 +1,7 @@
 /**
- * iMessage Bridge Tunnel Service.
+ * Apple Bridge Tunnel Service.
  *
- * Manages encrypted WebSocket sessions between remote imsg-bridge
+ * Manages encrypted WebSocket sessions between remote apple-bridge
  * clients and the Botmem API. Handles ECDH key exchange, encrypted
  * JSON-RPC relay, and session lifecycle.
  */
@@ -51,7 +51,7 @@ export interface ImsgTunnelSession {
   graceTimer: ReturnType<typeof setTimeout> | null;
 }
 
-// ── Crypto helpers (mirrors packages/imsg-bridge/src/crypto.ts) ─────────────
+// ── Crypto helpers (mirrors packages/apple-bridge/src/crypto.ts) ────────────
 
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
@@ -426,7 +426,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
   private async findAccountByToken(
     token: string,
   ): Promise<{ id: string; userId: string | null } | null> {
-    // Query all iMessage accounts and check token match
+    // Query Apple bridge accounts and check token match
     // (token is stored encrypted in authContext — must decrypt each to compare)
     // Uses db directly (no RLS) since this is system-level auth
     // Bypass RLS — no user context available at bridge auth time
@@ -435,7 +435,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
       userId: string | null;
       authContext: string | null;
     }>(
-      `SELECT id, user_id AS "userId", auth_context AS "authContext" FROM accounts WHERE connector_type = 'imessage'`,
+      `SELECT id, user_id AS "userId", auth_context AS "authContext" FROM accounts WHERE connector_type IN ('apple', 'imessage')`,
     );
 
     for (const row of rows) {

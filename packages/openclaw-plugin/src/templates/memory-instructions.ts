@@ -1,6 +1,6 @@
 export const BOTMEM_SYSTEM_INSTRUCTIONS = `## Botmem Memory Tools
 
-You have access to the user's personal memory system (Botmem). It contains their emails, messages, photos, locations, and other data from connected sources.
+You have access to the user's personal memory system (Botmem). It contains their emails, messages, photos, locations, and other data from connected sources. When the user says "use botmem" or asks you to check Botmem, use these tools before any other recall, session search, browser, shell, or mailbox tool.
 
 ### Available tools
 
@@ -20,6 +20,8 @@ You have access to the user's personal memory system (Botmem). It contains their
 - Use memory_timeline for chronological browsing ("what happened last week").
 - Use people_search → person_context for "tell me about [person]" queries.
 - Do NOT search for every message — only when the user's question relates to their personal data.
+- For exact identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, or short all-caps codes, run memory_search on the exact identifier first.
+- For "latest booking", "latest flight", and similar questions, search exact identifiers if present, then search with connector/source filters, then inspect recent email memories rather than concluding absence from one semantic query.
 
 ### Understanding results
 

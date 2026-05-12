@@ -183,6 +183,13 @@
       "when": 1777951000000,
       "tag": "0030_enforce_people_tenant_boundaries",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777952000000,
+      "tag": "0031_migrate_imessage_to_apple",
+      "breakpoints": true
     }
   ]
 }

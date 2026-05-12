@@ -232,7 +232,7 @@ export class PeoplePipelineService {
             CASE
               WHEN re.source_type IN ('contact', 'group') THEN 0
               WHEN re.source_id LIKE 'wa-group:%' THEN 0
-              WHEN re.connector_type IN ('whatsapp', 'imessage', 'telegram') THEN 1
+              WHEN re.connector_type IN ('whatsapp', 'apple', 'imessage', 'telegram') THEN 1
               WHEN re.connector_type IN ('gmail', 'outlook', 'slack') THEN 2
               WHEN re.connector_type IN ('locations', 'photos') THEN 3
               ELSE 4

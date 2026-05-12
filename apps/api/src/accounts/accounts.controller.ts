@@ -27,10 +27,13 @@ function normalizeAccountError(
   error: string | null,
 ): string | null {
   if (!error) return null;
-  if (connectorType === 'imessage' && error.includes('bridge')) {
-    return `iMessage bridge not connected. Start the Botmem iMessage bridge from connector setup, then run \`botmem sync ${accountId}\`.`;
+  if ((connectorType === 'apple' || connectorType === 'imessage') && error.includes('bridge')) {
+    return `Apple bridge not connected. Start the Botmem Apple bridge from connector setup, then run \`botmem sync ${accountId}\`.`;
   }
-  if (connectorType === 'imessage' && error.includes('botmem sync <account-id>')) {
+  if (
+    (connectorType === 'apple' || connectorType === 'imessage') &&
+    error.includes('botmem sync <account-id>')
+  ) {
     return error.replaceAll('<account-id>', accountId);
   }
   return error;
@@ -67,7 +70,7 @@ function toApiAccount(
       ? row.connectorType === 'whatsapp'
         ? 'rescan_qr'
         : 'reconnect'
-      : status === 'failed' && row.connectorType === 'imessage'
+      : status === 'failed' && (row.connectorType === 'apple' || row.connectorType === 'imessage')
         ? 'start_bridge'
         : status === 'failed'
           ? 'retry'

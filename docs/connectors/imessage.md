@@ -44,7 +44,7 @@ The iMessage database at `~/Library/Messages/chat.db` is protected by macOS. Gra
 Run the command on your Mac:
 
 ```bash
-npx @botmem/imsg-bridge --token=<your-token> --server=wss://your-botmem-server/imsg-tunnel
+npx @botmem/apple-bridge --token=<your-token> --server=wss://your-botmem-server/imsg-tunnel
 ```
 
 The bridge will:
@@ -78,10 +78,10 @@ To keep the bridge running persistently:
 
 ```bash
 # Using launchd (macOS native)
-# Create ~/Library/LaunchAgents/com.botmem.imsg-bridge.plist
+# Create ~/Library/LaunchAgents/com.botmem.apple-bridge.plist
 
 # Using pm2
-pm2 start "npx @botmem/imsg-bridge --token=<token> --server=wss://..." --name imsg-bridge
+pm2 start "npx @botmem/apple-bridge --token=<token> --server=wss://..." --name apple-bridge
 ```
 
 The bridge auto-reconnects with exponential backoff if the connection drops.

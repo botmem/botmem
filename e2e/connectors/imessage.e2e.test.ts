@@ -5,25 +5,19 @@
  * participant identifier formatting, and progress emission.
  * The imsg RPC bridge is mocked — tests focus on connector logic.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type {
-  ConnectorDataEvent,
-} from '@botmem/connector-sdk';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { ConnectorDataEvent } from '@botmem/connector-sdk';
 
 let connector: any;
 
 beforeEach(async () => {
   const mod = await import('@botmem/connector-imessage');
   const Ctor = mod.IMessageConnector || mod.default;
-  connector = typeof Ctor === 'function' && Ctor.prototype
-    ? new Ctor()
-    : (mod.default as Function)();
+  connector =
+    typeof Ctor === 'function' && Ctor.prototype ? new Ctor() : (mod.default as () => unknown)();
 });
 
-function makeIMsgEvent(
-  text: string,
-  metadata: Record<string, unknown> = {},
-): ConnectorDataEvent {
+function makeIMsgEvent(text: string, metadata: Record<string, unknown> = {}): ConnectorDataEvent {
   return {
     connectorType: 'imessage',
     sourceType: 'message',
@@ -39,8 +33,8 @@ function makeIMsgEvent(
 
 describe('iMessage Connector (CONN-079 → CONN-088)', () => {
   // CONN-079
-  it('CONN-079: iMessage authType is local-tool', () => {
-    expect(connector.manifest.id).toBe('imessage');
+  it('CONN-079: Apple authType is local-tool', () => {
+    expect(connector.manifest.id).toBe('apple');
     expect(connector.manifest.authType).toBe('local-tool');
   });
 
@@ -77,9 +71,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
     const emitted: ConnectorDataEvent[] = [];
     connector.on('data', (e: ConnectorDataEvent) => emitted.push(e));
 
-    connector.emitData(
-      makeIMsgEvent('Your verification code is 847291'),
-    );
+    connector.emitData(makeIMsgEvent('Your verification code is 847291'));
 
     expect(emitted).toHaveLength(0);
     expect(connector.filteredCount).toBe(1);
@@ -166,8 +158,8 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
   });
 
   // Additional manifest tests
-  it('iMessage manifest has name "iMessage"', () => {
-    expect(connector.manifest.name).toBe('iMessage');
+  it('Apple manifest has name "Apple"', () => {
+    expect(connector.manifest.name).toBe('Apple');
   });
 
   it('iMessage manifest entities include person and message', () => {

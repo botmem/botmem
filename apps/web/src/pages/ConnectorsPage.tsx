@@ -197,16 +197,20 @@ export function ConnectorsPage() {
                   className="border-t-3 border-nb-border p-3 flex flex-col gap-2 bg-nb-surface-muted"
                   data-tour="sync-trigger"
                 >
-                  {typeAccounts.map((acc) => (
-                    <ConnectorAccountRow
-                      key={acc.id}
-                      account={acc}
-                      authType={manifests.find((m) => m.id === cfg.type)?.authType}
-                      onRemove={removeAccount}
-                      onSyncNow={(id: string, memoryBankId?: string) => syncNow(id, memoryBankId)}
-                      onEdit={(id) => setEditModal({ type: cfg.type, accountId: id })}
-                    />
-                  ))}
+                  {typeAccounts.map((acc) => {
+                    const manifest = manifests.find((m) => m.id === cfg.type);
+                    return (
+                      <ConnectorAccountRow
+                        key={acc.id}
+                        account={acc}
+                        authType={manifest?.authType}
+                        syncConfig={manifest?.sync}
+                        onRemove={removeAccount}
+                        onSyncNow={(id: string, memoryBankId?: string) => syncNow(id, memoryBankId)}
+                        onEdit={(id) => setEditModal({ type: cfg.type, accountId: id })}
+                      />
+                    );
+                  })}
                   {typeAccounts.length === 0 && (
                     <EmptyState
                       icon="+"

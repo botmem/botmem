@@ -30,6 +30,7 @@ const mockMessagesHistory = vi.fn().mockResolvedValue([
     is_group: false,
   },
 ]);
+const mockContactsList = vi.fn().mockResolvedValue([]);
 
 vi.mock('../imsg-client.js', () => ({
   ImsgClient: vi.fn().mockImplementation(() => ({
@@ -37,6 +38,7 @@ vi.mock('../imsg-client.js', () => ({
     disconnect: mockDisconnect,
     chatsList: mockChatsList,
     messagesHistory: mockMessagesHistory,
+    contactsList: mockContactsList,
   })),
 }));
 
@@ -47,6 +49,7 @@ describe('IMessageConnector', () => {
     connector = new IMessageConnector();
     vi.clearAllMocks();
     mockConnect.mockResolvedValue(undefined);
+    mockContactsList.mockResolvedValue([]);
     mockChatsList.mockResolvedValue([
       {
         id: 1,
@@ -77,7 +80,7 @@ describe('IMessageConnector', () => {
 
   describe('manifest', () => {
     it('has correct id', () => {
-      expect(connector.manifest.id).toBe('imessage');
+      expect(connector.manifest.id).toBe('apple');
     });
 
     it('has local-tool auth type', () => {
@@ -108,13 +111,14 @@ describe('IMessageConnector', () => {
           myIdentifier: 'me@icloud.com',
           tunnelMode: true,
           bridgeToken: 'imsg_bt_test',
+          selectedSources: { contacts: true, imessages: true },
         });
       }
     });
 
     it('rejects legacy local TCP setup', async () => {
       await expect(connector.initiateAuth({})).rejects.toThrow(
-        /iMessage must be connected through the Botmem bridge setup flow/,
+        /Apple must be connected through the Botmem bridge setup flow/,
       );
     });
   });
@@ -128,6 +132,7 @@ describe('IMessageConnector', () => {
       expect(auth.raw).toEqual({
         myIdentifier: 'me@icloud.com',
         tunnelMode: true,
+        selectedSources: { contacts: true, imessages: true },
       });
     });
 
@@ -136,6 +141,7 @@ describe('IMessageConnector', () => {
       expect(auth.raw).toEqual({
         myIdentifier: '',
         tunnelMode: true,
+        selectedSources: { contacts: true, imessages: true },
       });
     });
   });
@@ -244,6 +250,49 @@ describe('IMessageConnector', () => {
 
       expect(result.cursor).toBe('2024-12-01T00:00:00Z');
       expect(result.processed).toBe(0);
+    });
+
+    it('syncs contacts before iMessages', async () => {
+      const calls: string[] = [];
+      mockContactsList.mockImplementationOnce(async () => {
+        calls.push('contacts');
+        return [];
+      });
+      mockChatsList.mockImplementationOnce(async () => {
+        calls.push('imessages');
+        return [];
+      });
+
+      await connector.sync(makeSyncCtx());
+
+      expect(calls).toEqual(['contacts', 'imessages']);
+    });
+
+    it('skips iMessages when deselected', async () => {
+      const ctx = makeSyncCtx({
+        auth: { raw: { selectedSources: { contacts: true, imessages: false } } },
+      });
+
+      const result = await connector.sync(ctx);
+
+      expect(mockContactsList).toHaveBeenCalledOnce();
+      expect(mockChatsList).not.toHaveBeenCalled();
+      expect(result.processed).toBe(0);
+    });
+
+    it('continues iMessages when contacts fail and emits degraded', async () => {
+      const degradedListener = vi.fn();
+      connector.on('degraded', degradedListener);
+      mockContactsList.mockRejectedValueOnce(new Error('contacts denied'));
+
+      await connector.sync(makeSyncCtx());
+
+      expect(degradedListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Apple Contacts sync failed'),
+        }),
+      );
+      expect(mockChatsList).toHaveBeenCalledWith(10_000);
     });
   });
 

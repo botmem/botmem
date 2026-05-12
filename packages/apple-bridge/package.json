@@ -1,10 +1,10 @@
 {
-  "name": "@botmem/imsg-bridge",
+  "name": "@botmem/apple-bridge",
   "version": "0.0.0",
-  "description": "iMessage bridge for Botmem — reads chat.db and tunnels to server via encrypted WebSocket",
+  "description": "Apple bridge for Botmem — reads local Contacts and iMessages through an encrypted WebSocket tunnel",
   "type": "module",
   "bin": {
-    "imsg-bridge": "./dist/cli.js"
+    "apple-bridge": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

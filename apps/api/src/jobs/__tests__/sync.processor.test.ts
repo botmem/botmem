@@ -13,6 +13,7 @@ import { ConfigService } from '../../config/config.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { EventEmitter } from 'events';
 import { ImsgTunnelService } from '../../imsg-tunnel/imsg-tunnel.service';
+import { PeopleService } from '../../people/people.service';
 
 function createMockDeps() {
   const createInsertChain = () => ({
@@ -1039,5 +1040,88 @@ describe('SyncProcessor', () => {
 
     expect(moduleRef.get).toHaveBeenCalledWith(ImsgTunnelService, { strict: false });
     expect(setTunnelTransport).toHaveBeenCalledOnce();
+  });
+
+  it('resolves Apple contact identities without inserting raw events', async () => {
+    const {
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+      mockConnector,
+    } = createMockDeps();
+    const setTunnelTransport = vi.fn();
+    const resolvePerson = vi.fn().mockResolvedValue({ id: 'person-1' });
+    Object.assign(mockConnector, { setTunnelTransport });
+    mockConnector.sync.mockImplementation(async () => {
+      mockConnector.emit('identity', {
+        source: 'apple_contacts',
+        contact: {
+          id: 'local-contact-1',
+          displayName: 'Ada Lovelace',
+          emails: ['ada@example.com'],
+          phones: ['+15551234567'],
+        },
+      });
+      return { cursor: null, hasMore: false, processed: 0 };
+    });
+    vi.mocked(accountsService.getById).mockResolvedValue({
+      id: 'apple-1',
+      connectorType: 'apple',
+      authContext: '{"raw":{"tunnelMode":true}}',
+      lastCursor: null,
+      itemsSynced: 0,
+      tunnelMode: true,
+    } as never);
+    vi.mocked(moduleRef.get).mockImplementation((token: unknown) => {
+      if (token === ImsgTunnelService) return { isConnected: vi.fn() } as never;
+      if (token === PeopleService) return { resolvePerson } as never;
+      return null as never;
+    });
+
+    const processor = new SyncProcessor(
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+    );
+
+    await processor.process({
+      data: { accountId: 'apple-1', connectorType: 'apple', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as unknown as import('bullmq').Job);
+
+    expect(resolvePerson).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { type: 'email', value: 'ada@example.com', connectorType: 'apple' },
+        { type: 'phone', value: '+15551234567', connectorType: 'apple' },
+        { type: 'apple_contact_id', value: 'local-contact-1', connectorType: 'apple' },
+        { type: 'name', value: 'Ada Lovelace', connectorType: 'apple' },
+      ]),
+      'person',
+      'user-1',
+    );
+    expect(memoryQueue.add).not.toHaveBeenCalled();
   });
 });
