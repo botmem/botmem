@@ -189,6 +189,16 @@ describe('PeopleService runtime behavior', () => {
     expect(searched[0].displayName).toBe('Amr Essam');
   });
 
+  it('uses memory count as a tie breaker for equally scored search matches', async () => {
+    const low = { ...personRow('p-low', 'enc:Hisham Azmy'), memoryCount: 1 };
+    const high = { ...personRow('p-high', 'enc:Hisham Issa'), memoryCount: 4602 };
+    const { service } = makeDb([[low, high], []]);
+
+    const searched = await service.search('hisham', 'user-1');
+
+    expect(searched.map((person) => person.displayName)).toEqual(['Hisham Issa', 'Hisham Azmy']);
+  });
+
   it('excludes list-like group rows from person search results', async () => {
     const { service } = makeDb([
       [personRow('p1', 'enc:Amr Essam'), personRow('g1', 'enc:Amr <> George intro')],

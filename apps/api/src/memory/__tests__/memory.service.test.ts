@@ -185,6 +185,42 @@ describe('MemoryService', () => {
       );
     });
 
+    it('does not run lexical exact search for person plus generic conversation words', async () => {
+      (service as unknown as { contactsCache: Map<string, unknown> }).contactsCache.set(
+        '__none__',
+        {
+          expires: Date.now() + 60_000,
+          data: [
+            { id: 'low-memory', displayName: 'Hisham Azmy', entityType: 'person', memoryCount: 1 },
+            {
+              id: 'high-memory',
+              displayName: 'Hisham Issa',
+              entityType: 'person',
+              memoryCount: 4602,
+            },
+          ],
+        },
+      );
+
+      const result = await service.search(
+        'Hisham messages conversation',
+        { connectorType: 'whatsapp' },
+        5,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { debug: true },
+      );
+
+      expect(searchIndexService.textSearch).not.toHaveBeenCalled();
+      expect(result.resolvedEntities?.contacts[0]).toMatchObject({
+        id: 'high-memory',
+        displayName: 'Hisham Issa',
+      });
+      expect(result.resolvedEntities?.topicWords).toEqual([]);
+    });
+
     it('returns diagnostics when debug is enabled', async () => {
       const result = await service.search(
         'card top ups ghanoomy',
