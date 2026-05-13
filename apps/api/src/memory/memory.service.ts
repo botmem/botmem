@@ -107,8 +107,23 @@ const GROUPISH_CONTACT_WORDS = new Set([
   'friends',
   'community',
 ]);
+const GENERIC_CONVERSATION_WORDS = new Set([
+  'chat',
+  'chats',
+  'conversation',
+  'conversations',
+  'message',
+  'messages',
+  'msg',
+  'msgs',
+  'text',
+  'texts',
+  'thread',
+  'threads',
+]);
 const LEXICAL_QUERY_FILLER_WORDS = new Set([
   ...MINIMAL_STOPS,
+  ...GENERIC_CONVERSATION_WORDS,
   'about',
   'anything',
   'detail',
@@ -133,8 +148,8 @@ const LEXICAL_QUERY_FILLER_WORDS = new Set([
   'why',
 ]);
 
-function buildLexicalQuery(query: string, topicWords: string[] = []): string {
-  const source = topicWords.length ? topicWords.join(' ') : query;
+function buildLexicalQuery(query: string, topicWords?: string[]): string {
+  const source = topicWords ? topicWords.join(' ') : query;
   const words = source
     .toLowerCase()
     .split(/\s+/)
@@ -143,7 +158,7 @@ function buildLexicalQuery(query: string, topicWords: string[] = []): string {
   return words.join(' ');
 }
 
-function searchCoverageTerms(query: string, topicWords: string[] = []): string[] {
+function searchCoverageTerms(query: string, topicWords?: string[]): string[] {
   return [...new Set(buildLexicalQuery(query, topicWords).split(/\s+/).filter(Boolean))];
 }
 
@@ -718,7 +733,7 @@ export class MemoryService {
 
   private async getCachedContacts(
     userId?: string,
-  ): Promise<{ id: string; displayName: string; entityType: string }[]> {
+  ): Promise<{ id: string; displayName: string; entityType: string; memoryCount: number }[]> {
     const cacheKey = userId || '__none__';
     const cached = this.contactsCache.get(cacheKey);
     if (cached && Date.now() < cached.expires) {
@@ -730,6 +745,7 @@ export class MemoryService {
           id: people.id,
           displayName: people.displayName,
           entityType: people.entityType,
+          memoryCount: people.memoryCount,
         })
         .from(people),
     );
@@ -747,7 +763,7 @@ export class MemoryService {
   private async getContactsByIds(
     ids: string[],
     userId?: string,
-  ): Promise<{ id: string; displayName: string; entityType: string }[]> {
+  ): Promise<{ id: string; displayName: string; entityType: string; memoryCount: number }[]> {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (!uniqueIds.length) return [];
     const allContacts = await this.getCachedContacts(userId);
@@ -931,6 +947,7 @@ export class MemoryService {
   ): Promise<{
     contacts: { id: string; displayName: string }[];
     topicWords: string[];
+    droppedGenericTopicWords: string[];
     contactIds: string[];
   }> {
     const allContacts = (await this.getCachedContacts(userId)).filter(
@@ -948,8 +965,24 @@ export class MemoryService {
       for (let spanLen = remaining.length - i; spanLen >= 1; spanLen--) {
         const candidateWords = remaining.slice(i, i + spanLen).map((w) => stripAccents(w));
 
-        for (const c of allContacts) {
-          if (!nameWordsMatch(c.displayName, candidateWords)) continue;
+        const contactMatches = allContacts
+          .filter((c) => nameWordsMatch(c.displayName, candidateWords))
+          .sort((a, b) => {
+            const aWords = stripAccents((a.displayName || '').toLowerCase()).split(/\s+/);
+            const bWords = stripAccents((b.displayName || '').toLowerCase()).split(/\s+/);
+            const aExact = aWords.length === candidateWords.length ? 1 : 0;
+            const bExact = bWords.length === candidateWords.length ? 1 : 0;
+            const aStarts = aWords[0] === candidateWords[0] ? 1 : 0;
+            const bStarts = bWords[0] === candidateWords[0] ? 1 : 0;
+            return (
+              bExact - aExact ||
+              bStarts - aStarts ||
+              Math.log10((b.memoryCount || 0) + 1) - Math.log10((a.memoryCount || 0) + 1) ||
+              a.displayName.localeCompare(b.displayName)
+            );
+          });
+
+        for (const c of contactMatches) {
           // For single-word candidates, require the candidate covers a significant
           // portion of the name (avoid "car" matching "Nomi Car Lift")
           const nameWordsRaw = stripAccents((c.displayName || '').toLowerCase()).split(/\s+/);
@@ -988,11 +1021,13 @@ export class MemoryService {
     }
 
     const unusedWords = remaining.filter((_, idx) => !usedIndices.has(idx));
-    let topicWords = unusedWords.filter((w) => !MINIMAL_STOPS.has(w));
-    if (topicWords.length === 0 && unusedWords.length > 0) topicWords = unusedWords;
+    const topicWords = unusedWords.filter(
+      (w) => !MINIMAL_STOPS.has(w) && !GENERIC_CONVERSATION_WORDS.has(w),
+    );
+    const droppedGenericTopicWords = unusedWords.filter((w) => GENERIC_CONVERSATION_WORDS.has(w));
     const contactIds = resolved.map((c) => c.id);
 
-    return { contacts: resolved, topicWords, contactIds };
+    return { contacts: resolved, topicWords, droppedGenericTopicWords, contactIds };
   }
 
   @Traced('memory.search')
@@ -1078,11 +1113,12 @@ export class MemoryService {
       ? {
           contacts: [],
           topicWords: queryWords.filter((w) => !MINIMAL_STOPS.has(w)),
+          droppedGenericTopicWords: [],
           contactIds: [],
         }
       : await this.resolveEntities(queryWords, userId);
     let { contacts: resolvedContacts, contactIds } = entityResult;
-    const { topicWords } = entityResult;
+    const { topicWords, droppedGenericTopicWords } = entityResult;
     const explicitContactIds = [
       ...new Set([
         ...(effectiveFilters.contactIds ?? []),
@@ -1156,14 +1192,15 @@ export class MemoryService {
       noteLane(point.id, 'vector_semantic');
     }
 
-    const lexicalQuery = buildLexicalQuery(embeddingQuery, hasContacts ? topicWords : []);
-    const textSearchQuery = lexicalQuery || embeddingQuery;
-    const lexicalResults = await this.searchIndex.textSearch(
-      textSearchQuery,
-      hybridK,
-      combinedFilter,
-      'text,entities_text,people,locations,location_text,organizations',
-    );
+    const lexicalQuery = buildLexicalQuery(embeddingQuery, hasContacts ? topicWords : undefined);
+    const lexicalResults = lexicalQuery
+      ? await this.searchIndex.textSearch(
+          lexicalQuery,
+          hybridK,
+          combinedFilter,
+          'text,entities_text,people,locations,location_text,organizations',
+        )
+      : [];
     for (const point of lexicalResults) {
       semanticScores.set(point.id, Math.max(semanticScores.get(point.id) ?? 0, point.score, 0.72));
       noteLane(point.id, 'lexical_exact');
@@ -1322,7 +1359,11 @@ export class MemoryService {
         return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
       });
 
-      if (filteredItems.length === 0 && !options?.noEntityResolution) {
+      if (
+        filteredItems.length === 0 &&
+        !options?.noEntityResolution &&
+        (!hasContacts || topicWords.length > 0 || droppedGenericTopicWords.length === 0)
+      ) {
         const fallbackResult = await this.search(
           query,
           filters,
@@ -1548,7 +1589,7 @@ export class MemoryService {
     // The coverage term set is derived only from the user's query and resolved
     // topic words, so generic org/brand/person terms do not need hard-coded
     // special cases to rank well when entity resolution falls back.
-    const coverageTerms = searchCoverageTerms(embeddingQuery, hasContacts ? topicWords : []);
+    const coverageTerms = searchCoverageTerms(embeddingQuery, hasContacts ? topicWords : undefined);
     const coverageById = new Map<string, number>();
     const intentScoreById = new Map<
       string,

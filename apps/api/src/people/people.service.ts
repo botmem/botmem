@@ -1370,7 +1370,15 @@ export class PeopleService {
         if (entityType === 'group' && !groupLike) return false;
         return true;
       })
-      .sort(([, a], [, b]) => b.score - a.score || a.order - b.order)
+      .sort(([aId, a], [bId, b]) => {
+        const aContact = contactById.get(aId);
+        const bContact = contactById.get(bId);
+        return (
+          b.score - a.score ||
+          (bContact?.memoryCount ?? 0) - (aContact?.memoryCount ?? 0) ||
+          a.order - b.order
+        );
+      })
       .slice(0, maxResults)
       .map(([id]) => id);
 
