@@ -6,6 +6,7 @@ Local-first platform that ingests events from multiple data sources (emails, mes
 
 - People graph nodes must only be created or linked from durable identifiers such as email, phone, platform user id, connector id, or account id. Arbitrary extracted names may be search entities, but must not create or attach people nodes.
 - Search/entity-resolution fixes must be evidence-based and user-agnostic. Do not hardcode vendor, person, organization, travel, or topic terms from one user's data to tune retrieval behavior.
+- Apple Bridge GUI and CLI must stay behaviorally equivalent. Source selection, config storage, preflight checks, service management, and tunnel auth should use the same semantics rather than separate GUI-only or CLI-only journeys.
 
 ## Quick Start
 
@@ -15,6 +16,13 @@ pnpm install                  # Install all workspace deps
 cp .env.example .env          # Configure environment (edit as needed)
 pnpm dev                      # Builds deps, then API + web on :12412
 ```
+
+## Local Dev Startup
+
+- For normal local testing, start Botmem from the repo root with `pnpm dev`. This is the known working Codex flow: it builds shared dependencies, then runs the API and web app together on `http://localhost:12412`.
+- Do not patch source files, change `NODE_ENV=production`, or invent runtime workarounds just to start local dev. If startup fails, inspect the process output, port ownership, `.env`, PostgreSQL, and Redis first.
+- If the user specifically asks for only the API service, use `pnpm --filter @botmem/api dev` from the repo root after dependencies are installed and the local `.env` is present. Confirm it by polling `http://localhost:12412/api/version`.
+- Before starting a new dev server, check for stale listeners/processes on port `12412` and stop only the matching Botmem dev process. Do not kill unrelated user processes.
 
 ## Monorepo Structure
 

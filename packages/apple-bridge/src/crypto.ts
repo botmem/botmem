@@ -57,7 +57,7 @@ export function deriveSessionKey(localPrivate: KeyObject, remotePublic: KeyObjec
     publicKey: remotePublic,
   });
 
-  const salt = Buffer.from('botmem-imsg-tunnel-v1', 'utf-8');
+  const salt = Buffer.from('botmem-apple-tunnel-v1', 'utf-8');
   const info = Buffer.from('aes-256-gcm-session-key', 'utf-8');
 
   const derived = hkdfSync('sha256', sharedSecret, salt, info, 32);

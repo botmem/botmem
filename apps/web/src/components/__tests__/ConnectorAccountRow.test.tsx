@@ -85,7 +85,7 @@ describe('ConnectorAccountRow', () => {
       <ConnectorAccountRow
         account={{
           ...baseAccount,
-          id: 'imsg-1',
+          id: 'apple-msg-1',
           type: 'imessage',
           status: 'failed',
           lastError: 'iMessage bridge not connected',
@@ -106,6 +106,6 @@ describe('ConnectorAccountRow', () => {
       />,
     );
 
-    expect(screen.getByText(/botmem sync/)).toHaveTextContent('botmem sync imsg-1');
+    expect(screen.getByText(/botmem sync/)).toHaveTextContent('botmem sync apple-msg-1');
   });
 });

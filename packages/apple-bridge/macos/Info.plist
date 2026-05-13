@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>Botmem Apple Bridge</string>
+  <key>CFBundleExecutable</key>
+  <string>Botmem Apple Bridge</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIdentifier</key>
+  <string>xyz.botmem.apple-bridge</string>
+  <key>CFBundleName</key>
+  <string>Botmem Apple Bridge</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Botmem Apple Bridge</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>botmem-apple-bridge</string>
+      </array>
+    </dict>
+  </array>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSContactsUsageDescription</key>
+  <string>Botmem reads Contacts locally when you choose the Apple Contacts source.</string>
+</dict>
+</plist>

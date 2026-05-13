@@ -10,6 +10,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "build:mac-app": "node scripts/build-macos-app.mjs",
     "dev": "tsc --watch",
     "clean": "rm -rf dist"
   },
@@ -22,6 +23,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^25.6.0",
     "@types/ws": "^8.5.13",
+    "appdmg": "^0.6.6",
     "typescript": "^5.7.0"
   },
   "engines": {

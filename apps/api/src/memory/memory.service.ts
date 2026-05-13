@@ -441,7 +441,10 @@ export class MemoryService {
   private readonly logger = new Logger(MemoryService.name);
   private contactsCache: Map<
     string,
-    { data: { id: string; displayName: string; entityType: string }[]; expires: number }
+    {
+      data: { id: string; displayName: string; entityType: string; memoryCount: number }[];
+      expires: number;
+    }
   > = new Map();
   private static CONTACTS_CACHE_TTL = 60_000; // 60s
 
@@ -865,17 +868,15 @@ export class MemoryService {
     }
   }
 
-  private diversifyResults(
-    candidates: Array<{
+  private diversifyResults<
+    T extends {
       id: string;
       row: any;
       score: number;
       weights: any;
       queryCoverage?: number;
-    }>,
-    limit: number,
-    diversityFactor = DIVERSITY_FACTOR_DEFAULT,
-  ): Array<{ id: string; row: any; score: number; weights: any; queryCoverage?: number }> {
+    },
+  >(candidates: T[], limit: number, diversityFactor = DIVERSITY_FACTOR_DEFAULT): T[] {
     if (candidates.length <= 1) return candidates.slice(0, limit);
 
     const sorted = [...candidates].sort(

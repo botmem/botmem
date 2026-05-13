@@ -16,7 +16,7 @@ import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
-import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
+import { AppleTunnelService } from '../apple-tunnel/apple-tunnel.service';
 import { PeopleService, type IdentifierInput } from '../people/people.service';
 import { Traced } from '../tracing/traced.decorator';
 import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
@@ -75,10 +75,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     this.syncPolicy = syncPolicy ?? new ConnectorSyncPolicyService();
   }
 
-  /** Lazily resolve ImsgTunnelService — returns null if not available. */
-  private getImsgTunnel(): ImsgTunnelService | null {
+  /** Lazily resolve AppleTunnelService — returns null if not available. */
+  private getAppleTunnel(): AppleTunnelService | null {
     try {
-      return this.moduleRef.get(ImsgTunnelService, { strict: false });
+      return this.moduleRef.get(AppleTunnelService, { strict: false });
     } catch {
       return null;
     }
@@ -388,13 +388,13 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
 
         // Inject tunnel transport for remote Apple bridge (lazy — module may not be loaded)
         if (connectorType === 'apple' && account.tunnelMode && 'setTunnelTransport' in connector) {
-          const tunnel = this.getImsgTunnel();
+          const tunnel = this.getAppleTunnel();
           if (!tunnel) {
             throw new Error('Apple tunnel service is unavailable. Restart Botmem and try again.');
           }
-          const { WsTunnelTransport } = await import('../imsg-tunnel/ws-tunnel-transport');
+          const { AppleTunnelTransport } = await import('../apple-tunnel/apple-tunnel-transport');
           (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
-            new WsTunnelTransport(tunnel, accountId),
+            new AppleTunnelTransport(tunnel, accountId),
           );
         } else if (connectorType === 'apple') {
           throw new Error(

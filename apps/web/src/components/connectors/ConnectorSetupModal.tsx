@@ -17,6 +17,10 @@ const FIREBASE_HIDDEN_FIELDS = new Set([
   'redirectUri',
 ]);
 
+const APPLE_BRIDGE_GITHUB_RELEASE_URL =
+  (import.meta.env.VITE_APPLE_BRIDGE_GITHUB_RELEASE_URL as string | undefined) ||
+  'https://github.com/botmem/botmem/releases/latest';
+
 interface ConnectorSetupModalProps {
   open: boolean;
   onClose: () => void;
@@ -483,8 +487,8 @@ function BridgeAuthView({
   const fetchAccounts = useConnectorStore((s) => s.fetchAccounts);
   const [step, setStep] = useState<BridgeStep>('email');
   const [myIdentifier, setMyIdentifier] = useState('');
-  const [selectedSources, setSelectedSources] = useState({ contacts: true, imessages: true });
   const [bridgeCommand, setBridgeCommand] = useState('');
+  const [bridgeDeepLink, setBridgeDeepLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -508,7 +512,7 @@ function BridgeAuthView({
         myIdentifier,
         authMethod: 'bridge',
         tunnelMode: true,
-        selectedSources,
+        selectedSources: { contacts: true, imessages: true },
       });
 
       if (result.type === 'complete' && result.account) {
@@ -519,9 +523,18 @@ function BridgeAuthView({
         // Get the bridge token from the auth context
         const token = acct.bridgeToken || '';
         const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        const serverUrl = `${wsProto}://${window.location.host}/imsg-tunnel`;
-        const cmd = `npx @botmem/apple-bridge --token=${token} --server=${serverUrl}`;
+        const serverUrl = `${wsProto}://${window.location.host}/apple-tunnel`;
+        const sourceList = 'contacts,imessages';
+        const cmd = `npx @botmem/apple-bridge configure --token=${token} --server=${serverUrl} --account-id=${acctId} --sources=${sourceList}
+npx @botmem/apple-bridge preflight
+npx @botmem/apple-bridge service start`;
+        const deepLink = new URL('botmem-apple-bridge://connect');
+        deepLink.searchParams.set('server', serverUrl);
+        deepLink.searchParams.set('token', token);
+        deepLink.searchParams.set('accountId', acctId);
+        deepLink.searchParams.set('sources', sourceList);
         setBridgeCommand(cmd);
+        setBridgeDeepLink(deepLink.toString());
         setStep('command');
 
         // Start polling for bridge connection
@@ -567,6 +580,12 @@ function BridgeAuthView({
     navigator.clipboard.writeText(bridgeCommand);
   };
 
+  const openBridgeApp = () => {
+    if (bridgeDeepLink) {
+      window.location.href = bridgeDeepLink;
+    }
+  };
+
   const stepNumber = step === 'email' ? 1 : step === 'command' ? 2 : 3;
 
   return (
@@ -583,7 +602,8 @@ function BridgeAuthView({
       {step === 'email' && (
         <form onSubmit={handleEmailSubmit} className="flex flex-col gap-4">
           <p className="font-mono text-xs text-nb-muted uppercase">
-            Enter your iMessage email or phone number to identify you in conversations.
+            Enter your iMessage email or phone number to identify your side of conversations. Apple
+            sources and permissions are configured in the bridge app or CLI.
           </p>
           <Input
             label="Your Email or Phone"
@@ -593,44 +613,8 @@ function BridgeAuthView({
             required
             autoFocus
           />
-          <fieldset className="border-3 border-nb-border bg-nb-surface/50 p-3">
-            <legend className="px-1 font-display text-xs font-bold uppercase text-nb-muted">
-              Sources
-            </legend>
-            <label className="mt-2 flex items-center gap-3 font-mono text-sm uppercase text-nb-text">
-              <input
-                type="checkbox"
-                className="size-4 accent-nb-lime"
-                checked={selectedSources.contacts}
-                onChange={(event) =>
-                  setSelectedSources((current) => ({
-                    ...current,
-                    contacts: event.target.checked,
-                  }))
-                }
-              />
-              Contacts
-            </label>
-            <label className="mt-2 flex items-center gap-3 font-mono text-sm uppercase text-nb-text">
-              <input
-                type="checkbox"
-                className="size-4 accent-nb-lime"
-                checked={selectedSources.imessages}
-                onChange={(event) =>
-                  setSelectedSources((current) => ({
-                    ...current,
-                    imessages: event.target.checked,
-                  }))
-                }
-              />
-              iMessages
-            </label>
-          </fieldset>
-          <Button
-            type="submit"
-            disabled={loading || (!selectedSources.contacts && !selectedSources.imessages)}
-          >
-            {loading ? 'SETTING UP...' : 'GENERATE BRIDGE COMMAND'}
+          <Button type="submit" disabled={loading}>
+            {loading ? 'SETTING UP...' : 'PAIR BRIDGE'}
           </Button>
         </form>
       )}
@@ -639,9 +623,37 @@ function BridgeAuthView({
       {step === 'command' && (
         <div className="flex flex-col gap-4">
           <p className="font-mono text-xs text-nb-muted uppercase">
-            Run this command on the Mac with your Apple data:
+            Install and open Botmem Apple Bridge on the Mac with your Apple data. The app and CLI
+            use the same local config, source choices, permission checks, and background service.
           </p>
 
+          <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
+            <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">App Setup</p>
+            <ol className="font-mono text-xs text-nb-muted space-y-1 list-decimal list-inside">
+              <li>
+                Download Botmem Apple Bridge from{' '}
+                <a
+                  href={APPLE_BRIDGE_GITHUB_RELEASE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-nb-lime underline underline-offset-2"
+                >
+                  GitHub Releases
+                </a>
+              </li>
+              <li>Open the app, then connect it to this account.</li>
+              <li>Choose Contacts and/or Messages in the bridge app.</li>
+              <li>The app will request only the permissions required for selected sources.</li>
+            </ol>
+          </div>
+
+          <Button type="button" onClick={openBridgeApp} disabled={!bridgeDeepLink}>
+            CONNECT BRIDGE APP
+          </Button>
+
+          <p className="font-display text-xs font-bold uppercase text-nb-muted">
+            Advanced CLI Setup
+          </p>
           <div className="relative">
             <pre className="bg-black border-3 border-nb-border p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
               {bridgeCommand}
@@ -657,15 +669,13 @@ function BridgeAuthView({
 
           <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
             <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">
-              Requirements
+              CLI Requirements
             </p>
             <ul className="font-mono text-xs text-nb-muted space-y-1">
               <li>• macOS with iMessage signed in</li>
-              <li>• Contacts permission approved when prompted</li>
               <li>• Node.js 20+ installed</li>
-              <li>
-                • Full Disk Access for Terminal (System Settings → Privacy → Full Disk Access)
-              </li>
+              <li>• Use the same --sources list you would choose in the app</li>
+              <li>• Full Disk Access is only required when syncing iMessage history</li>
             </ul>
           </div>
 
@@ -703,7 +713,7 @@ function BridgeAuthView({
           </div>
           <p className="font-display text-lg font-bold uppercase">Bridge Connected</p>
           <p className="font-mono text-xs text-nb-muted text-center">
-            Your selected Apple sources are being synced securely through an encrypted tunnel.
+            Your Apple bridge is connected through the same encrypted tunnel used by the CLI.
           </p>
           <Button onClick={handleStartSync} disabled={loading}>
             {loading ? 'STARTING SYNC...' : 'START SYNC'}

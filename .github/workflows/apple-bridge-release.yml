@@ -1,0 +1,95 @@
+name: Apple Bridge Release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/apple-bridge-release.yml'
+      - 'packages/apple-bridge/**'
+      - 'apps/api/src/apple-tunnel/**'
+      - 'apps/api/src/accounts/**'
+      - 'apps/api/src/jobs/**'
+      - 'packages/connectors/imessage/**'
+      - 'pnpm-lock.yaml'
+  push:
+    branches:
+      - main
+      - 'codex/**'
+    paths:
+      - '.github/workflows/apple-bridge-release.yml'
+      - 'packages/apple-bridge/**'
+      - 'apps/api/src/apple-tunnel/**'
+      - 'apps/api/src/accounts/**'
+      - 'apps/api/src/jobs/**'
+      - 'packages/connectors/imessage/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }} DMG
+    runs-on: ${{ matrix.runner }}
+    env:
+      APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arm64
+            runner: macos-14
+            dmg: Botmem-Apple-Bridge-arm64.dmg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Import signing certificate
+        if: env.APPLE_CERTIFICATE_P12_BASE64 != ''
+        run: |
+          CERT_PATH="$RUNNER_TEMP/botmem-apple-bridge.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      - name: Build DMG
+        run: |
+          export BOTMEM_NODE_BINARY="$(command -v node)"
+          pnpm --filter @botmem/apple-bridge build:mac-app
+        env:
+          BOTMEM_DMG_NAME: ${{ matrix.dmg }}
+          BOTMEM_CODESIGN_IDENTITY: ${{ secrets.BOTMEM_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.dmg }}
+          path: packages/apple-bridge/dist-macos/${{ matrix.dmg }}
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/apple-bridge/dist-macos/${{ matrix.dmg }}

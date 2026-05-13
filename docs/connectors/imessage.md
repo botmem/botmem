@@ -1,145 +1,167 @@
 # iMessage Connector
 
-The iMessage connector reads your macOS iMessage database and syncs conversations to Botmem. It supports two modes: **Remote Bridge** (recommended) for syncing from any Mac over an encrypted tunnel, and **Local** for when the Botmem server runs on the same machine.
+The iMessage connector reads Apple Contacts and your local macOS Messages database through the Botmem Apple Bridge. The bridge runs on your Mac and connects to Botmem over an encrypted WebSocket tunnel.
 
 **Auth type:** Local Tool / Bridge Token
 **Trust score:** 0.80
-**Source types:** `message`
+**Source types:** `contact`, `message`
 
 ## What It Syncs
 
-- **iMessages** -- messages sent via iMessage (blue bubbles)
-- **SMS** -- SMS/MMS messages stored in the same database (green bubbles)
-- **Group chats** -- messages from group conversations
-- **Participants** -- phone numbers and email addresses (iMessage handles)
-- **Reactions** -- tapback reactions (love, like, dislike, laugh, emphasis, question)
+- **Apple Contacts** -- names, email addresses, phone numbers, and basic metadata
+- **iMessages** -- messages sent via iMessage
+- **SMS/MMS** -- messages stored in the same macOS Messages database
+- **Group chats** -- group names, participants, and messages
+- **Participants** -- phone numbers and email addresses from Messages handles
 
-## Remote Bridge Setup (Recommended)
+## Setup
 
-The remote bridge lets you sync iMessages from any Mac to your Botmem server over an encrypted WebSocket tunnel. No port forwarding or VPN required.
+### 1. Create the Apple connector
 
-### Prerequisites
+1. Open **Connectors** in Botmem.
+2. Click **+** on the Apple connector.
+3. Enter your iMessage email or phone number.
+4. Choose **Contacts**, **iMessages**, or both.
+5. Click **Generate Bridge Command**.
 
-- **macOS** with iMessage signed in
-- **Node.js 20+** installed
-- **Full Disk Access** for your terminal (see below)
+### 2. Install Botmem Apple Bridge
 
-### 1. Grant Full Disk Access
+Download the latest signed DMG from GitHub Releases:
 
-The iMessage database at `~/Library/Messages/chat.db` is protected by macOS. Grant access:
-
-1. Open **System Settings > Privacy & Security > Full Disk Access**
-2. Add your terminal app (Terminal.app, iTerm2, Warp, etc.)
-3. Restart the terminal
-
-### 2. Connect via Dashboard
-
-1. Navigate to **Connectors** and click **+** on the iMessage connector
-2. Enter your iMessage email or phone number
-3. Click **Generate Bridge Command**
-4. Copy the one-liner command shown in the dashboard
-
-### 3. Run the Bridge
-
-Run the command on your Mac:
-
-```bash
-npx @botmem/apple-bridge --token=<your-token> --server=wss://your-botmem-server/imsg-tunnel
+```text
+https://github.com/botmem/botmem/releases/latest
 ```
 
-The bridge will:
+Use the asset for your Mac:
 
-- Verify macOS and Full Disk Access
-- Open the iMessage database (read-only)
-- Connect to your Botmem server via encrypted WebSocket
-- Wait for sync requests
+- Apple Silicon: `Botmem-Apple-Bridge-arm64.dmg`
+- Intel: `Botmem-Apple-Bridge-x64.dmg`
 
-### 4. Start Syncing
+Open the app after installing it.
 
-Once the dashboard shows **Bridge Connected**, sync the account with the Botmem CLI:
+### 3. Connect the app
 
-```bash
-botmem sync <imessage-account-id>
+In the Botmem dashboard, click **Connect Bridge App**. macOS opens Botmem Apple Bridge through this URL scheme:
+
+```text
+botmem-apple-bridge://connect
 ```
 
-The bridge relays encrypted JSON-RPC queries from the server to your local iMessage database.
+The app stores the bridge config locally at:
 
-### Security
-
-- **Transport encryption**: WSS (TLS) protects the WebSocket connection
-- **Payload encryption**: Every JSON-RPC message is encrypted with AES-256-GCM using a per-session key derived via ECDH (X25519) key exchange
-- **Token auth**: Bridge tokens are opaque, single-use-bind, and stored encrypted on the server
-- **Read-only**: The bridge never writes to your iMessage database
-- **No data stored on bridge**: The bridge is a stateless relay -- your messages flow encrypted to the server, nothing is cached locally
-
-### Running as a Background Service
-
-To keep the bridge running persistently:
-
-```bash
-# Using launchd (macOS native)
-# Create ~/Library/LaunchAgents/com.botmem.apple-bridge.plist
-
-# Using pm2
-pm2 start "npx @botmem/apple-bridge --token=<token> --server=wss://..." --name apple-bridge
+```text
+~/Library/Application Support/Botmem Apple Bridge/config.json
 ```
 
-The bridge auto-reconnects with exponential backoff if the connection drops.
+The file is written with user-only permissions and lets the app reconnect after restarts.
 
-## Local Setup (Advanced)
+The app also installs a per-user LaunchAgent:
 
-The legacy local TCP bridge is no longer the recommended path. Use the dashboard-generated
-Botmem iMessage bridge command, wait for **Bridge Connected**, then run:
-
-```bash
-botmem sync <imessage-account-id>
+```text
+~/Library/LaunchAgents/xyz.botmem.apple-bridge.service.plist
 ```
 
-## How Sync Works
+That service starts at login, stays connected to Botmem, and reconnects automatically if the network drops. The bridge token is read from the local config file, not passed as a command-line argument.
 
-1. Opens `~/Library/Messages/chat.db` in read-only mode via `better-sqlite3`
-2. Queries `chat`, `message`, `handle`, and `attachment` tables
-3. For each message:
-   - Converts Core Data timestamps to ISO 8601
-   - Resolves sender/recipient handles
-   - Filters noise (delivery receipts, tapback reactions, empty messages)
-4. Emits `ConnectorDataEvent` with `sourceType: 'message'`
-5. Uses timestamps as cursors for incremental sync
+### 4. Use the bridge window
 
-## Contact Resolution
+Botmem Apple Bridge opens a small native status window. It shows:
 
-The embed processor resolves iMessage participants using:
+- current service state
+- selected Apple sources
+- connected Botmem server
+- actions to restart the service, open Full Disk Access, or remove the service
 
-- **Email addresses** -- if the handle contains `@`, treated as email
-- **Phone numbers** -- otherwise, treated as a phone number
-- The `isFromMe` flag determines `sender` vs `recipient` role
-- Group chats create a `group` entity with the chat name
+Double-clicking the app should always show this window.
 
-## Limitations
+### 5. Grant permissions
 
-- **macOS only** -- the iMessage database does not exist on other platforms
-- **Text + metadata only** -- file attachments are detected but not transferred through the tunnel
-- **Read-only** -- Botmem never writes to the iMessage database
-- **Manual sync** -- sync must be triggered from the dashboard; no real-time file watcher
+- **Contacts only:** macOS shows the normal Contacts permission prompt. Full Disk Access is not required.
+- **iMessages:** macOS may block the Messages database until you grant Full Disk Access to **Botmem Apple Bridge**.
+
+To grant iMessage access:
+
+1. Open **System Settings > Privacy & Security > Full Disk Access**.
+2. Enable **Botmem Apple Bridge**.
+3. Restart Botmem Apple Bridge.
+
+Shortcut:
+
+```bash
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+```
+
+Once the dashboard shows **Bridge Connected**, click **Start Sync**.
+
+## Advanced CLI Fallback
+
+The dashboard also shows an advanced CLI command:
+
+```bash
+npx @botmem/apple-bridge --token=<your-token> --server=wss://your-botmem-server/apple-tunnel --sources=contacts,imessages
+```
+
+Use this only if you do not want to install the macOS app. If syncing iMessages through the CLI, grant Full Disk Access to the terminal app that runs the command.
+
+For Contacts-only sync:
+
+```bash
+npx @botmem/apple-bridge --token=<your-token> --server=wss://your-botmem-server/apple-tunnel --sources=contacts
+```
+
+Contacts-only mode does not open `~/Library/Messages/chat.db`.
+
+## Why Full Disk Access?
+
+Apple does not provide a public Messages history API or a narrow permission for `~/Library/Messages/chat.db`. Historical iMessage sync requires reading that protected local SQLite database. Botmem opens it read-only and never writes to Apple databases.
+
+Full Disk Access is only needed for iMessage history. Apple Contacts uses the native Contacts permission prompt.
+
+## Security
+
+- **Transport encryption:** WSS/TLS protects the WebSocket connection.
+- **Payload encryption:** JSON-RPC messages are encrypted with AES-256-GCM using a per-session key derived via ECDH/X25519.
+- **Token auth:** Bridge tokens are opaque and stored encrypted on the server.
+- **Local token handling:** The macOS app stores bridge config in a user-only local config file.
+- **Read-only Messages access:** The bridge never writes to `chat.db`.
+- **No local message cache:** The bridge relays data and does not keep a message cache.
+
+## Revoke Access
+
+To revoke Messages access:
+
+1. Open **System Settings > Privacy & Security > Full Disk Access**.
+2. Disable **Botmem Apple Bridge**.
+3. Quit Botmem Apple Bridge.
+
+To remove the local bridge token, delete:
+
+```text
+~/Library/Application Support/Botmem Apple Bridge/config.json
+```
+
+Then delete the Apple connector account in Botmem and remove the app from your Mac.
+
+To remove the background service without deleting the connector, open Botmem Apple Bridge and click **Remove Service**.
 
 ## Troubleshooting
 
-### "SQLITE_CANTOPEN" or permission error
+### macOS blocked Messages access
 
-Grant Full Disk Access to your terminal app in System Settings, then restart the terminal.
+Grant Full Disk Access to **Botmem Apple Bridge**, then restart the app. If using the CLI fallback, grant access to your terminal app instead.
 
 ### Bridge shows "Invalid token"
 
-The token may have been regenerated. Go to Connectors in the dashboard, delete the iMessage account, and create a new one to get a fresh token.
+The token may have been regenerated. Delete the Apple connector account and create a new one to get a fresh token.
 
 ### Bridge keeps reconnecting
 
-Check that your Botmem server is reachable. The bridge auto-reconnects with backoff (1s, 2s, 4s... up to 30s).
+Check that your Botmem server is reachable. The bridge reconnects with backoff if the connection drops.
 
 ### Missing recent messages
 
-iMessage may take a moment to write new messages to the database. Wait a few seconds and re-sync.
+Messages may take a moment to write new messages to the local database. Wait a few seconds and sync again.
 
 ### Duplicate contacts
 
-If a contact uses both a phone number and email for iMessage, they may appear as separate contacts. The contact merge feature will identify these duplicates.
+If a contact uses both a phone number and email for iMessage, they may appear as separate contacts until contact merge resolves them.

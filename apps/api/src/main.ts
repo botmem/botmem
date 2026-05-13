@@ -12,9 +12,24 @@ net.setDefaultAutoSelectFamily(false);
 
 import * as dotenv from 'dotenv';
 import { join, resolve } from 'path';
+import { existsSync, readFileSync } from 'fs';
 
-// Resolve .env from the monorepo root, not the cwd (which may be apps/api/)
-dotenv.config({ path: resolve(__dirname, '..', '..', '..', '.env') });
+// Resolve .env from the monorepo root across both ts-node and compiled layouts.
+const envPath = [
+  resolve(__dirname, '..', '..', '..', '..', '.env'),
+  resolve(__dirname, '..', '..', '..', '.env'),
+  resolve(process.cwd(), '..', '..', '.env'),
+].find((candidate) => existsSync(candidate));
+dotenv.config(envPath ? { path: envPath } : undefined);
+
+const resolveWebRoot = () => {
+  const candidates = [
+    resolve(__dirname, '..', '..', '..', '..', 'apps', 'web'),
+    resolve(__dirname, '..', '..', '..', 'apps', 'web'),
+    resolve(process.cwd(), '..', 'web'),
+  ];
+  return candidates.find((candidate) => existsSync(join(candidate, 'index.html'))) ?? candidates[0];
+};
 
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
@@ -22,7 +37,6 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
 import { ConfigService } from './config/config.service';
-import { readFileSync } from 'fs';
 import type { Request, Response, NextFunction } from 'express';
 import { PostHogExceptionFilter } from './analytics/posthog-exception.filter';
 import { AnalyticsService } from './analytics/analytics.service';
@@ -33,6 +47,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { createCorsOptionsDelegate } from './cors.util';
 
 const logger = new Logger('Bootstrap');
+type ViteMiddleware = (req: Request, res: Response, next: NextFunction) => void;
 
 async function assertPortAvailable(port: number) {
   await new Promise<void>((resolveReady, rejectReady) => {
@@ -60,14 +75,17 @@ async function bootstrap() {
   const server = express();
   const isDev = process.env.NODE_ENV !== 'production';
   let vite:
-    | { middlewares: any; transformIndexHtml: (url: string, html: string) => Promise<string> }
+    | {
+        middlewares: ViteMiddleware;
+        transformIndexHtml: (url: string, html: string) => Promise<string>;
+      }
     | undefined;
 
   // In dev mode, mount Vite BEFORE NestJS so it handles frontend assets + HMR
   if (isDev) {
     // @ts-expect-error — vite types don't resolve under API's moduleResolution setting
     const { createServer: createViteServer } = await import('vite');
-    const webRoot = join(__dirname, '..', '..', 'web');
+    const webRoot = resolveWebRoot();
     vite = await createViteServer({
       root: webRoot,
       server: { middlewareMode: true, allowedHosts: true },
@@ -214,7 +232,7 @@ async function bootstrap() {
 
   // SPA fallback: serve index.html for non-API, non-asset GET requests (after NestJS routes)
   if (isDev && vite) {
-    const webRoot = join(__dirname, '..', '..', 'web');
+    const webRoot = resolveWebRoot();
     server.use((req: Request, res: Response, next: NextFunction) => {
       if (
         req.method !== 'GET' ||
@@ -239,8 +257,7 @@ async function bootstrap() {
   // Production static file serving (replaces @nestjs/serve-static to avoid its
   // error handler converting throttle 429s and other API errors into 404s)
   if (!isDev) {
-    const { existsSync } = await import('fs');
-    const webDistPath = join(__dirname, '..', '..', 'web', 'dist');
+    const webDistPath = join(resolveWebRoot(), 'dist');
     if (existsSync(webDistPath)) {
       const serveStatic = (await import('serve-static')).default;
       server.use(

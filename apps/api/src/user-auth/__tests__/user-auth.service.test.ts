@@ -140,6 +140,18 @@ describe('UserAuthService', () => {
         ConflictException,
       );
     });
+
+    it('rejects nested Postgres unique violations with ConflictException', async () => {
+      usersService.createUser!.mockRejectedValue(
+        Object.assign(new Error('Failed query'), {
+          cause: { code: '23505', constraint: 'users_email_unique' },
+        }),
+      );
+
+      await expect(service.register('test@test.com', 'password12345', 'Test User')).rejects.toThrow(
+        ConflictException,
+      );
+    });
   });
 
   describe('login', () => {
