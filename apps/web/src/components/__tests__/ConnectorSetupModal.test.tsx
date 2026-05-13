@@ -1,18 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConnectorSetupModal } from '../connectors/ConnectorSetupModal';
 import { useConnectorStore } from '../../store/connectorStore';
 
+const mockApi = vi.hoisted(() => ({
+  getConnectorSchema: vi.fn().mockRejectedValue(new Error('not available')),
+  initiateAuth: vi.fn().mockResolvedValue({ type: 'complete' }),
+  hasCredentials: vi.fn().mockResolvedValue({ hasSavedCredentials: false }),
+  listConnectors: vi.fn().mockResolvedValue({ connectors: [] }),
+  listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
+  getBridgeStatus: vi.fn().mockResolvedValue({ connected: false }),
+  triggerSync: vi.fn().mockResolvedValue({ job: { id: 'j1' } }),
+}));
+
 vi.mock('../../lib/api', () => ({
-  api: {
-    getConnectorSchema: vi.fn().mockRejectedValue(new Error('not available')),
-    initiateAuth: vi.fn().mockResolvedValue({ type: 'complete' }),
-    hasCredentials: vi.fn().mockResolvedValue({ hasSavedCredentials: false }),
-    listConnectors: vi.fn().mockResolvedValue({ connectors: [] }),
-    listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
-    getBridgeStatus: vi.fn().mockResolvedValue({ connected: false }),
-    triggerSync: vi.fn().mockResolvedValue({ job: { id: 'j1' } }),
-  },
+  api: mockApi,
 }));
 
 // Allow tests to control isFirebaseMode
@@ -30,6 +32,13 @@ vi.mock('../../store/authStore', async () => {
 describe('ConnectorSetupModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApi.getConnectorSchema.mockRejectedValue(new Error('not available'));
+    mockApi.initiateAuth.mockResolvedValue({ type: 'complete' });
+    mockApi.hasCredentials.mockResolvedValue({ hasSavedCredentials: false });
+    mockApi.listConnectors.mockResolvedValue({ connectors: [] });
+    mockApi.listAccounts.mockResolvedValue({ accounts: [] });
+    mockApi.getBridgeStatus.mockResolvedValue({ connected: false });
+    mockApi.triggerSync.mockResolvedValue({ job: { id: 'j1' } });
     useConnectorStore.setState({
       manifests: [
         {
@@ -105,7 +114,7 @@ describe('ConnectorSetupModal', () => {
     expect(await screen.findByText('CONNECT')).toBeInTheDocument();
   });
 
-  it('renders Apple source checkboxes checked by default', () => {
+  it('renders Apple pairing copy without web-owned source controls', () => {
     useConnectorStore.setState({
       manifests: [
         {
@@ -132,8 +141,98 @@ describe('ConnectorSetupModal', () => {
       />,
     );
 
-    expect(screen.getByRole('checkbox', { name: 'Contacts' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'iMessages' })).toBeChecked();
+    expect(screen.getByText(/Apple sources and permissions are configured/)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Contacts' })).not.toBeInTheDocument();
+  });
+
+  it('shows GitHub app setup and advanced CLI after generating Apple bridge config', async () => {
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+
+    expect(await screen.findByText('App Setup')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Releases')).toHaveAttribute(
+      'href',
+      'https://github.com/botmem/botmem/releases/latest',
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/--sources=contacts,imessages/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Full Disk Access is only required/)).toBeInTheDocument();
+  });
+
+  it('tells users source choices live in the bridge app or CLI', async () => {
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+
+    expect(await screen.findByText('App Setup')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Choose Contacts and\/or Messages in the bridge app/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Use the same --sources list/)).toBeInTheDocument();
   });
 
   describe('Firebase mode field hiding', () => {

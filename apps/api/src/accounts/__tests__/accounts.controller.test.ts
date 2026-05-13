@@ -85,7 +85,7 @@ describe('AccountsController', () => {
   it('maps iMessage bridge recovery text with the concrete account id', async () => {
     vi.mocked(service.getById).mockResolvedValue({
       ...fakeRow,
-      id: 'imsg-1',
+      id: 'apple-msg-1',
       connectorType: 'imessage',
       status: 'failed',
       lastError:
@@ -93,10 +93,10 @@ describe('AccountsController', () => {
       userId: 'user-1',
     });
 
-    const result = await controller.get({ id: 'user-1' }, 'imsg-1');
+    const result = await controller.get({ id: 'user-1' }, 'apple-msg-1');
 
-    expect(result.lastError).toContain('botmem sync imsg-1');
-    expect(result.syncHealth?.recoveryReason).toContain('botmem sync imsg-1');
+    expect(result.lastError).toContain('botmem sync apple-msg-1');
+    expect(result.syncHealth?.recoveryReason).toContain('botmem sync apple-msg-1');
   });
 
   it('create calls service and maps result', async () => {

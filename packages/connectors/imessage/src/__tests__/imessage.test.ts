@@ -32,8 +32,8 @@ const mockMessagesHistory = vi.fn().mockResolvedValue([
 ]);
 const mockContactsList = vi.fn().mockResolvedValue([]);
 
-vi.mock('../imsg-client.js', () => ({
-  ImsgClient: vi.fn().mockImplementation(() => ({
+vi.mock('../apple-client.js', () => ({
+  AppleClient: vi.fn().mockImplementation(() => ({
     connect: mockConnect,
     disconnect: mockDisconnect,
     chatsList: mockChatsList,
@@ -101,7 +101,7 @@ describe('IMessageConnector', () => {
     it('returns complete with tunnel auth context for bridge mode', async () => {
       const result = await connector.initiateAuth({
         authMethod: 'bridge',
-        bridgeToken: 'imsg_bt_test',
+        bridgeToken: 'apple_bt_test',
         myIdentifier: 'me@icloud.com',
       });
 
@@ -110,7 +110,7 @@ describe('IMessageConnector', () => {
         expect(result.auth.raw).toEqual({
           myIdentifier: 'me@icloud.com',
           tunnelMode: true,
-          bridgeToken: 'imsg_bt_test',
+          bridgeToken: 'apple_bt_test',
           selectedSources: { contacts: true, imessages: true },
         });
       }
@@ -157,7 +157,7 @@ describe('IMessageConnector', () => {
 
     it('returns false for legacy local auth', async () => {
       const result = await connector.validateAuth({
-        raw: { imsgHost: 'localhost', imsgPort: 19876 },
+        raw: { appleHost: 'localhost', applePort: 19876 },
       });
 
       expect(result).toBe(false);
@@ -182,7 +182,7 @@ describe('IMessageConnector', () => {
     const makeSyncCtx = (overrides: Record<string, unknown> = {}): SyncContext =>
       ({
         accountId: 'acc-1',
-        auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
+        auth: { raw: { appleHost: 'localhost', applePort: 19876 } },
         cursor: null as string | null,
         jobId: 'j1',
         logger: {
@@ -513,7 +513,7 @@ describe('IMessageConnector', () => {
 
       const ctx: SyncContext = {
         accountId: 'acc-1',
-        auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
+        auth: { raw: { appleHost: 'localhost', applePort: 19876 } },
         cursor: null,
         jobId: 'j1',
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -527,7 +527,7 @@ describe('IMessageConnector', () => {
       expect(progressListener).toHaveBeenCalledWith(expect.objectContaining({ processed: 55 }));
     });
 
-    it('falls back to imsg-{id} sourceId when no guid', async () => {
+    it('falls back to apple-{id} sourceId when no guid', async () => {
       mockMessagesHistory.mockResolvedValueOnce([
         {
           id: 42,
@@ -551,7 +551,7 @@ describe('IMessageConnector', () => {
 
       const ctx: SyncContext = {
         accountId: 'acc-1',
-        auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
+        auth: { raw: { appleHost: 'localhost', applePort: 19876 } },
         cursor: null,
         jobId: 'j1',
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -559,7 +559,7 @@ describe('IMessageConnector', () => {
       };
 
       await connector.sync(ctx);
-      expect(dataListener.mock.calls[0][0].sourceId).toBe('imsg-42');
+      expect(dataListener.mock.calls[0][0].sourceId).toBe('apple-msg-42');
     });
 
     it('uses sender when no participants array', async () => {
@@ -586,7 +586,7 @@ describe('IMessageConnector', () => {
 
       const ctx: SyncContext = {
         accountId: 'acc-1',
-        auth: { raw: { imsgHost: 'localhost', imsgPort: 19876 } },
+        auth: { raw: { appleHost: 'localhost', applePort: 19876 } },
         cursor: null,
         jobId: 'j1',
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

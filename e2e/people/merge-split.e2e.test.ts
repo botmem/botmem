@@ -22,8 +22,7 @@ async function reload() {
 /** Pick two distinct person-type contacts. */
 function pickTwoPeople(): [any, any] {
   const candidates = people.filter(
-    (p: any) =>
-      (p.entityType ?? 'person') === 'person' && !consumedIds.includes(p.id),
+    (p: any) => (p.entityType ?? 'person') === 'person' && !consumedIds.includes(p.id),
   );
   expect(candidates.length).toBeGreaterThanOrEqual(2);
   return [candidates[0], candidates[1]];
@@ -31,12 +30,7 @@ function pickTwoPeople(): [any, any] {
 
 /** Find a person with at least minIdents identifiers. */
 function findWithMinIdents(minCount: number) {
-  return people.find(
-    (p: any) =>
-      p.identifiers &&
-      p.identifiers.length >= minCount &&
-      !consumedIds.includes(p.id),
-  );
+  return people.find((p: any) => p.identifiers && p.identifiers.length >= minCount);
 }
 
 beforeAll(async () => {
@@ -46,7 +40,9 @@ beforeAll(async () => {
   expect(people.length).toBeGreaterThan(10);
 }, 30_000);
 
-afterAll(async () => { await closeApp(); });
+afterAll(async () => {
+  await closeApp();
+});
 
 describe('Merge & Split (PEO-036 → PEO-050)', () => {
   it('PEO-036: Manual merge: target gets all source identifiers', async () => {
@@ -114,8 +110,7 @@ describe('Merge & Split (PEO-036 → PEO-050)', () => {
   it('PEO-040: Merge with self is handled gracefully', async () => {
     await reload();
     const person = people.find(
-      (p: any) =>
-        (p.entityType ?? 'person') === 'person' && !consumedIds.includes(p.id),
+      (p: any) => (p.entityType ?? 'person') === 'person' && !consumedIds.includes(p.id),
     );
     expect(person).toBeDefined();
 
@@ -128,26 +123,20 @@ describe('Merge & Split (PEO-036 → PEO-050)', () => {
   });
 
   it('PEO-041: Auto-merge endpoint returns results', async () => {
-    const res = await authedRequest(user.accessToken)
-      .post('/api/people/auto-merge')
-      .expect(201);
+    const res = await authedRequest(user.accessToken).post('/api/people/auto-merge').expect(201);
 
     expect(res.body).toHaveProperty('merged');
     expect(typeof res.body.merged).toBe('number');
   });
 
   it('PEO-042: Auto-merge returns byRule breakdown', async () => {
-    const res = await authedRequest(user.accessToken)
-      .post('/api/people/auto-merge')
-      .expect(201);
+    const res = await authedRequest(user.accessToken).post('/api/people/auto-merge').expect(201);
 
     expect(res.body).toHaveProperty('byRule');
   });
 
   it('PEO-043: Merge suggestions returns candidates', async () => {
-    const res = await authedRequest(user.accessToken)
-      .get('/api/people/suggestions')
-      .expect(200);
+    const res = await authedRequest(user.accessToken).get('/api/people/suggestions').expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
     for (const suggestion of res.body) {
@@ -231,13 +220,9 @@ describe('Merge & Split (PEO-036 → PEO-050)', () => {
       .get(`/api/people/${person.id}`)
       .expect(200);
 
-    const found = original.body.identifiers.find(
-      (i: any) => i.id === remainingIdent.id,
-    );
+    const found = original.body.identifiers.find((i: any) => i.id === remainingIdent.id);
     expect(found).toBeDefined();
-    const splitGone = original.body.identifiers.find(
-      (i: any) => i.id === identToSplit.id,
-    );
+    const splitGone = original.body.identifiers.find((i: any) => i.id === identToSplit.id);
     expect(splitGone).toBeUndefined();
   });
 
@@ -260,8 +245,7 @@ describe('Merge & Split (PEO-036 → PEO-050)', () => {
   });
 
   it('PEO-049: Normalize display names', async () => {
-    const res = await authedRequest(user.accessToken)
-      .post('/api/people/normalize');
+    const res = await authedRequest(user.accessToken).post('/api/people/normalize');
 
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('normalized');
@@ -271,8 +255,7 @@ describe('Merge & Split (PEO-036 → PEO-050)', () => {
   }, 120_000);
 
   it('PEO-050: Reclassify entity types', async () => {
-    const res = await authedRequest(user.accessToken)
-      .post('/api/people/reclassify');
+    const res = await authedRequest(user.accessToken).post('/api/people/reclassify');
 
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('reclassified');

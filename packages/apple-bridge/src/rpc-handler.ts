@@ -3,7 +3,7 @@
  * Dispatches incoming requests to the SQLite query layer.
  */
 
-import type { ImsgDatabase } from './db.js';
+import type { AppleMessagesDatabase } from './db.js';
 import { listAppleContacts } from './contacts.js';
 
 interface JsonRpcRequest {
@@ -21,7 +21,11 @@ interface JsonRpcResponse {
 }
 
 export class RpcHandler {
-  constructor(private db: ImsgDatabase) {}
+  constructor(private getDb: AppleMessagesDatabase | (() => AppleMessagesDatabase)) {}
+
+  private db(): AppleMessagesDatabase {
+    return typeof this.getDb === 'function' ? this.getDb() : this.getDb;
+  }
 
   async handle(request: JsonRpcRequest): Promise<JsonRpcResponse> {
     const { id, method, params } = request;
@@ -30,7 +34,7 @@ export class RpcHandler {
       switch (method) {
         case 'chats.list': {
           const limit = params?.limit as number | undefined;
-          const chats = this.db.chatsList(limit);
+          const chats = this.db().chatsList(limit);
           return { jsonrpc: '2.0', id, result: { chats } };
         }
 
@@ -48,7 +52,7 @@ export class RpcHandler {
             start: params?.start as string | undefined,
             end: params?.end as string | undefined,
           };
-          const messages = this.db.messagesHistory(chatId, opts);
+          const messages = this.db().messagesHistory(chatId, opts);
           return { jsonrpc: '2.0', id, result: { messages } };
         }
 

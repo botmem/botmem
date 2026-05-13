@@ -38,7 +38,12 @@ interface PendingRelayRpc {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export interface ImsgTunnelSession {
+export interface AppleBridgeSources {
+  contacts: boolean;
+  imessages: boolean;
+}
+
+export interface AppleTunnelSession {
   sessionId: string;
   userId: string;
   accountId: string;
@@ -49,13 +54,14 @@ export interface ImsgTunnelSession {
   nextRpcId: number;
   disconnectedAt: number | null;
   graceTimer: ReturnType<typeof setTimeout> | null;
+  sources: AppleBridgeSources;
 }
 
 // ── Crypto helpers (mirrors packages/apple-bridge/src/crypto.ts) ────────────
 
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
-const HKDF_SALT = Buffer.from('botmem-imsg-tunnel-v1', 'utf-8');
+const HKDF_SALT = Buffer.from('botmem-apple-tunnel-v1', 'utf-8');
 const HKDF_INFO = Buffer.from('aes-256-gcm-session-key', 'utf-8');
 const X25519_SPKI_HEADER = Buffer.from('302a300506032b656e032100', 'hex');
 
@@ -101,17 +107,17 @@ function decryptPayload(key: Buffer, payload: Buffer): string {
 
 const RPC_TIMEOUT_MS = 30_000;
 const GRACE_PERIOD_MS = 60_000;
-const TOKEN_PREFIX = 'imsg_bt_';
-const RELAY_REQUEST_CHANNEL = 'imsg:tunnel:rpc:request';
-const RELAY_RESPONSE_CHANNEL = 'imsg:tunnel:rpc:response';
+const TOKEN_PREFIX = 'apple_bt_';
+const RELAY_REQUEST_CHANNEL = 'apple:tunnel:rpc:request';
+const RELAY_RESPONSE_CHANNEL = 'apple:tunnel:rpc:response';
 const RELAY_STATUS_METHOD = '__status';
 
 // ── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable()
-export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(ImsgTunnelService.name);
-  private sessions = new Map<string, ImsgTunnelSession>(); // sessionId → session
+export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(AppleTunnelService.name);
+  private sessions = new Map<string, AppleTunnelSession>(); // sessionId → session
   private accountSessions = new Map<string, string>(); // accountId → sessionId
   private statusListeners = new Map<string, Set<(connected: boolean) => void>>();
   private redisPub: Redis | null = null;
@@ -134,7 +140,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     }
     for (const [, pending] of this.pendingRelayRpc) {
       clearTimeout(pending.timer);
-      pending.reject(new Error('iMessage relay shutting down'));
+      pending.reject(new Error('Apple relay shutting down'));
     }
     this.pendingRelayRpc.clear();
     this.redisSub?.disconnect();
@@ -159,6 +165,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     token: string,
     ws: WebSocket,
     clientPubKeyB64: string,
+    sourceList?: string,
   ): Promise<{
     sessionId: string;
     serverPubKeyB64: string;
@@ -171,6 +178,8 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Bridge auth failed: invalid token');
       return null;
     }
+    const sources = this.normalizeSources(sourceList);
+    await this.updateAccountSources(account, sources);
 
     // ECDH key exchange
     const serverKP = generateECDH();
@@ -186,7 +195,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     }
 
     const sessionId = randomUUID();
-    const session: ImsgTunnelSession = {
+    const session: AppleTunnelSession = {
       sessionId,
       userId: account.userId!,
       accountId: account.id,
@@ -197,6 +206,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
       nextRpcId: 1,
       disconnectedAt: null,
       graceTimer: null,
+      sources,
     };
 
     this.sessions.set(sessionId, session);
@@ -217,7 +227,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Send a JSON-RPC request to the remote bridge and await the response.
-   * Used by WsTunnelTransport when the connector calls ImsgClient methods.
+   * Used by AppleTunnelTransport when the connector calls AppleClient methods.
    */
   async sendRpcRequest(
     accountId: string,
@@ -237,6 +247,25 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return false;
     }
+  }
+
+  getBridgeStatus(accountId: string): {
+    connected: boolean;
+    accountId: string;
+    sources: AppleBridgeSources | null;
+    lastSeenAt: string | null;
+    lastError: string | null;
+  } {
+    const sessionId = this.accountSessions.get(accountId);
+    const session = sessionId ? this.sessions.get(sessionId) : undefined;
+    const connected = this.isConnected(accountId);
+    return {
+      connected,
+      accountId,
+      sources: session?.sources ?? null,
+      lastSeenAt: session ? new Date(session.connectedAt).toISOString() : null,
+      lastError: null,
+    };
   }
 
   private async sendLocalRpcRequest(
@@ -417,15 +446,18 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  getSession(sessionId: string): ImsgTunnelSession | undefined {
+  getSession(sessionId: string): AppleTunnelSession | undefined {
     return this.sessions.get(sessionId);
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
 
-  private async findAccountByToken(
-    token: string,
-  ): Promise<{ id: string; userId: string | null } | null> {
+  private async findAccountByToken(token: string): Promise<{
+    id: string;
+    userId: string | null;
+    authContext: string | null;
+    decryptedAuthContext: string;
+  } | null> {
     // Query Apple bridge accounts and check token match
     // (token is stored encrypted in authContext — must decrypt each to compare)
     // Uses db directly (no RLS) since this is system-level auth
@@ -448,7 +480,12 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
         };
         const storedToken = ctx.raw?.bridgeToken || ctx.bridgeToken;
         if (storedToken === token) {
-          return { id: row.id, userId: row.userId };
+          return {
+            id: row.id,
+            userId: row.userId,
+            authContext: row.authContext,
+            decryptedAuthContext: decrypted,
+          };
         }
       } catch {
         continue;
@@ -456,6 +493,46 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     }
 
     return null;
+  }
+
+  private normalizeSources(sourceList: string | undefined): AppleBridgeSources {
+    const parts = (sourceList || 'contacts,imessages')
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean);
+    return {
+      contacts: parts.length === 0 || parts.includes('contacts'),
+      imessages: parts.length === 0 || parts.includes('imessages') || parts.includes('messages'),
+    };
+  }
+
+  private async updateAccountSources(
+    account: { id: string; decryptedAuthContext: string },
+    selectedSources: AppleBridgeSources,
+  ): Promise<void> {
+    try {
+      const ctx = JSON.parse(account.decryptedAuthContext) as {
+        raw?: Record<string, unknown>;
+      };
+      const next = {
+        ...ctx,
+        raw: {
+          ...(ctx.raw ?? {}),
+          selectedSources,
+        },
+      };
+      const encrypted = this.crypto.encrypt(JSON.stringify(next));
+      await this.dbService.queryRaw('UPDATE accounts SET auth_context = $1 WHERE id = $2', [
+        encrypted,
+        account.id,
+      ]);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to update Apple bridge sources for ${account.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   private emitStatus(accountId: string, connected: boolean): void {
@@ -480,17 +557,17 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.redisPub.on('error', (err) =>
-      this.logger.warn(`iMessage relay publisher error: ${err.message}`),
+      this.logger.warn(`Apple relay publisher error: ${err.message}`),
     );
     this.redisSub.on('error', (err) =>
-      this.logger.warn(`iMessage relay subscriber error: ${err.message}`),
+      this.logger.warn(`Apple relay subscriber error: ${err.message}`),
     );
 
     this.redisSub.on('message', (channel, message) => {
       if (channel === RELAY_REQUEST_CHANNEL) {
         this.handleRelayRequest(message).catch((err) =>
           this.logger.warn(
-            `Failed to handle iMessage relay request: ${
+            `Failed to handle Apple relay request: ${
               err instanceof Error ? err.message : String(err)
             }`,
           ),
@@ -502,7 +579,7 @@ export class ImsgTunnelService implements OnModuleInit, OnModuleDestroy {
 
     this.redisSub
       .subscribe(RELAY_REQUEST_CHANNEL, RELAY_RESPONSE_CHANNEL)
-      .catch((err) => this.logger.warn(`Failed to subscribe iMessage relay: ${err.message}`));
+      .catch((err) => this.logger.warn(`Failed to subscribe Apple relay: ${err.message}`));
   }
 
   private async handleRelayRequest(message: string): Promise<void> {

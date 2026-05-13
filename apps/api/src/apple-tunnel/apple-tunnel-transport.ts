@@ -1,11 +1,11 @@
 /**
  * WebSocket tunnel transport for the iMessage connector.
  *
- * Server-side only — delegates RPC calls through the ImsgTunnelService
+ * Server-side only — delegates RPC calls through the AppleTunnelService
  * to a remote bridge connected via encrypted WebSocket.
  */
 
-import type { ImsgTunnelService } from './imsg-tunnel.service';
+import type { AppleTunnelService } from './apple-tunnel.service';
 
 /** Matches RpcTransport from @botmem/connector-imessage */
 interface RpcTransport {
@@ -14,9 +14,9 @@ interface RpcTransport {
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
 }
 
-export class WsTunnelTransport implements RpcTransport {
+export class AppleTunnelTransport implements RpcTransport {
   constructor(
-    private tunnelService: ImsgTunnelService,
+    private tunnelService: AppleTunnelService,
     private accountId: string,
   ) {}
 
@@ -29,7 +29,7 @@ export class WsTunnelTransport implements RpcTransport {
   }
 
   disconnect(): void {
-    // No-op — tunnel lifecycle is managed by ImsgTunnelService
+    // No-op — tunnel lifecycle is managed by AppleTunnelService
   }
 
   async call(method: string, params?: Record<string, unknown>): Promise<unknown> {

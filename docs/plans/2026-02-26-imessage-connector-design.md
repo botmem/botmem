@@ -27,7 +27,7 @@ command generated in connector setup, then run `botmem sync <imessage-account-id
 
 **Docker side**: Connector opens TCP socket to `host.docker.internal:19876`, sends JSON-RPC 2.0 requests (newline-delimited JSON), reads responses.
 
-### imsg RPC Protocol
+### Apple RPC Protocol
 
 Transport: stdin/stdout, newline-delimited JSON-RPC 2.0. Over the legacy local bridge, this becomes TCP with same framing.
 
@@ -40,8 +40,12 @@ Methods used:
 
 ```json
 {
-  "imsgHost": { "type": "string", "default": "host.docker.internal", "title": "imsg Bridge Host" },
-  "imsgPort": { "type": "number", "default": 19876, "title": "imsg Bridge Port" }
+  "appleHost": {
+    "type": "string",
+    "default": "host.docker.internal",
+    "title": "Apple Bridge Host"
+  },
+  "applePort": { "type": "number", "default": 19876, "title": "Apple Bridge Port" }
 }
 ```
 
@@ -49,7 +53,7 @@ Auth type remains `local-tool`. Auth validation = successful `chats.list` ping.
 
 ### Sync Strategy
 
-1. Connect TCP to imsg bridge
+1. Connect TCP to Apple bridge
 2. `chats.list` with high limit to get all conversations
 3. For each chat: `messages.history` with `start` = last cursor timestamp (or epoch for first sync)
 4. Emit `ConnectorDataEvent` per message with: text, participants, timestamp, isFromMe, chatId, attachments
@@ -59,8 +63,8 @@ Auth type remains `local-tool`. Auth validation = successful `chats.list` ping.
 ### Files Changed
 
 - **Delete**: `packages/connectors/imessage/src/exporter.ts`
-- **Create**: `packages/connectors/imessage/src/imsg-client.ts` — TCP JSON-RPC client
-- **Rewrite**: `packages/connectors/imessage/src/index.ts` — use imsg-client for sync/auth
+- **Create**: `packages/connectors/imessage/src/apple-client.ts` — TCP JSON-RPC client
+- **Rewrite**: `packages/connectors/imessage/src/index.ts` — use apple-client for sync/auth
 - **Rewrite**: `packages/connectors/imessage/src/__tests__/imessage.test.ts` — new mocks
 
 ### Event Format (unchanged)
@@ -68,7 +72,7 @@ Auth type remains `local-tool`. Auth validation = successful `chats.list` ping.
 ```ts
 {
   sourceType: 'message',
-  sourceId: msg.guid || `imsg-${msg.id}`,
+  sourceId: msg.guid || `apple-${msg.id}`,
   timestamp: msg.created_at,
   content: {
     text: msg.text,

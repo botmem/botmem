@@ -69,9 +69,9 @@ describe('fake-data', () => {
       expect(waHero?.text).toContain('Zuma');
       expect(waHero?.text).toContain('Friday');
 
-      const imsgHero = heroes.find((h) => h.connectorType === 'imessage');
-      expect(imsgHero?.text).toContain('Mediclinic');
-      expect(imsgHero?.text).toContain('appointment');
+      const appleHero = heroes.find((h) => h.connectorType === 'imessage');
+      expect(appleHero?.text).toContain('Mediclinic');
+      expect(appleHero?.text).toContain('appointment');
 
       const photoHero = heroes.find((h) => h.connectorType === 'photos-immich');
       expect(photoHero?.text).toContain('Burj Khalifa');

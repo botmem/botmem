@@ -1,5 +1,5 @@
 // Public API for programmatic use
-export { ImsgDatabase } from './db.js';
+export { AppleMessagesDatabase } from './db.js';
 export type { Chat, Message, Attachment, Reaction } from './db.js';
 export { RpcHandler } from './rpc-handler.js';
 export { TunnelClient } from './tunnel.js';

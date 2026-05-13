@@ -19,7 +19,7 @@ import { BillingModule } from './billing/billing.module';
 import { OAuthModule } from './oauth/oauth.module';
 import { TracingModule } from './tracing/tracing.module';
 import { GeoModule } from './geo/geo.module';
-import { ImsgTunnelModule } from './imsg-tunnel/imsg-tunnel.module';
+import { AppleTunnelModule } from './apple-tunnel/apple-tunnel.module';
 
 @Module({
   imports: [
@@ -43,7 +43,7 @@ import { ImsgTunnelModule } from './imsg-tunnel/imsg-tunnel.module';
     BillingModule,
     OAuthModule,
     GeoModule,
-    ImsgTunnelModule,
+    AppleTunnelModule,
   ],
 })
 export class WorkerModule {}

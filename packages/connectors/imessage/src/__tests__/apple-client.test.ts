@@ -33,7 +33,7 @@ vi.mock('net', () => {
   };
 });
 
-describe('ImsgClient (via TcpTransport)', () => {
+describe('AppleClient (via TcpTransport)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockSocket = createMockSocket();
@@ -46,8 +46,8 @@ describe('ImsgClient (via TcpTransport)', () => {
 
   async function makeClient() {
     const { TcpTransport } = await import('../transport.js');
-    const { ImsgClient } = await import('../imsg-client.js');
-    return new ImsgClient(new TcpTransport('localhost', 19876));
+    const { AppleClient } = await import('../apple-client.js');
+    return new AppleClient(new TcpTransport('localhost', 19876));
   }
 
   async function makeAndConnect() {

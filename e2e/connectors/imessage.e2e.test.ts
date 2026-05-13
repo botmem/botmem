@@ -3,7 +3,7 @@
  *
  * Tests iMessage local-tool auth, RPC bridge, tapback filtering,
  * participant identifier formatting, and progress emission.
- * The imsg RPC bridge is mocked — tests focus on connector logic.
+ * The Apple RPC bridge is mocked — tests focus on connector logic.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ConnectorDataEvent } from '@botmem/connector-sdk';
@@ -17,11 +17,11 @@ beforeEach(async () => {
     typeof Ctor === 'function' && Ctor.prototype ? new Ctor() : (mod.default as () => unknown)();
 });
 
-function makeIMsgEvent(text: string, metadata: Record<string, unknown> = {}): ConnectorDataEvent {
+function makeAppleEvent(text: string, metadata: Record<string, unknown> = {}): ConnectorDataEvent {
   return {
     connectorType: 'imessage',
     sourceType: 'message',
-    externalId: `imsg-${Date.now()}-${Math.random()}`,
+    externalId: `apple-${Date.now()}-${Math.random()}`,
     eventTime: new Date().toISOString(),
     content: {
       text,
@@ -46,10 +46,10 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
   });
 
   // CONN-081
-  it('CONN-081: iMessage configSchema has optional imsgHost and imsgPort', () => {
+  it('CONN-081: iMessage configSchema has optional appleHost and applePort', () => {
     const schema = connector.manifest.configSchema;
-    expect(schema.properties).toHaveProperty('imsgHost');
-    expect(schema.properties).toHaveProperty('imsgPort');
+    expect(schema.properties).toHaveProperty('appleHost');
+    expect(schema.properties).toHaveProperty('applePort');
   });
 
   // CONN-082
@@ -58,7 +58,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
     connector.on('data', (e: ConnectorDataEvent) => emitted.push(e));
 
     connector.emitData(
-      makeIMsgEvent('Hey, want to grab coffee?', {
+      makeAppleEvent('Hey, want to grab coffee?', {
         participants: ['+1234567890'],
       }),
     );
@@ -71,7 +71,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
     const emitted: ConnectorDataEvent[] = [];
     connector.on('data', (e: ConnectorDataEvent) => emitted.push(e));
 
-    connector.emitData(makeIMsgEvent('Your verification code is 847291'));
+    connector.emitData(makeAppleEvent('Your verification code is 847291'));
 
     expect(emitted).toHaveLength(0);
     expect(connector.filteredCount).toBe(1);
@@ -117,7 +117,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
 
   // CONN-086
   it('CONN-086: iMessage embed() returns person entities for participants', () => {
-    const event = makeIMsgEvent('Hello there', {
+    const event = makeAppleEvent('Hello there', {
       participants: ['+1234567890', 'alice@example.com'],
     });
 
@@ -131,7 +131,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
 
   // CONN-087
   it('CONN-087: iMessage embed() uses email: prefix for email participants', () => {
-    const event = makeIMsgEvent('Email message', {
+    const event = makeAppleEvent('Email message', {
       participants: ['alice@example.com'],
       sender: 'alice@example.com',
     });
@@ -145,7 +145,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
 
   // CONN-088
   it('CONN-088: iMessage embed() uses phone: prefix for phone participants', () => {
-    const event = makeIMsgEvent('Phone message', {
+    const event = makeAppleEvent('Phone message', {
       participants: ['+1234567890'],
       sender: '+1234567890',
     });
@@ -177,13 +177,13 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
   });
 
   it('iMessage clean() strips invisible unicode', () => {
-    const event = makeIMsgEvent('Hello\u200Bworld');
+    const event = makeAppleEvent('Hello\u200Bworld');
     const result = connector.clean(event, {} as any);
     expect(result.text).toBe('Helloworld');
   });
 
   it('iMessage clean() collapses whitespace', () => {
-    const event = makeIMsgEvent('Hello    world');
+    const event = makeAppleEvent('Hello    world');
     const result = connector.clean(event, {} as any);
     expect(result.text).toBe('Hello world');
   });
@@ -195,7 +195,7 @@ describe('iMessage Connector (CONN-079 → CONN-088)', () => {
     connector.emitData({
       connectorType: 'imessage',
       sourceType: 'contact',
-      externalId: 'imsg-contact-1',
+      externalId: 'apple-contact-1',
       eventTime: new Date().toISOString(),
       content: {
         text: 'Bob Smith',

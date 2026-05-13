@@ -21,6 +21,7 @@ export interface TunnelOptions {
   serverUrl: string;
   token: string;
   rpcHandler: RpcHandler;
+  sources?: string;
 }
 
 export type TunnelStatus = 'connecting' | 'authenticating' | 'connected' | 'disconnected' | 'error';
@@ -127,6 +128,7 @@ export class TunnelClient extends EventEmitter {
         data: {
           token: this.opts.token,
           publicKey: publicKeyRaw.toString('base64'),
+          sources: this.opts.sources,
         },
       }),
     );

@@ -3,7 +3,7 @@
  *
  * Two implementations:
  *   - TcpTransport: direct TCP socket (legacy local bridge)
- *   - RpcTransport interface: used by WsTunnelTransport (server-side, in apps/api/)
+ *   - RpcTransport interface: used by AppleTunnelTransport (server-side, in apps/api/)
  */
 
 import { Socket } from 'net';
@@ -16,7 +16,7 @@ export interface RpcTransport {
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
 }
 
-// ── TCP Transport (extracted from original ImsgClient) ──────────────────────
+// ── TCP Transport (extracted from original AppleClient) ──────────────────────
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';

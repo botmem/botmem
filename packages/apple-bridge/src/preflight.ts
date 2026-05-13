@@ -3,9 +3,9 @@
  * Verifies: macOS, chat.db readable, SQLite works.
  */
 
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -19,8 +19,43 @@ export interface PreflightResult {
   errors: string[];
 }
 
-export function runPreflight(dbPath: string = DEFAULT_DB_PATH): PreflightResult {
+export interface PreflightOptions {
+  requireMessages?: boolean;
+  runnerName?: string;
+}
+
+function sidecarPaths(dbPath: string): string[] {
+  return [`${dbPath}-wal`, `${dbPath}-shm`];
+}
+
+export function detectRunnerName(): string {
+  if (process.env.BOTMEM_BRIDGE_RUNNER_NAME) {
+    return process.env.BOTMEM_BRIDGE_RUNNER_NAME;
+  }
+  const argv0 = process.argv[1] || process.argv[0] || 'this app';
+  const name = basename(argv0);
+  if (name === 'cli.js' || name === 'apple-bridge') return 'your terminal app';
+  return name || 'this app';
+}
+
+function fullDiskAccessMessage(dbPath: string, runnerName: string): string {
+  return (
+    `Cannot read ${dbPath}` +
+    '\n\nmacOS blocked Messages access.' +
+    `\nOpen System Settings > Privacy & Security > Full Disk Access and enable ${runnerName}.` +
+    '\nRestart the bridge after enabling access.' +
+    '\n\nShortcut:' +
+    '\n  open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"'
+  );
+}
+
+export function runPreflight(
+  dbPath: string = DEFAULT_DB_PATH,
+  options: PreflightOptions = {},
+): PreflightResult {
   const errors: string[] = [];
+  const requireMessages = options.requireMessages !== false;
+  const runnerName = options.runnerName || detectRunnerName();
 
   // 1. macOS check
   if (process.platform !== 'darwin') {
@@ -31,18 +66,26 @@ export function runPreflight(dbPath: string = DEFAULT_DB_PATH): PreflightResult 
     return { ok: false, dbPath, errors };
   }
 
+  if (!requireMessages) {
+    return { ok: true, dbPath, errors };
+  }
+
   // 2. File exists and readable
   try {
     accessSync(dbPath, constants.R_OK);
   } catch {
-    errors.push(
-      `Cannot read ${dbPath}` +
-        '\n\nTo fix this, grant Full Disk Access to your terminal:' +
-        '\n  1. Open System Settings → Privacy & Security → Full Disk Access' +
-        '\n  2. Click the + button and add your terminal app (Terminal, iTerm2, etc.)' +
-        '\n  3. Restart your terminal and try again',
-    );
+    errors.push(fullDiskAccessMessage(dbPath, runnerName));
     return { ok: false, dbPath, errors };
+  }
+
+  for (const path of sidecarPaths(dbPath)) {
+    if (!existsSync(path)) continue;
+    try {
+      accessSync(path, constants.R_OK);
+    } catch {
+      errors.push(fullDiskAccessMessage(path, runnerName));
+      return { ok: false, dbPath, errors };
+    }
   }
 
   // 3. SQLite can open and query the DB

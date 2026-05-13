@@ -2,7 +2,7 @@
  * JSON-RPC client for the iMessage bridge.
  *
  * Transport-agnostic: works with either TcpTransport (legacy local bridge)
- * or WsTunnelTransport (remote bridge via encrypted WebSocket tunnel).
+ * or AppleTunnelTransport (remote bridge via encrypted WebSocket tunnel).
  */
 
 import type { RpcTransport } from './transport';
@@ -65,7 +65,7 @@ export interface AppleContact {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
-export class ImsgClient {
+export class AppleClient {
   private transport: RpcTransport;
 
   constructor(transport: RpcTransport) {

@@ -986,7 +986,7 @@ function generateIMessageMemory(contacts: FakeContact[]): FakeMemory {
     id,
     connectorType: 'imessage',
     sourceType: 'message',
-    sourceId: `demo-imsg-${id}`,
+    sourceId: `demo-apple-msg-${id}`,
     text,
     eventTime: randomDate(90),
     entities: [{ type: 'person', value: sender.displayName }],
@@ -1227,7 +1227,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
     id: randomUUID(),
     connectorType: 'imessage',
     sourceType: 'message',
-    sourceId: `demo-imsg-hero-1`,
+    sourceId: `demo-apple-msg-hero-1`,
     text: `${person0.displayName}: Don't forget about the appointment at Mediclinic tomorrow at 3pm. Dr. Fatima Al Zaabi, Building 27, City Walk. Bring your Emirates ID and insurance card.`,
     eventTime: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
     entities: [

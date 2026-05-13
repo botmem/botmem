@@ -144,6 +144,7 @@ describe('PeopleService runtime behavior', () => {
 
     const { service, dbService } = makeDb([
       [], // no matching identifier
+      [], // no exact-name durable match
       [], // insert person
       [], // existing identifiers for new person
       [], // insert identifiers

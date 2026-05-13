@@ -41,7 +41,7 @@ export default defineConfig({
         'src/analytics/posthog-logger.service.ts',
         'src/demo/demo.service.ts',
         'src/geo/geo.service.ts',
-        'src/imsg-tunnel/**',
+        'src/apple-tunnel/**',
         'src/memory/memory.processor.ts',
         'src/memory/decay.processor.ts',
         'src/memory/pg-search.service.ts',

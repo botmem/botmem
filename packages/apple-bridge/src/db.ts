@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const Database = require('better-sqlite3') as any;
 
-// ── Types (match ImsgClient interface) ──────────────────────────────────────
+// ── Types (match AppleClient interface) ──────────────────────────────────────
 
 export interface Chat {
   id: number;
@@ -70,7 +70,7 @@ function coreDataToISO(nanos: number | null): string {
 
 // ── Database ────────────────────────────────────────────────────────────────
 
-export class ImsgDatabase {
+export class AppleMessagesDatabase {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private db: any;
 
@@ -185,7 +185,7 @@ export class ImsgDatabase {
       return {
         id: msgId,
         chat_id: chatId,
-        guid: (row.guid as string) || `imsg-local-${msgId}`,
+        guid: (row.guid as string) || `apple-msg-local-${msgId}`,
         sender: (row.handle_id as string) || '',
         is_from_me: (row.is_from_me as number) === 1,
         text,
