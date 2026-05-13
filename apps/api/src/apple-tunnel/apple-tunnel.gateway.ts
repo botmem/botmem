@@ -2,7 +2,7 @@
  * WebSocket gateway for Apple bridge tunnel connections.
  *
  * Protocol:
- *   1. Bridge connects to /imsg-tunnel
+ *   1. Bridge connects to /apple-tunnel
  *   2. First message (JSON): { event: 'auth', data: { token, publicKey } }
  *   3. Server responds (JSON): { event: 'auth', data: { ok, publicKey } }
  *   4. All subsequent messages are encrypted binary (AES-256-GCM)
@@ -17,7 +17,7 @@ import {
 import { Server, WebSocket } from 'ws';
 import { Logger } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import { ImsgTunnelService } from './imsg-tunnel.service';
+import { AppleTunnelService } from './apple-tunnel.service';
 
 interface ClientState {
   sessionId: string | null;
@@ -28,15 +28,15 @@ interface ClientState {
 const AUTH_TIMEOUT_MS = 10_000;
 
 @SkipThrottle()
-@WebSocketGateway({ path: '/imsg-tunnel' })
-export class ImsgTunnelGateway implements OnGatewayConnection, OnGatewayDisconnect {
+@WebSocketGateway({ path: '/apple-tunnel' })
+export class AppleTunnelGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
-  private readonly logger = new Logger(ImsgTunnelGateway.name);
+  private readonly logger = new Logger(AppleTunnelGateway.name);
   private clients = new Map<WebSocket, ClientState>();
 
-  constructor(private tunnelService: ImsgTunnelService) {}
+  constructor(private tunnelService: AppleTunnelService) {}
 
   handleConnection(client: WebSocket) {
     const authTimer = setTimeout(() => {
@@ -87,7 +87,7 @@ export class ImsgTunnelGateway implements OnGatewayConnection, OnGatewayDisconne
     try {
       const msg = JSON.parse(raw) as {
         event: string;
-        data: { token?: string; publicKey?: string };
+        data: { token?: string; publicKey?: string; sources?: string };
       };
 
       if (msg.event !== 'auth' || !msg.data?.token || !msg.data?.publicKey) {
@@ -103,6 +103,7 @@ export class ImsgTunnelGateway implements OnGatewayConnection, OnGatewayDisconne
         msg.data.token,
         client,
         msg.data.publicKey,
+        msg.data.sources,
       );
 
       if (!result) {

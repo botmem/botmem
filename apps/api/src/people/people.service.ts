@@ -748,6 +748,32 @@ export class PeopleService {
       if (rows[0]?.id) matchedContactIds.add(rows[0].id);
     }
 
+    if (!matchedContactIds.size && (!entityType || entityType === 'person') && nameAliases[0]) {
+      const exactNameKey = exactDisplayNameAutoMergeKey(nameAliases[0].value);
+      if (exactNameKey && hasDurablePersonIdentifier(identityIdentifiers)) {
+        const rows = await this.dbService.withCurrentUser((db) =>
+          db
+            .select({ id: people.id })
+            .from(people)
+            .innerJoin(personIdentifiers, eq(personIdentifiers.personId, people.id))
+            .where(
+              and(
+                eq(people.entityType, 'person'),
+                eq(people.displayNameHash, this.crypto.hmac(exactNameKey)),
+                userId ? eq(people.userId, userId) : undefined,
+                sql`${personIdentifiers.identifierType} != 'name'`,
+                sql`${personIdentifiers.identifierType} NOT IN ('whatsapp_group_jid', 'imessage_group_id', 'slack_channel_id', 'telegram_group_id')`,
+              ),
+            )
+            .limit(2),
+        );
+        const exactNameMatches = [...new Set(rows.map((row) => row.id))];
+        if (exactNameMatches.length === 1) {
+          matchedContactIds.add(exactNameMatches[0]);
+        }
+      }
+    }
+
     const matchedIds = Array.from(matchedContactIds);
     let personId: string;
     const resolvingPerson = !entityType || entityType === 'person';

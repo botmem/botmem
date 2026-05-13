@@ -258,14 +258,14 @@ describe('AuthService', () => {
     it('reuses an existing iMessage bridge account for the same identifier', async () => {
       const deps = createMockDeps();
       vi.mocked(deps.accountsService.findByTypeAndIdentifier).mockResolvedValueOnce({
-        id: 'existing-imsg',
+        id: 'existing-apple',
         connectorType: 'imessage',
         identifier: 'amroessams@gmail.com',
         status: 'failed',
-        authContext: JSON.stringify({ raw: { bridgeToken: 'imsg_bt_existing' } }),
+        authContext: JSON.stringify({ raw: { bridgeToken: 'apple_bt_existing' } }),
       } as never);
       vi.mocked(deps.accountsService.update).mockResolvedValueOnce({
-        id: 'existing-imsg',
+        id: 'existing-apple',
         connectorType: 'imessage',
         identifier: 'amroessams@gmail.com',
         status: 'disconnected',
@@ -281,7 +281,7 @@ describe('AuthService', () => {
       expect(result.type).toBe('complete');
       expect(deps.accountsService.create).not.toHaveBeenCalled();
       expect(deps.accountsService.update).toHaveBeenCalledWith(
-        'existing-imsg',
+        'existing-apple',
         expect.objectContaining({
           identifier: 'amroessams@gmail.com',
           tunnelMode: true,
@@ -289,8 +289,8 @@ describe('AuthService', () => {
           lastError: null,
         }),
       );
-      expect((result.account as { id: string; bridgeToken: string }).id).toBe('existing-imsg');
-      expect((result.account as { bridgeToken: string }).bridgeToken).toBe('imsg_bt_existing');
+      expect((result.account as { id: string; bridgeToken: string }).id).toBe('existing-apple');
+      expect((result.account as { bridgeToken: string }).bridgeToken).toBe('apple_bt_existing');
     });
   });
 

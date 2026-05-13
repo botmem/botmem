@@ -12,7 +12,7 @@ import { SettingsService } from '../../settings/settings.service';
 import { ConfigService } from '../../config/config.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { EventEmitter } from 'events';
-import { ImsgTunnelService } from '../../imsg-tunnel/imsg-tunnel.service';
+import { AppleTunnelService } from '../../apple-tunnel/apple-tunnel.service';
 import { PeopleService } from '../../people/people.service';
 
 function createMockDeps() {
@@ -1006,7 +1006,7 @@ describe('SyncProcessor', () => {
     Object.assign(mockConnector, { setTunnelTransport });
     mockConnector.sync.mockResolvedValue({ cursor: null, hasMore: false, processed: 0 });
     vi.mocked(accountsService.getById).mockResolvedValue({
-      id: 'imsg-1',
+      id: 'apple-msg-1',
       connectorType: 'imessage',
       authContext: '{"raw":{"tunnelMode":true}}',
       lastCursor: null,
@@ -1033,12 +1033,12 @@ describe('SyncProcessor', () => {
     );
 
     await processor.process({
-      data: { accountId: 'imsg-1', connectorType: 'imessage', jobId: 'j1' },
+      data: { accountId: 'apple-msg-1', connectorType: 'imessage', jobId: 'j1' },
       opts: { attempts: 1 },
       attemptsMade: 0,
     } as unknown as import('bullmq').Job);
 
-    expect(moduleRef.get).toHaveBeenCalledWith(ImsgTunnelService, { strict: false });
+    expect(moduleRef.get).toHaveBeenCalledWith(AppleTunnelService, { strict: false });
     expect(setTunnelTransport).toHaveBeenCalledOnce();
   });
 
@@ -1084,7 +1084,7 @@ describe('SyncProcessor', () => {
       tunnelMode: true,
     } as never);
     vi.mocked(moduleRef.get).mockImplementation((token: unknown) => {
-      if (token === ImsgTunnelService) return { isConnected: vi.fn() } as never;
+      if (token === AppleTunnelService) return { isConnected: vi.fn() } as never;
       if (token === PeopleService) return { resolvePerson } as never;
       return null as never;
     });

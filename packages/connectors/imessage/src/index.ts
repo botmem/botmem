@@ -9,8 +9,8 @@ import type {
   EmbedResult,
   PipelineContext,
 } from '@botmem/connector-sdk';
-import { ImsgClient } from './imsg-client.js';
-import type { AppleContact } from './imsg-client.js';
+import { AppleClient } from './apple-client.js';
+import type { AppleContact } from './apple-client.js';
 import type { RpcTransport } from './transport.js';
 
 /** Tapback/reaction prefixes used by iMessage */
@@ -100,13 +100,13 @@ export class AppleConnector extends BaseConnector {
           description: 'Use the Botmem encrypted WebSocket bridge',
           default: 'bridge',
         },
-        imsgHost: {
+        appleHost: {
           type: 'string',
           title: 'Bridge Host',
           description: 'Optional host for a local iMessage bridge',
           default: 'localhost',
         },
-        imsgPort: {
+        applePort: {
           type: 'number',
           title: 'Bridge Port',
           description: 'Optional port for a local iMessage bridge',
@@ -213,7 +213,7 @@ export class AppleConnector extends BaseConnector {
   async validateAuth(auth: AuthContext): Promise<boolean> {
     // Tunnel mode — validation happens via bridge connection status
     if (auth.raw?.tunnelMode) {
-      return true; // Actual connectivity checked by ImsgTunnelService.isConnected()
+      return true; // Actual connectivity checked by AppleTunnelService.isConnected()
     }
 
     return false;
@@ -238,7 +238,7 @@ export class AppleConnector extends BaseConnector {
       );
     }
 
-    const client = new ImsgClient(transport);
+    const client = new AppleClient(transport);
     try {
       await withTimeout(
         client.connect(),
@@ -318,7 +318,7 @@ export class AppleConnector extends BaseConnector {
 
           this.emitData({
             sourceType: 'message',
-            sourceId: msg.guid || `imsg-${msg.id}`,
+            sourceId: msg.guid || `apple-msg-${msg.id}`,
             timestamp: msg.created_at,
             content: {
               text,
@@ -375,7 +375,7 @@ export class AppleConnector extends BaseConnector {
     }
   }
 
-  private async syncContacts(client: ImsgClient, ctx: SyncContext): Promise<void> {
+  private async syncContacts(client: AppleClient, ctx: SyncContext): Promise<void> {
     try {
       const contacts = await client.contactsList();
       let processed = 0;

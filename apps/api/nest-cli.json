@@ -6,8 +6,8 @@
     "builder": "swc",
     "deleteOutDir": true,
     "assets": [
-      { "include": "db/migrations/**", "watchAssets": true },
-      { "include": "swagger-theme.css", "watchAssets": true }
+      { "include": "db/migrations/**", "outDir": "dist/src", "watchAssets": true },
+      { "include": "swagger-theme.css", "outDir": "dist/src", "watchAssets": true }
     ],
     "plugins": ["@nestjs/swagger"]
   }

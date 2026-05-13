@@ -19,6 +19,23 @@ import { AnalyticsService } from '../analytics/analytics.service';
 // Dummy hash used for timing attack prevention when user not found
 const DUMMY_HASH = '$2b$12$LJ3m4ys3Gz8h/.0MStlQiee6RjGHPnRYVwO3BSXK8X8A.VFj0e6Vu';
 
+function isUniqueConstraintError(err: unknown): boolean {
+  let current = err as { message?: string; code?: string; constraint?: string; cause?: unknown };
+  const seen = new Set<unknown>();
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    if (
+      current.message?.includes('UNIQUE constraint failed') ||
+      current.code === '23505' ||
+      current.constraint
+    ) {
+      return true;
+    }
+    current = current.cause as typeof current;
+  }
+  return false;
+}
+
 @Injectable()
 export class UserAuthService {
   private readonly logger = new Logger(UserAuthService.name);
@@ -57,12 +74,7 @@ export class UserAuthService {
     try {
       user = await this.usersService.createUser(email, passwordHash, name, encryptionSalt);
     } catch (err: unknown) {
-      const dbErr = err as { message?: string; code?: string; constraint?: string };
-      if (
-        dbErr.message?.includes('UNIQUE constraint failed') ||
-        dbErr.code === '23505' ||
-        dbErr.constraint
-      ) {
+      if (isUniqueConstraintError(err)) {
         throw new ConflictException('Email already registered');
       }
       throw err;

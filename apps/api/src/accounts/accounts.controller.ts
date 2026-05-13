@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { DbService } from '../db/db.service';
-import { ImsgTunnelService } from '../imsg-tunnel/imsg-tunnel.service';
+import { AppleTunnelService } from '../apple-tunnel/apple-tunnel.service';
 import { jobs, memorySearchIndex } from '../db/schema';
 import { sql, inArray, desc, and } from 'drizzle-orm';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -107,7 +107,7 @@ export class AccountsController {
   constructor(
     private accountsService: AccountsService,
     private dbService: DbService,
-    private imsgTunnel: ImsgTunnelService,
+    private appleTunnel: AppleTunnelService,
   ) {}
 
   @Get()
@@ -198,7 +198,7 @@ export class AccountsController {
     if (account.userId !== user.id) {
       throw new NotFoundException('Account not found');
     }
-    return { connected: this.imsgTunnel.isConnected(id) };
+    return this.appleTunnel.getBridgeStatus(id);
   }
 
   @RequiresJwt()
