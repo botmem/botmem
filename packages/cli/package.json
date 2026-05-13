@@ -36,10 +36,10 @@
     "access": "public"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.7.0",
     "typescript": "catalog:"
   },
   "dependencies": {
-    "@toon-format/toon": "^2.1.0"
+    "@toon-format/toon": "^2.2.0"
   }
 }

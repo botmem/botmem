@@ -19,7 +19,7 @@
     "@nestjs/core": "^11.1.19",
     "@nestjs/platform-express": "^11.1.19",
     "@nestjs/testing": "^11.1.19",
-    "@playwright/test": "^1.59.1",
+    "@playwright/test": "^1.60.0",
     "@swc/core": "^1.15.33",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/supertest": "^7.2.0",
