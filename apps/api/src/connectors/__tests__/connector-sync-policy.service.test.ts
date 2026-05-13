@@ -22,9 +22,22 @@ describe('ConnectorSyncPolicyService', () => {
     });
   });
 
-  it('ignores WhatsApp cursors only for manual syncs', () => {
+  it('ignores backfill-style connector cursors only for manual syncs', () => {
     expect(service.shouldIgnoreCursor('whatsapp', false)).toBe(true);
     expect(service.shouldIgnoreCursor('whatsapp', true)).toBe(false);
+    expect(service.shouldIgnoreCursor('apple', false)).toBe(true);
+    expect(service.shouldIgnoreCursor('apple', true)).toBe(false);
+    expect(service.shouldIgnoreCursor('imessage', false)).toBe(true);
+    expect(service.shouldIgnoreCursor('imessage', true)).toBe(false);
     expect(service.shouldIgnoreCursor('gmail', false)).toBe(false);
+  });
+
+  it('treats Apple bridge connectivity failures as fatal reconnects', () => {
+    expect(service.classifyFailure('apple', 'iMessage bridge not connected')).toMatchObject({
+      fatal: true,
+    });
+    expect(service.classifyFailure('imessage', 'bridge not running')).toMatchObject({
+      fatal: true,
+    });
   });
 });
