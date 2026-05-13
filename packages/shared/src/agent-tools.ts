@@ -57,6 +57,7 @@ Tips:
 - Use natural language queries; search is semantic, not keyword-only
 - Combine filters to narrow results, for example connector_type="gmail" + source_type="email"
 - Use connector_type="locations" for OwnTracks location pings
+- For person-specific searches, first resolve the person/contact id from a previous result or contact lookup, then pass contact_id. A name in the query is only a hint unless contact_id is supplied.
 - For exact identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, and short all-caps codes, search the exact identifier first
 - Results are sorted by weighted score, not pure event time`;
 
@@ -71,7 +72,7 @@ Difference from search:
 - search returns raw ranked results; use it for lookup and browsing
 - ask returns enriched memories and optional synthesized answer/context; use it for answering questions
 
-For latest/current-state questions, prefer explicit date_from/date_to filters when available and inspect eventTime. For exact identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, and short all-caps codes, use search first and ask only after retrieval. source_type="location" is OwnTracks; GPS-bearing photos are source_type="photo".`;
+For person-specific questions, pass contact_id after resolving the correct contact. Do not rely on the person's name in query text alone; that is treated as a hint and may fall back to broader topic matches. For latest/current-state questions, prefer explicit date_from/date_to filters when available and inspect eventTime. For exact identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, and short all-caps codes, use search first and ask only after retrieval. source_type="location" is OwnTracks; GPS-bearing photos are source_type="photo".`;
 
 const searchArgs: Record<string, AgentToolArg> = {
   query: {
@@ -92,7 +93,8 @@ const searchArgs: Record<string, AgentToolArg> = {
   },
   contact_id: {
     type: 'string',
-    description: 'Filter by a specific person/contact UUID from a previous result.',
+    description:
+      'Hard-filter to a specific person/contact UUID from a previous result or contact lookup. Use this for person-specific queries instead of putting only the name in query.',
   },
   from_me: {
     type: 'boolean',
@@ -136,8 +138,6 @@ const askArgs: Record<string, AgentToolArg> = {
       'Maximum number of context memories to retrieve for answering. Default: 20. Use higher values for broad questions.',
   },
 };
-
-delete askArgs.contact_id;
 
 const limitArg = (defaultValue: number, description: string): AgentToolArg => ({
   type: 'number',
@@ -297,11 +297,14 @@ export const AGENT_COMMANDS = [
       usage: ['botmem ask <query> [options]'],
       args: {},
       options: [
+        { flag: '--source <type>', description: 'Filter by source type' },
+        { flag: '--connector <type>', description: 'Filter by connector type' },
+        { flag: '--contact <id>', description: 'Hard-filter by contact/person UUID' },
         { flag: '--limit <n>', description: 'Max context memories (default: 20)' },
         { flag: '--conversation <id>', description: 'Continue a prior agent conversation' },
         { flag: '--json', description: 'Output raw JSON' },
       ],
-      examples: ['botmem ask "what did Ahmed say?" --json'],
+      examples: ['botmem ask "what did Ahmed say?" --contact <id> --json'],
     },
     mcp: {
       name: 'ask',

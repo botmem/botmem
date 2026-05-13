@@ -22,6 +22,14 @@ export interface ApiAccount {
   [key: string]: unknown;
 }
 
+export interface ApiBridgeStatus {
+  connected: boolean;
+  accountId: string;
+  sources: { contacts: boolean; imessages: boolean } | null;
+  lastSeenAt: string | null;
+  lastError: string | null;
+}
+
 export interface ApiMemoryItem {
   id: string;
   sourceType?: string;
@@ -122,8 +130,13 @@ export interface ApiSearchFilters {
   sourceTypes?: string[];
   factualityLabels?: string[];
   personNames?: string[];
+  contactIds?: string[];
+  contactId?: string;
   timeRange?: { from?: string; to?: string };
+  from?: string;
+  to?: string;
   pinned?: boolean;
+  fromMe?: boolean;
 }
 
 export interface ApiAskResponse {
@@ -273,7 +286,7 @@ export const api = {
   updateAccount: (id: string, data: { schedule?: string }) =>
     request<ConnectorAccount>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAccount: (id: string) => request<{ ok: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
-  getBridgeStatus: (id: string) => request<{ connected: boolean }>(`/accounts/${id}/bridge-status`),
+  getBridgeStatus: (id: string) => request<ApiBridgeStatus>(`/accounts/${id}/bridge-status`),
 
   // Auth
   hasCredentials: (type: string) =>
@@ -328,19 +341,28 @@ export const api = {
           ? { factualityLabels: filters.factualityLabels }
           : {}),
         ...(filters?.personNames?.length ? { personNames: filters.personNames } : {}),
+        ...(filters?.contactIds?.length ? { contactIds: filters.contactIds } : {}),
+        ...(filters?.contactId ? { contactId: filters.contactId } : {}),
         ...(filters?.timeRange ? { timeRange: filters.timeRange } : {}),
         ...(filters?.pinned !== undefined ? { pinned: filters.pinned } : {}),
+        ...(filters?.fromMe !== undefined ? { fromMe: filters.fromMe } : {}),
         limit,
         memoryBankId: memoryBankId || undefined,
       }),
     }),
-  askMemories: (query: string, conversationId?: string, memoryBankId?: string) =>
+  askMemories: (
+    query: string,
+    conversationId?: string,
+    memoryBankId?: string,
+    filters?: ApiSearchFilters,
+  ) =>
     request<ApiAskResponse>('/memories/ask', {
       method: 'POST',
       body: JSON.stringify({
         query,
         conversationId: conversationId || undefined,
         memoryBankId: memoryBankId || undefined,
+        filters,
       }),
     }),
   listMemories: (params?: {

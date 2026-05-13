@@ -118,10 +118,14 @@ Semantic search across all memories.
 ```bash
 botmem search "coffee with Ahmed last week"
 botmem search "meeting" --connector gmail --limit 5
+botmem contacts search "Ahmed" --toon
+botmem search "coffee last week" --contact <contact-id>
 botmem search "photos from dubai" --source photo --json
 ```
 
 Options: `--source`, `--connector`, `--contact`, `--limit`
+
+For person-specific searches, resolve the contact first and pass `--contact <id>`. A name inside the query is treated as an attribution hint, not a hard filter.
 
 ### `ask <question>`
 
@@ -129,6 +133,7 @@ Ask a question — AI synthesizes an answer from your memories.
 
 ```bash
 botmem ask "What did John say about the project deadline?"
+botmem ask "What did he say about the project deadline?" --contact <contact-id>
 botmem ask "When is the next team meeting?" --json
 ```
 

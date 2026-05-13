@@ -60,7 +60,7 @@ const botmemPlugin = {
         name: 'memory_search',
         label: 'Memory Search',
         description:
-          'Semantic search across all memories (emails, messages, photos, locations). Returns ranked results with relevance scores.',
+          'Semantic search across all memories (emails, messages, photos, locations). Returns ranked results with relevance scores. For person-specific queries, pass contactId after resolving the contact.',
         parameters: {
           type: 'object',
           properties: {
@@ -73,7 +73,11 @@ const botmemPlugin = {
               type: 'string',
               description: 'Filter by connector (gmail, slack, whatsapp, imessage, photos-immich)',
             },
-            contactId: { type: 'string', description: 'Filter by contact ID' },
+            contactId: {
+              type: 'string',
+              description:
+                'Hard-filter by contact/person ID. Use this for person-specific queries instead of relying only on a name in query.',
+            },
             from: { type: 'string', description: 'Start date (ISO 8601)' },
             to: { type: 'string', description: 'End date (ISO 8601)' },
             limit: { type: 'number', description: 'Max results to return' },
@@ -105,11 +109,28 @@ const botmemPlugin = {
         name: 'memory_ask',
         label: 'Memory Ask',
         description:
-          'Natural language query with LLM-enriched answer synthesized from matching memories. Best for questions like "What did X say about Y?" Supports multi-turn conversations via conversationId.',
+          'Natural language query with LLM-enriched answer synthesized from matching memories. Best for questions like "What did X say about Y?" Pass contactId for person-specific attribution. Supports multi-turn conversations via conversationId.',
         parameters: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Natural language question about memories' },
+            sourceType: {
+              type: 'string',
+              description: 'Filter by source type (email, message, photo, location)',
+            },
+            connectorType: {
+              type: 'string',
+              description: 'Filter by connector (gmail, slack, whatsapp, imessage, photos-immich)',
+            },
+            contactId: {
+              type: 'string',
+              description:
+                'Hard-filter by contact/person ID. Resolve with people_search first for person-specific questions.',
+            },
+            fromMe: {
+              type: 'boolean',
+              description: 'Only include messages authored by the Botmem user when supported.',
+            },
             limit: { type: 'number', description: 'Max source memories to consider' },
             conversationId: {
               type: 'string',
@@ -120,9 +141,14 @@ const botmemPlugin = {
           required: ['query'],
         },
         async execute(_toolCallId, params) {
+          const filters: Record<string, string | boolean> = {};
+          if (params.sourceType) filters.sourceType = String(params.sourceType);
+          if (params.connectorType) filters.connectorType = String(params.connectorType);
+          if (params.contactId) filters.contactId = String(params.contactId);
+          if (params.fromMe !== undefined) filters.fromMe = Boolean(params.fromMe);
           const result = await client.agentAsk(
             String(params.query),
-            undefined,
+            Object.keys(filters).length ? filters : undefined,
             (params.limit as number) ?? config.defaultLimit,
             params.conversationId as string | undefined,
           );

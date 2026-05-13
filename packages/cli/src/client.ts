@@ -233,14 +233,18 @@ export class BotmemClient {
 
   async searchMemories(
     query: string,
-    filters?: Record<string, string | boolean>,
+    filters?: Record<string, string | boolean | string[]>,
     limit?: number,
     memoryBankId?: string,
     debug?: boolean,
   ): Promise<{
     items: SearchResult[];
     fallback: boolean;
-    resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+    resolvedEntities?: {
+      contacts: { id: string; displayName: string }[];
+      topicWords: string[];
+      topicMatchCount?: number;
+    };
     diagnostics?: unknown;
   }> {
     const body: Record<string, unknown> = { query, limit, memoryBankId, debug };
@@ -252,7 +256,11 @@ export class BotmemClient {
     return this.request<{
       items: SearchResult[];
       fallback: boolean;
-      resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+      resolvedEntities?: {
+        contacts: { id: string; displayName: string }[];
+        topicWords: string[];
+        topicMatchCount?: number;
+      };
       diagnostics?: unknown;
     }>('/memories/search', {
       method: 'POST',
@@ -457,7 +465,7 @@ export class BotmemClient {
 
   async agentAsk(
     query: string,
-    filters?: Record<string, string | boolean>,
+    filters?: Record<string, string | boolean | string[]>,
     limit?: number,
     conversationId?: string,
   ): Promise<Record<string, unknown>> {

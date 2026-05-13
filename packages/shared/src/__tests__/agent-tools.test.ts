@@ -25,4 +25,9 @@ describe('agent tool registry', () => {
     expect(description).toContain('connector_type="locations"');
     expect(description).toContain('source_type="photo"');
   });
+
+  it('keeps contact filters available on search and ask MCP tools', () => {
+    expect(AGENT_COMMANDS_BY_ID.search?.mcp?.args.contact_id).toBeDefined();
+    expect(AGENT_COMMANDS_BY_ID.ask?.mcp?.args.contact_id).toBeDefined();
+  });
 });

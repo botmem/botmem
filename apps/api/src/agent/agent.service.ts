@@ -102,6 +102,7 @@ export class AgentService {
         sourceType?: string;
         connectorType?: string;
         contactId?: string;
+        contactIds?: string[];
         from?: string;
         to?: string;
         fromMe?: boolean;
@@ -128,6 +129,9 @@ export class AgentService {
     try {
       if (options?.filters?.fromMe !== undefined) {
         throw new Error('fromMe requires decrypted metadata filtering');
+      }
+      if (options?.filters?.contactId || options?.filters?.contactIds?.length) {
+        throw new Error('contact filters require memory search attribution semantics');
       }
       const vector = await this.ai.embed(query);
       const filter = options?.filters ? this.buildSearchFilter(options.filters) : undefined;

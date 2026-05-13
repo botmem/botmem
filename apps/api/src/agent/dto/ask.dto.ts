@@ -7,6 +7,7 @@ import {
   Max,
   ValidateNested,
   IsBoolean,
+  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -22,6 +23,11 @@ export class AskFiltersDto {
   @IsOptional()
   @IsString()
   contactId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  contactIds?: string[];
 
   @IsOptional()
   @IsBoolean()
