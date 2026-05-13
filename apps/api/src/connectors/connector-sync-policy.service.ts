@@ -19,7 +19,10 @@ export class ConnectorSyncPolicyService {
   }
 
   shouldIgnoreCursor(connectorType: string, scheduled: boolean | undefined): boolean {
-    return connectorType === 'whatsapp' && !scheduled;
+    return (
+      (connectorType === 'whatsapp' || connectorType === 'apple' || connectorType === 'imessage') &&
+      !scheduled
+    );
   }
 
   private classifyAccountFailure(connectorType: string, message: string): AccountFailureStatus {
@@ -59,7 +62,7 @@ export class ConnectorSyncPolicyService {
     return (
       this.classifyAccountFailure(connectorType, message) === 'reconnect_required' ||
       ((connectorType === 'apple' || connectorType === 'imessage') &&
-        msg.includes('bridge not running'))
+        (msg.includes('bridge not running') || msg.includes('bridge not connected')))
     );
   }
 }
