@@ -29,6 +29,8 @@ botmem status --toon-fields memory.total,connectors,queues
 
 Array paths can be written with or without \`[]\`: \`items.id\` and \`items[].id\` are equivalent.
 
+For person-specific queries, always resolve the person with \`botmem contacts search "<name>" --toon\` or a previous result, then pass the durable contact id with \`--contact <id>\` / MCP \`contact_id\`. A name inside the query is only a hint and must not be treated as proof that returned topical results came from that person.
+
 ## Setup
 
 When this skill is invoked and the \`botmem\` command is unavailable, install it automatically before using Botmem:
@@ -265,7 +267,7 @@ botmem accounts --toon-fields accounts.id,accounts.type,accounts.status,accounts
 botmem jobs --toon-fields jobs.id,jobs.connector,jobs.status,jobs.progress,jobs.total,jobs.error
 \`\`\`
 
-Use \`ask\` for synthesis, not primary verification. Prefer \`search --debug\` first when evidence quality matters.
+Use \`ask\` for synthesis, not primary verification. Prefer \`search --debug\` first when evidence quality matters. When a person is involved, use \`--contact <id>\` for both \`search\` and \`ask\` so attribution is scoped to that contact.
 <!-- END GENERATED RESPONSE TYPES -->
 ## API Notes
 

@@ -85,6 +85,11 @@ export class SearchMemoriesDto {
   contactId?: string;
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  contactIds?: string[];
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(1)

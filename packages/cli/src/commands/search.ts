@@ -71,7 +71,11 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
   } = response as {
     items: SearchResult[];
     fallback: boolean;
-    resolvedEntities?: { contacts: { id: string; displayName: string }[]; topicWords: string[] };
+    resolvedEntities?: {
+      contacts: { id: string; displayName: string }[];
+      topicWords: string[];
+      topicMatchCount?: number;
+    };
     parsed?: {
       temporal?: { from: string; to: string };
       temporalFallback?: boolean;
@@ -102,13 +106,27 @@ export async function runSearch(client: BotmemClient, args: string[], json: bool
     }
 
     if (resolvedEntities) {
-      const names = (resolvedEntities as { contacts: { displayName: string }[] }).contacts
-        .map((c) => c.displayName)
-        .join(', ');
+      const contacts = (resolvedEntities as { contacts: { id: string; displayName: string }[] })
+        .contacts;
+      const names = contacts.map((c) => c.displayName).join(', ');
       const topics = resolvedEntities.topicWords.length
         ? ` + "${resolvedEntities.topicWords.join(' ')}"`
         : '';
-      if (results.length > 0) {
+      const hasContactFilter = Boolean(filters['contactId']);
+      const noDirectMatches =
+        resolvedEntities.topicWords.length > 0 &&
+        'topicMatchCount' in resolvedEntities &&
+        (resolvedEntities as { topicMatchCount?: number }).topicMatchCount === 0;
+      if (!hasContactFilter && contacts.length && resolvedEntities.topicWords.length) {
+        console.log(
+          `\x1b[33m⚠ Person names were used as search hints. For person-specific results, rerun with --contact ${contacts[0].id}\x1b[0m`,
+        );
+      }
+      if (noDirectMatches && results.length > 0) {
+        console.log(
+          `\x1b[33m⚠ No directly related memories found for ${bold(names)}${topics}. Showing closest matches.\x1b[0m\n`,
+        );
+      } else if (results.length > 0) {
         console.log(`\x1b[36m→ Showing results for ${bold(names)}${topics}\x1b[0m\n`);
       } else {
         console.log(`\x1b[33m⚠ No memories found for ${bold(names)}${topics}\x1b[0m\n`);

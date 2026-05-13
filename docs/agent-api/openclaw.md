@@ -43,6 +43,7 @@ Always use `--toon` for machine-readable output (optimized for LLMs).
 
 ```bash
 botmem search "dinner with sarah" --toon      # Semantic search
+botmem search "dinner" --contact <id> --toon  # Person-scoped search
 botmem ask "What did John say about deadline?" # AI-powered Q&A
 botmem timeline --days 7 --toon               # Recent memories
 botmem contacts search "Alice" --toon         # Find people
@@ -143,6 +144,8 @@ The plugin registers these tools automatically — your agent can call them like
 | `person_context`  | Full details about a contact                          | `contactId`     |
 | `people_search`   | Find contacts by name, email, or phone                | `query`         |
 
+For person-specific `memory_search` or `memory_ask` calls, first call `people_search` and pass the returned `contactId`. A person name inside `query` is only a relevance hint and must not be used as proof that a topical result came from that person.
+
 ### System Prompt Hook
 
 The plugin registers a `before_prompt_build` hook that:
@@ -173,16 +176,16 @@ final = 0.70 * semantic + 0.15 * recency + 0.10 * importance + 0.05 * trust
 | `query`         | `string` | Natural language search query                                     |
 | `sourceType`    | `string` | Filter: `email`, `message`, `photo`, `location`                   |
 | `connectorType` | `string` | Filter: `gmail`, `slack`, `whatsapp`, `imessage`, `photos-immich` |
-| `contactId`     | `string` | Filter by contact UUID                                            |
+| `contactId`     | `string` | Hard-filter by contact UUID. Use for person-specific attribution. |
 | `from`          | `string` | Start date (ISO 8601)                                             |
 | `to`            | `string` | End date (ISO 8601)                                               |
 | `limit`         | `number` | Max results                                                       |
 
 ### memory_ask
 
-Like `memory_search`, but the server synthesizes a natural language answer from matching memories. Best for questions like _"What did John say about the project deadline?"_
+Like `memory_search`, but the server synthesizes a natural language answer from matching memories. Best for questions like _"What did John say about the project deadline?"_ Pass `contactId` after `people_search` for person-specific questions.
 
-**Parameters:** `query` (required), `limit` (optional)
+**Parameters:** `query` (required), `sourceType`, `connectorType`, `contactId`, `fromMe`, `limit`, `conversationId` (optional)
 
 ### memory_remember
 

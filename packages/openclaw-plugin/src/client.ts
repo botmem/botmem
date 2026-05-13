@@ -61,7 +61,7 @@ export class BotmemClient {
 
   async searchMemories(
     query: string,
-    filters?: Record<string, string>,
+    filters?: Record<string, string | boolean>,
     limit?: number,
     memoryBankId?: string,
   ): Promise<Record<string, unknown>> {
@@ -73,7 +73,7 @@ export class BotmemClient {
 
   async agentAsk(
     query: string,
-    filters?: Record<string, string>,
+    filters?: Record<string, string | boolean>,
     limit?: number,
     conversationId?: string,
   ): Promise<Record<string, unknown>> {

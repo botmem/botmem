@@ -39,6 +39,7 @@ interface ActiveFilters {
   sourceTypes: string[];
   factualityLabels: string[];
   personNames: string[];
+  contactIds: string[];
   timeRange: { from: string | null; to: string | null };
   pinned: boolean | null;
 }
@@ -91,7 +92,7 @@ interface MemoryState {
   // Active filters
   activeFilters: ActiveFilters;
   toggleFilter: (
-    key: 'connectorTypes' | 'sourceTypes' | 'factualityLabels' | 'personNames',
+    key: 'connectorTypes' | 'sourceTypes' | 'factualityLabels' | 'personNames' | 'contactIds',
     value: string,
   ) => void;
   setTimeRange: (from: string | null, to: string | null) => void;
@@ -249,6 +250,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     sourceTypes: [],
     factualityLabels: [],
     personNames: [],
+    contactIds: [],
     timeRange: { from: null, to: null },
     pinned: null,
   },
@@ -334,6 +336,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         sourceTypes: [],
         factualityLabels: [],
         personNames: [],
+        contactIds: [],
         timeRange: { from: null, to: null },
         pinned: null,
       },
@@ -375,6 +378,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         sourceTypes: [],
         factualityLabels: [],
         personNames: [],
+        contactIds: [],
         timeRange: { from: null, to: null },
         pinned: null,
         ...preset,
@@ -404,10 +408,25 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
     try {
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+      const { activeFilters } = get();
+      const askFilters: ApiSearchFilters = {};
+      if (activeFilters.contactIds.length) askFilters.contactIds = activeFilters.contactIds;
+      if (activeFilters.personNames.length) askFilters.personNames = activeFilters.personNames;
+      if (activeFilters.sourceTypes.length) askFilters.sourceTypes = activeFilters.sourceTypes;
+      if (activeFilters.connectorTypes.length)
+        askFilters.connectorTypes = activeFilters.connectorTypes;
+      if (activeFilters.factualityLabels.length)
+        askFilters.factualityLabels = activeFilters.factualityLabels;
+      if (activeFilters.timeRange.from || activeFilters.timeRange.to) {
+        askFilters.from = activeFilters.timeRange.from || undefined;
+        askFilters.to = activeFilters.timeRange.to || undefined;
+      }
+      if (activeFilters.pinned !== null) askFilters.pinned = activeFilters.pinned;
       const result = await api.askMemories(
         query,
         conversation.id || undefined,
         bankId || undefined,
+        Object.keys(askFilters).length ? askFilters : undefined,
       );
 
       const assistantMsg: ConversationMessage = {
@@ -558,6 +577,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       if (activeFilters.factualityLabels.length)
         apiFilters.factualityLabels = activeFilters.factualityLabels;
       if (activeFilters.personNames.length) apiFilters.personNames = activeFilters.personNames;
+      if (activeFilters.contactIds.length) apiFilters.contactIds = activeFilters.contactIds;
       if (activeFilters.timeRange.from || activeFilters.timeRange.to) {
         apiFilters.timeRange = {
           from: activeFilters.timeRange.from || undefined,
@@ -941,6 +961,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         sourceTypes: [],
         factualityLabels: [],
         personNames: [],
+        contactIds: [],
         timeRange: { from: null, to: null },
         pinned: null,
       },

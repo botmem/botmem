@@ -34,6 +34,7 @@ CLI help and MCP tool descriptions are generated from the same shared registry. 
 - Use MCP `sources` or `botmem stats --toon` before guessing `source_type` / `connector_type` filters.
 - Use `botmem memories --source location --limit 1 --toon` or MCP `list` with `source_type: "location"`, `sort_by: "eventTime"`, `limit: 1` for "latest/current location" style questions.
 - Use `timeline` for explicit date ranges, `search` for semantic lookup, `ask` only after retrieval when synthesis is needed.
+- For person-specific queries, always resolve the person with `botmem contacts search "<name>" --toon` or a previous result, then pass the durable contact id with `--contact <id>` / MCP `contact_id`. A name inside the query is only a hint and must not be treated as proof that returned topical results came from that person.
 - MCP is read-only; use REST/CLI commands for write operations.
 
 ## Setup
@@ -272,7 +273,7 @@ botmem accounts --toon-fields accounts.id,accounts.type,accounts.status,accounts
 botmem jobs --toon-fields jobs.id,jobs.connector,jobs.status,jobs.progress,jobs.total,jobs.error
 ```
 
-Use `ask` for synthesis, not primary verification. Prefer `search --debug` first when evidence quality matters.
+Use `ask` for synthesis, not primary verification. Prefer `search --debug` first when evidence quality matters. When a person is involved, use `--contact <id>` for both `search` and `ask` so attribution is scoped to that contact.
 <!-- END GENERATED RESPONSE TYPES -->
 ## API Notes
 

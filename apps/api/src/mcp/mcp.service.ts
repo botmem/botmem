@@ -61,7 +61,7 @@ Temporal queries are supported. Prefer date_from and date_to with ISO 8601 dates
 
 Results are compact by default. Long text fields are returned as excerpts with text_truncated=true; use the memory id for follow-up detail rather than asking for huge result sets.
 
-Start with small limits, then refine by connector_type, source_type, contact_id, date_from, or date_to. source_type="location" is an explicit location stream; GPS-bearing photos remain source_type="photo".
+Start with small limits, then refine by connector_type, source_type, contact_id, date_from, or date_to. For person-specific searches or asks, resolve the person first and pass contact_id; a name in the query is a hint, not a hard attribution filter. source_type="location" is an explicit location stream; GPS-bearing photos remain source_type="photo".
 
 For identifiers such as booking references, PNRs, ticket numbers, invoice numbers, order IDs, or short all-caps codes, run search on the exact identifier with connector_type/source_type filters before paraphrasing. If an exact identifier misses, broaden to the vendor and topic, then list recent memories for the likely connector/source sorted by eventTime or ingestTime. For "latest flight/booking" style questions, prefer recent email memories and inspect eventTime; do not conclude absence until exact-code search and recent connector listing have both failed.`;
 

@@ -12,12 +12,14 @@ export const askHelp = `
     --conversation <id>  Continue a conversation (Postgres search conversational RAG)
     --source <type>      Filter by source (email, message, photo, location)
     --connector <type>   Filter by connector (gmail, slack, whatsapp, imessage)
+    --contact <id>       Hard-filter to a contact/person UUID
     --memory-bank <id>   Filter by memory bank ID
     --limit <n>          Max results (default: 10)
     --json               Output raw JSON
 
   EXAMPLES
     botmem ask "what did Ahmed say about the project?"
+    botmem ask "what did he say about the project?" --contact <contact-id>
     botmem ask "summarize my week" --summarize
     botmem ask "photos from dubai" --source photo --json
     botmem ask "tell me more" --conversation abc123
@@ -47,14 +49,15 @@ export async function runAsk(client: BotmemClient, args: string[], json: boolean
       summarize = true;
     } else if (a === '--conversation') {
       conversationId = args[++i];
-    } else if (a === '--source' || a === '--connector') {
+    } else if (a === '--source' || a === '--connector' || a === '--contact') {
       const val = args[++i];
       if (!val) {
         console.error(`Missing value for ${a}`);
         process.exit(1);
       }
       if (a === '--source') filters['sourceType'] = val;
-      else filters['connectorType'] = val;
+      else if (a === '--connector') filters['connectorType'] = val;
+      else filters['contactId'] = val;
     } else if (a === '--memory-bank') {
       filters['memoryBankId'] = args[++i];
     } else if (a === '--from-me' || a === '--me') {

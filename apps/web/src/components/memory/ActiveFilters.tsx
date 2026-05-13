@@ -3,6 +3,7 @@ interface ActiveFilters {
   sourceTypes: string[];
   factualityLabels: string[];
   personNames: string[];
+  contactIds: string[];
   timeRange: { from: string | null; to: string | null };
   pinned: boolean | null;
 }
@@ -32,6 +33,8 @@ export function ActiveFiltersBar({
   for (const v of activeFilters.factualityLabels)
     pills.push({ key: 'factualityLabels', value: v, label: v });
   for (const v of activeFilters.personNames) pills.push({ key: 'personNames', value: v, label: v });
+  for (const v of activeFilters.contactIds)
+    pills.push({ key: 'contactIds', value: v, label: `CONTACT ${v.slice(0, 8)}` });
   if (activeFilters.timeRange.from)
     pills.push({
       key: 'timeRange',

@@ -251,6 +251,7 @@ interface SearchFilters {
   sourceType?: string;
   connectorType?: string;
   contactId?: string;
+  contactIds?: string[];
   factualityLabel?: string;
   from?: string;
   to?: string;
@@ -279,7 +280,7 @@ interface SearchDiagnostics {
   intent: SearchIntent;
   resolvedEntities: {
     contacts: { id: string; displayName: string }[];
-    mode: 'hint' | 'filter';
+    mode: 'hint' | 'filter' | 'fallback';
     topicWords: string[];
   };
   candidateLanes: Record<string, number>;
@@ -327,6 +328,11 @@ export interface SearchResult {
     final: number;
   };
   people?: { role: string; personId: string; displayName: string }[];
+  matchedContactIds?: string[];
+  matchedContactRoles?: string[];
+  topicCoverage?: number;
+  matchMode?: 'hard_filter' | 'hint' | 'fallback';
+  textSource?: 'body' | 'attachment_ocr' | 'metadata';
 }
 
 export interface ResolvedEntities {
@@ -738,6 +744,30 @@ export class MemoryService {
     return data;
   }
 
+  private async getContactsByIds(
+    ids: string[],
+    userId?: string,
+  ): Promise<{ id: string; displayName: string; entityType: string }[]> {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (!uniqueIds.length) return [];
+    const allContacts = await this.getCachedContacts(userId);
+    const idSet = new Set(uniqueIds);
+    return allContacts.filter((contact) => idSet.has(contact.id));
+  }
+
+  private inferTextSource(metadata: unknown): 'body' | 'attachment_ocr' | 'metadata' {
+    const object = this.metadataObject(metadata);
+    const mediaExtraction = object.mediaExtraction;
+    if (
+      mediaExtraction &&
+      typeof mediaExtraction === 'object' &&
+      typeof (mediaExtraction as Record<string, unknown>).extractedText === 'string'
+    ) {
+      return 'attachment_ocr';
+    }
+    return 'body';
+  }
+
   /** Build a human-friendly label for photo/file memories from metadata instead of text. */
   private buildMediaLabel(
     sourceType: string,
@@ -1051,8 +1081,25 @@ export class MemoryService {
           contactIds: [],
         }
       : await this.resolveEntities(queryWords, userId);
-    const { contacts: resolvedContacts, topicWords, contactIds } = entityResult;
-    const hasContacts = resolvedContacts.length > 0;
+    let { contacts: resolvedContacts, contactIds } = entityResult;
+    const { topicWords } = entityResult;
+    const explicitContactIds = [
+      ...new Set([
+        ...(effectiveFilters.contactIds ?? []),
+        ...(effectiveFilters.contactId ? [effectiveFilters.contactId] : []),
+      ]),
+    ];
+    const hardContactFilter = explicitContactIds.length > 0;
+    if (hardContactFilter) {
+      const explicitContacts = await this.getContactsByIds(explicitContactIds, userId);
+      const contactMap = new Map(resolvedContacts.map((contact) => [contact.id, contact]));
+      for (const contact of explicitContacts) {
+        contactMap.set(contact.id, { id: contact.id, displayName: contact.displayName });
+      }
+      resolvedContacts = [...contactMap.values()];
+      contactIds = explicitContactIds;
+    }
+    const hasContacts = contactIds.length > 0;
     if (diagnostics && options?.noEntityResolution) {
       diagnostics.entityResolutionFallback = 'disabled';
     }
@@ -1145,6 +1192,8 @@ export class MemoryService {
     const contactMatchIds = new Set<string>();
     // Track how many resolved contacts each memory is linked to (for multi-contact boost)
     const contactMatchCount = new Map<string, number>();
+    const contactIdsByMemory = new Map<string, Set<string>>();
+    const contactRolesByMemory = new Map<string, Set<string>>();
     let topicMatchCount = 0;
     // When query is purely contact names (no topic words), collect ALL contact memories
     const isPureContactQuery = hasContacts && topicWords.length === 0;
@@ -1153,13 +1202,17 @@ export class MemoryService {
       if (diagnostics) {
         diagnostics.resolvedEntities = {
           contacts: resolvedContacts,
-          mode: effectiveFilters.contactId ? 'filter' : 'hint',
+          mode: hardContactFilter ? 'filter' : 'hint',
           topicWords,
         };
       }
       const linked = await this.dbService.withCurrentUser((db) =>
         db
-          .select({ memoryId: memoryPeople.memoryId, personId: memoryPeople.personId })
+          .select({
+            memoryId: memoryPeople.memoryId,
+            personId: memoryPeople.personId,
+            role: memoryPeople.role,
+          })
           .from(memoryPeople)
           .where(inArray(memoryPeople.personId, contactIds)),
       );
@@ -1167,17 +1220,18 @@ export class MemoryService {
       // Count how many resolved contacts each memory is linked to
       for (const r of linked) {
         contactMatchCount.set(r.memoryId, (contactMatchCount.get(r.memoryId) || 0) + 1);
-        if (
-          plannedIntent === 'conversation' ||
-          plannedIntent === 'person_lookup' ||
-          plannedIntent === 'location' ||
-          plannedIntent === 'transaction'
-        ) {
+        const ids = contactIdsByMemory.get(r.memoryId) ?? new Set<string>();
+        ids.add(r.personId);
+        contactIdsByMemory.set(r.memoryId, ids);
+        const roles = contactRolesByMemory.get(r.memoryId) ?? new Set<string>();
+        roles.add(r.role);
+        contactRolesByMemory.set(r.memoryId, roles);
+        if (isPureContactQuery) {
           semanticScores.set(r.memoryId, Math.max(semanticScores.get(r.memoryId) ?? 0, 0.68));
           noteLane(r.memoryId, 'structured_person_role');
         }
       }
-      for (const point of searchIndexResults) {
+      for (const point of [...searchIndexResults, ...lexicalResults]) {
         if (allContactMemoryIds.has(point.id)) contactMatchIds.add(point.id);
       }
       topicMatchCount = contactMatchIds.size;
@@ -1243,7 +1297,14 @@ export class MemoryService {
         if (seen.has(row.memory.id)) continue;
         seen.add(row.memory.id);
         const { score, weights } = this.computeWeights(0.9, row.memory, nlq.intent);
-        items.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
+        items.push(
+          this.toSearchResult(row, score, weights, userId, resolvedKey, {
+            matchedContactIds: [...(contactIdsByMemory.get(row.memory.id) ?? new Set(contactIds))],
+            matchedContactRoles: [...(contactRolesByMemory.get(row.memory.id) ?? new Set())],
+            topicCoverage: 1,
+            matchMode: hardContactFilter ? 'hard_filter' : 'hint',
+          }),
+        );
         if (items.length >= effectiveLimit) break;
       }
 
@@ -1286,7 +1347,7 @@ export class MemoryService {
                   ...fallbackResult.diagnostics,
                   resolvedEntities: {
                     contacts: resolvedContacts,
-                    mode: 'hint',
+                    mode: 'fallback',
                     topicWords,
                   },
                   entityResolutionFallback: 'reran_without_entities',
@@ -1311,25 +1372,49 @@ export class MemoryService {
       };
     }
 
-    // If filtering by contactId directly, filter Postgres search results to that contact's memories
-    if (effectiveFilters.contactId) {
+    const exactLaneIds = new Set(
+      [...candidateLanes.entries()]
+        .filter(([, lanes]) => lanes.has('lexical_exact') || lanes.has('transaction_tokens'))
+        .map(([id]) => id),
+    );
+
+    // If filtering by contact ids directly, filter search results to those contact-linked memories.
+    if (hardContactFilter) {
       const linkedMemoryIds = new Set(
         (
           await this.dbService.withCurrentUser((db) =>
             db
               .select({ memoryId: memoryPeople.memoryId })
               .from(memoryPeople)
-              .where(eq(memoryPeople.personId, effectiveFilters.contactId!)),
+              .where(inArray(memoryPeople.personId, explicitContactIds)),
           )
         ).map((r) => r.memoryId),
       );
       const contactResults: SearchResult[] = [];
-      for (const point of searchIndexResults) {
+      const contactPoints = new Map(
+        [...searchIndexResults, ...lexicalResults].map((p) => [p.id, p]),
+      );
+      const coverageTerms = searchCoverageTerms(embeddingQuery, topicWords);
+      for (const point of contactPoints.values()) {
         if (!linkedMemoryIds.has(point.id)) continue;
         const row = await this.fetchMemoryRow(point.id);
         if (!row) continue;
+        const memoryForCoverage = this.decryptMemoryAuto(row.memory, userId, resolvedKey);
+        const queryCoverage = queryTokenCoverage(memoryForCoverage.text, coverageTerms);
+        const hasTopicSupport =
+          topicWords.length === 0 || queryCoverage > 0 || exactLaneIds.has(point.id);
+        if (!hasTopicSupport) continue;
         const { score, weights } = this.computeWeights(point.score, row.memory, nlq.intent);
-        contactResults.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
+        contactResults.push(
+          this.toSearchResult(row, score, weights, userId, resolvedKey, {
+            matchedContactIds: [
+              ...(contactIdsByMemory.get(point.id) ?? new Set(explicitContactIds)),
+            ],
+            matchedContactRoles: [...(contactRolesByMemory.get(point.id) ?? new Set())],
+            topicCoverage: queryCoverage,
+            matchMode: 'hard_filter',
+          }),
+        );
         if (contactResults.length >= effectiveLimit) break;
       }
       const sorted = contactResults.sort((a, b) => b.score - a.score);
@@ -1417,7 +1502,7 @@ export class MemoryService {
                   ...fallbackResult.diagnostics,
                   resolvedEntities: {
                     contacts: resolvedContacts,
-                    mode: 'hint',
+                    mode: 'fallback',
                     topicWords,
                   },
                   entityResolutionFallback: 'reran_without_entities',
@@ -1480,7 +1565,11 @@ export class MemoryService {
       score: number;
       weights: SearchResult['weights'];
       queryCoverage: number;
+      matchedContactIds?: string[];
+      matchedContactRoles?: string[];
+      matchMode?: 'hard_filter' | 'hint';
     }> = [];
+    let contactTopicSupportedCount = 0;
     for (const { id, row } of candidateRows) {
       const semanticScore = semanticScores.get(id) ?? 0;
       // Multi-contact boost: memories linked to ALL resolved contacts get strongest boost
@@ -1511,6 +1600,13 @@ export class MemoryService {
       const memoryForCoverage = this.decryptMemoryAuto(row.memory, userId, resolvedKey);
       const queryCoverage = queryTokenCoverage(memoryForCoverage.text, coverageTerms);
       coverageById.set(id, queryCoverage);
+      const hasTopicSupport = topicWords.length === 0 || queryCoverage > 0 || exactLaneIds.has(id);
+      if (hasContacts && memContactCount > 0 && topicWords.length > 0 && !hasTopicSupport) {
+        continue;
+      }
+      if (hasContacts && memContactCount > 0 && topicWords.length > 0 && hasTopicSupport) {
+        contactTopicSupportedCount += 1;
+      }
       const intentScore = scoreQueryIntent({
         query,
         coverageTerms,
@@ -1545,20 +1641,32 @@ export class MemoryService {
         score: boostedScore,
         weights: boostedWeights,
         queryCoverage,
+        matchedContactIds:
+          memContactCount > 0 ? [...(contactIdsByMemory.get(id) ?? new Set<string>())] : undefined,
+        matchedContactRoles:
+          memContactCount > 0
+            ? [...(contactRolesByMemory.get(id) ?? new Set<string>())]
+            : undefined,
+        matchMode: memContactCount > 0 ? (hardContactFilter ? 'hard_filter' : 'hint') : undefined,
       });
     }
+    if (hasContacts && topicWords.length > 0) {
+      topicMatchCount = contactTopicSupportedCount;
+    }
 
-    const exactLaneIds = new Set(
-      [...candidateLanes.entries()]
-        .filter(([, lanes]) => lanes.has('lexical_exact') || lanes.has('transaction_tokens'))
-        .map(([id]) => id),
-    );
     const scoreFiltered = scoredCandidates.filter(
       (c) => c.score >= MIN_SCORE || exactLaneIds.has(c.id),
     );
     const topCandidates = this.diversifyResults(scoreFiltered, effectiveLimit, diversityFactor);
     const returnItems = topCandidates
-      .map((c) => this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey))
+      .map((c) =>
+        this.toSearchResult(c.row, c.score, c.weights, userId, resolvedKey, {
+          matchedContactIds: c.matchedContactIds,
+          matchedContactRoles: c.matchedContactRoles,
+          topicCoverage: c.queryCoverage,
+          matchMode: c.matchMode,
+        }),
+      )
       .filter((item) => {
         if (item.text.startsWith('[Encrypted')) {
           diagnostics?.skippedUndecryptableResultIds.push(item.id);
@@ -1615,7 +1723,7 @@ export class MemoryService {
                 ...fallbackResult.diagnostics,
                 resolvedEntities: {
                   contacts: resolvedContacts,
-                  mode: 'hint',
+                  mode: 'fallback',
                   topicWords,
                 },
                 entityResolutionFallback: 'reran_without_entities',
@@ -1672,47 +1780,21 @@ export class MemoryService {
     userId?: string,
     memoryBankId?: string,
     memoryBankIds?: string[],
+    filters?: SearchFilters,
   ): Promise<{
     answer: string;
     conversationId: string;
     citations: SearchResult[];
   }> {
-    const resolvedKey = await this.resolveUserKey(userId);
-    const vector = await this.ai.embedQuery(query);
-    const conversationModelId = 'botmem-chat';
-
-    // Build filter for user isolation
-    const userAccountIds = await this.getUserAccountIds(userId);
-    const must: Array<Record<string, unknown>> = [];
-    if (userAccountIds?.length) {
-      must.push({ key: 'account_id', match: { any: userAccountIds } });
-    }
-    if (memoryBankId) {
-      must.push({ key: 'memory_bank_id', match: { value: memoryBankId } });
-    } else if (memoryBankIds?.length) {
-      must.push({ key: 'memory_bank_id', match: { any: memoryBankIds } });
-    }
-    const filter = must.length ? { must } : undefined;
-
-    const result = await this.searchIndex.conversationSearch(
+    const searchResponse = await this.search(
       query,
-      vector,
+      filters,
       20,
-      conversationModelId,
-      conversationId || undefined,
-      filter,
+      userId,
+      memoryBankId,
+      memoryBankIds,
     );
-
-    // Map citations to SearchResult format
-    const citationIds = result.results.map((r) => r.id);
-    const batchRows = await this.fetchMemoryRowsBatch(citationIds);
-    const citations: SearchResult[] = [];
-    for (const point of result.results) {
-      const row = batchRows.get(point.id);
-      if (!row) continue;
-      const { score, weights } = this.computeWeights(point.score, row.memory, 'recall');
-      citations.push(this.toSearchResult(row, score, weights, userId, resolvedKey));
-    }
+    const citations = searchResponse.items;
 
     // Enrich with people
     if (citations.length) {
@@ -1722,9 +1804,45 @@ export class MemoryService {
       }
     }
 
+    let answer = 'No relevant memories found for this question.';
+    if (citations.length) {
+      const citationLines = citations
+        .slice(0, 12)
+        .map((item, index) => {
+          const roles = item.matchedContactRoles?.length
+            ? ` matchedRoles=${item.matchedContactRoles.join(',')}`
+            : '';
+          const mode = item.matchMode ? ` matchMode=${item.matchMode}` : '';
+          const coverage =
+            item.topicCoverage !== undefined ? ` topicCoverage=${item.topicCoverage}` : '';
+          const source = item.textSource ? ` textSource=${item.textSource}` : '';
+          return `[${index + 1}] id=${item.id} time=${item.eventTime.toISOString()}${mode}${roles}${coverage}${source}\n${item.text}`;
+        })
+        .join('\n\n');
+      try {
+        answer = await this.ai.generate(
+          [
+            'Answer using only the cited Botmem memories.',
+            'Do not attribute a topic to a person unless the same citation has a hard_filter match, or it has matched person roles plus non-zero topicCoverage.',
+            'If the citations are only fallback or weak related matches, say that no exact person-specific match was found and summarize the weaker evidence.',
+            'Never merge facts across different people or senders unless a citation explicitly connects them.',
+            '',
+            `Question: ${query}`,
+            '',
+            'Citations:',
+            citationLines,
+          ].join('\n'),
+        );
+      } catch (err) {
+        this.logger.warn(`Ask generation failed, returning citations only: ${err}`);
+        answer =
+          'I found matching memories, but answer generation is unavailable. Use the returned citations.';
+      }
+    }
+
     return {
-      answer: result.conversation?.answer || 'No relevant memories found for this question.',
-      conversationId: result.conversation?.conversationId || '',
+      answer,
+      conversationId: conversationId || randomUUID(),
       citations,
     };
   }
@@ -1773,6 +1891,12 @@ export class MemoryService {
     weights: SearchResult['weights'],
     userId?: string | null,
     resolvedKey?: Buffer | null,
+    extras: Partial<
+      Pick<
+        SearchResult,
+        'matchedContactIds' | 'matchedContactRoles' | 'topicCoverage' | 'matchMode'
+      >
+    > = {},
   ): SearchResult {
     const mem = this.decryptMemoryAuto(row.memory, userId, resolvedKey);
     // Decrypt factuality (encrypted JSON string) for output
@@ -1791,6 +1915,7 @@ export class MemoryService {
     }
     // Decrypt accountIdentifier
     const accountIdentifier = this.safeDecryptAppField(row.accountIdentifier);
+    const metadata = this.sanitizeMetadataForResponse(mem.metadata);
     return {
       id: mem.id,
       text: mem.text,
@@ -1801,11 +1926,13 @@ export class MemoryService {
       createdAt: mem.createdAt,
       factuality,
       entities: mem.entities,
-      metadata: this.sanitizeMetadataForResponse(mem.metadata),
+      metadata,
       accountIdentifier,
       pinned: mem.pinned,
       score,
       weights,
+      textSource: this.inferTextSource(metadata),
+      ...extras,
     };
   }
 

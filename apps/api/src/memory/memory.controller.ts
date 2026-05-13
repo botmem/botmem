@@ -640,6 +640,7 @@ export class MemoryController {
     if (dto.connectorType) filters.connectorType = dto.connectorType;
     if (dto.sourceType) filters.sourceType = dto.sourceType;
     if (dto.contactId) filters.contactId = dto.contactId;
+    if (dto.contactIds?.length) filters.contactIds = dto.contactIds;
     if (dto.connectorTypes?.length) filters.connectorTypes = dto.connectorTypes;
     if (dto.sourceTypes?.length) filters.sourceTypes = dto.sourceTypes;
     if (dto.factualityLabels?.length) filters.factualityLabels = dto.factualityLabels;
@@ -713,6 +714,7 @@ export class MemoryController {
       user.id,
       dto.memoryBankId,
       user.memoryBankIds,
+      dto.filters,
     );
   }
 
