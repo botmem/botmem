@@ -448,15 +448,15 @@ jobs:
             npm publish --access public --tag latest
           fi
 
-      - name: Build and publish @botmem/imsg-bridge
-        working-directory: packages/imsg-bridge
+      - name: Build and publish @botmem/apple-bridge
+        working-directory: packages/apple-bridge
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           pnpm build
           VERSION="${{ needs.version.outputs.version }}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
-          if npm view "@botmem/imsg-bridge@$VERSION" version 2>/dev/null; then
+          if npm view "@botmem/apple-bridge@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published — skipping"
           else
             npm publish --access public --tag latest
