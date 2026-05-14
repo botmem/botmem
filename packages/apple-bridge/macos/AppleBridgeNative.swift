@@ -299,6 +299,7 @@ private final class NativeAppleTunnel: NSObject, URLSessionWebSocketDelegate {
 
   private func log(_ message: String) {
     print("\(ISO8601DateFormatter().string(from: Date())) \(message)")
+    fflush(stdout)
   }
 }
 
