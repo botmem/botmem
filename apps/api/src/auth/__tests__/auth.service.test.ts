@@ -381,7 +381,7 @@ describe('AuthService', () => {
       (deps.config as Record<string, unknown>).authProvider = 'firebase';
       (deps.config as Record<string, unknown>).gmailClientId = 'server-cid';
       (deps.config as Record<string, unknown>).gmailClientSecret = 'server-csec';
-      (deps.config as Record<string, unknown>).baseUrl = 'https://botmem.xyz';
+      (deps.config as Record<string, unknown>).baseUrl = 'https://api.botmem.xyz';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -394,7 +394,7 @@ describe('AuthService', () => {
         expect.objectContaining({
           clientId: 'server-cid',
           clientSecret: 'server-csec',
-          redirectUri: 'https://botmem.xyz/api/auth/gmail/callback',
+          redirectUri: 'https://api.botmem.xyz/auth/gmail/callback',
         }),
       );
     });
@@ -404,7 +404,7 @@ describe('AuthService', () => {
       (deps.config as Record<string, unknown>).authProvider = 'firebase';
       (deps.config as Record<string, unknown>).gmailClientId = 'server-cid';
       (deps.config as Record<string, unknown>).gmailClientSecret = 'server-csec';
-      (deps.config as Record<string, unknown>).baseUrl = 'https://botmem.xyz';
+      (deps.config as Record<string, unknown>).baseUrl = 'https://api.botmem.xyz';
       deps.mockConnector.initiateAuth.mockResolvedValue({
         type: 'redirect',
         url: 'https://accounts.google.com/auth',
@@ -417,7 +417,7 @@ describe('AuthService', () => {
         expect.objectContaining({
           clientId: 'server-cid',
           clientSecret: 'server-csec',
-          redirectUri: 'https://botmem.xyz/api/auth/gmail/callback',
+          redirectUri: 'https://api.botmem.xyz/auth/gmail/callback',
         }),
       );
     });

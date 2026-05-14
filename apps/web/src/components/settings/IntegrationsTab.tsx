@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { API_ORIGIN } from '../../lib/urls';
 
-const API_URL = 'https://botmem.xyz';
+const API_URL = API_ORIGIN.includes('botmem.xyz') ? 'https://api.botmem.xyz' : API_ORIGIN;
 const MCP_URL = `${API_URL}/mcp`;
 
 function mcpConfig() {

@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { API_BASE } from '../lib/urls';
 
 export function ResetPasswordPage() {
   usePageMeta({
@@ -45,7 +46,7 @@ export function ResetPasswordPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/user-auth/reset-password', {
+      const res = await fetch(`${API_BASE}/user-auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, newPassword }),

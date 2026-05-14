@@ -36,7 +36,7 @@ export class OAuthMetadataController {
       token_endpoint_auth_methods_supported: ['none'],
       scopes_supported: ['read'],
       service_name: 'Botmem',
-      service_documentation: 'https://botmem.xyz',
+      service_documentation: this.config.landingUrl || this.config.frontendUrl,
       logo_uri: `${issuer}/brand/logo-mark-256.png`,
     };
   }

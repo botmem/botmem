@@ -203,7 +203,7 @@ export class AuthService implements OnModuleInit {
           ...mergedConfig,
           clientId: this.config.gmailClientId,
           clientSecret: this.config.gmailClientSecret,
-          redirectUri: `${this.config.baseUrl}/api/auth/gmail/callback`,
+          redirectUri: `${this.config.baseUrl}/auth/gmail/callback`,
         };
       }
     }
@@ -216,7 +216,7 @@ export class AuthService implements OnModuleInit {
           clientId: this.config.outlookClientId,
           clientSecret: this.config.outlookClientSecret,
           tenantId: (mergedConfig.tenantId as string) || 'common',
-          redirectUri: `${this.config.baseUrl}/api/auth/outlook/callback`,
+          redirectUri: `${this.config.baseUrl}/auth/outlook/callback`,
         };
       }
     }

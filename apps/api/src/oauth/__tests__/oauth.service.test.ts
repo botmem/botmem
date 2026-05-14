@@ -77,6 +77,7 @@ describe('OAuthService', () => {
             systemDb: vi
               .fn()
               .mockImplementation((fn: (db: typeof mockDb) => unknown) => fn(mockDb)),
+            queryRaw: vi.fn().mockResolvedValue([]),
           },
         },
         { provide: JwtService, useValue: jwtService },
@@ -142,27 +143,18 @@ describe('OAuthService', () => {
 
       const storedCode = {
         code: 'test-code',
-        userId: 'user-1',
-        clientId: 'client-1',
-        redirectUri: 'http://localhost:3000/callback',
+        user_id: 'user-1',
+        client_id: 'client-1',
+        redirect_uri: 'http://localhost:3000/callback',
         scope: 'read write',
-        codeChallenge: challenge,
-        codeChallengeMethod: 'S256',
-        expiresAt: new Date(Date.now() + 600000),
-        usedAt: null,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        expires_at: new Date(Date.now() + 600000),
+        used_at: null,
       };
 
-      // Override the select mock for this test
-      const dbService = (
-        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
-      ).db;
-      dbService.db.select = vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([storedCode]),
-          }),
-        }),
-      });
+      const dbService = (service as unknown as { db: { queryRaw: ReturnType<typeof vi.fn> } }).db;
+      dbService.queryRaw.mockResolvedValueOnce([storedCode]).mockResolvedValueOnce([]);
 
       const result = await service.validateAndConsumeCode(
         'test-code',
@@ -173,32 +165,27 @@ describe('OAuthService', () => {
 
       expect(result.userId).toBe('user-1');
       expect(result.scope).toBe('read write');
-      expect(dbService.db.update).toHaveBeenCalled();
+      expect(dbService.queryRaw).toHaveBeenCalledWith(
+        'UPDATE oauth_codes SET used_at = NOW() WHERE code = $1',
+        ['test-code'],
+      );
     });
 
     it('rejects expired code', async () => {
       const storedCode = {
         code: 'test-code',
-        userId: 'user-1',
-        clientId: 'client-1',
-        redirectUri: 'http://localhost:3000/callback',
+        user_id: 'user-1',
+        client_id: 'client-1',
+        redirect_uri: 'http://localhost:3000/callback',
         scope: 'read write',
-        codeChallenge: 'challenge',
-        codeChallengeMethod: 'S256',
-        expiresAt: new Date(Date.now() - 1000), // expired
-        usedAt: null,
+        code_challenge: 'challenge',
+        code_challenge_method: 'S256',
+        expires_at: new Date(Date.now() - 1000), // expired
+        used_at: null,
       };
 
-      const dbService = (
-        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
-      ).db;
-      dbService.db.select = vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([storedCode]),
-          }),
-        }),
-      });
+      const dbService = (service as unknown as { db: { queryRaw: ReturnType<typeof vi.fn> } }).db;
+      dbService.queryRaw.mockResolvedValueOnce([storedCode]);
 
       await expect(
         service.validateAndConsumeCode(
@@ -213,26 +200,18 @@ describe('OAuthService', () => {
     it('rejects already-used code', async () => {
       const storedCode = {
         code: 'test-code',
-        userId: 'user-1',
-        clientId: 'client-1',
-        redirectUri: 'http://localhost:3000/callback',
+        user_id: 'user-1',
+        client_id: 'client-1',
+        redirect_uri: 'http://localhost:3000/callback',
         scope: 'read write',
-        codeChallenge: 'challenge',
-        codeChallengeMethod: 'S256',
-        expiresAt: new Date(Date.now() + 600000),
-        usedAt: new Date(), // already used
+        code_challenge: 'challenge',
+        code_challenge_method: 'S256',
+        expires_at: new Date(Date.now() + 600000),
+        used_at: new Date(), // already used
       };
 
-      const dbService = (
-        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
-      ).db;
-      dbService.db.select = vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([storedCode]),
-          }),
-        }),
-      });
+      const dbService = (service as unknown as { db: { queryRaw: ReturnType<typeof vi.fn> } }).db;
+      dbService.queryRaw.mockResolvedValueOnce([storedCode]);
 
       await expect(
         service.validateAndConsumeCode(
@@ -247,26 +226,18 @@ describe('OAuthService', () => {
     it('rejects wrong client_id', async () => {
       const storedCode = {
         code: 'test-code',
-        userId: 'user-1',
-        clientId: 'client-1',
-        redirectUri: 'http://localhost:3000/callback',
+        user_id: 'user-1',
+        client_id: 'client-1',
+        redirect_uri: 'http://localhost:3000/callback',
         scope: 'read write',
-        codeChallenge: 'challenge',
-        codeChallengeMethod: 'S256',
-        expiresAt: new Date(Date.now() + 600000),
-        usedAt: null,
+        code_challenge: 'challenge',
+        code_challenge_method: 'S256',
+        expires_at: new Date(Date.now() + 600000),
+        used_at: null,
       };
 
-      const dbService = (
-        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
-      ).db;
-      dbService.db.select = vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([storedCode]),
-          }),
-        }),
-      });
+      const dbService = (service as unknown as { db: { queryRaw: ReturnType<typeof vi.fn> } }).db;
+      dbService.queryRaw.mockResolvedValueOnce([storedCode]);
 
       await expect(
         service.validateAndConsumeCode(
@@ -279,16 +250,8 @@ describe('OAuthService', () => {
     });
 
     it('rejects invalid code', async () => {
-      const dbService = (
-        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
-      ).db;
-      dbService.db.select = vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([]),
-          }),
-        }),
-      });
+      const dbService = (service as unknown as { db: { queryRaw: ReturnType<typeof vi.fn> } }).db;
+      dbService.queryRaw.mockResolvedValueOnce([]);
 
       await expect(
         service.validateAndConsumeCode(
@@ -306,26 +269,18 @@ describe('OAuthService', () => {
 
       const storedCode = {
         code: 'test-code',
-        userId: 'user-1',
-        clientId: 'client-1',
-        redirectUri: 'http://localhost:3000/callback',
+        user_id: 'user-1',
+        client_id: 'client-1',
+        redirect_uri: 'http://localhost:3000/callback',
         scope: 'read write',
-        codeChallenge: challenge,
-        codeChallengeMethod: 'S256',
-        expiresAt: new Date(Date.now() + 600000),
-        usedAt: null,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        expires_at: new Date(Date.now() + 600000),
+        used_at: null,
       };
 
-      const dbService = (
-        service as unknown as { db: { db: Record<string, ReturnType<typeof vi.fn>> } }
-      ).db;
-      dbService.db.select = vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([storedCode]),
-          }),
-        }),
-      });
+      const dbService = (service as unknown as { db: { queryRaw: ReturnType<typeof vi.fn> } }).db;
+      dbService.queryRaw.mockResolvedValueOnce([storedCode]);
 
       await expect(
         service.validateAndConsumeCode(

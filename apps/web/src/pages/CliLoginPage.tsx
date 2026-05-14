@@ -4,6 +4,7 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { useAuthStore } from '../store/authStore';
+import { API_BASE } from '../lib/urls';
 
 export default function CliLoginPage() {
   const [searchParams] = useSearchParams();
@@ -58,7 +59,7 @@ export default function CliLoginPage() {
         return;
       }
 
-      const res = await fetch('/api/user-auth/cli/approve-with-token', {
+      const res = await fetch(`${API_BASE}/user-auth/cli/approve-with-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

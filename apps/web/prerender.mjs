@@ -16,6 +16,7 @@ const ssrPath = path.resolve(__dirname, 'dist-ssr', 'entry-server.js');
 const ROUTES = ['/', '/pricing', '/privacy', '/terms', '/data-policy'];
 
 const BASE_URL = 'https://botmem.xyz';
+const WEB_SURFACE = process.env.VITE_WEB_SURFACE || 'combined';
 
 const ROUTE_META = {
   '/': {
@@ -157,6 +158,12 @@ async function prerender() {
   // are served with the prerendered landing page HTML inside #root.
   fs.writeFileSync(path.join(distPath, '_spa.html'), applyMeta(template, SPA_META));
   console.log('  _spa.html → clean SPA fallback saved');
+
+  if (WEB_SURFACE === 'app') {
+    fs.writeFileSync(path.join(distPath, 'index.html'), applyMeta(template, SPA_META));
+    console.log('\nSkipped marketing prerender for app surface');
+    return;
+  }
 
   const { render } = await import(ssrPath);
 

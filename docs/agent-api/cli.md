@@ -39,12 +39,19 @@ This writes `.agents/skills/botmem-cli/SKILL.md` and links `.claude/skills/botme
 
 ### Hermes Agent
 
-Hermes can install the published Botmem skill through its own skills CLI. The canonical skill source is `.agents/skills/botmem-cli/SKILL.md` in this repository and is published through skills.sh.
+Hermes can install the Botmem skill through its own skills CLI. The canonical skill source is `.agents/skills/botmem-cli/SKILL.md` in this repository.
 
 ```bash
 npm install -g @botmem/cli
-hermes skills inspect skills-sh/botmem/botmem/.agents/skills/botmem-cli
-hermes skills install skills-sh/botmem/botmem/.agents/skills/botmem-cli --yes --force
+hermes skills inspect skills-sh/botmem/botmem/botmem-cli
+hermes skills install skills-sh/botmem/botmem/botmem-cli --yes --force
+```
+
+If the skills.sh index has not picked up the latest Botmem skill yet, install the canonical skill file directly:
+
+```bash
+hermes skills inspect https://raw.githubusercontent.com/botmem/botmem/main/.agents/skills/botmem-cli/SKILL.md
+hermes skills install https://raw.githubusercontent.com/botmem/botmem/main/.agents/skills/botmem-cli/SKILL.md --yes --force
 ```
 
 Hermes may flag the skill with a `CAUTION` supply-chain warning because the skill instructs agents to install `@botmem/cli` from npm. Review the inspect output first, then use `--force` if you trust the package.
@@ -55,34 +62,38 @@ Installed skills take effect in new Hermes sessions. Use `/reset` in the current
 hermes skills list | grep botmem-cli
 ```
 
-After the skill is active, Hermes should install `@botmem/cli` automatically when the `botmem` command is missing, then walk the user through host, API key, and recovery-key configuration. You can also configure the CLI manually in Hermes' shell environment:
+After the skill is active, Hermes should install `@botmem/cli` automatically when the `botmem` command is missing, then walk the user through host, login/API-key, and recovery-key configuration. You can also configure the CLI manually in Hermes' shell environment:
 
 ```bash
-botmem config set-host botmem.xyz
+botmem config set-host api.botmem.xyz
 botmem config set-key bm_sk_...
-botmem config set-recovery-key <base64-key> # required for encrypted memories
+botmem login # stores a standard CLI login JWT accepted by Botmem data endpoints
+botmem config set-recovery-key <base64-key> # unlocks memory data; encrypted fields are never returned
 botmem version --toon-fields buildTime,gitHash,uptime
 ```
 
 ## Global Options
 
-| Flag              | Description                                                                 |
-| ----------------- | --------------------------------------------------------------------------- |
-| `--api-url <url>` | API base URL (env: `BOTMEM_API_URL`, default: `http://localhost:12412/api`) |
-| `--api-key <key>` | API key for authentication (env: `BOTMEM_API_KEY`)                          |
-| `--json`          | Output raw JSON for piping to `jq` or scripts                               |
-| `--toon`          | Output compact TOON for LLM agents                                          |
-| `--toon-fields`   | Select comma-separated dot paths before TOON encoding                       |
-| `-h, --help`      | Show help                                                                   |
+| Flag              | Description                                                             |
+| ----------------- | ----------------------------------------------------------------------- |
+| `--api-url <url>` | API base URL (env: `BOTMEM_API_URL`, default: `https://api.botmem.xyz`) |
+| `--api-key <key>` | API key for authentication (env: `BOTMEM_API_KEY`)                      |
+| `--json`          | Output raw JSON for piping to `jq` or scripts                           |
+| `--toon`          | Output compact TOON for LLM agents                                      |
+| `--toon-fields`   | Select comma-separated dot paths before TOON encoding                   |
+| `-h, --help`      | Show help                                                               |
 
 ## Authentication
 
 ```bash
-# Interactive login (email/password)
+# Browser login
 botmem login
 
-# Login with API key
-botmem login --api-key bm_sk_abc123...
+# Configure an API key
+botmem config set-key bm_sk_abc123...
+
+# Clear a stale stored API key
+botmem config clear-key
 
 # Check auth status
 botmem version
@@ -108,7 +119,7 @@ Authenticate with the Botmem API.
 
 ```bash
 botmem login
-botmem login --api-key bm_sk_abc123...
+botmem config set-key bm_sk_abc123...
 ```
 
 ### `search <query>`

@@ -1,12 +1,20 @@
 import { StrictMode } from 'react';
 import { hydrateRoot, createRoot } from 'react-dom/client';
-import { App } from './App';
 import { initPostHog } from './lib/posthog';
-import { detectAuthProvider } from './store/authStore';
+import { isLandingSurface } from './lib/urls';
+import { detectAuthProvider } from './lib/auth-provider';
 import './index.css';
 
-// Detect auth provider from API before rendering (ensures correct login UI)
-detectAuthProvider().finally(() => {
+async function start() {
+  if (!isLandingSurface) {
+    // Detect auth provider from API before rendering the app shell.
+    await detectAuthProvider();
+  }
+
+  const { App } = isLandingSurface
+    ? await import('./LandingApp').then((m) => ({ App: m.LandingApp }))
+    : await import('./App');
+
   // Defer analytics init until after first paint to improve FCP/LCP
   if (typeof requestIdleCallback === 'function') {
     requestIdleCallback(() => initPostHog());
@@ -27,4 +35,6 @@ detectAuthProvider().finally(() => {
   } else {
     createRoot(rootEl).render(app);
   }
-});
+}
+
+start();

@@ -21,12 +21,15 @@ The Gmail connector imports emails, contacts, and attachments from Google using 
 3. Navigate to **APIs & Services > Credentials**
 4. Click **Create Credentials > OAuth client ID**
 5. Select **Web application**
-6. Add `http://localhost:12412/api/auth/gmail/callback` as an **Authorized redirect URI**
+6. Add the redirect URI:
+   - Botmem Cloud: `https://api.botmem.xyz/auth/gmail/callback`
+   - Local dev: `http://localhost:12412/api/auth/gmail/callback`
 7. Copy the **Client ID** and **Client Secret**
 
 ### 2. Enable Required APIs
 
 In the Google Cloud Console, enable:
+
 - **Gmail API** (`gmail.googleapis.com`)
 - **People API** (`people.googleapis.com`)
 
@@ -34,15 +37,16 @@ In the Google Cloud Console, enable:
 
 Navigate to the Connectors page in the web UI and click **Add** on the Google connector. Enter:
 
-| Field | Value |
-|---|---|
-| Client ID | Your Google OAuth Client ID |
-| Client Secret | Your Google OAuth Client Secret |
-| Redirect URI | `http://localhost:12412/api/auth/gmail/callback` (default) |
+| Field         | Value                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Client ID     | Your Google OAuth Client ID                                                                                                |
+| Client Secret | Your Google OAuth Client Secret                                                                                            |
+| Redirect URI  | `https://api.botmem.xyz/auth/gmail/callback` for Botmem Cloud, or `http://localhost:12412/api/auth/gmail/callback` locally |
 
 ### 4. Authorize
 
 Click **Connect** to be redirected to Google's consent screen. Grant access to:
+
 - Read your email messages and settings (`gmail.readonly`)
 - See and download your contacts (`contacts.readonly`)
 
@@ -65,7 +69,7 @@ After authorization, you will be redirected back to Botmem.
     "redirectUri": {
       "type": "string",
       "title": "Redirect URI",
-      "default": "http://localhost:12412/api/auth/gmail/callback"
+      "default": "https://api.botmem.xyz/auth/gmail/callback"
     }
   },
   "required": ["clientId", "clientSecret"]
@@ -74,9 +78,9 @@ After authorization, you will be redirected back to Botmem.
 
 ## OAuth Scopes
 
-| Scope | Purpose |
-|---|---|
-| `https://www.googleapis.com/auth/gmail.readonly` | Read email messages and metadata |
+| Scope                                               | Purpose                           |
+| --------------------------------------------------- | --------------------------------- |
+| `https://www.googleapis.com/auth/gmail.readonly`    | Read email messages and metadata  |
 | `https://www.googleapis.com/auth/contacts.readonly` | Read Google Contacts (People API) |
 
 ## How Sync Works
@@ -99,6 +103,7 @@ After authorization, you will be redirected back to Botmem.
 ### Contact Resolution
 
 During embedding, the processor:
+
 - Parses `From`, `To`, and `CC` headers to extract email addresses and display names
 - Creates or merges contacts using email as the primary identifier
 - Links contacts to memories with roles: `sender`, `recipient`

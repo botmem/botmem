@@ -7,6 +7,7 @@ import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { PublicFooter } from '../components/layout/PublicFooter';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useThemeStore } from '../store/themeStore';
+import { appUrl } from '../lib/urls';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -104,12 +105,18 @@ function Navbar() {
             </svg>
           </button>
           <ThemeToggle />
-          <Link
-            to="/signup"
+          <a
+            href={appUrl('/login')}
+            className="hidden sm:inline-block font-display text-sm font-bold text-nb-muted hover:text-nb-text transition-colors duration-200"
+          >
+            SIGN IN
+          </a>
+          <a
+            href={appUrl('/signup')}
             className="hidden sm:inline-block font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
           >
             GET STARTED
-          </Link>
+          </a>
         </div>
       </div>
 
@@ -130,13 +137,20 @@ function Navbar() {
                 {link.label}
               </a>
             ))}
-            <Link
-              to="/signup"
+            <a
+              href={appUrl('/login')}
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-4 py-3 font-bold text-nb-text cursor-pointer"
+            >
+              SIGN IN
+            </a>
+            <a
+              href={appUrl('/signup')}
               onClick={() => setMobileMenuOpen(false)}
               className="px-4 py-3 font-bold bg-nb-lime text-black cursor-pointer"
             >
               GET STARTED
-            </Link>
+            </a>
           </div>
         </div>
       )}
@@ -222,12 +236,12 @@ function Hero() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 shrink-0">
-          <Link
-            to="/signup"
+          <a
+            href={appUrl('/signup')}
             className="font-display text-sm font-bold px-6 py-2.5 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
           >
             START FREE
-          </Link>
+          </a>
           <a
             href={GITHUB_URL}
             target="_blank"
@@ -567,7 +581,7 @@ const HOW_IT_WORKS_TABS = [
       { type: 'json' as const, text: '  "plugins": [{' },
       { type: 'json' as const, text: '    "package": "@botmem/openclaw-plugin",' },
       { type: 'json' as const, text: '    "config": {' },
-      { type: 'json' as const, text: '      "apiUrl": "https://botmem.xyz",' },
+      { type: 'json' as const, text: '      "apiUrl": "https://api.botmem.xyz",' },
       { type: 'json' as const, text: '      "apiKey": "bm_sk_..."' },
       { type: 'json' as const, text: '    }' },
       { type: 'json' as const, text: '  }]' },
@@ -625,7 +639,7 @@ const HOW_IT_WORKS_TABS = [
     lines: [
       {
         type: 'cmd' as const,
-        text: 'curl -X POST https://botmem.xyz/api/memories/search \\',
+        text: 'curl -X POST https://api.botmem.xyz/memories/search \\',
       },
       {
         type: 'continued' as const,
@@ -955,12 +969,12 @@ function PricingSection() {
                 </li>
               ))}
             </ul>
-            <Link
-              to="/signup"
+            <a
+              href={appUrl('/signup')}
               className="mt-8 font-display text-sm font-bold px-8 py-3 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
             >
               START PRO
-            </Link>
+            </a>
             <p className="font-mono text-xs text-nb-muted mt-3 text-center">
               14-day free trial · Cancel anytime
             </p>
@@ -1116,12 +1130,12 @@ function OpenSourceCTA() {
           >
             STAR ON GITHUB
           </a>
-          <Link
-            to="/signup"
+          <a
+            href={appUrl('/signup')}
             className="font-display text-sm font-bold px-8 py-3 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
           >
             GET STARTED
-          </Link>
+          </a>
         </div>
       </div>
     </section>

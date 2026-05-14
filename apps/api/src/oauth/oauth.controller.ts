@@ -63,7 +63,6 @@ export class OAuthController {
   @Get('authorize')
   @Public()
   async authorize(
-    @Req() req: Request,
     @Query('client_id') clientId: string,
     @Query('redirect_uri') redirectUri: string,
     @Query('response_type') responseType: string,
@@ -91,10 +90,8 @@ export class OAuthController {
       throw new BadRequestException('Invalid redirect_uri');
     }
 
-    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
-    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host;
-    const origin = process.env.BASE_URL || (host ? `${proto}://${host}` : this.config.frontendUrl);
-    const consentUrl = new URL(`${origin}/oauth/consent`);
+    const appUrl = this.config.appUrl || this.config.frontendUrl;
+    const consentUrl = new URL(`${appUrl}/oauth/consent`);
     consentUrl.searchParams.set('client_id', clientId);
     consentUrl.searchParams.set('scope', scope || 'read write');
     consentUrl.searchParams.set('state', state || '');

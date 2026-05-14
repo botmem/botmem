@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { PublicNavbar } from '../components/layout/PublicNavbar';
 import { PublicFooter } from '../components/layout/PublicFooter';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { appUrl } from '../lib/urls';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -236,12 +236,12 @@ export function PricingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  to="/signup"
+                <a
+                  href={appUrl('/signup')}
                   className="mt-8 font-display text-sm font-bold px-8 py-3 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block text-center"
                 >
                   START PRO
-                </Link>
+                </a>
                 <p className="font-mono text-xs text-nb-muted mt-3 text-center">
                   14-day free trial · Cancel anytime
                 </p>
@@ -295,12 +295,12 @@ export function PricingPage() {
                 >
                   SELF-HOST FREE
                 </a>
-                <Link
-                  to="/signup"
+                <a
+                  href={appUrl('/signup')}
                   className="font-display text-sm font-bold px-8 py-3 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer inline-block"
                 >
                   START PRO
-                </Link>
+                </a>
               </div>
             </div>
           </section>
