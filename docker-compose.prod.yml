@@ -15,7 +15,7 @@
 
 services:
   api:
-    image: ghcr.io/botmem/botmem-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/botmem/botmem:api-${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.prod
     dns:
@@ -44,7 +44,7 @@ services:
     stop_grace_period: 30s
 
   worker:
-    image: ghcr.io/botmem/botmem-worker:${IMAGE_TAG:-latest}
+    image: ghcr.io/botmem/botmem:worker-${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.prod
     dns:
@@ -67,7 +67,7 @@ services:
     stop_grace_period: 90s
 
   app-web:
-    image: ghcr.io/botmem/botmem-app:${IMAGE_TAG:-latest}
+    image: ghcr.io/botmem/botmem:app-${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       API_UPSTREAM: http://api:12412
@@ -76,7 +76,7 @@ services:
         condition: service_healthy
 
   landing-web:
-    image: ghcr.io/botmem/botmem-landing:${IMAGE_TAG:-latest}
+    image: ghcr.io/botmem/botmem:landing-${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       API_UPSTREAM: http://api:12412
