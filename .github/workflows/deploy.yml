@@ -417,7 +417,7 @@ jobs:
       APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
-      BOTMEM_DMG_NAME: Botmem-Apple-Bridge-arm64.dmg
+      BOTMEM_DMG_NAME: botmem-arm64.dmg
 
     steps:
       - uses: actions/checkout@v4

@@ -43,7 +43,7 @@ jobs:
         include:
           - name: arm64
             runner: macos-14
-            dmg: Botmem-Apple-Bridge-arm64.dmg
+            dmg: botmem-arm64.dmg
 
     steps:
       - uses: actions/checkout@v4
