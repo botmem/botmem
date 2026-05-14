@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Botmem Apple Bridge CLI.
+ * botmem CLI.
  *
  * Usage:
  *   npx @botmem/apple-bridge --token=<token> [--server=wss://botmem.xyz/apple-tunnel]
@@ -42,8 +42,8 @@ function error(message = ''): void {
 
 program
   .name('apple-bridge')
-  .description('Botmem Apple Bridge — syncs local Apple data securely')
-  .option('--config <path>', 'Path to local Botmem Apple Bridge config.json')
+  .description('botmem — syncs local Apple data securely')
+  .option('--config <path>', 'Path to local botmem config.json')
   .option('--token <token>', 'Bridge token from your Botmem dashboard')
   .option('--server <url>', 'Botmem tunnel WebSocket URL')
   .option('--db <path>', 'Path to chat.db', DEFAULT_DB_PATH)

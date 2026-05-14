@@ -4,15 +4,15 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>Botmem Apple Bridge</string>
+  <string>botmem</string>
   <key>CFBundleExecutable</key>
-  <string>Botmem Apple Bridge</string>
+  <string>botmem</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>xyz.botmem.apple-bridge</string>
   <key>CFBundleName</key>
-  <string>Botmem Apple Bridge</string>
+  <string>botmem</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -23,7 +23,7 @@
   <array>
     <dict>
       <key>CFBundleURLName</key>
-      <string>Botmem Apple Bridge</string>
+      <string>botmem</string>
       <key>CFBundleURLSchemes</key>
       <array>
         <string>botmem-apple-bridge</string>
