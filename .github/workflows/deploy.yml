@@ -42,6 +42,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       prev: ${{ steps.version.outputs.prev }}
       has_previous_tag: ${{ steps.version.outputs.has_previous_tag }}
+      baseline: ${{ steps.version.outputs.baseline }}
+      has_success_baseline: ${{ steps.version.outputs.has_success_baseline }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@v6
@@ -52,6 +54,7 @@ jobs:
         id: version
         run: |
           git fetch --tags
+          git fetch origin +refs/heads/ci/deploy-success:refs/remotes/origin/ci/deploy-success || true
           LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
           if [ -z "$LATEST_TAG" ]; then
             NEXT="v0.1.0"
@@ -74,11 +77,20 @@ jobs:
             fi
             NEXT="v${MAJOR}.${MINOR}.${PATCH}"
           fi
+          if git rev-parse --verify refs/remotes/origin/ci/deploy-success^{commit} >/dev/null 2>&1; then
+            BASELINE=$(git rev-parse refs/remotes/origin/ci/deploy-success)
+            HAS_SUCCESS_BASELINE=true
+          else
+            BASELINE="$PREV_REF"
+            HAS_SUCCESS_BASELINE=false
+          fi
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
           echo "version=${NEXT#v}" >> "$GITHUB_OUTPUT"
           echo "prev=$PREV_REF" >> "$GITHUB_OUTPUT"
           echo "has_previous_tag=$HAS_PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
-          echo "Next version: $NEXT (previous: $PREV_REF)"
+          echo "baseline=$BASELINE" >> "$GITHUB_OUTPUT"
+          echo "has_success_baseline=$HAS_SUCCESS_BASELINE" >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT (previous tag: $PREV_REF, success baseline: $BASELINE, has success baseline: $HAS_SUCCESS_BASELINE)"
 
   changes:
     name: Detect Changed Artifacts
@@ -108,17 +120,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          BASE="${{ needs.version.outputs.prev }}"
+          BASE="${{ needs.version.outputs.baseline }}"
           if ! git rev-parse --verify "$BASE^{commit}" >/dev/null 2>&1; then
-            BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-list --max-parents=0 HEAD)"
+            BASE="$(git rev-list --max-parents=0 HEAD)"
           fi
 
-          if [ "${{ needs.version.outputs.has_previous_tag }}" != "true" ]; then
-            CHANGED="__initial_release__"
+          if [ "${{ needs.version.outputs.has_success_baseline }}" != "true" ]; then
+            CHANGED="__no_success_baseline__"
           else
             CHANGED="$(git diff --name-only "$BASE"..HEAD)"
           fi
 
+          echo "Change detection base: $BASE"
           echo "Changed files:"
           printf '%s\n' "$CHANGED"
 
@@ -141,7 +154,7 @@ jobs:
             skills=true
           }
 
-          if [ "$CHANGED" = "__initial_release__" ]; then
+          if [ "$CHANGED" = "__no_success_baseline__" ]; then
             mark_all_buildable
           else
             while IFS= read -r file; do
@@ -231,6 +244,8 @@ jobs:
 
           cat << SUMMARY >> "$GITHUB_STEP_SUMMARY"
           ## Changed Artifact Groups
+
+          - Last successful pipeline baseline: \`${BASE}\`
 
           - Backend runtime: \`$backend\`
           - Web runtime: \`$web\`
@@ -949,3 +964,48 @@ jobs:
               --notes-file /tmp/changelog.md \
               --target "${{ github.sha }}"
           fi
+
+  mark-successful-baseline:
+    name: Mark Successful Pipeline Baseline
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs:
+      - version
+      - changes
+      - quality-gate
+      - promote-runtime-images
+      - deploy
+      - publish-cli
+      - publish-apple-bridge
+      - publish-openclaw-plugin
+      - tag
+      - apple-bridge-release
+    if: |
+      always() &&
+      needs.changes.outputs.changed_any == 'true' &&
+      needs.quality-gate.result == 'success' &&
+      (
+        (needs.changes.outputs.runtime == 'true' && needs.promote-runtime-images.result == 'success') ||
+        (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
+      ) &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') &&
+      (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped') &&
+      (needs.publish-apple-bridge.result == 'success' || needs.publish-apple-bridge.result == 'skipped') &&
+      (needs.publish-openclaw-plugin.result == 'success' || needs.publish-openclaw-plugin.result == 'skipped') &&
+      needs.tag.result == 'success' &&
+      (
+        (needs.changes.outputs.apple_bridge == 'true' && needs.apple-bridge-release.result == 'success') ||
+        (needs.changes.outputs.apple_bridge != 'true' && needs.apple-bridge-release.result == 'skipped')
+      )
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Update success baseline branch
+        run: |
+          set -euo pipefail
+          git push origin "${{ github.sha }}:refs/heads/ci/deploy-success" --force
+          echo "Marked ${{ github.sha }} as the last fully successful deploy baseline."
