@@ -13,6 +13,13 @@ struct BridgeSettings: Codable {
   var botmemHost: String
 }
 
+struct ContactsPermissionState {
+  let allowed: Bool
+  let detail: String
+  let canRequest: Bool
+  let canReset: Bool
+}
+
 let DEFAULT_BOTMEM_HOST = "https://api.botmem.xyz"
 
 final class ConfigStore {
@@ -218,6 +225,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     config = store.load()
     refreshStatus()
     showWindow()
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(appBecameActive),
+      name: NSApplication.didBecomeActiveNotification,
+      object: nil
+    )
   }
 
   private func installApplicationMenu() {
@@ -271,6 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
     showWindow()
     return true
+  }
+
+  @objc private func appBecameActive() {
+    refreshStatus()
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {
@@ -489,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func renderPermissionSetup(on content: NSView, issues: [String]) {
+    let contactsState = contactsPermissionState()
     let configured = wrapLabel(
       "Connected to \(config?.server ?? "Botmem"). Choose sources, then complete only the permissions those sources require.",
       size: 13,
@@ -499,27 +517,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     addSourceControls(on: content, y: 278)
 
-    addPermissionRow(on: content, title: "Contacts", ok: !issues.contains("contacts"), detail: "Needed only if Contacts was selected.", y: 220)
+    let contactsDetail = sourcesContain("contacts") ? contactsState.detail : "Needed only if Contacts was selected."
+    addPermissionRow(on: content, title: "Contacts", ok: !issues.contains("contacts"), detail: contactsDetail, y: 220)
     addPermissionRow(on: content, title: "Full Disk Access", ok: !issues.contains("messages"), detail: "Needed for iMessage history because macOS protects ~/Library/Messages.", y: 174)
 
     let contacts = actionButton("ALLOW CONTACTS", action: #selector(requestContactsPermission), x: 56, width: 148)
     contacts.frame.origin.y = 118
-    contacts.isEnabled = issues.contains("contacts")
+    contacts.isEnabled = issues.contains("contacts") && contactsState.canRequest
     content.addSubview(contacts)
 
-    let fda = actionButton("OPEN FULL DISK ACCESS", action: #selector(openFullDiskAccess), x: 220, width: 190)
+    let resetContacts = actionButton("RESET CONTACTS", action: #selector(resetContactsPermission), x: 220, width: 148)
+    resetContacts.frame.origin.y = 118
+    resetContacts.isEnabled = issues.contains("contacts") && contactsState.canReset
+    content.addSubview(resetContacts)
+
+    let fda = actionButton("OPEN FULL DISK ACCESS", action: #selector(openFullDiskAccess), x: 384, width: 190)
     fda.frame.origin.y = 118
     fda.isEnabled = issues.contains("messages")
     content.addSubview(fda)
 
-    let refresh = actionButton("CHECK AGAIN", action: #selector(checkAgain), x: 426, width: 120)
+    let refresh = actionButton("CHECK AGAIN", action: #selector(checkAgain), x: 590, width: 94)
     refresh.frame.origin.y = 118
     content.addSubview(refresh)
-
-    let start = actionButton("START SERVICE", action: #selector(startService), x: 562, width: 122)
-    start.frame.origin.y = 118
-    start.isEnabled = issues.isEmpty
-    content.addSubview(start)
 
     let note = wrapLabel("After enabling Full Disk Access, return here and click Check Again. macOS may require restarting the bridge app.", size: 12, color: muted())
     note.frame = NSRect(x: 56, y: 76, width: 620, height: 36)
@@ -580,8 +599,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     heading.frame = NSRect(x: 122, y: y, width: 240, height: 20)
     content.addSubview(heading)
 
-    let body = label(detail, size: 12, weight: .regular, color: muted())
-    body.frame = NSRect(x: 300, y: y, width: 360, height: 20)
+    let body = wrapLabel(detail, size: 12, color: muted())
+    body.frame = NSRect(x: 300, y: y - 8, width: 360, height: 34)
     content.addSubview(body)
   }
 
@@ -625,11 +644,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func contactsAllowed() -> Bool {
-    switch CNContactStore.authorizationStatus(for: .contacts) {
-    case .authorized:
-      return true
+    contactsPermissionState().allowed
+  }
+
+  private func contactsPermissionState() -> ContactsPermissionState {
+    let status = CNContactStore.authorizationStatus(for: .contacts)
+    if status == .authorized {
+      return ContactsPermissionState(
+        allowed: true,
+        detail: "Allowed by macOS Contacts privacy.",
+        canRequest: false,
+        canReset: false
+      )
+    }
+
+    if status.rawValue == 4 {
+      return ContactsPermissionState(
+        allowed: true,
+        detail: "Allowed by macOS Contacts privacy with limited access.",
+        canRequest: false,
+        canReset: false
+      )
+    }
+
+    switch status {
+    case .notDetermined:
+      return ContactsPermissionState(
+        allowed: false,
+        detail: "Click Allow Contacts and accept the macOS prompt.",
+        canRequest: true,
+        canReset: false
+      )
+    case .denied:
+      return ContactsPermissionState(
+        allowed: false,
+        detail: "macOS reports Contacts denied for this build. Reset it, then allow the prompt again.",
+        canRequest: false,
+        canReset: true
+      )
+    case .restricted:
+      return ContactsPermissionState(
+        allowed: false,
+        detail: "Contacts access is restricted by macOS policy.",
+        canRequest: false,
+        canReset: false
+      )
     default:
-      return false
+      return ContactsPermissionState(
+        allowed: false,
+        detail: "Unknown Contacts permission state \(status.rawValue). Reset and allow it again.",
+        canRequest: false,
+        canReset: true
+      )
     }
   }
 
@@ -697,10 +763,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func requestContactsPermission() {
-    CNContactStore().requestAccess(for: .contacts) { [weak self] _, _ in
+    CNContactStore().requestAccess(for: .contacts) { [weak self] granted, error in
+      bridgeLog("contacts request granted=\(granted) error=\(error?.localizedDescription ?? "none")")
       DispatchQueue.main.async {
         self?.refreshStatus()
       }
+    }
+  }
+
+  @objc private func resetContactsPermission() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+    process.arguments = ["reset", "AddressBook", Bundle.main.bundleIdentifier ?? "xyz.botmem.apple-bridge"]
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do {
+      try process.run()
+      process.waitUntilExit()
+      bridgeLog("tccutil reset AddressBook -> \(process.terminationStatus)")
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        self?.requestContactsPermission()
+      }
+    } catch {
+      bridgeLog("tccutil reset AddressBook failed: \(error.localizedDescription)")
+      refreshStatus()
     }
   }
 
