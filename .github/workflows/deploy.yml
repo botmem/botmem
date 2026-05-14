@@ -890,7 +890,10 @@ jobs:
     name: Build DMG & Create GitHub Release
     runs-on: macos-14
     needs: [version, changes, tag]
-    if: needs.changes.outputs.apple_bridge == 'true'
+    if: |
+      always() &&
+      needs.changes.outputs.binary == 'true' &&
+      needs.tag.result == 'success'
     permissions:
       contents: write
     env:
