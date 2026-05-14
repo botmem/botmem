@@ -92,6 +92,27 @@ final class LaunchAgentController {
     runLaunchctl(["print", serviceTarget()]) == 0
   }
 
+  func removeStaleInstallIfNeeded() {
+    guard FileManager.default.fileExists(atPath: plistURL.path),
+      let data = try? Data(contentsOf: plistURL),
+      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+    else {
+      return
+    }
+
+    let args = plist["ProgramArguments"] as? [String] ?? []
+    let executable = Bundle.main.executableURL?.path ?? ""
+    let usesCurrentExecutable = args.first == executable
+    let usesCurrentConfig = args.contains(store.configURL.path)
+
+    if usesCurrentExecutable && usesCurrentConfig {
+      return
+    }
+
+    bridgeLog("removing stale launch agent: \(args.joined(separator: " "))")
+    uninstall()
+  }
+
   func install() throws {
     guard let resourceURL = Bundle.main.resourceURL else {
       throw BridgeError("App resources are missing.")
@@ -212,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var serverField: NSTextField?
   private var sourceContactsButton: NSButton?
   private var sourceMessagesButton: NSButton?
+  private let contactStore = CNContactStore()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     installApplicationMenu()
@@ -223,6 +245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     settings = store.loadSettings()
     config = store.load()
+    migrateLegacyConfigIfNeeded()
+    service.removeStaleInstallIfNeeded()
     refreshStatus()
     showWindow()
     NotificationCenter.default.addObserver(
@@ -231,6 +255,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       name: NSApplication.didBecomeActiveNotification,
       object: nil
     )
+  }
+
+  private func migrateLegacyConfigIfNeeded() {
+    let legacySupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("Botmem Apple Bridge", isDirectory: true)
+    let migrations = [
+      (
+        from: legacySupportURL.appendingPathComponent("config.json", isDirectory: false),
+        to: store.configURL
+      ),
+      (
+        from: legacySupportURL.appendingPathComponent("settings.json", isDirectory: false),
+        to: store.settingsURL
+      ),
+    ]
+
+    for migration in migrations {
+      guard !FileManager.default.fileExists(atPath: migration.to.path),
+        FileManager.default.fileExists(atPath: migration.from.path)
+      else {
+        continue
+      }
+      do {
+        try FileManager.default.createDirectory(at: store.appSupportURL, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: migration.from, to: migration.to)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: migration.to.path)
+        bridgeLog("migrated legacy config: \(migration.from.path) -> \(migration.to.path)")
+      } catch {
+        bridgeLog("legacy config migration failed: \(error.localizedDescription)")
+      }
+    }
+
+    settings = store.loadSettings()
+    config = store.load()
   }
 
   private func installApplicationMenu() {
@@ -649,6 +707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func contactsPermissionState() -> ContactsPermissionState {
     let status = CNContactStore.authorizationStatus(for: .contacts)
+    bridgeLog("contacts authorization status raw=\(status.rawValue)")
     if status == .authorized {
       return ContactsPermissionState(
         allowed: true,
@@ -763,7 +822,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func requestContactsPermission() {
-    CNContactStore().requestAccess(for: .contacts) { [weak self] granted, error in
+    let status = CNContactStore.authorizationStatus(for: .contacts)
+    bridgeLog("contacts request starting from raw status=\(status.rawValue)")
+    guard status == .notDetermined else {
+      refreshStatus()
+      return
+    }
+
+    contactStore.requestAccess(for: .contacts) { [weak self] granted, error in
       bridgeLog("contacts request granted=\(granted) error=\(error?.localizedDescription ?? "none")")
       DispatchQueue.main.async {
         self?.refreshStatus()
@@ -781,13 +847,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       try process.run()
       process.waitUntilExit()
       bridgeLog("tccutil reset AddressBook -> \(process.terminationStatus)")
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-        self?.requestContactsPermission()
+      DispatchQueue.main.async { [weak self] in
+        self?.requestContactsPermissionAfterReset(attempt: 0)
       }
     } catch {
       bridgeLog("tccutil reset AddressBook failed: \(error.localizedDescription)")
       refreshStatus()
     }
+  }
+
+  private func requestContactsPermissionAfterReset(attempt: Int) {
+    let status = CNContactStore.authorizationStatus(for: .contacts)
+    bridgeLog("contacts reset poll attempt=\(attempt) raw=\(status.rawValue)")
+
+    if status == .notDetermined {
+      requestContactsPermission()
+      return
+    }
+
+    if attempt < 15 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        self?.requestContactsPermissionAfterReset(attempt: attempt + 1)
+      }
+      return
+    }
+
+    refreshStatus()
   }
 
   @objc private func checkAgain() {
