@@ -161,14 +161,14 @@ fi
 
 # ── Pull new images ─────────────────────────────────────────────────────────
 if [ "$DEPLOY_BACKEND" = "true" ]; then
-  for image in botmem-api botmem-worker; do
-    docker pull "ghcr.io/botmem/${image}:${IMAGE_TAG}"
+  for image in api worker; do
+    docker pull "ghcr.io/botmem/botmem:${image}-${IMAGE_TAG}"
   done
 fi
 
 if [ "$DEPLOY_WEB" = "true" ]; then
-  for image in botmem-app botmem-landing; do
-    docker pull "ghcr.io/botmem/${image}:${IMAGE_TAG}"
+  for image in app landing; do
+    docker pull "ghcr.io/botmem/botmem:${image}-${IMAGE_TAG}"
   done
 fi
 

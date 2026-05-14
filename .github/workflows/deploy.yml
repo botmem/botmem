@@ -326,7 +326,7 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem-api:amd64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:api-amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
       - name: Build and push worker image
@@ -338,7 +338,7 @@ jobs:
           target: worker
           push: true
           tags: |
-            ghcr.io/botmem/botmem-worker:amd64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:worker-amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
       - name: Build and push app image
@@ -367,7 +367,7 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem-app:amd64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:app-amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
       - name: Build and push landing image
@@ -396,7 +396,7 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem-landing:amd64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:landing-amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
   build-arm64:
@@ -444,7 +444,7 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem-api:arm64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:api-arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
 
       - name: Build and push worker image
@@ -456,7 +456,7 @@ jobs:
           target: worker
           push: true
           tags: |
-            ghcr.io/botmem/botmem-worker:arm64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:worker-arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
 
       - name: Build and push app image
@@ -485,7 +485,7 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem-app:arm64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:app-arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
 
       - name: Build and push landing image
@@ -514,7 +514,7 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem-landing:arm64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:landing-arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
 
   promote-runtime-images:
@@ -547,27 +547,27 @@ jobs:
           promote_image() {
             local image="$1"
             local changed="$2"
-            local repo="ghcr.io/botmem/${image}"
+            local repo="ghcr.io/botmem/botmem"
 
             if [ "$changed" = "true" ]; then
               echo "Creating manifest for changed image ${image}:${TAG}"
-              docker buildx imagetools create -t "${repo}:${TAG}" \
-                "${repo}:amd64-${TAG}" \
-                "${repo}:arm64-${TAG}"
-              docker buildx imagetools create -t "${repo}:latest" \
-                "${repo}:amd64-${TAG}" \
-                "${repo}:arm64-${TAG}"
+              docker buildx imagetools create -t "${repo}:${image}-${TAG}" \
+                "${repo}:${image}-amd64-${TAG}" \
+                "${repo}:${image}-arm64-${TAG}"
+              docker buildx imagetools create -t "${repo}:${image}-latest" \
+                "${repo}:${image}-amd64-${TAG}" \
+                "${repo}:${image}-arm64-${TAG}"
             else
               echo "Promoting unchanged image ${image}:latest to ${TAG}"
-              docker buildx imagetools create -t "${repo}:${TAG}" "${repo}:latest"
-              docker buildx imagetools create -t "${repo}:latest" "${repo}:${TAG}"
+              docker buildx imagetools create -t "${repo}:${image}-${TAG}" "${repo}:${image}-latest"
+              docker buildx imagetools create -t "${repo}:${image}-latest" "${repo}:${image}-${TAG}"
             fi
           }
 
-          promote_image botmem-api "${{ needs.changes.outputs.backend }}"
-          promote_image botmem-worker "${{ needs.changes.outputs.backend }}"
-          promote_image botmem-app "${{ needs.changes.outputs.web }}"
-          promote_image botmem-landing "${{ needs.changes.outputs.web }}"
+          promote_image api "${{ needs.changes.outputs.backend }}"
+          promote_image worker "${{ needs.changes.outputs.backend }}"
+          promote_image app "${{ needs.changes.outputs.web }}"
+          promote_image landing "${{ needs.changes.outputs.web }}"
 
   deploy:
     name: Deploy Changed Surfaces
