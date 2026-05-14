@@ -13,7 +13,7 @@ struct BridgeSettings: Codable {
   var botmemHost: String
 }
 
-let DEFAULT_BOTMEM_HOST = "https://api.botmem.xyz"
+let DEFAULT_BOTMEM_HOST = "https://botmem.xyz"
 
 final class ConfigStore {
   let appSupportURL: URL
@@ -23,7 +23,7 @@ final class ConfigStore {
 
   init() {
     appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Botmem Apple Bridge", isDirectory: true)
+      .appendingPathComponent("botmem", isDirectory: true)
     configURL = appSupportURL.appendingPathComponent("config.json", isDirectory: false)
     settingsURL = appSupportURL.appendingPathComponent("settings.json", isDirectory: false)
     serviceLogURL = appSupportURL.appendingPathComponent("service.log", isDirectory: false)
@@ -99,13 +99,13 @@ final class LaunchAgentController {
     let plist: [String: Any] = [
       "Label": label,
       "ProgramArguments": [
-        Bundle.main.executableURL?.path ?? resourceURL.appendingPathComponent("Botmem Apple Bridge").path,
+        Bundle.main.executableURL?.path ?? resourceURL.appendingPathComponent("botmem").path,
         "--helper",
         "--config",
         store.configURL.path,
       ],
       "EnvironmentVariables": [
-        "BOTMEM_BRIDGE_RUNNER_NAME": "Botmem Apple Bridge",
+        "BOTMEM_BRIDGE_RUNNER_NAME": "botmem",
       ],
       "RunAtLoad": true,
       "KeepAlive": [
@@ -226,10 +226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appMenuItem = NSMenuItem()
     mainMenu.addItem(appMenuItem)
 
-    let appMenu = NSMenu(title: "Botmem Apple Bridge")
+    let appMenu = NSMenu(title: "botmem")
     appMenu.addItem(
       NSMenuItem(
-        title: "About Botmem Apple Bridge",
+        title: "About botmem",
         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
         keyEquivalent: ""
       )
@@ -237,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     appMenu.addItem(NSMenuItem.separator())
     appMenu.addItem(
       NSMenuItem(
-        title: "Quit Botmem Apple Bridge",
+        title: "Quit botmem",
         action: #selector(quit),
         keyEquivalent: "q"
       )
@@ -249,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let windowMenu = NSMenu(title: "Window")
     windowMenu.addItem(
       NSMenuItem(
-        title: "Show Botmem Apple Bridge",
+        title: "Show botmem",
         action: #selector(showWindowFromMenu),
         keyEquivalent: "0"
       )
@@ -344,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem.button?.image = NSImage(named: "logo-mark-128")
     statusItem.button?.image?.size = NSSize(width: 18, height: 18)
     let menu = NSMenu()
-    menu.addItem(NSMenuItem(title: "Botmem Apple Bridge", action: nil, keyEquivalent: ""))
+    menu.addItem(NSMenuItem(title: "botmem", action: nil, keyEquivalent: ""))
     menu.addItem(NSMenuItem(title: "Status: \(status)", action: nil, keyEquivalent: ""))
     menu.addItem(NSMenuItem.separator())
     menu.addItem(NSMenuItem(title: "Show Window", action: #selector(showWindowFromMenu), keyEquivalent: ""))
@@ -375,7 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       backing: .buffered,
       defer: false
     )
-    window.title = "Botmem Apple Bridge"
+    window.title = "botmem"
     window.center()
     window.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.05, blue: 0.05, alpha: 1)
 
@@ -443,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     eyebrow.frame = NSRect(x: 122, y: 424, width: 260, height: 18)
     content.addSubview(eyebrow)
 
-    let title = label("Botmem Apple Bridge", size: 25, weight: .bold, color: .white)
+    let title = label("botmem", size: 25, weight: .bold, color: .white)
     title.frame = NSRect(x: 122, y: 388, width: 500, height: 34)
     content.addSubview(title)
 
@@ -462,7 +462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func renderConnectSetup(on content: NSView) {
-    addStep(on: content, number: "1", title: "Choose Botmem Server", detail: "Use api.botmem.xyz, or enter your own self-hosted Botmem endpoint.", y: 326)
+    addStep(on: content, number: "1", title: "Choose Botmem Server", detail: "Use botmem.xyz, or enter your own self-hosted Botmem endpoint.", y: 326)
 
     hostField = NSTextField(string: settings.botmemHost)
     hostField?.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)

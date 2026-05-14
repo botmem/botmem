@@ -94,13 +94,13 @@ func runNativeBridgeHelperIfRequested() -> Bool {
     let config = try JSONDecoder().decode(NativeBridgeConfig.self, from: data)
     if config.sources.contains("imessages") || config.sources.contains("messages") {
       guard nativeMessagesReadable() else {
-        fputs("Cannot read Messages database. Enable Full Disk Access for Botmem Apple Bridge.\n", stderr)
+        fputs("Cannot read Messages database. Enable Full Disk Access for botmem.\n", stderr)
         exit(1)
       }
     }
     NativeAppleTunnel(config: config).runForever()
   } catch {
-    fputs("Botmem Apple Bridge helper failed: \(error.localizedDescription)\n", stderr)
+    fputs("botmem helper failed: \(error.localizedDescription)\n", stderr)
     exit(1)
   }
   return true

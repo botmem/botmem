@@ -41,7 +41,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
       prev: ${{ steps.version.outputs.prev }}
-
+      has_previous_tag: ${{ steps.version.outputs.has_previous_tag }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@v6
@@ -56,8 +56,10 @@ jobs:
           if [ -z "$LATEST_TAG" ]; then
             NEXT="v0.1.0"
             PREV_REF=$(git rev-list --max-parents=0 HEAD)
+            HAS_PREVIOUS_TAG=false
           else
             PREV_REF="$LATEST_TAG"
+            HAS_PREVIOUS_TAG=true
             IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST_TAG#v}"
 
             COMMITS=$(git log "$LATEST_TAG"..HEAD --pretty=format:"%s")
@@ -75,12 +77,176 @@ jobs:
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
           echo "version=${NEXT#v}" >> "$GITHUB_OUTPUT"
           echo "prev=$PREV_REF" >> "$GITHUB_OUTPUT"
+          echo "has_previous_tag=$HAS_PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
           echo "Next version: $NEXT (previous: $PREV_REF)"
+
+  changes:
+    name: Detect Changed Artifacts
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version]
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      web: ${{ steps.detect.outputs.web }}
+      docs: ${{ steps.detect.outputs.docs }}
+      apple_bridge: ${{ steps.detect.outputs.apple_bridge }}
+      cli: ${{ steps.detect.outputs.cli }}
+      openclaw_plugin: ${{ steps.detect.outputs.openclaw_plugin }}
+      skills: ${{ steps.detect.outputs.skills }}
+      infra_deploy: ${{ steps.detect.outputs.infra_deploy }}
+      runtime: ${{ steps.detect.outputs.runtime }}
+      binary: ${{ steps.detect.outputs.binary }}
+      changed_any: ${{ steps.detect.outputs.changed_any }}
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed artifact groups
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="${{ needs.version.outputs.prev }}"
+          if ! git rev-parse --verify "$BASE^{commit}" >/dev/null 2>&1; then
+            BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-list --max-parents=0 HEAD)"
+          fi
+
+          if [ "${{ needs.version.outputs.has_previous_tag }}" != "true" ]; then
+            CHANGED="__initial_release__"
+          else
+            CHANGED="$(git diff --name-only "$BASE"..HEAD)"
+          fi
+
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED"
+
+          backend=false
+          web=false
+          docs=false
+          apple_bridge=false
+          cli=false
+          openclaw_plugin=false
+          skills=false
+          infra_deploy=false
+
+          mark_all_buildable() {
+            backend=true
+            web=true
+            docs=true
+            apple_bridge=true
+            cli=true
+            openclaw_plugin=true
+            skills=true
+          }
+
+          if [ "$CHANGED" = "__initial_release__" ]; then
+            mark_all_buildable
+          else
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              case "$file" in
+                package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json)
+                  mark_all_buildable
+                  ;;
+                scripts/deploy.sh|.github/workflows/deploy.yml)
+                  backend=true
+                  web=true
+                  docs=true
+                  apple_bridge=true
+                  infra_deploy=true
+                  ;;
+                Dockerfile|docker/**|docker-compose.prod.yml|Caddyfile.production)
+                  backend=true
+                  web=true
+                  infra_deploy=true
+                  ;;
+                apps/api/src/apple-tunnel/**|apps/api/src/accounts/**|apps/api/src/jobs/**|packages/connectors/imessage/**)
+                  backend=true
+                  apple_bridge=true
+                  ;;
+                apps/api/**|packages/connector-sdk/**|packages/connectors/**)
+                  backend=true
+                  ;;
+                docs/**)
+                  docs=true
+                  ;;
+                packages/apple-bridge/**|.github/workflows/apple-bridge-release.yml)
+                  apple_bridge=true
+                  ;;
+                packages/shared/**)
+                  backend=true
+                  web=true
+                  cli=true
+                  ;;
+                apps/web/**)
+                  web=true
+                  ;;
+                packages/cli/**)
+                  cli=true
+                  ;;
+                packages/openclaw-plugin/**)
+                  openclaw_plugin=true
+                  ;;
+                .agents/skills/botmem-cli/**)
+                  skills=true
+                  cli=true
+                  ;;
+                .agents/skills/**|.agents/react-doctor/**)
+                  skills=true
+                  ;;
+              esac
+            done <<< "$CHANGED"
+          fi
+
+          runtime=false
+          if [ "$backend" = true ] || [ "$web" = true ] || [ "$infra_deploy" = true ]; then
+            runtime=true
+          fi
+
+          binary=false
+          if [ "$apple_bridge" = true ]; then
+            binary=true
+          fi
+
+          changed_any=false
+          if [ "$runtime" = true ] || [ "$docs" = true ] || [ "$apple_bridge" = true ] || [ "$cli" = true ] || [ "$openclaw_plugin" = true ]; then
+            changed_any=true
+          fi
+
+          {
+            echo "backend=$backend"
+            echo "web=$web"
+            echo "docs=$docs"
+            echo "apple_bridge=$apple_bridge"
+            echo "cli=$cli"
+            echo "openclaw_plugin=$openclaw_plugin"
+            echo "skills=$skills"
+            echo "infra_deploy=$infra_deploy"
+            echo "runtime=$runtime"
+            echo "binary=$binary"
+            echo "changed_any=$changed_any"
+          } >> "$GITHUB_OUTPUT"
+
+          cat << SUMMARY >> "$GITHUB_STEP_SUMMARY"
+          ## Changed Artifact Groups
+
+          - Backend runtime: \`$backend\`
+          - Web runtime: \`$web\`
+          - Docs: \`$docs\`
+          - Apple bridge DMG: \`$apple_bridge\`
+          - CLI npm package: \`$cli\`
+          - OpenClaw npm package: \`$openclaw_plugin\`
+          - Skills: \`$skills\`
+          - Infra deploy: \`$infra_deploy\`
+          - Any releasable/deployable artifact: \`$changed_any\`
+          SUMMARY
 
   quality-gate:
     name: Lint & Test
     runs-on: blacksmith-4vcpu-ubuntu-2404
-
+    needs: [changes]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -116,10 +282,10 @@ jobs:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
 
   build-amd64:
-    name: Build & Push (amd64)
+    name: Build Changed Images (amd64)
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, quality-gate]
-
+    needs: [version, changes, quality-gate]
+    if: needs.changes.outputs.runtime == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -134,18 +300,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image (amd64)
+      - name: Build and push API image
+        if: needs.changes.outputs.backend == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: ./Dockerfile
+          target: api
           push: true
           build-args: |
             VITE_AUTH_PROVIDER=firebase
             VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_HOST=https://t.botmem.xyz
             VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
-            VITE_FIREBASE_AUTH_DOMAIN=botmem.xyz
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_WEB_SURFACE=app
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
             VITE_FIREBASE_PROJECT_ID=botmem-app
             VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
             VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
@@ -153,16 +326,84 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem:amd64-${{ needs.version.outputs.tag }}
-            ghcr.io/botmem/botmem:${{ needs.version.outputs.tag }}
-            ghcr.io/botmem/botmem:latest
+            ghcr.io/botmem/botmem:api-amd64-${{ needs.version.outputs.tag }}
+          platforms: linux/amd64
+
+      - name: Build and push worker image
+        if: needs.changes.outputs.backend == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: worker
+          push: true
+          tags: |
+            ghcr.io/botmem/botmem:worker-amd64-${{ needs.version.outputs.tag }}
+          platforms: linux/amd64
+
+      - name: Build and push app image
+        if: needs.changes.outputs.web == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            VITE_WEB_SURFACE=app
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
+          tags: |
+            ghcr.io/botmem/botmem:app-amd64-${{ needs.version.outputs.tag }}
+          platforms: linux/amd64
+
+      - name: Build and push landing image
+        if: needs.changes.outputs.web == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            VITE_WEB_SURFACE=landing
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
+          tags: |
+            ghcr.io/botmem/botmem:landing-amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
   build-arm64:
-    name: Build (arm64)
+    name: Build Changed Images (arm64)
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, quality-gate]
-
+    needs: [version, changes, quality-gate]
+    if: needs.changes.outputs.runtime == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -177,18 +418,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image (arm64)
+      - name: Build and push API image
+        if: needs.changes.outputs.backend == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: ./Dockerfile
+          target: api
           push: true
           build-args: |
             VITE_AUTH_PROVIDER=firebase
             VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_HOST=https://t.botmem.xyz
             VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
-            VITE_FIREBASE_AUTH_DOMAIN=botmem.xyz
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_WEB_SURFACE=app
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
             VITE_FIREBASE_PROJECT_ID=botmem-app
             VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
             VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
@@ -196,14 +444,94 @@ jobs:
             BOTMEM_BUILD_SHA=${{ github.sha }}
             BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
           tags: |
-            ghcr.io/botmem/botmem:arm64-${{ needs.version.outputs.tag }}
+            ghcr.io/botmem/botmem:api-arm64-${{ needs.version.outputs.tag }}
           platforms: linux/arm64
 
-  create-manifest:
-    name: Create Multi-Arch Manifest
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, build-amd64, build-arm64]
+      - name: Build and push worker image
+        if: needs.changes.outputs.backend == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: worker
+          push: true
+          tags: |
+            ghcr.io/botmem/botmem:worker-arm64-${{ needs.version.outputs.tag }}
+          platforms: linux/arm64
 
+      - name: Build and push app image
+        if: needs.changes.outputs.web == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            VITE_WEB_SURFACE=app
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
+          tags: |
+            ghcr.io/botmem/botmem:app-arm64-${{ needs.version.outputs.tag }}
+          platforms: linux/arm64
+
+      - name: Build and push landing image
+        if: needs.changes.outputs.web == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            VITE_WEB_SURFACE=landing
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
+          tags: |
+            ghcr.io/botmem/botmem:landing-arm64-${{ needs.version.outputs.tag }}
+          platforms: linux/arm64
+
+  promote-runtime-images:
+    name: Promote Runtime Image Tags
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs:
+      - version
+      - changes
+      - quality-gate
+      - build-amd64
+      - build-arm64
+    if: |
+      always() &&
+      needs.quality-gate.result == 'success' &&
+      needs.changes.outputs.runtime == 'true' &&
+      needs.build-amd64.result == 'success' &&
+      needs.build-arm64.result == 'success'
     steps:
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -212,51 +540,72 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push multi-arch manifest
+      - name: Create or promote multi-arch manifests
         run: |
+          set -euo pipefail
           TAG="${{ needs.version.outputs.tag }}"
-          # buildx imagetools handles manifest-list sources (from build-push-action)
-          docker buildx imagetools create -t ghcr.io/botmem/botmem:${TAG} \
-            ghcr.io/botmem/botmem:amd64-${TAG} \
-            ghcr.io/botmem/botmem:arm64-${TAG}
-          docker buildx imagetools create -t ghcr.io/botmem/botmem:latest \
-            ghcr.io/botmem/botmem:amd64-${TAG} \
-            ghcr.io/botmem/botmem:arm64-${TAG}
+          promote_image() {
+            local image="$1"
+            local changed="$2"
+            local repo="ghcr.io/botmem/botmem"
+
+            if [ "$changed" = "true" ]; then
+              echo "Creating manifest for changed image ${image}:${TAG}"
+              docker buildx imagetools create -t "${repo}:${image}-${TAG}" \
+                "${repo}:${image}-amd64-${TAG}" \
+                "${repo}:${image}-arm64-${TAG}"
+              docker buildx imagetools create -t "${repo}:${image}-latest" \
+                "${repo}:${image}-amd64-${TAG}" \
+                "${repo}:${image}-arm64-${TAG}"
+            else
+              echo "Promoting unchanged image ${image}:latest to ${TAG}"
+              docker buildx imagetools create -t "${repo}:${image}-${TAG}" "${repo}:${image}-latest"
+              docker buildx imagetools create -t "${repo}:${image}-latest" "${repo}:${image}-${TAG}"
+            fi
+          }
+
+          promote_image api "${{ needs.changes.outputs.backend }}"
+          promote_image worker "${{ needs.changes.outputs.backend }}"
+          promote_image app "${{ needs.changes.outputs.web }}"
+          promote_image landing "${{ needs.changes.outputs.web }}"
 
   deploy:
-    name: Deploy to Production
+    name: Deploy Changed Surfaces
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, build-amd64]
-
+    needs: [version, changes, quality-gate, promote-runtime-images]
+    if: |
+      always() &&
+      needs.quality-gate.result == 'success' &&
+      (
+        (needs.changes.outputs.runtime == 'true' && needs.promote-runtime-images.result == 'success') ||
+        (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
+      ) &&
+      (needs.changes.outputs.runtime == 'true' || needs.changes.outputs.docs == 'true')
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Mark docs for deployment
-        id: docs-check
-        run: echo "changed=true" >> "$GITHUB_OUTPUT"
-
       - name: Install pnpm
-        if: steps.docs-check.outputs.changed == 'true'
+        if: needs.changes.outputs.docs == 'true'
         uses: pnpm/action-setup@v6.0.5
         with:
           version: 9.15.0
 
       - name: Setup Node.js
-        if: steps.docs-check.outputs.changed == 'true'
+        if: needs.changes.outputs.docs == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
 
       - name: Install docs dependencies
-        if: steps.docs-check.outputs.changed == 'true'
+        if: needs.changes.outputs.docs == 'true'
         run: cd docs && pnpm install --frozen-lockfile
 
       - name: Build docs
-        if: steps.docs-check.outputs.changed == 'true'
+        if: needs.changes.outputs.docs == 'true'
         run: cd docs && pnpm build
         env:
           VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
@@ -276,67 +625,76 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_TAILSCALE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy versioned image to VPS
+      - name: Deploy runtime surfaces to VPS
+        if: needs.changes.outputs.runtime == 'true'
         timeout-minutes: 240
         env:
           IMAGE_TAG: ${{ needs.version.outputs.tag }}
+          DEPLOY_BACKEND: ${{ needs.changes.outputs.backend }}
+          DEPLOY_WEB: ${{ needs.changes.outputs.web }}
+          INFRA_DEPLOY: ${{ needs.changes.outputs.infra_deploy }}
         run: |
+          set -euo pipefail
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
           VPS="root@${{ secrets.VPS_TAILSCALE_HOST }}"
 
-          # Copy deploy script, updated compose file, and managed Caddy config to VPS
           scp $SSH_OPTS scripts/deploy.sh ${VPS}:/opt/botmem/deploy.sh
           scp $SSH_OPTS docker-compose.prod.yml ${VPS}:/opt/botmem/docker-compose.prod.yml
           scp $SSH_OPTS Caddyfile.production ${VPS}:/opt/botmem/Caddyfile
           ssh $SSH_OPTS ${VPS} "chmod +x /opt/botmem/deploy.sh"
 
-          # Login to GHCR and deploy. This is an explicit maintenance-mode
-          # rollout: do not create a VPS-local dump, and do not wait for an
-          # off-host dump. The API may be unavailable while the one-shot
-          # Typesense drain runs before startup.
+          BACKEND="$DEPLOY_BACKEND"
+          WEB="$DEPLOY_WEB"
+          if [ "$INFRA_DEPLOY" = "true" ]; then
+            BACKEND=true
+            WEB=true
+          fi
+
           ssh $SSH_OPTS ${VPS} << DEPLOY
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            SKIP_ON_HOST_BACKUP=1 OFF_HOST_BACKUP_CONFIRMED=1 DRAIN_TYPESENSE_ON_NEXT_STARTUP=0 RUN_SEARCH_BACKFILL=0 HEALTH_TIMEOUT=3600 /opt/botmem/deploy.sh ${IMAGE_TAG}
+            echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            DEPLOY_BACKEND=${BACKEND} DEPLOY_WEB=${WEB} SKIP_ON_HOST_BACKUP=1 OFF_HOST_BACKUP_CONFIRMED=1 DRAIN_TYPESENSE_ON_NEXT_STARTUP=0 RUN_SEARCH_BACKFILL=0 HEALTH_TIMEOUT=3600 /opt/botmem/deploy.sh ${IMAGE_TAG}
           DEPLOY
 
       - name: Deploy docs to VPS
-        if: steps.docs-check.outputs.changed == 'true'
+        if: needs.changes.outputs.docs == 'true'
         timeout-minutes: 5
         run: |
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
           ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'rm -rf /opt/botmem/docs-site/* && mkdir -p /opt/botmem/docs-site'
           scp $SSH_OPTS -r docs/.vitepress/dist/* root@${{ secrets.VPS_TAILSCALE_HOST }}:/opt/botmem/docs-site/
-          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'cd /opt/botmem && docker compose -f docker-compose.prod.yml up -d caddy'
+          ssh $SSH_OPTS root@${{ secrets.VPS_TAILSCALE_HOST }} 'cd /opt/botmem && docker compose --env-file .env.prod -f docker-compose.prod.yml up -d caddy'
 
-      - name: Validate deployment
+      - name: Validate API deployment
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra_deploy == 'true'
         env:
           EXPECTED_VERSION: ${{ needs.version.outputs.tag }}
-          GITHUB_REPO_NAME: ${{ github.repository }}
         run: |
-          # deploy.sh already does health check + auto-rollback on the VPS.
-          # This step confirms the API is reachable externally.
           for i in $(seq 1 12); do
-            RESPONSE=$(curl -sf https://botmem.xyz/api/version 2>/dev/null || echo "")
+            RESPONSE=$(curl -sf https://api.botmem.xyz/api/version 2>/dev/null || echo "")
             if [ -n "$RESPONSE" ]; then
               echo "API is healthy (attempt $i): $RESPONSE"
-              # Check if running expected version or a rollback
               if echo "$RESPONSE" | grep -q "$EXPECTED_VERSION"; then
                 echo "Running expected version $EXPECTED_VERSION"
               else
-                echo "WARNING: API is healthy but NOT running $EXPECTED_VERSION — deploy.sh likely rolled back"
-                echo "Check VPS logs: ssh botmem-ssh 'docker logs --tail 30 botmem-api-1'"
+                echo "WARNING: API is healthy but not running $EXPECTED_VERSION"
               fi
               exit 0
             fi
             echo "Attempt $i: not ready yet, waiting 5s..."
             sleep 5
           done
-          # If we get here, API is completely down (deploy.sh rollback also failed)
-          echo "CRITICAL: API not responding after 60s — deploy.sh rollback may have also failed"
+          echo "CRITICAL: API not responding after 60s"
           exit 1
 
+      - name: Validate web surfaces
+        if: needs.changes.outputs.web == 'true' || needs.changes.outputs.infra_deploy == 'true'
+        run: |
+          curl -sfI https://botmem.xyz/ >/dev/null
+          curl -sfI https://app.botmem.xyz/signup >/dev/null
+          curl -sfI https://api.botmem.xyz/.well-known/oauth-protected-resource >/dev/null
+
       - name: Validate docs
-        if: steps.docs-check.outputs.changed == 'true'
+        if: needs.changes.outputs.docs == 'true'
         continue-on-error: true
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://docs.botmem.xyz/)
@@ -346,75 +704,14 @@ jobs:
             echo "Warning: docs.botmem.xyz returned HTTP $STATUS"
           fi
 
-  release:
-    name: Tag & GitHub Release
+  publish-cli:
+    name: Publish @botmem/cli
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, deploy]
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout with full history
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          PREV="${{ needs.version.outputs.prev }}"
-          {
-            echo "## What's Changed"
-            echo ""
-
-            # Features
-            FEATS=$(git log "$PREV"..HEAD --pretty=format:"- %s (%h)" --grep="^feat" -i)
-            if [ -n "$FEATS" ]; then
-              echo "### Features"
-              echo "$FEATS"
-              echo ""
-            fi
-
-            # Fixes
-            FIXES=$(git log "$PREV"..HEAD --pretty=format:"- %s (%h)" --grep="^fix" -i)
-            if [ -n "$FIXES" ]; then
-              echo "### Bug Fixes"
-              echo "$FIXES"
-              echo ""
-            fi
-
-            # Other changes
-            OTHER=$(git log "$PREV"..HEAD --pretty=format:"- %s (%h)" --invert-grep --grep="^feat" --grep="^fix" -i)
-            if [ -n "$OTHER" ]; then
-              echo "### Other Changes"
-              echo "$OTHER"
-              echo ""
-            fi
-
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV}...${{ needs.version.outputs.tag }}"
-          } > /tmp/changelog.md
-          cat /tmp/changelog.md
-
-      - name: Create tag and release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.version.outputs.tag }}"
-          git tag "$TAG" "${{ github.sha }}"
-          git push origin "$TAG"
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes-file /tmp/changelog.md \
-            --target "${{ github.sha }}"
-
-  publish-npm:
-    name: Publish packages to npm
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, deploy]
+    needs: [version, changes, quality-gate]
+    if: needs.changes.outputs.cli == 'true'
     permissions:
       contents: read
       id-token: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -434,7 +731,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and publish @botmem/cli
+      - name: Build and publish
         working-directory: packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -448,7 +745,34 @@ jobs:
             npm publish --access public --tag latest
           fi
 
-      - name: Build and publish @botmem/apple-bridge
+  publish-apple-bridge:
+    name: Publish @botmem/apple-bridge
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, changes, quality-gate]
+    if: needs.changes.outputs.apple_bridge == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.5
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish
         working-directory: packages/apple-bridge
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -462,7 +786,34 @@ jobs:
             npm publish --access public --tag latest
           fi
 
-      - name: Build and publish @botmem/openclaw-plugin
+  publish-openclaw-plugin:
+    name: Publish @botmem/openclaw-plugin
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [version, changes, quality-gate]
+    if: needs.changes.outputs.openclaw_plugin == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.5
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish
         working-directory: packages/openclaw-plugin
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -474,4 +825,127 @@ jobs:
             echo "Version $VERSION already published — skipping"
           else
             npm publish --access public --tag latest
+          fi
+
+  tag:
+    name: Tag Successful Pipeline
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs:
+      - version
+      - changes
+      - quality-gate
+      - promote-runtime-images
+      - deploy
+      - publish-cli
+      - publish-apple-bridge
+      - publish-openclaw-plugin
+    if: |
+      always() &&
+      needs.changes.outputs.changed_any == 'true' &&
+      needs.quality-gate.result == 'success' &&
+      (
+        (needs.changes.outputs.runtime == 'true' && needs.promote-runtime-images.result == 'success') ||
+        (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
+      ) &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') &&
+      (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped') &&
+      (needs.publish-apple-bridge.result == 'success' || needs.publish-apple-bridge.result == 'skipped') &&
+      (needs.publish-openclaw-plugin.result == 'success' || needs.publish-openclaw-plugin.result == 'skipped')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create git tag
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.version.outputs.tag }}"
+          git fetch --tags
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists; skipping"
+          else
+            git tag "$TAG" "${{ github.sha }}"
+            git push origin "$TAG"
+          fi
+
+  apple-bridge-release:
+    name: Build DMG & Create GitHub Release
+    runs-on: macos-14
+    needs: [version, changes, tag]
+    if: needs.changes.outputs.apple_bridge == 'true'
+    permissions:
+      contents: write
+    env:
+      APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+      BOTMEM_DMG_NAME: botmem-arm64.dmg
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6.0.5
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Import signing certificate
+        if: env.APPLE_CERTIFICATE_P12_BASE64 != ''
+        run: |
+          CERT_PATH="$RUNNER_TEMP/botmem-apple-bridge.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build DMG
+        run: |
+          export BOTMEM_NODE_BINARY="$(command -v node)"
+          pnpm --filter @botmem/apple-bridge build:mac-app
+        env:
+          BOTMEM_CODESIGN_IDENTITY: ${{ secrets.BOTMEM_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Generate changelog
+        run: |
+          PREV="${{ needs.version.outputs.prev }}"
+          {
+            echo "## What's Changed"
+            echo ""
+            git log "$PREV"..HEAD --pretty=format:"- %s (%h)"
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV}...${{ needs.version.outputs.tag }}"
+          } > /tmp/changelog.md
+          cat /tmp/changelog.md
+
+      - name: Create GitHub release with DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          DMG="packages/apple-bridge/dist-macos/$BOTMEM_DMG_NAME"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" --clobber
+          else
+            gh release create "$TAG" "$DMG" \
+              --title "$TAG" \
+              --notes-file /tmp/changelog.md \
+              --target "${{ github.sha }}"
           fi
