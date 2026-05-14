@@ -1,6 +1,6 @@
 # iMessage Connector
 
-The iMessage connector reads Apple Contacts and your local macOS Messages database through the Botmem Apple Bridge. The bridge runs on your Mac and connects to Botmem over an encrypted WebSocket tunnel.
+The iMessage connector reads Apple Contacts and your local macOS Messages database through the botmem app. The bridge runs on your Mac and connects to Botmem over an encrypted WebSocket tunnel.
 
 **Auth type:** Local Tool / Bridge Token
 **Trust score:** 0.80
@@ -24,9 +24,9 @@ The iMessage connector reads Apple Contacts and your local macOS Messages databa
 4. Choose **Contacts**, **iMessages**, or both.
 5. Click **Generate Bridge Command**.
 
-### 2. Install Botmem Apple Bridge
+### 2. Install botmem
 
-Download the latest signed DMG from GitHub Releases:
+Download the latest DMG from GitHub Releases:
 
 ```text
 https://github.com/botmem/botmem/releases/latest
@@ -37,11 +37,18 @@ Use the asset for your Mac:
 - Apple Silicon: `Botmem-Apple-Bridge-arm64.dmg`
 - Intel: `Botmem-Apple-Bridge-x64.dmg`
 
-Open the app after installing it.
+Open the DMG and drag **botmem** into **Applications**.
+
+The public GitHub DMG is ad-hoc signed for development distribution, not notarized by Apple Developer ID. If macOS says the app is damaged after downloading it, remove the download quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/botmem.app"
+open "/Applications/botmem.app"
+```
 
 ### 3. Connect the app
 
-In the Botmem dashboard, click **Connect Bridge App**. macOS opens Botmem Apple Bridge through this URL scheme:
+In the Botmem dashboard, click **Connect Bridge App**. macOS opens botmem through this URL scheme:
 
 ```text
 botmem-apple-bridge://connect
@@ -50,7 +57,7 @@ botmem-apple-bridge://connect
 The app stores the bridge config locally at:
 
 ```text
-~/Library/Application Support/Botmem Apple Bridge/config.json
+~/Library/Application Support/botmem/config.json
 ```
 
 The file is written with user-only permissions and lets the app reconnect after restarts.
@@ -65,7 +72,7 @@ That service starts at login, stays connected to Botmem, and reconnects automati
 
 ### 4. Use the bridge window
 
-Botmem Apple Bridge opens a small native status window. It shows:
+botmem opens a small native status window. It shows:
 
 - current service state
 - selected Apple sources
@@ -77,13 +84,13 @@ Double-clicking the app should always show this window.
 ### 5. Grant permissions
 
 - **Contacts only:** macOS shows the normal Contacts permission prompt. Full Disk Access is not required.
-- **iMessages:** macOS may block the Messages database until you grant Full Disk Access to **Botmem Apple Bridge**.
+- **iMessages:** macOS may block the Messages database until you grant Full Disk Access to **botmem**.
 
 To grant iMessage access:
 
 1. Open **System Settings > Privacy & Security > Full Disk Access**.
-2. Enable **Botmem Apple Bridge**.
-3. Restart Botmem Apple Bridge.
+2. Enable **botmem**.
+3. Restart botmem.
 
 Shortcut:
 
@@ -131,24 +138,33 @@ Full Disk Access is only needed for iMessage history. Apple Contacts uses the na
 To revoke Messages access:
 
 1. Open **System Settings > Privacy & Security > Full Disk Access**.
-2. Disable **Botmem Apple Bridge**.
-3. Quit Botmem Apple Bridge.
+2. Disable **botmem**.
+3. Quit botmem.
 
 To remove the local bridge token, delete:
 
 ```text
-~/Library/Application Support/Botmem Apple Bridge/config.json
+~/Library/Application Support/botmem/config.json
 ```
 
 Then delete the Apple connector account in Botmem and remove the app from your Mac.
 
-To remove the background service without deleting the connector, open Botmem Apple Bridge and click **Remove Service**.
+To remove the background service without deleting the connector, open botmem and click **Remove Service**.
 
 ## Troubleshooting
 
 ### macOS blocked Messages access
 
-Grant Full Disk Access to **Botmem Apple Bridge**, then restart the app. If using the CLI fallback, grant access to your terminal app instead.
+Grant Full Disk Access to **botmem**, then restart the app. If using the CLI fallback, grant access to your terminal app instead.
+
+### macOS says the app is damaged
+
+The GitHub Release app is ad-hoc signed and not Apple-notarized. After dragging it to Applications, remove the quarantine flag and open it:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/botmem.app"
+open "/Applications/botmem.app"
+```
 
 ### Bridge shows "Invalid token"
 

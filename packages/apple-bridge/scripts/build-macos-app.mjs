@@ -18,7 +18,7 @@ const appdmg = require('appdmg');
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'dist-macos');
-const appDir = join(outDir, 'Botmem Apple Bridge.app');
+const appDir = join(outDir, 'botmem.app');
 const dmgAssetsDir = join(outDir, 'dmg-assets');
 const contentsDir = join(appDir, 'Contents');
 const macosDir = join(contentsDir, 'MacOS');
@@ -46,6 +46,37 @@ function writeDmgBackground(target, scale) {
   <polyline points="${492 * scale},${264 * scale} ${520 * scale},${292 * scale} ${492 * scale},${320 * scale}" fill="none" stroke="#C4F53A" stroke-width="${6 * scale}" stroke-linejoin="miter"/>
 </svg>`;
   const png = new Resvg(svg).render().asPng();
+  writeFileSync(target, png);
+}
+
+function writeAppIcon(target, size) {
+  const cell = 205;
+  const gap = 31;
+  const pad = 124;
+  const svg = `
+<svg width="${size}" height="${size}" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#0D0D0D"/>
+  <rect x="104" y="104" width="816" height="816" fill="#C4F53A"/>
+  <rect x="64" y="64" width="816" height="816" fill="#0D0D0D"/>
+  <rect x="64" y="64" width="816" height="816" fill="none" stroke="#252540" stroke-width="18"/>
+  <rect x="${pad}" y="${pad}" width="${cell}" height="${cell}" fill="#C4F53A"/>
+  <rect x="${pad + cell + gap}" y="${pad}" width="${cell}" height="${cell}" fill="#C4F53A"/>
+  <rect x="${pad + (cell + gap) * 2}" y="${pad}" width="${cell}" height="${cell}" fill="#252540" stroke="#3A3A60" stroke-width="18"/>
+  <rect x="${pad}" y="${pad + cell + gap}" width="${cell}" height="${cell}" fill="#252540" stroke="#3A3A60" stroke-width="18"/>
+  <rect x="${pad + cell + gap}" y="${pad + cell + gap}" width="${cell}" height="${cell}" fill="#C4F53A"/>
+  <rect x="${pad + (cell + gap) * 2}" y="${pad + cell + gap}" width="${cell}" height="${cell}" fill="#252540" stroke="#3A3A60" stroke-width="18"/>
+  <rect x="${pad}" y="${pad + (cell + gap) * 2}" width="${cell}" height="${cell}" fill="#C4F53A"/>
+  <rect x="${pad + cell + gap}" y="${pad + (cell + gap) * 2}" width="${cell}" height="${cell}" fill="#252540" stroke="#3A3A60" stroke-width="18"/>
+  <rect x="${pad + (cell + gap) * 2}" y="${pad + (cell + gap) * 2}" width="${cell}" height="${cell}" fill="#C4F53A"/>
+</svg>`;
+  const png = new Resvg(svg, {
+    fitTo: {
+      mode: 'width',
+      value: size,
+    },
+  })
+    .render()
+    .asPng();
   writeFileSync(target, png);
 }
 
@@ -86,7 +117,7 @@ const logoMark128 = join(generatedAssetsDir, 'logo-mark-128.png');
 const logoMark1024 = join(generatedAssetsDir, 'logo-mark-1024.png');
 const logoWordmark = join(generatedAssetsDir, 'logo.png');
 renderSvgToPng(join(logoSourceDir, 'logo-mark.svg'), logoMark128, 128);
-renderSvgToPng(join(logoSourceDir, 'logo-mark.svg'), logoMark1024, 1024);
+writeAppIcon(logoMark1024, 1024);
 renderSvgToPng(join(logoSourceDir, 'logo.svg'), logoWordmark, 420);
 
 copyFileSync(join(root, 'macos', 'Info.plist'), join(contentsDir, 'Info.plist'));
@@ -126,7 +157,7 @@ run('swiftc', [
   'CryptoKit',
   '-lsqlite3',
   '-o',
-  join(macosDir, 'Botmem Apple Bridge'),
+  join(macosDir, 'botmem'),
 ]);
 
 cpSync(join(root, 'dist'), join(resourcesDir, 'dist'), { recursive: true });
@@ -152,7 +183,7 @@ if [ ! -x "$NODE" ]; then
   NODE="$(command -v node || true)"
 fi
 if [ -z "$NODE" ]; then
-  echo "Node.js 20+ is required to run Botmem Apple Bridge." >&2
+  echo "Node.js 20+ is required to run botmem." >&2
   exit 1
 fi
 export NODE_PATH="$DIR/node_modules"
@@ -161,10 +192,11 @@ exec "$NODE" "$DIR/dist/cli.js" "$@"
   { mode: 0o755 },
 );
 
-const identity = process.env.BOTMEM_CODESIGN_IDENTITY;
-if (identity) {
-  run('codesign', ['--force', '--deep', '--options', 'runtime', '--sign', identity, appDir]);
+const identity = process.env.BOTMEM_CODESIGN_IDENTITY || '-';
+if (identity === '-') {
+  console.warn('BOTMEM_CODESIGN_IDENTITY is not set; ad-hoc signing botmem.');
 }
+run('codesign', ['--force', '--deep', '--options', 'runtime', '--sign', identity, appDir]);
 
 const dmgName = process.env.BOTMEM_DMG_NAME || 'Botmem-Apple-Bridge.dmg';
 const dmgPath = join(outDir, dmgName);
@@ -177,7 +209,7 @@ writeDmgBackground(background2xPath, 2);
 copyFileSync(join(resourcesDir, 'AppIcon.icns'), join(dmgAssetsDir, 'AppIcon.icns'));
 
 await buildDmg(join(dmgAssetsDir, 'dmg.json'), dmgPath, {
-  title: 'Botmem Apple Bridge',
+  title: 'botmem',
   icon: 'AppIcon.icns',
   background: 'background.png',
   'icon-size': 128,
@@ -195,7 +227,7 @@ await buildDmg(join(dmgAssetsDir, 'dmg.json'), dmgPath, {
       y: 292,
       type: 'file',
       path: appDir,
-      name: 'Botmem Apple Bridge.app',
+      name: 'botmem.app',
     },
     {
       x: 620,
@@ -207,7 +239,12 @@ await buildDmg(join(dmgAssetsDir, 'dmg.json'), dmgPath, {
 });
 rmSync(dmgAssetsDir, { recursive: true, force: true });
 
-if (process.env.APPLE_ID && process.env.APPLE_TEAM_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD) {
+if (
+  process.env.BOTMEM_CODESIGN_IDENTITY &&
+  process.env.APPLE_ID &&
+  process.env.APPLE_TEAM_ID &&
+  process.env.APPLE_APP_SPECIFIC_PASSWORD
+) {
   run('xcrun', [
     'notarytool',
     'submit',

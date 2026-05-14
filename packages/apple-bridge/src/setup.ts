@@ -38,7 +38,7 @@ export interface BridgeStatus {
 }
 
 export function appSupportDir(): string {
-  return join(homedir(), 'Library', 'Application Support', 'Botmem Apple Bridge');
+  return join(homedir(), 'Library', 'Application Support', 'botmem');
 }
 
 export function defaultConfigPath(): string {
@@ -151,7 +151,7 @@ export function installService(options: { configPath?: string; runnerPath?: stri
   <key>EnvironmentVariables</key>
   <dict>
     <key>BOTMEM_BRIDGE_RUNNER_NAME</key>
-    <string>Botmem Apple Bridge</string>
+    <string>botmem</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
