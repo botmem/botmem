@@ -13,12 +13,23 @@ export const LANDING_ORIGIN =
 
 const CONFIGURED_API_ORIGIN = import.meta.env.VITE_API_ORIGIN as string | undefined;
 
-export const API_ORIGIN =
-  CONFIGURED_API_ORIGIN ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:12412');
+function inferredApiOrigin(): string {
+  if (CONFIGURED_API_ORIGIN) return CONFIGURED_API_ORIGIN;
+  if (typeof window === 'undefined') return 'http://localhost:12412';
+
+  const url = new URL(window.location.origin);
+  if (url.hostname === 'app.botmem.xyz' || url.hostname === 'botmem.xyz') {
+    url.hostname = 'api.botmem.xyz';
+    return url.toString().replace(/\/+$/, '');
+  }
+
+  return window.location.origin;
+}
+
+export const API_ORIGIN = inferredApiOrigin();
 
 function defaultApiBase(origin: string, configuredOrigin: string | undefined): string {
-  if (!configuredOrigin && typeof window !== 'undefined') {
+  if (!configuredOrigin && typeof window !== 'undefined' && origin === window.location.origin) {
     return '/api';
   }
 

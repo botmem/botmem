@@ -20,6 +20,28 @@ struct ContactsPermissionState {
   let canReset: Bool
 }
 
+struct ServiceRuntimeStats {
+  let loaded: Bool
+  let tunnelConnected: Bool
+  let connecting: Bool
+  let lastEvent: String
+  let lastEventAt: String
+  let errorCount: Int
+  let reconnectCount: Int
+  let connectedCount: Int
+
+  static let empty = ServiceRuntimeStats(
+    loaded: false,
+    tunnelConnected: false,
+    connecting: false,
+    lastEvent: "No service activity yet",
+    lastEventAt: "",
+    errorCount: 0,
+    reconnectCount: 0,
+    connectedCount: 0
+  )
+}
+
 let DEFAULT_BOTMEM_HOST = "https://api.botmem.xyz"
 let PENDING_CONTACTS_REQUEST_KEY = "xyz.botmem.apple-bridge.pendingContactsRequest"
 
@@ -234,6 +256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var serverField: NSTextField?
   private var sourceContactsButton: NSButton?
   private var sourceMessagesButton: NSButton?
+  private var statusRefreshTimer: Timer?
+  private var runtimeStats = ServiceRuntimeStats.empty
   private let contactStore = CNContactStore()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -249,6 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     migrateLegacyConfigIfNeeded()
     service.removeStaleInstallIfNeeded()
     refreshStatus()
+    statusRefreshTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+      self?.refreshStatus()
+    }
     showWindow()
     maybeRequestPendingContactsPermission()
     NotificationCenter.default.addObserver(
@@ -400,15 +427,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func refreshStatus() {
     guard config != nil else {
+      runtimeStats = latestRuntimeStats()
       setStatus("Not Configured")
       return
     }
     let issues = permissionIssues()
     if !issues.isEmpty {
+      runtimeStats = latestRuntimeStats()
       setStatus("Permissions Needed")
       return
     }
-    setStatus(service.isLoaded() ? "Service Running" : "Service Stopped")
+    runtimeStats = latestRuntimeStats()
+    if !runtimeStats.loaded {
+      setStatus("Service Stopped")
+    } else if runtimeStats.tunnelConnected {
+      setStatus("Tunnel Connected")
+    } else if runtimeStats.connecting {
+      setStatus("Connecting")
+    } else {
+      setStatus("Tunnel Offline")
+    }
+  }
+
+  private func latestRuntimeStats() -> ServiceRuntimeStats {
+    let loaded = service.isLoaded()
+    guard let text = try? String(contentsOf: store.serviceLogURL, encoding: .utf8), !text.isEmpty else {
+      return ServiceRuntimeStats(
+        loaded: loaded,
+        tunnelConnected: false,
+        connecting: loaded,
+        lastEvent: loaded ? "Waiting for service log" : "Service is not loaded",
+        lastEventAt: "",
+        errorCount: 0,
+        reconnectCount: 0,
+        connectedCount: 0
+      )
+    }
+
+    let lines = text.split(whereSeparator: \.isNewline).suffix(240).map(String.init)
+    var latestConnected = -1
+    var latestConnecting = -1
+    var latestFailure = -1
+    var errorCount = 0
+    var reconnectCount = 0
+    var connectedCount = 0
+
+    for (index, line) in lines.enumerated() {
+      let lower = line.lowercased()
+      if lower.contains("connecting to ") {
+        latestConnecting = index
+        reconnectCount += 1
+      }
+      if lower.contains("tunnel connected") {
+        latestConnected = index
+        connectedCount += 1
+      }
+      if lower.contains("failed")
+        || lower.contains("auth failed")
+        || lower.contains("cannot ")
+        || lower.contains("denied")
+        || lower.contains("bridge disconnected")
+        || lower.contains("error")
+      {
+        latestFailure = index
+        errorCount += 1
+      }
+    }
+
+    let lastLine = lines.last ?? ""
+    let parsed = parseLogLine(lastLine)
+    let tunnelConnected = loaded && latestConnected >= 0 && latestConnected > latestFailure
+    let connecting = loaded && !tunnelConnected && latestConnecting >= 0 && latestConnecting >= latestFailure
+
+    return ServiceRuntimeStats(
+      loaded: loaded,
+      tunnelConnected: tunnelConnected,
+      connecting: connecting,
+      lastEvent: parsed.message.isEmpty ? "No service activity yet" : parsed.message,
+      lastEventAt: parsed.timestamp,
+      errorCount: errorCount,
+      reconnectCount: reconnectCount,
+      connectedCount: connectedCount
+    )
+  }
+
+  private func parseLogLine(_ line: String) -> (timestamp: String, message: String) {
+    guard let firstSpace = line.firstIndex(of: " ") else {
+      return ("", line)
+    }
+    let timestamp = String(line[..<firstSpace])
+    let messageStart = line.index(after: firstSpace)
+    return (timestamp, String(line[messageStart...]))
   }
 
   private func setStatus(_ value: String) {
@@ -420,9 +529,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func updateMenu() {
     statusItem.button?.image = NSImage(named: "logo-mark-128")
     statusItem.button?.image?.size = NSSize(width: 18, height: 18)
+    statusItem.button?.toolTip = "botmem Apple bridge: \(status)"
     let menu = NSMenu()
-    menu.addItem(NSMenuItem(title: "botmem", action: nil, keyEquivalent: ""))
-    menu.addItem(NSMenuItem(title: "Status: \(status)", action: nil, keyEquivalent: ""))
+    menu.addItem(menuInfo("botmem"))
+    menu.addItem(menuInfo("Status: \(status)"))
+    if let config {
+      menu.addItem(menuInfo("Sources: \(config.sources.replacingOccurrences(of: ",", with: " + "))"))
+      menu.addItem(menuInfo("Server: \(config.server)"))
+    }
+    menu.addItem(menuInfo("Connections: \(runtimeStats.connectedCount)  Attempts: \(runtimeStats.reconnectCount)  Errors: \(runtimeStats.errorCount)"))
+    if !runtimeStats.lastEvent.isEmpty {
+      let suffix = runtimeStats.lastEventAt.isEmpty ? "" : " @ \(runtimeStats.lastEventAt)"
+      menu.addItem(menuInfo("Last: \(runtimeStats.lastEvent)\(suffix)"))
+    }
     menu.addItem(NSMenuItem.separator())
     menu.addItem(NSMenuItem(title: "Show Window", action: #selector(showWindowFromMenu), keyEquivalent: ""))
     menu.addItem(NSMenuItem(title: "Restart Sync Service", action: #selector(reconnect), keyEquivalent: "r"))
@@ -430,6 +549,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(NSMenuItem.separator())
     menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
     statusItem.menu = menu
+  }
+
+  private func menuInfo(_ title: String) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+    item.isEnabled = false
+    return item
   }
 
   @objc private func showWindowFromMenu() {

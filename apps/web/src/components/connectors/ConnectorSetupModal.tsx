@@ -5,6 +5,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { api, createWsConnection, waitForAuth, subscribeToChannel } from '../../lib/api';
+import { wsUrl } from '../../lib/urls';
 import { useConnectorStore } from '../../store/connectorStore';
 import { isFirebaseMode } from '../../store/authStore';
 
@@ -522,8 +523,7 @@ function BridgeAuthView({
 
         // Get the bridge token from the auth context
         const token = acct.bridgeToken || '';
-        const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        const serverUrl = `${wsProto}://${window.location.host}/apple-tunnel`;
+        const serverUrl = wsUrl('/apple-tunnel');
         const sourceList = 'contacts,imessages';
         const cmd = `npx @botmem/apple-bridge configure --token=${token} --server=${serverUrl} --account-id=${acctId} --sources=${sourceList}
 npx @botmem/apple-bridge preflight
