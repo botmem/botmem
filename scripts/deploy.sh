@@ -3,6 +3,10 @@
 #
 # Usage: deploy.sh <image-tag>
 #
+# Optional scopes:
+#   DEPLOY_BACKEND=true|false  Recreate api + worker (default: true)
+#   DEPLOY_WEB=true|false      Recreate app-web + landing-web + caddy (default: true)
+#
 # Pulls the new image, recreates the API container, validates health,
 # and automatically rolls back to the previous version if the health
 # check fails.
@@ -22,6 +26,8 @@ POSTGRES_DB="${POSTGRES_DB:-botmem}"
 RUN_SEARCH_BACKFILL="${RUN_SEARCH_BACKFILL:-1}"
 REMOVE_LEGACY_SEARCH_AFTER_BACKFILL="${REMOVE_LEGACY_SEARCH_AFTER_BACKFILL:-1}"
 DRAIN_TYPESENSE_ON_NEXT_STARTUP="${DRAIN_TYPESENSE_ON_NEXT_STARTUP:-0}"
+DEPLOY_BACKEND="${DEPLOY_BACKEND:-true}"
+DEPLOY_WEB="${DEPLOY_WEB:-true}"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 show_disk_usage() {
@@ -73,7 +79,8 @@ remove_legacy_search_storage() {
   docker volume ls -q | awk -v volume="${legacy_volume}" '$0 == volume || $0 ~ "_" volume "$"' | xargs -r docker volume rm
 }
 
-echo "==> Deploying ghcr.io/botmem/botmem:${IMAGE_TAG}"
+echo "==> Deploying Botmem split images:${IMAGE_TAG}"
+echo "==> Deploy scope: backend=${DEPLOY_BACKEND}, web=${DEPLOY_WEB}"
 
 # ── Save previous version for rollback ──────────────────────────────────────
 PREV_TAG=""
@@ -84,28 +91,54 @@ echo "==> Previous version: ${PREV_TAG:-none}"
 
 cd "$DEPLOY_DIR"
 
+ensure_env_default() {
+  local key="$1"
+  local value="$2"
+  if ! grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    echo "${key}=${value}" >> "$ENV_FILE"
+  fi
+}
+
+set_env_if_value() {
+  local key="$1"
+  local old="$2"
+  local value="$3"
+  if grep -q "^${key}=${old}$" "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  fi
+}
+
+ensure_env_default "APP_URL" "https://app.botmem.xyz"
+ensure_env_default "LANDING_URL" "https://botmem.xyz"
+ensure_env_default "BASE_URL" "https://api.botmem.xyz"
+ensure_env_default "FRONTEND_URL" "https://app.botmem.xyz,https://botmem.xyz"
+set_env_if_value "BASE_URL" "https://botmem.xyz" "https://api.botmem.xyz"
+set_env_if_value "FRONTEND_URL" "https://botmem.xyz" "https://app.botmem.xyz,https://botmem.xyz"
+
 # ── Free space before pull on small VPS disks ────────────────────────────────
 # This only removes unused Docker objects. Named, attached database volumes are
 # not removed unless PRUNE_DOCKER_VOLUMES=1 is set explicitly.
 cleanup_docker_host "preflight"
 
-# ── Recreate Postgres with pgvector image and verify extension ──────────────
-echo "==> Ensuring PostgreSQL is running with pgvector support"
-"${COMPOSE[@]}" up -d --no-deps postgres
+if [ "$DEPLOY_BACKEND" = "true" ]; then
+  # ── Recreate Postgres with pgvector image and verify extension ────────────
+  echo "==> Ensuring PostgreSQL is running with pgvector support"
+  "${COMPOSE[@]}" up -d --no-deps postgres
 
-PG_WAIT=0
-until "${COMPOSE[@]}" exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do
-  if [ "$PG_WAIT" -ge 60 ]; then
-    echo "==> PostgreSQL did not become ready after pgvector image switch"
-    exit 1
-  fi
-  sleep 2
-  PG_WAIT=$((PG_WAIT + 2))
-done
+  PG_WAIT=0
+  until "${COMPOSE[@]}" exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do
+    if [ "$PG_WAIT" -ge 60 ]; then
+      echo "==> PostgreSQL did not become ready after pgvector image switch"
+      exit 1
+    fi
+    sleep 2
+    PG_WAIT=$((PG_WAIT + 2))
+  done
 
-"${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
-  -c 'CREATE EXTENSION IF NOT EXISTS vector' \
-  -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+  "${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+    -c 'CREATE EXTENSION IF NOT EXISTS vector' \
+    -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+fi
 
 # ── Update IMAGE_TAG in .env.prod only after preflight succeeds ─────────────
 if grep -q '^IMAGE_TAG=' "$ENV_FILE" 2>/dev/null; then
@@ -126,32 +159,60 @@ if [ "$DRAIN_TYPESENSE_ON_NEXT_STARTUP" = "1" ]; then
   fi
 fi
 
-# ── Pull new image ──────────────────────────────────────────────────────────
-docker pull "ghcr.io/botmem/botmem:${IMAGE_TAG}"
+# ── Pull new images ─────────────────────────────────────────────────────────
+if [ "$DEPLOY_BACKEND" = "true" ]; then
+  for image in botmem-api botmem-worker; do
+    docker pull "ghcr.io/botmem/${image}:${IMAGE_TAG}"
+  done
+fi
 
-# ── Recreate app containers (infra stays running) ───────────────────────────
-"${COMPOSE[@]}" up -d --no-deps api worker
+if [ "$DEPLOY_WEB" = "true" ]; then
+  for image in botmem-app botmem-landing; do
+    docker pull "ghcr.io/botmem/${image}:${IMAGE_TAG}"
+  done
+fi
+
+# ── Recreate changed app containers (infra stays running) ───────────────────
+SERVICES=()
+if [ "$DEPLOY_BACKEND" = "true" ]; then
+  SERVICES+=(api worker)
+fi
+if [ "$DEPLOY_WEB" = "true" ]; then
+  SERVICES+=(app-web landing-web caddy)
+fi
+
+if [ "${#SERVICES[@]}" -eq 0 ]; then
+  echo "==> No runtime services selected"
+  exit 0
+fi
+
+"${COMPOSE[@]}" up -d --no-deps "${SERVICES[@]}"
 
 # ── Health check via Docker network (port not exposed to host) ──────────────
 check_health() {
   docker exec botmem-caddy-1 wget -q -O- http://api:12412/api/version 2>/dev/null || echo ""
 }
 
-echo "==> Waiting up to ${HEALTH_TIMEOUT}s for API health check..."
-ELAPSED=0
-HEALTHY=false
+if [ "$DEPLOY_BACKEND" = "true" ]; then
+  echo "==> Waiting up to ${HEALTH_TIMEOUT}s for API health check..."
+  ELAPSED=0
+  HEALTHY=false
 
-while [ "$ELAPSED" -lt "$HEALTH_TIMEOUT" ]; do
-  RESPONSE=$(check_health)
-  if [ -n "$RESPONSE" ]; then
-    echo "==> Health check passed (${ELAPSED}s): $RESPONSE"
-    HEALTHY=true
-    break
-  fi
-  echo "    Attempt $((ELAPSED / HEALTH_INTERVAL + 1)): not ready yet..."
-  sleep "$HEALTH_INTERVAL"
-  ELAPSED=$((ELAPSED + HEALTH_INTERVAL))
-done
+  while [ "$ELAPSED" -lt "$HEALTH_TIMEOUT" ]; do
+    RESPONSE=$(check_health)
+    if [ -n "$RESPONSE" ]; then
+      echo "==> Health check passed (${ELAPSED}s): $RESPONSE"
+      HEALTHY=true
+      break
+    fi
+    echo "    Attempt $((ELAPSED / HEALTH_INTERVAL + 1)): not ready yet..."
+    sleep "$HEALTH_INTERVAL"
+    ELAPSED=$((ELAPSED + HEALTH_INTERVAL))
+  done
+else
+  echo "==> Skipping API health wait because backend was not deployed"
+  HEALTHY=true
+fi
 
 # ── Rollback if health check failed ────────────────────────────────────────
 if [ "$HEALTHY" = false ]; then
@@ -201,7 +262,9 @@ echo "==> Worker status:"
 "${COMPOSE[@]}" ps worker || true
 
 # ── Backfill PostgreSQL search index from the old search collection ─────────
-if [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
+if [ "$DEPLOY_BACKEND" != "true" ]; then
+  echo "==> Skipping search index backfill because backend was not deployed"
+elif [ "$RUN_SEARCH_BACKFILL" = "1" ]; then
   LEGACY_URL_KEY="TYPE""SENSE_URL"
   LEGACY_KEY_KEY="TYPE""SENSE_API_KEY"
   if ! grep -q "^${LEGACY_URL_KEY}=" "$ENV_FILE" 2>/dev/null && ! grep -q '^LEGACY_SEARCH_URL=' "$ENV_FILE" 2>/dev/null; then
