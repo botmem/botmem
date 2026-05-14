@@ -7,6 +7,60 @@ botmem.xyz {
 	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
 	header X-Content-Type-Options "nosniff"
 	header Referrer-Policy "strict-origin-when-cross-origin"
+	header X-Frame-Options "DENY"
+
+	@html {
+		not path /api/* /events /events/* /.well-known/* /oauth/* /mcp /mcp/* /assets/* /brand/* /fonts/* /videos/* *.js *.css *.woff2 *.svg *.png *.jpg *.jpeg *.webp *.ico *.mp4
+	}
+	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
+	header @html Pragma "no-cache"
+
+	redir /login https://app.botmem.xyz/login 308
+	redir /signup https://app.botmem.xyz/signup 308
+	redir /forgot-password https://app.botmem.xyz/forgot-password 308
+	redir /reset-password https://app.botmem.xyz/reset-password 308
+	redir /cli-login https://app.botmem.xyz/cli-login 308
+	redir /oauth/consent https://app.botmem.xyz/oauth/consent 308
+	redir /dashboard https://app.botmem.xyz/dashboard 308
+	redir /me https://app.botmem.xyz/me 308
+	redir /connectors https://app.botmem.xyz/connectors 308
+	redir /people https://app.botmem.xyz/people 308
+	redir /contacts https://app.botmem.xyz/people 308
+	redir /settings https://app.botmem.xyz/settings 308
+	handle_path /docs* {
+		redir https://docs.botmem.xyz{path} 308
+	}
+
+	@api {
+		path /api/* /events /events/* /.well-known/* /oauth/* /mcp /mcp/*
+		not path /oauth/consent
+	}
+	handle @api {
+		reverse_proxy api:12412 {
+			header_down -Content-Security-Policy
+		}
+	}
+
+	handle {
+		reverse_proxy landing-web:8080
+	}
+}
+
+app.botmem.xyz {
+	@trace method TRACE TRACK
+	respond @trace 405
+
+	header -Server
+	header -X-Powered-By
+	header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+
+	@html {
+		not path /api/* /events /events/* /.well-known/* /oauth/* /mcp /mcp/* /__/auth/* /assets/* /brand/* /fonts/* /videos/* *.js *.css *.woff2 *.svg *.png *.jpg *.jpeg *.webp *.ico *.mp4
+	}
+	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
+	header @html Pragma "no-cache"
 
 	@not_firebase_auth {
 		not path /__/auth/*
@@ -16,25 +70,9 @@ botmem.xyz {
 	@firebase_auth path /__/auth/*
 	header @firebase_auth X-Frame-Options "SAMEORIGIN"
 
-	@html {
-		not path /api/* /__/auth/* /assets/* *.js *.css *.woff2 *.svg *.png *.jpg *.ico
-	}
-	header @html Cache-Control "no-store, no-cache, must-revalidate, private"
-	header @html Pragma "no-cache"
-
-	@spa_no_slash {
-		not path /api/* /docs/* /events
-		not path_regexp \.[^/]+$
-		path_regexp ^/[^/]+[^/]$
-	}
-	rewrite @spa_no_slash {path}/
-
-	handle /docs* {
-		uri strip_prefix /docs
-		root * /srv/docs
-		try_files {path} {path}/ /index.html
-		file_server
-	}
+	redir /app /me 308
+	@legacy_app path_regexp legacy_app ^/app/(.*)$
+	redir @legacy_app /{re.legacy_app.1} 308
 
 	handle /__/auth/* {
 		reverse_proxy https://botmem-app.firebaseapp.com {
@@ -43,8 +81,18 @@ botmem.xyz {
 		}
 	}
 
-	reverse_proxy api:12412 {
-		header_down -Content-Security-Policy
+	@api {
+		path /api/* /events /events/* /.well-known/* /oauth/* /mcp /mcp/*
+		not path /oauth/consent
+	}
+	handle @api {
+		reverse_proxy api:12412 {
+			header_down -Content-Security-Policy
+		}
+	}
+
+	handle {
+		reverse_proxy app-web:8080
 	}
 }
 
@@ -58,6 +106,18 @@ api.botmem.xyz {
 	header X-Content-Type-Options "nosniff"
 	header Referrer-Policy "strict-origin-when-cross-origin"
 	header X-Frame-Options "DENY"
+
+	redir / /version 308
+
+	@root_api {
+		path /accounts /accounts/* /agent /agent/* /api-keys /api-keys/* /auth /auth/* /billing /billing/* /connectors /connectors/* /contacts /contacts/* /health /jobs /jobs/* /logs /logs/* /me /me/* /memories /memories/* /memory-banks /memory-banks/* /people /people/* /settings /settings/* /user-auth /user-auth/* /version
+	}
+	handle @root_api {
+		rewrite * /api{uri}
+		reverse_proxy api:12412 {
+			header_down -Content-Security-Policy
+		}
+	}
 
 	reverse_proxy api:12412 {
 		header_down -Content-Security-Policy

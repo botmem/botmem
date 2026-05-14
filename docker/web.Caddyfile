@@ -1,0 +1,36 @@
+{
+	auto_https off
+}
+
+:8080 {
+	@trace method TRACE TRACK
+	respond @trace 405
+
+	header -Server
+	header -X-Powered-By
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+	header X-Frame-Options "DENY"
+
+	handle /__/auth/* {
+		reverse_proxy https://botmem-app.firebaseapp.com {
+			header_up Host {http.reverse_proxy.upstream.hostport}
+			header_down X-Frame-Options "SAMEORIGIN"
+		}
+	}
+
+	@api {
+		path /api/* /events /events/* /.well-known/* /oauth/* /mcp /mcp/*
+		not path /oauth/consent
+	}
+	handle @api {
+		reverse_proxy {$API_UPSTREAM:http://api:12412}
+	}
+
+	handle {
+		root * /srv
+		encode zstd gzip
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+}

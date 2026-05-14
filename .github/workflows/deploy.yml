@@ -95,6 +95,7 @@ jobs:
       infra_deploy: ${{ steps.detect.outputs.infra_deploy }}
       runtime: ${{ steps.detect.outputs.runtime }}
       binary: ${{ steps.detect.outputs.binary }}
+      changed_any: ${{ steps.detect.outputs.changed_any }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@v6
@@ -209,6 +210,11 @@ jobs:
             binary=true
           fi
 
+          changed_any=false
+          if [ "$runtime" = true ] || [ "$docs" = true ] || [ "$apple_bridge" = true ] || [ "$cli" = true ] || [ "$openclaw_plugin" = true ]; then
+            changed_any=true
+          fi
+
           {
             echo "backend=$backend"
             echo "web=$web"
@@ -220,6 +226,7 @@ jobs:
             echo "infra_deploy=$infra_deploy"
             echo "runtime=$runtime"
             echo "binary=$binary"
+            echo "changed_any=$changed_any"
           } >> "$GITHUB_OUTPUT"
 
           cat << SUMMARY >> "$GITHUB_STEP_SUMMARY"
@@ -233,6 +240,7 @@ jobs:
           - OpenClaw npm package: \`$openclaw_plugin\`
           - Skills: \`$skills\`
           - Infra deploy: \`$infra_deploy\`
+          - Any releasable/deployable artifact: \`$changed_any\`
           SUMMARY
 
   quality-gate:
@@ -824,14 +832,21 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs:
       - version
+      - changes
       - quality-gate
+      - promote-runtime-images
       - deploy
       - publish-cli
       - publish-apple-bridge
       - publish-openclaw-plugin
     if: |
       always() &&
+      needs.changes.outputs.changed_any == 'true' &&
       needs.quality-gate.result == 'success' &&
+      (
+        (needs.changes.outputs.runtime == 'true' && needs.promote-runtime-images.result == 'success') ||
+        (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
+      ) &&
       (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') &&
       (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped') &&
       (needs.publish-apple-bridge.result == 'success' || needs.publish-apple-bridge.result == 'skipped') &&

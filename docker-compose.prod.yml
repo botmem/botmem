@@ -6,7 +6,7 @@
 #   1. Copy .env.example to .env.prod and configure:
 #      - POSTGRES_PASSWORD with a strong password
 #      - APP_SECRET, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, OAUTH_JWT_SECRET
-#      - FRONTEND_URL / BASE_URL to your domain
+#      - APP_URL / LANDING_URL / BASE_URL / FRONTEND_URL to your domains
 #      - OLLAMA_BASE_URL to your Ollama host
 #      - IMAGE_TAG to the desired version (e.g., v1.3.0)
 #   2. Create a Caddyfile (see Caddyfile.example)
@@ -15,7 +15,7 @@
 
 services:
   api:
-    image: ghcr.io/botmem/botmem:${IMAGE_TAG:-latest}
+    image: ghcr.io/botmem/botmem-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.prod
     dns:
@@ -44,9 +44,8 @@ services:
     stop_grace_period: 30s
 
   worker:
-    image: ghcr.io/botmem/botmem:${IMAGE_TAG:-latest}
+    image: ghcr.io/botmem/botmem-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    command: ['node', 'apps/api/dist/worker.js']
     env_file: .env.prod
     dns:
       - 1.1.1.1
@@ -66,6 +65,21 @@ services:
       redis:
         condition: service_healthy
     stop_grace_period: 90s
+
+  app-web:
+    image: ghcr.io/botmem/botmem-app:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:12412
+    depends_on:
+      api:
+        condition: service_healthy
+
+  landing-web:
+    image: ghcr.io/botmem/botmem-landing:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:12412
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -107,6 +121,13 @@ services:
       - ./docs-site:/srv/docs:ro
       - caddy-data:/data
       - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      app-web:
+        condition: service_started
+      landing-web:
+        condition: service_started
 
 volumes:
   postgres-data:
