@@ -23,7 +23,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     try {
       await login(email, password);
       const user = useAuthStore.getState().user;
-      navigate(redirectTo || (user?.onboarded ? '/dashboard' : '/onboarding'));
+      navigate(redirectTo || (user?.onboarded ? '/me' : '/onboarding'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

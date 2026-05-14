@@ -1,7 +1,6 @@
 import type { ConnectorManifest, ConnectorAccount, Job } from '@botmem/shared';
 import { useAuthStore } from '../store/authStore';
-
-const API_BASE = '/api';
+import { API_BASE, wsUrl } from './urls';
 
 // --- API response shape types ---
 
@@ -626,9 +625,7 @@ export const api = {
 // WebSocket connection — authenticates via first message instead of query string.
 // Uses addEventListener so callers can safely set ws.onopen without overwriting auth.
 export function createWsConnection(): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${window.location.host}/events`;
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(wsUrl('/events'));
   const token = useAuthStore.getState().accessToken;
 
   // Send auth as the first message when connection opens

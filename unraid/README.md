@@ -47,23 +47,35 @@ unraid/
 
 ### Dependency Stack
 
-If the user does not already have PostgreSQL 16 with pgvector and Redis 7, run the companion stack. For self-hosted installs, the Botmem API container runs sync and memory queue workers itself with `BOTMEM_ENABLE_API_WORKERS=true`.
+Run the companion stack first. It starts PostgreSQL, Redis, and the Botmem API. The Community Applications template runs the Botmem app frontend and proxies API traffic to the companion API.
 
 ```bash
 mkdir -p /mnt/user/appdata/botmem
 cp docker-compose.unraid.yml /mnt/user/appdata/botmem/docker-compose.unraid.yml
 cd /mnt/user/appdata/botmem
-POSTGRES_PASSWORD="$(openssl rand -base64 36)" docker compose -f docker-compose.unraid.yml up -d
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -base64 36)
+APP_SECRET=$(openssl rand -base64 48)
+JWT_ACCESS_SECRET=$(openssl rand -base64 48)
+JWT_REFRESH_SECRET=$(openssl rand -base64 48)
+OAUTH_JWT_SECRET=$(openssl rand -base64 48)
+ENCRYPTION_SALT=$(openssl rand -base64 32)
+APP_URL=http://<unraid-ip>:12412
+BASE_URL=http://<unraid-ip>:12412
+FRONTEND_URL=http://<unraid-ip>:12412
+EOF
+docker compose -f docker-compose.unraid.yml up -d
 mkdir -p /mnt/user/appdata/botmem/data /mnt/user/appdata/botmem/plugins
 chown -R 1000:1000 /mnt/user/appdata/botmem/data /mnt/user/appdata/botmem/plugins
 ```
 
-The compose file exposes dependencies on non-conflicting host ports:
+The compose file exposes services on non-conflicting host ports:
 
 - PostgreSQL: `host.docker.internal:15432`
 - Redis: `host.docker.internal:16379`
+- Botmem API: `host.docker.internal:12413`
 
-Those ports match the defaults in `botmem.xml`.
+The Botmem app template uses `API_UPSTREAM=http://host.docker.internal:12413` by default.
 
 ### Testing on Unraid
 
@@ -80,7 +92,7 @@ Before submitting, test the template on your own Unraid server:
    - `OAUTH_JWT_SECRET`
    - `ENCRYPTION_SALT`
 4. Confirm the container starts and the WebUI is accessible at `http://<unraid-ip>:12412`.
-5. Confirm `BOTMEM_ENABLE_API_WORKERS=true` is set in the Botmem container.
+5. Confirm the companion API container is healthy.
 6. Create a local test user in the WebUI.
 7. Connect an iMessage account with the bridge setup flow, then sync with:
 
@@ -98,13 +110,12 @@ The validation is only complete when the sync job finishes, iMessage memories ar
 
 Users need to configure at minimum:
 
-- `DATABASE_URL` — PostgreSQL connection string
-- `REDIS_URL` — Redis connection string
 - `APP_SECRET` — encryption key (generate with `openssl rand -base64 48`)
 - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — JWT signing keys
 - `OAUTH_JWT_SECRET` — connector OAuth state signing key
 - `ENCRYPTION_SALT` — deployment-specific encryption salt
-- `BOTMEM_ENABLE_API_WORKERS=true` — runs queue workers inside the app container for self-hosted installs
+- `APP_URL` / `BASE_URL` / `FRONTEND_URL` — your WebUI URL
+- `BOTMEM_ENABLE_API_WORKERS=true` — runs queue workers inside the API container for self-hosted installs
 - One AI backend:
   - Ollama: set `AI_BACKEND=ollama` and `OLLAMA_BASE_URL`
   - Gemini: set `AI_BACKEND=gemini` and `GEMINI_API_KEY`
@@ -118,6 +129,6 @@ The template adds `--add-host=host.docker.internal:host-gateway`, so `host.docke
 - The Botmem image runs as user `node` (`uid 1000`), so `/mnt/user/appdata/botmem/data` and `/mnt/user/appdata/botmem/plugins` must be writable/readable by uid `1000`.
 - Plugins mount read-only from `/mnt/user/appdata/botmem/plugins` to `/plugins`, with `PLUGINS_DIR=/plugins`.
 - `AUTH_PROVIDER=local` for self-hosted installs.
-- `BOTMEM_ENABLE_API_WORKERS=true` so connector sync and memory processing run in the same Botmem app container.
+- `BOTMEM_ENABLE_API_WORKERS=true` so connector sync and memory processing run in the same Botmem API container.
 - `AI_BACKEND=ollama` by default, matching a common Unraid local-AI setup, but Ollama is optional. Set `AI_BACKEND=gemini` or `AI_BACKEND=openrouter` and provide the matching API key if you do not run Ollama.
 - Gemini and OpenRouter fields are present as advanced alternatives.

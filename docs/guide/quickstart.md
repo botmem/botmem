@@ -20,11 +20,11 @@ Get Botmem running locally in under five minutes.
 git clone https://github.com/botmem/botmem.git
 cd botmem
 cp .env.example .env    # Edit as needed (see step 3 below)
-docker compose pull     # Ensure you have the latest image
+docker compose pull     # Ensure you have the latest API + app images
 docker compose up -d    # Starts all services
 ```
 
-This pulls and starts everything: Botmem, PostgreSQL + pgvector and Redis. The API and web UI are at `http://localhost:12412`.
+This pulls and starts everything: the Botmem API, Botmem app, PostgreSQL + pgvector, and Redis. The WebUI is at `http://localhost:12412`.
 
 ::: warning Clean start
 If you've previously built a local image (`docker compose build`), Docker may use the cached local image instead of the published one. Always run `docker compose pull` first to get the latest release.
@@ -243,7 +243,7 @@ You'll see `Using default dev secrets (OK for local/self-hosted dev)` in the API
 
 ### Upgrading
 
-Docker images are tagged with version numbers (e.g., `ghcr.io/botmem/botmem:v1.2.3`). To pin a version, change the `image:` line in `docker-compose.yml`.
+Docker images are tagged with version numbers (for example, `ghcr.io/botmem/botmem-api:v1.2.3` and `ghcr.io/botmem/botmem-app:v1.2.3`). To pin a version, change the `image:` lines in `docker-compose.yml`.
 
 For most upgrades, pull the latest image and restart:
 

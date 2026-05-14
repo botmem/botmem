@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { API_BASE } from '../lib/urls';
 
 export function ForgotPasswordPage() {
   usePageMeta({
@@ -23,7 +24,7 @@ export function ForgotPasswordPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/user-auth/forgot-password', {
+      const res = await fetch(`${API_BASE}/user-auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

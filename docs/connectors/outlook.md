@@ -19,7 +19,9 @@ The Outlook connector imports emails and contacts from Microsoft 365 / Outlook.c
 
 1. Go to [Azure Portal](https://portal.azure.com) → Azure Active Directory → App registrations
 2. Click **New registration**
-3. Set the redirect URI to `http://localhost:12412/api/auth/outlook/callback` (or your production URL)
+3. Set the redirect URI:
+   - Botmem Cloud: `https://api.botmem.xyz/auth/outlook/callback`
+   - Local dev: `http://localhost:12412/api/auth/outlook/callback`
 4. Under **API permissions**, add:
    - `Microsoft Graph` → `Mail.Read` (delegated)
    - `Microsoft Graph` → `Contacts.Read` (delegated)

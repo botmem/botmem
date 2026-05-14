@@ -3,7 +3,7 @@
 Botmem is a self-hosted personal memory/RAG system. It ingests events from multiple data sources, normalizes them into memories and people, and provides cross-modal search and retrieval over your own data.
 
 - Project: https://github.com/botmem/botmem
-- Container image: `ghcr.io/botmem/botmem:latest`
+- Container image: `ghcr.io/botmem/botmem-app:latest`
 - Template: https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem.xml
 - Icon: https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem-icon.png
 - Unraid docs: https://github.com/botmem/botmem/tree/main/unraid
@@ -15,7 +15,7 @@ Botmem is built for people who want to own and search their personal data locall
 
 The app includes:
 
-- A local-first web app and API on port `12412`
+- A local-first web app on port `12412` backed by the companion API on port `12413`
 - Connector sync workers for self-hosted installs
 - Memory extraction, embedding, enrichment, and search
 - Local auth for self-hosted users
@@ -33,7 +33,7 @@ Botmem needs:
   - Gemini, if you prefer Google-hosted models
   - OpenRouter, if you prefer OpenRouter-hosted models
 
-The repo includes a companion compose file for dependencies:
+The repo includes a companion compose file for the API and dependencies:
 
 ```bash
 mkdir -p /mnt/user/appdata/botmem
@@ -48,8 +48,9 @@ The companion stack exposes:
 
 - PostgreSQL: `host.docker.internal:15432`
 - Redis: `host.docker.internal:16379`
+- Botmem API: `host.docker.internal:12413`
 
-Those are the defaults in the Unraid template.
+The app template proxies to the Botmem API default.
 
 ## Required Template Values
 
@@ -70,7 +71,7 @@ Set:
 
 Keep `AUTH_PROVIDER=local` for self-hosted installs.
 
-Keep `BOTMEM_ENABLE_API_WORKERS=true` for single-container self-hosted installs. This runs the sync and memory workers inside the Botmem app container.
+Keep `BOTMEM_ENABLE_API_WORKERS=true` for self-hosted installs. This runs the sync and memory workers inside the Botmem API container.
 
 ## Ollama Setup
 

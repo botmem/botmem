@@ -15,6 +15,17 @@ function validatePKCE(codeVerifier: string, codeChallenge: string): boolean {
   return computed === codeChallenge;
 }
 
+type OAuthCodeRow = {
+  code: string;
+  user_id: string;
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  code_challenge: string;
+  expires_at: Date;
+  used_at: Date | null;
+};
+
 @Injectable()
 export class OAuthService {
   private readonly logger = new Logger(OAuthService.name);
@@ -87,42 +98,43 @@ export class OAuthService {
     redirectUri: string,
     codeVerifier: string,
   ): Promise<{ userId: string; scope: string }> {
-    const rows = await this.db.systemDb((db) =>
-      db.select().from(oauthCodes).where(eq(oauthCodes.code, code)).limit(1),
+    const rows = await this.db.queryRaw<OAuthCodeRow>(
+      `SELECT code, user_id, client_id, redirect_uri, scope, code_challenge, expires_at, used_at
+       FROM oauth_codes
+       WHERE code = $1
+       LIMIT 1`,
+      [code],
     );
-
     const codeRow = rows[0];
     if (!codeRow) {
       throw new BadRequestException('Invalid authorization code');
     }
 
-    if (codeRow.usedAt) {
+    if (codeRow.used_at) {
       throw new BadRequestException('Authorization code already used');
     }
 
-    if (new Date(codeRow.expiresAt) < new Date()) {
+    if (new Date(codeRow.expires_at) < new Date()) {
       throw new BadRequestException('Authorization code expired');
     }
 
-    if (codeRow.clientId !== clientId) {
+    if (codeRow.client_id !== clientId) {
       throw new BadRequestException('Client ID mismatch');
     }
 
-    if (codeRow.redirectUri !== redirectUri) {
+    if (codeRow.redirect_uri !== redirectUri) {
       throw new BadRequestException('Redirect URI mismatch');
     }
 
     // PKCE S256 validation
-    if (!validatePKCE(codeVerifier, codeRow.codeChallenge)) {
+    if (!validatePKCE(codeVerifier, codeRow.code_challenge)) {
       throw new BadRequestException('Invalid code verifier (PKCE validation failed)');
     }
 
     // Mark code as used
-    await this.db.systemDb((db) =>
-      db.update(oauthCodes).set({ usedAt: new Date() }).where(eq(oauthCodes.code, code)),
-    );
+    await this.db.queryRaw('UPDATE oauth_codes SET used_at = NOW() WHERE code = $1', [code]);
 
-    return { userId: codeRow.userId, scope: codeRow.scope };
+    return { userId: codeRow.user_id, scope: codeRow.scope };
   }
 
   async issueTokens(

@@ -11,8 +11,10 @@ Botmem is configured through environment variables. All variables have sensible 
 | `PORT`         | `12412`                  | API server port                                                                        |
 | `DATABASE_URL` | _(required)_             | PostgreSQL connection string (e.g. `postgresql://botmem:botmem@localhost:5432/botmem`) |
 | `REDIS_URL`    | `redis://localhost:6379` | Redis connection URL for BullMQ job queues                                             |
-| `FRONTEND_URL` | `http://localhost:12412` | Frontend origin for CORS and OAuth redirects                                           |
-| `BASE_URL`     | _(same as FRONTEND_URL)_ | Public base URL (used for OAuth callbacks)                                             |
+| `APP_URL`      | _(same as FRONTEND_URL)_ | Public app URL used for login, reset, billing, CLI login, and connector return links   |
+| `LANDING_URL`  | _(same as APP_URL)_      | Public marketing URL used in OAuth metadata                                            |
+| `BASE_URL`     | _(same as FRONTEND_URL)_ | Public API/OAuth issuer URL, e.g. `https://api.botmem.xyz`                             |
+| `FRONTEND_URL` | `http://localhost:12412` | Comma-separated browser origins allowed by CORS                                        |
 | `PLUGINS_DIR`  | `./plugins`              | Directory for external connector plugins                                               |
 | `LOGS_PATH`    | `./data/logs.ndjson`     | Path for NDJSON log file output                                                        |
 
@@ -214,6 +216,8 @@ OLLAMA_VL_MODEL=qwen3-vl:4b
 # APP_SECRET=change-me-in-production
 
 # Frontend
+APP_URL=http://localhost:12412
+BASE_URL=http://localhost:12412
 FRONTEND_URL=http://localhost:12412
 ```
 

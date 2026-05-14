@@ -66,11 +66,13 @@ describe('authStore', () => {
     });
 
     it('stores recovery key when provided', async () => {
-      mockFetch.mockReturnValueOnce(okResponse({
-        user: mockUser,
-        accessToken: mockAccessToken,
-        recoveryKey: 'rec-key-123',
-      }));
+      mockFetch.mockReturnValueOnce(
+        okResponse({
+          user: mockUser,
+          accessToken: mockAccessToken,
+          recoveryKey: 'rec-key-123',
+        }),
+      );
       await useAuthStore.getState().signup('test@test.com', 'pass', 'Test');
       expect(useAuthStore.getState().recoveryKey).toBe('rec-key-123');
     });
@@ -94,11 +96,13 @@ describe('authStore', () => {
     });
 
     it('sets needsRecoveryKey when flagged', async () => {
-      mockFetch.mockReturnValueOnce(okResponse({
-        user: mockUser,
-        accessToken: mockAccessToken,
-        needsRecoveryKey: true,
-      }));
+      mockFetch.mockReturnValueOnce(
+        okResponse({
+          user: mockUser,
+          accessToken: mockAccessToken,
+          needsRecoveryKey: true,
+        }),
+      );
       await useAuthStore.getState().login('test@test.com', 'pass');
       expect(useAuthStore.getState().needsRecoveryKey).toBe(true);
     });
@@ -159,7 +163,9 @@ describe('authStore', () => {
     it('throws on failure', async () => {
       mockFetch.mockReturnValueOnce(failResponse(400, 'Invalid key'));
 
-      await expect(useAuthStore.getState().submitRecoveryKey('bad-key')).rejects.toThrow('Invalid key');
+      await expect(useAuthStore.getState().submitRecoveryKey('bad-key')).rejects.toThrow(
+        'Invalid key',
+      );
     });
   });
 

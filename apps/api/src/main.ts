@@ -201,7 +201,7 @@ async function bootstrap() {
   const traceContext = app.get(TraceContext);
   phLogger.setTraceContext(traceContext);
 
-  app.enableCors(createCorsOptionsDelegate(config.frontendUrl));
+  app.enableCors(createCorsOptionsDelegate(config.corsAllowedOrigins));
 
   // Global validation: reject invalid input, strip unknown properties
   app.useGlobalPipes(

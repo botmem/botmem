@@ -39,7 +39,7 @@ export function SignupForm() {
     setFbLoading(provider);
     try {
       await loginWithFirebase(provider);
-      navigate('/dashboard');
+      navigate('/me');
     } catch {
       // error in store
     } finally {

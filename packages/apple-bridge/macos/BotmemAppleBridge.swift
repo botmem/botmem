@@ -13,7 +13,7 @@ struct BridgeSettings: Codable {
   var botmemHost: String
 }
 
-let DEFAULT_BOTMEM_HOST = "https://botmem.xyz"
+let DEFAULT_BOTMEM_HOST = "https://api.botmem.xyz"
 
 final class ConfigStore {
   let appSupportURL: URL
@@ -462,7 +462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func renderConnectSetup(on content: NSView) {
-    addStep(on: content, number: "1", title: "Choose Botmem Server", detail: "Use botmem.xyz, or enter your own self-hosted Botmem endpoint.", y: 326)
+    addStep(on: content, number: "1", title: "Choose Botmem Server", detail: "Use api.botmem.xyz, or enter your own self-hosted Botmem endpoint.", y: 326)
 
     hostField = NSTextField(string: settings.botmemHost)
     hostField?.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)

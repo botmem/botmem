@@ -9,6 +9,7 @@ import { useAuthStore } from './store/authStore';
 import { posthog, identifyUser } from './lib/posthog';
 import { api } from './lib/api';
 import { isFirebaseMode } from './lib/auth-provider';
+import { appUrl, isAppSurface, isLandingSurface } from './lib/urls';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })));
@@ -112,9 +113,11 @@ function ScrollToTop() {
 function LandingOrApp() {
   const { user, isLoading } = useAuth();
 
-  // Hosted Firebase uses the public marketing surface. Self-hosted/local installs are app-first.
-  if (isLoading) return isFirebaseMode ? <LandingPage /> : <LoadingScreen />;
-  if (!user) return isFirebaseMode ? <LandingPage /> : <SignupPage />;
+  if (isLandingSurface) return <LandingPage />;
+
+  // Hosted Firebase uses the public marketing surface in combined dev builds. App builds are app-first.
+  if (isLoading) return isFirebaseMode && !isAppSurface ? <LandingPage /> : <LoadingScreen />;
+  if (!user) return isFirebaseMode && !isAppSurface ? <LandingPage /> : <SignupPage />;
   if (!user.onboarded) return <Navigate to="/onboarding" replace />;
   return (
     <>
@@ -127,6 +130,47 @@ function LandingOrApp() {
 /** Shared route tree — used by both client (BrowserRouter) and SSR (StaticRouter) */
 export function AppRoutes() {
   const publicMarketingPage = (page: ReactNode) => (isFirebaseMode ? page : <SignupPage />);
+  const appRedirect = (path: string) => {
+    if (!isLandingSurface) return <Navigate to={path} replace />;
+    if (typeof window !== 'undefined') {
+      window.location.replace(appUrl(path));
+    }
+    return <LoadingScreen />;
+  };
+
+  if (isLandingSurface) {
+    return (
+      <>
+        <ScrollToTop />
+        <PostHogPageviewTracker />
+        <ErrorBoundary>
+          <Suspense fallback={<LoadingScreen />}>
+            <Routes>
+              <Route index element={<LandingPage />} />
+              <Route path="/landing" element={<Navigate to="/" replace />} />
+              <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/data-policy" element={<DataPolicyPage />} />
+              <Route path="/login" element={appRedirect('/login')} />
+              <Route path="/signup" element={appRedirect('/signup')} />
+              <Route path="/forgot-password" element={appRedirect('/forgot-password')} />
+              <Route path="/reset-password" element={appRedirect('/reset-password')} />
+              <Route path="/cli-login" element={appRedirect('/cli-login')} />
+              <Route path="/oauth/consent" element={appRedirect('/oauth/consent')} />
+              <Route path="/dashboard" element={appRedirect('/dashboard')} />
+              <Route path="/me" element={appRedirect('/me')} />
+              <Route path="/connectors" element={appRedirect('/connectors')} />
+              <Route path="/people" element={appRedirect('/people')} />
+              <Route path="/contacts" element={appRedirect('/people')} />
+              <Route path="/settings" element={appRedirect('/settings')} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
+      </>
+    );
+  }
 
   return (
     <>
@@ -166,14 +210,22 @@ export function AppRoutes() {
                 </AuthGuard>
               }
             >
-              <Route path="me" element={<MePage />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="connectors" element={<ConnectorsPage />} />
-              <Route path="memories" element={<Navigate to="/dashboard" replace />} />
-              <Route path="people" element={<ContactsPage />} />
-              <Route path="contacts" element={<Navigate to="/people" replace />} />
-              <Route path="settings" element={<SettingsPage />} />
+              <Route path="/me" element={<MePage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/connectors" element={<ConnectorsPage />} />
+              <Route path="/memories" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/people" element={<ContactsPage />} />
+              <Route path="/contacts" element={<Navigate to="/people" replace />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
+            <Route path="/app" element={<Navigate to="/me" replace />} />
+            <Route path="/app/me" element={<Navigate to="/me" replace />} />
+            <Route path="/app/dashboard" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/app/connectors" element={<Navigate to="/connectors" replace />} />
+            <Route path="/app/memories" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/app/people" element={<Navigate to="/people" replace />} />
+            <Route path="/app/contacts" element={<Navigate to="/people" replace />} />
+            <Route path="/app/settings" element={<Navigate to="/settings" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

@@ -13,6 +13,10 @@ export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private stripe: Stripe | null = null;
 
+  private get appUrl(): string {
+    return this.config.appUrl || this.config.frontendUrl;
+  }
+
   constructor(
     private db: DbService,
     private config: ConfigService,
@@ -57,8 +61,8 @@ export class BillingService {
       mode: 'subscription',
       line_items: [{ price: this.config.stripePriceId, quantity: 1 }],
       subscription_data: { metadata: { userId } },
-      success_url: `${this.config.frontendUrl}/settings?tab=billing&success=1`,
-      cancel_url: `${this.config.frontendUrl}/settings?tab=billing`,
+      success_url: `${this.appUrl}/settings?tab=billing&success=1`,
+      cancel_url: `${this.appUrl}/settings?tab=billing`,
       client_reference_id: userId,
     });
 
@@ -92,7 +96,7 @@ export class BillingService {
 
     const session = await this.stripe!.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${this.config.frontendUrl}/settings?tab=billing`,
+      return_url: `${this.appUrl}/settings?tab=billing`,
     });
 
     return { url: session.url };

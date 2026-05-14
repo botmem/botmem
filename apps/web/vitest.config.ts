@@ -25,6 +25,7 @@ export default defineConfig({
         'src/mock/**',
         'src/main.tsx',
         'src/App.tsx',
+        'src/LandingApp.tsx',
         'src/router.tsx',
         'src/vite-env.d.ts',
         'src/lib/firebase.ts',

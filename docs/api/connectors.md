@@ -69,7 +69,7 @@ GET /api/connectors/:type/schema
       "redirectUri": {
         "type": "string",
         "title": "Redirect URI",
-        "default": "http://localhost:12412/api/auth/gmail/callback"
+        "default": "https://api.botmem.xyz/auth/gmail/callback"
       }
     },
     "required": ["clientId", "clientSecret"]

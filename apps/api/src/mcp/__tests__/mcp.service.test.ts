@@ -176,6 +176,27 @@ describe('McpService', () => {
     service.onModuleDestroy();
   });
 
+  it('returns structured locked errors without memory payloads', async () => {
+    const { service, memoryService } = createService();
+    vi.mocked(memoryService.needsRecoveryKey).mockResolvedValueOnce(true);
+    const server = (
+      service as unknown as { createServer: (userId: string) => unknown }
+    ).createServer('user-1');
+    const search = getTool(server, 'search');
+
+    const response = await search.handler({ query: 'private memory' });
+    const text = (response as { content: Array<{ text: string }>; isError: boolean }).content[0]
+      .text;
+    const parsed = JSON.parse(text);
+
+    expect(response).toMatchObject({ isError: true });
+    expect(parsed.error.code).toBe('unlock_required');
+    expect(text).not.toContain('private memory');
+    expect(memoryService.search).not.toHaveBeenCalled();
+
+    service.onModuleDestroy();
+  });
+
   it('uses shared registry metadata for MCP tool descriptions and schemas', () => {
     const { service } = createService();
     const server = (

@@ -49,8 +49,8 @@ After install, help the user onboard instead of assuming configuration exists:
 
 1. Run `botmem config show` and `botmem version --toon-fields buildTime,gitHash,uptime` to check local config and API reachability.
 2. If no API host is configured, ask whether they use Botmem Cloud (`api.botmem.xyz`) or a self-hosted URL, then run `botmem config set-host <host>`.
-3. If `botmem status --toon-fields memory.total,connectors,queues` fails with auth errors, ask the user for an API key or have them run `botmem login`; for agent use, prefer `botmem config set-key bm_sk_...`.
-4. If encrypted memories are locked or unreadable, ask the user for their recovery key and run `botmem config set-recovery-key <base64-key>`.
+3. If `botmem status --toon-fields memory.total,connectors,queues` fails with auth errors, have the user run `botmem login` or ask for an API key and run `botmem config set-key bm_sk_...`.
+4. If memory data is locked, ask the user for their recovery key and run `botmem config set-recovery-key <base64-key>`. Botmem must return decrypted memory data or a locked response; never use ciphertext as evidence.
 5. Verify with `botmem status --toon-fields memory.total,connectors,queues` before answering memory questions.
 
 Do not invent credentials, recovery keys, hosts, contacts, or memory contents. Ask for missing secrets directly, and avoid printing them back after configuration.
@@ -63,13 +63,16 @@ npm install -g @botmem/cli
 botmem config set-host localhost:12412     # local dev
 botmem config set-host api.botmem.xyz      # production
 
-# Authenticate with API key (preferred for agents)
+# Configure an API key
 botmem config set-key bm_sk_abc123...
 
-# Store recovery key for E2EE decryption (required to read encrypted memories)
+# Remove a stale stored API key
+botmem config clear-key
+
+# Store recovery key for E2EE unlock
 botmem config set-recovery-key <base64-key>
 
-# Or login with email/password (stores JWT)
+# Or login with browser auth (stores a CLI login JWT)
 botmem login
 
 # Verify
@@ -273,7 +276,7 @@ botmem accounts --toon-fields accounts.id,accounts.type,accounts.status,accounts
 botmem jobs --toon-fields jobs.id,jobs.connector,jobs.status,jobs.progress,jobs.total,jobs.error
 ```
 
-Use `ask` for synthesis, not primary verification. Prefer `search --debug` first when evidence quality matters. When a person is involved, use `--contact <id>` for both `search` and `ask` so attribution is scoped to that contact.
+Use `ask` for synthesis, not primary verification. Prefer `search --debug` first when evidence quality matters.
 <!-- END GENERATED RESPONSE TYPES -->
 ## API Notes
 

@@ -54,7 +54,7 @@ botmem status --toon                          # Pipeline health
 ## Setup
 
 ```bash
-botmem config set-host botmem.xyz    # or localhost:12412
+botmem config set-host api.botmem.xyz    # or localhost:12412
 botmem config set-key bm_sk_...      # API key
 ```
 ````
@@ -87,7 +87,7 @@ Enable the plugin in `~/.openclaw/openclaw.json` under `plugins.entries`:
       "botmem": {
         "enabled": true,
         "config": {
-          "apiUrl": "https://botmem.xyz/api",
+          "apiUrl": "https://api.botmem.xyz",
           "apiKey": "bm_sk_...",
           "defaultLimit": 10,
           "autoContext": true
@@ -119,7 +119,7 @@ TOKEN=$(curl -s -X POST "https://identitytoolkit.googleapis.com/v1/accounts:sign
   -d '{"email":"you@example.com","password":"...","returnSecureToken":true}' | jq -r '.idToken')
 
 # 2. Create an API key
-curl -s -X POST https://botmem.xyz/api/api-keys \
+curl -s -X POST https://api.botmem.xyz/api-keys \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"openclaw"}' | jq '.key'
@@ -233,7 +233,7 @@ In `~/.openclaw/openclaw.json`:
       "botmem": {
         "enabled": true,
         "config": {
-          "apiUrl": "https://botmem.xyz/api",
+          "apiUrl": "https://api.botmem.xyz",
           "apiKey": "bm_sk_...",
           "defaultLimit": 10,
           "autoContext": true

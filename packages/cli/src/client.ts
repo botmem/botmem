@@ -141,6 +141,14 @@ export class BotmemApiError extends Error {
   }
 }
 
+function isLockedResponse(body: unknown): boolean {
+  return !!(
+    body &&
+    typeof body === 'object' &&
+    (body as { needsRecoveryKey?: unknown }).needsRecoveryKey === true
+  );
+}
+
 export class BotmemClient {
   private token: string | null = null;
 
@@ -186,7 +194,15 @@ export class BotmemClient {
       );
     }
 
-    return response.json() as Promise<T>;
+    const body = (await response.json()) as T;
+    if (isLockedResponse(body)) {
+      throw new BotmemApiError(
+        'Recovery key required before memory data can be returned',
+        423,
+        body,
+      );
+    }
+    return body;
   }
 
   private async requestFile(path: string): Promise<MemoryRawFile> {
@@ -218,6 +234,19 @@ export class BotmemClient {
         response.status,
         body,
       );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json().catch(() => null);
+      if (isLockedResponse(body)) {
+        throw new BotmemApiError(
+          'Recovery key required before memory data can be returned',
+          423,
+          body,
+        );
+      }
+      throw new BotmemApiError('Expected file response from Botmem API', response.status, body);
     }
 
     const disposition = response.headers.get('content-disposition') || '';

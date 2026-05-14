@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
 import { ThemeToggle } from '../ui/ThemeToggle';
+import { appUrl } from '../../lib/urls';
 
 const NAV_LINKS = [
   { to: '/#features', label: 'FEATURES' },
@@ -32,12 +33,18 @@ export function PublicNavbar() {
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <Link
-            to="/signup"
+          <a
+            href={appUrl('/login')}
+            className="hidden sm:inline-block font-display text-sm font-bold text-nb-muted hover:text-nb-text transition-colors duration-200"
+          >
+            SIGN IN
+          </a>
+          <a
+            href={appUrl('/signup')}
             className="font-display text-sm font-bold px-5 py-2 bg-nb-lime text-black border-3 border-nb-border shadow-nb hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all duration-150 cursor-pointer"
           >
             GET STARTED
-          </Link>
+          </a>
         </div>
       </div>
     </nav>

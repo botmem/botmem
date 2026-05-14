@@ -4,6 +4,7 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { useAuthStore, isFirebaseMode } from '../store/authStore';
+import { API_BASE, API_ORIGIN } from '../lib/urls';
 
 const SCOPE_LABELS: Record<string, string> = {
   read: 'Read your memories',
@@ -28,7 +29,9 @@ function createClientNameStore() {
     load(clientId: string) {
       if (!clientId || clientId === loadedFor) return;
       loadedFor = clientId;
-      fetch(`/oauth/client-info?client_id=${encodeURIComponent(clientId)}`)
+      fetch(
+        `${API_ORIGIN.replace(/\/+$/, '')}/oauth/client-info?client_id=${encodeURIComponent(clientId)}`,
+      )
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
           if (d?.client_name) {
@@ -94,7 +97,7 @@ export default function OAuthConsentPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/user-auth/login', {
+      const res = await fetch(`${API_BASE}/user-auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -122,7 +125,7 @@ export default function OAuthConsentPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/oauth/authorize/complete', {
+      const res = await fetch(`${API_ORIGIN.replace(/\/+$/, '')}/oauth/authorize/complete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

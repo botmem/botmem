@@ -10,7 +10,7 @@ export function OnboardingPage() {
 
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.onboarded) return <Navigate to="/dashboard" replace />;
+  if (user.onboarded) return <Navigate to="/me" replace />;
 
   return (
     <div className="min-h-screen bg-nb-bg p-8">

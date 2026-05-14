@@ -47,11 +47,14 @@ export class AuthController {
         returnTo && returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.includes('@')
           ? returnTo
           : '/connectors';
-      const target = `${this.config.frontendUrl}${safeReturnTo}`;
+      const appReturnTo = safeReturnTo.replace(/^\/app(?=\/|$)/, '') || '/me';
+      const appUrl = this.config.appUrl || this.config.frontendUrl;
+      const target = `${appUrl}${appReturnTo}`;
       res.redirect(`${target}?auth=success&type=${type}`);
     } catch (err: unknown) {
       const msg = encodeURIComponent(err instanceof Error ? err.message : 'Unknown error');
-      res.redirect(`${this.config.frontendUrl}/connectors?auth=error&type=${type}&error=${msg}`);
+      const appUrl = this.config.appUrl || this.config.frontendUrl;
+      res.redirect(`${appUrl}/connectors?auth=error&type=${type}&error=${msg}`);
     }
   }
 
