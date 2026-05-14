@@ -651,7 +651,7 @@ jobs:
           fi
 
           ssh $SSH_OPTS ${VPS} << DEPLOY
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             DEPLOY_BACKEND=${BACKEND} DEPLOY_WEB=${WEB} SKIP_ON_HOST_BACKUP=1 OFF_HOST_BACKUP_CONFIRMED=1 DRAIN_TYPESENSE_ON_NEXT_STARTUP=0 RUN_SEARCH_BACKFILL=0 HEALTH_TIMEOUT=3600 /opt/botmem/deploy.sh ${IMAGE_TAG}
           DEPLOY
 
