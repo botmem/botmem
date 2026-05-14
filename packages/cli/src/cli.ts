@@ -22,7 +22,7 @@ import { runMemoryBanks, memoryBanksHelp } from './commands/memory-banks.js';
 import { runInstallSkill } from './commands/install-skill.js';
 import { registryCliHelp } from './command-registry.js';
 
-const DEFAULT_API_URL = 'http://localhost:12412/api';
+const DEFAULT_API_URL = 'https://api.botmem.xyz';
 
 const CONFIG_DIR = join(homedir(), '.botmem');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
@@ -39,11 +39,32 @@ interface ParsedGlobalArgs {
   token: string;
   apiKeyToken: string;
   jwtToken: string;
+  tokenSource:
+    | 'explicit-api-key'
+    | 'explicit-token'
+    | 'env-api-key'
+    | 'env-token'
+    | 'stored-token'
+    | 'stored-api-key'
+    | 'none';
   json: boolean;
   toon: boolean;
   toonFields: string[];
   help: boolean;
   rest: string[];
+}
+
+function normalizeApiUrl(input: string): string {
+  let url = input.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    const isLocal = url.startsWith('localhost') || url.startsWith('127.0.0.1');
+    url = `${isLocal ? 'http' : 'https'}://${url}`;
+  }
+  const parsed = new URL(url);
+  if (parsed.hostname !== 'api.botmem.xyz' && parsed.pathname.replace(/\/+$/, '') === '') {
+    url = url.replace(/\/+$/, '') + '/api';
+  }
+  return url.replace(/\/+$/, '');
 }
 
 function loadConfig(): StoredConfig {
@@ -83,6 +104,17 @@ function requiresFullAuth(command: string | undefined, args: string[]): boolean 
   }
   if (command === 'pipeline' && args[0] === 'repair') return true;
   return false;
+}
+
+function isDataAccessCommand(command: string | undefined, args: string[]): boolean {
+  if (!command) return false;
+  if (command === 'memory' && args[1] === 'delete') return false;
+  if (command === 'memory-banks' && ['create', 'rename', 'delete'].includes(args[0] || '')) {
+    return false;
+  }
+  if (command === 'sync') return false;
+  if (command === 'pipeline' && args[0] === 'repair') return false;
+  return true;
 }
 
 function requireFullAuthToken(command: string, token: string) {
@@ -128,9 +160,58 @@ function warnRecoveryKeyRestoreFailure(err: unknown) {
         : String(err);
   console.error(`Warning: stored recovery key was not accepted${detail ? ` (${detail})` : ''}.`);
   console.error(
-    'Login succeeded, but encrypted memories may stay hidden until you run `botmem config set-recovery-key <key>`.',
+    'Login succeeded, but memory data may stay locked until you run `botmem config set-recovery-key <key>`.',
   );
   console.error('Run `botmem config clear-recovery-key` to remove the invalid saved recovery key.');
+}
+
+function machineError(
+  code: 'auth_required' | 'unlock_required',
+  message: string,
+  nextSteps: string[],
+) {
+  return { ok: false, error: { code, message, nextSteps } };
+}
+
+function printAccessError(err: BotmemApiError, opts: { apiUrl: string; json: boolean }): boolean {
+  if (err.status === 401 || err.status === 403) {
+    const payload = machineError(
+      'auth_required',
+      'Authentication is required before Botmem data can be returned.',
+      [
+        'Run `botmem login`, or configure a valid API key with `botmem config set-key <bm_sk_...>`.',
+        'If an old API key is stored, remove it with `botmem config clear-key`.',
+      ],
+    );
+    if (opts.json) console.log(JSON.stringify(payload, null, 2));
+    else {
+      console.error('Error: authentication required.');
+      for (const step of payload.error.nextSteps) console.error(`- ${step}`);
+    }
+    return true;
+  }
+
+  if (err.status === 423) {
+    const payload = machineError(
+      'unlock_required',
+      'Recovery key is required before Botmem data can be returned.',
+      ['Run `botmem config set-recovery-key <recovery-key>`.', 'Then retry the command.'],
+    );
+    if (opts.json) console.log(JSON.stringify(payload, null, 2));
+    else {
+      console.error('Error: recovery key required.');
+      for (const step of payload.error.nextSteps) console.error(`- ${step}`);
+    }
+    return true;
+  }
+
+  if (err.status === 0) {
+    console.error(`Error: Cannot connect to Botmem API at ${opts.apiUrl}`);
+    console.error('Make sure the API server is running. For self-hosted: docker compose up -d');
+    return true;
+  }
+
+  return false;
 }
 
 const HELP = `
@@ -168,14 +249,15 @@ const HELP = `
   SETUP
     botmem config set-host <url>   Set API host (e.g. localhost:12412, api.botmem.xyz)
     botmem config set-key <key>    Store an API key (bm_sk_...)
+    botmem config clear-key        Remove stored API key
     botmem config set-recovery-key <key>  Store recovery key for E2EE
     botmem config show             Show current config
     botmem login                   Log in via browser (OAuth) and store JWT
 
   GLOBAL OPTIONS
-    --api-key <key>   API key (env: BOTMEM_API_KEY) — preferred for agents
+    --api-key <key>   API key (env: BOTMEM_API_KEY)
     --token <jwt>     JWT token (env: BOTMEM_TOKEN) — from email/password login
-    --api-url <url>   API base URL override (env: BOTMEM_API_URL, default: http://localhost:12412/api)
+    --api-url <url>   API base URL override (env: BOTMEM_API_URL, default: https://api.botmem.xyz)
     --json            Output raw JSON (for piping to jq or scripts)
     --toon            Tool-optimized output: flattened JSON for LLM agents
     --toon-fields <paths>
@@ -281,7 +363,9 @@ const COMMAND_HELP: Record<string, string> = {
 
 function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
   const storedCfg = loadConfig();
-  let apiUrl = process.env['BOTMEM_API_URL'] || storedCfg.apiUrl || DEFAULT_API_URL;
+  let apiUrl = normalizeApiUrl(
+    process.env['BOTMEM_API_URL'] || storedCfg.apiUrl || DEFAULT_API_URL,
+  );
   let token = '';
   let explicitApiKey = '';
   let explicitJwt = '';
@@ -294,7 +378,7 @@ function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--api-url') {
-      apiUrl = argv[++i];
+      apiUrl = normalizeApiUrl(argv[++i]);
     } else if (a === '--api-key') {
       explicitApiKey = argv[++i];
       token = explicitApiKey;
@@ -328,18 +412,29 @@ function parseGlobalArgs(argv: string[]): ParsedGlobalArgs {
   const apiKeyToken = explicitApiKey || process.env['BOTMEM_API_KEY'] || storedCfg.apiKey || '';
   const jwtToken = explicitJwt || process.env['BOTMEM_TOKEN'] || storedCfg.token || '';
 
-  // Resolve read-token order: explicit flag > env var > stored config.
-  // API keys are preferred for read-only agent use; JWTs are selected later for full-auth commands.
+  let tokenSource: ParsedGlobalArgs['tokenSource'] = 'none';
+
+  // Resolve token order: explicit flag > env var > stored login JWT > stored API key.
+  // Stored login JWTs are preferred for data access so stale saved API keys do not shadow `botmem login`.
   if (!token) {
-    token =
-      process.env['BOTMEM_API_KEY'] ||
-      process.env['BOTMEM_TOKEN'] ||
-      storedCfg.apiKey ||
-      storedCfg.token ||
-      '';
+    if (process.env['BOTMEM_API_KEY']) {
+      token = process.env['BOTMEM_API_KEY'];
+      tokenSource = 'env-api-key';
+    } else if (process.env['BOTMEM_TOKEN']) {
+      token = process.env['BOTMEM_TOKEN'];
+      tokenSource = 'env-token';
+    } else if (storedCfg.token) {
+      token = storedCfg.token;
+      tokenSource = 'stored-token';
+    } else if (storedCfg.apiKey) {
+      token = storedCfg.apiKey;
+      tokenSource = 'stored-api-key';
+    }
+  } else {
+    tokenSource = explicitApiKey ? 'explicit-api-key' : 'explicit-token';
   }
 
-  return { apiUrl, token, apiKeyToken, jwtToken, json, toon, toonFields, help, rest };
+  return { apiUrl, token, apiKeyToken, jwtToken, tokenSource, json, toon, toonFields, help, rest };
 }
 
 const configHelp = `
@@ -349,6 +444,7 @@ const configHelp = `
     botmem config show                  Show current config
     botmem config set-host <url>        Set API host (e.g. localhost:12412, api.botmem.xyz)
     botmem config set-key <key>         Store API key (bm_sk_...)
+    botmem config clear-key             Remove stored API key
     botmem config set-recovery-key <k>  Store recovery key for E2EE
     botmem config clear-recovery-key    Remove saved recovery key
     botmem config clear                 Reset config to defaults
@@ -357,6 +453,7 @@ const configHelp = `
     botmem config set-host localhost:12412
     botmem config set-host api.botmem.xyz
     botmem config set-key bm_sk_abc123def456
+    botmem config clear-key
     botmem config set-recovery-key oasULlqb...
     botmem config clear-recovery-key
     botmem config show
@@ -384,15 +481,7 @@ function runConfig(args: string[]) {
       console.log(configHelp);
       process.exit(1);
     }
-    // Normalize: add https:// if no scheme, add /api suffix if missing
-    if (!host.startsWith('http://') && !host.startsWith('https://')) {
-      // localhost or 127.0.0.1 → http, everything else → https
-      const isLocal = host.startsWith('localhost') || host.startsWith('127.0.0.1');
-      host = `${isLocal ? 'http' : 'https'}://${host}`;
-    }
-    if (!host.endsWith('/api')) {
-      host = host.replace(/\/+$/, '') + '/api';
-    }
+    host = normalizeApiUrl(host);
     const cfg = loadConfig();
     cfg.apiUrl = host;
     saveConfig(cfg);
@@ -411,6 +500,14 @@ function runConfig(args: string[]) {
     cfg.apiKey = key;
     saveConfig(cfg);
     console.log(`API key stored (${key.slice(0, 10)}...${key.slice(-4)})`);
+    return;
+  }
+
+  if (sub === 'clear-key' || sub === 'unset-key') {
+    const cfg = loadConfig();
+    delete cfg.apiKey;
+    saveConfig(cfg);
+    console.log('API key cleared');
     return;
   }
 
@@ -488,14 +585,7 @@ async function runFirstTimeSetup(): Promise<void> {
       console.error('No URL provided, using default localhost.');
       apiUrl = DEFAULT_API_URL;
     } else {
-      apiUrl = custom;
-      if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-        const isLocal = apiUrl.startsWith('localhost') || apiUrl.startsWith('127.0.0.1');
-        apiUrl = `${isLocal ? 'http' : 'https'}://${apiUrl}`;
-      }
-      if (!apiUrl.endsWith('/api')) {
-        apiUrl = apiUrl.replace(/\/+$/, '') + '/api';
-      }
+      apiUrl = normalizeApiUrl(custom);
     }
   } else {
     apiUrl = DEFAULT_API_URL;
@@ -657,7 +747,8 @@ function startCallbackServer(): Promise<{
 
 async function main() {
   const argv = process.argv.slice(2);
-  const { apiUrl, token, jwtToken, json, toon, toonFields, help, rest } = parseGlobalArgs(argv);
+  const { apiUrl, token, jwtToken, tokenSource, json, toon, toonFields, help, rest } =
+    parseGlobalArgs(argv);
 
   // --toon: intercept JSON output and flatten for LLM consumption
   if (toon) {
@@ -727,7 +818,7 @@ async function main() {
     }
   }
 
-  try {
+  const runCommand = async () => {
     switch (command) {
       case 'config':
         if (help) {
@@ -808,12 +899,33 @@ async function main() {
         console.log(HELP);
         process.exit(1);
     }
+  };
+
+  try {
+    await runCommand();
   } catch (err) {
     if (err instanceof BotmemApiError) {
-      if (err.status === 0) {
-        console.error(`Error: Cannot connect to Botmem API at ${apiUrl}`);
-        console.error('Make sure the API server is running. For self-hosted: docker compose up -d');
-      } else {
+      const canRetryWithStoredJwt =
+        err.status === 401 &&
+        isDataAccessCommand(command, commandArgs) &&
+        tokenSource !== 'explicit-api-key' &&
+        tokenSource !== 'explicit-token' &&
+        !!jwtToken &&
+        selectedToken !== jwtToken;
+      if (canRetryWithStoredJwt) {
+        client.setToken(jwtToken);
+        try {
+          await runCommand();
+          return;
+        } catch (retryErr) {
+          if (retryErr instanceof BotmemApiError && printAccessError(retryErr, { apiUrl, json })) {
+            process.exit(1);
+          }
+          throw retryErr;
+        }
+      }
+
+      if (!printAccessError(err, { apiUrl, json })) {
         console.error(`Error: API returned ${err.status} — ${err.message}`);
         if (err.body) console.error(JSON.stringify(err.body, null, 2));
       }

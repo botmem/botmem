@@ -381,7 +381,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         <button
           onClick={async () => {
             await logout();
-            navigate('/');
+            navigate('/me');
           }}
           aria-label="Logout"
           className={cn(

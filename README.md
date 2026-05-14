@@ -26,8 +26,8 @@ Botmem ingests events from your email, messages, photos, and locations — norma
 git clone https://github.com/botmem/botmem.git
 cd botmem
 cp .env.example .env          # Configure environment (edit as needed)
-docker compose pull            # Pull the latest image
-docker compose up -d           # Starts everything on http://localhost:12412
+docker compose pull            # Pull the latest API + app images
+docker compose up -d           # Starts the app on http://localhost:12412
 ```
 
 > **Next:** You'll need Ollama with models pulled before your first sync. See the [full Quick Start guide](https://docs.botmem.xyz/guide/quickstart) for AI backend setup, account creation, and first sync.

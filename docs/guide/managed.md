@@ -4,18 +4,18 @@ Botmem is available in two modes: **self-hosted** (free, open-source) and **mana
 
 ## Comparison
 
-| Feature        | Self-Hosted                      | Managed Pro                          |
-| -------------- | -------------------------------- | ------------------------------------ |
-| **Price**      | Free                             | $14.99/month                         |
-| **Code**       | Same open-source codebase        | Same open-source codebase            |
-| **API**        | Same REST + WebSocket API        | Same REST + WebSocket API            |
-| **CLI**        | Same `botmem` CLI                | Same `botmem` CLI                    |
-| **Encryption** | AES-256-GCM with recovery key    | AES-256-GCM with recovery key        |
-| **Hosting**    | Your hardware                    | Managed infrastructure at botmem.xyz |
-| **AI Backend** | You provide Ollama or OpenRouter | Preconfigured cloud AI               |
-| **Database**   | You manage PostgreSQL            | Managed PostgreSQL                   |
-| **Updates**    | Manual (`git pull`)              | Automatic                            |
-| **Billing**    | None                             | Stripe integration                   |
+| Feature        | Self-Hosted                      | Managed Pro                              |
+| -------------- | -------------------------------- | ---------------------------------------- |
+| **Price**      | Free                             | $14.99/month                             |
+| **Code**       | Same open-source codebase        | Same open-source codebase                |
+| **API**        | Same REST + WebSocket API        | Same REST + WebSocket API                |
+| **CLI**        | Same `botmem` CLI                | Same `botmem` CLI                        |
+| **Encryption** | AES-256-GCM with recovery key    | AES-256-GCM with recovery key            |
+| **Hosting**    | Your hardware                    | Managed infrastructure at app.botmem.xyz |
+| **AI Backend** | You provide Ollama or OpenRouter | Preconfigured cloud AI                   |
+| **Database**   | You manage PostgreSQL            | Managed PostgreSQL                       |
+| **Updates**    | Manual (`git pull`)              | Automatic                                |
+| **Billing**    | None                             | Stripe integration                       |
 
 ## How It Works
 
@@ -36,7 +36,7 @@ See the [Quick Start](/guide/quickstart) for local development and [Production D
 
 ## Managed Pro
 
-Sign up at [botmem.xyz](https://botmem.xyz) to get started. The managed tier includes:
+Sign up at [app.botmem.xyz](https://app.botmem.xyz/signup) to get started. The managed tier includes:
 
 - Fully managed PostgreSQL + pgvector and Redis infrastructure
 - Preconfigured AI backend (no GPU or API keys needed)

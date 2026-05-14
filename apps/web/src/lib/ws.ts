@@ -1,3 +1,5 @@
+import { wsUrl } from './urls';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MessageHandler = (msg: { channel: string; event: string; data: any }) => void;
 
@@ -26,8 +28,7 @@ class WsClient {
     )
       return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.ws = new WebSocket(`${protocol}//${window.location.host}/events`);
+    this.ws = new WebSocket(wsUrl('/events'));
     this.intentionalClose = false;
 
     this.ws.onopen = () => {

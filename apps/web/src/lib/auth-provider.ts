@@ -1,3 +1,5 @@
+import { API_BASE } from './urls';
+
 /**
  * Runtime auth provider detection.
  * Extracted to its own module to avoid circular imports between authStore and firebase.
@@ -9,7 +11,7 @@ export let isFirebaseMode = import.meta.env.VITE_AUTH_PROVIDER === 'firebase';
 /** Called once at app startup to sync auth provider with the server. */
 export async function detectAuthProvider(): Promise<void> {
   try {
-    const res = await fetch('/api/version');
+    const res = await fetch(`${API_BASE}/version`, { credentials: 'include' });
     if (res.ok) {
       const data = await res.json();
       if (data.authProvider) {

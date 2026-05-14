@@ -116,6 +116,15 @@ describe('BotmemClient', () => {
       );
       await expect(client.listMemories()).rejects.toThrow(BotmemApiError);
     });
+
+    it('should throw a locked error before returning memory payloads', async () => {
+      mockFetch.mockReturnValue(jsonResponse({ items: [], total: 0, needsRecoveryKey: true }));
+
+      await expect(client.listMemories()).rejects.toMatchObject({
+        status: 423,
+        body: { items: [], total: 0, needsRecoveryKey: true },
+      });
+    });
   });
 
   describe('searchMemories', () => {

@@ -275,7 +275,17 @@ export class McpService {
         content: [
           {
             type: 'text' as const,
-            text: 'Error: Recovery key required. Your encryption key is not cached. Please re-authorize via the web UI or POST /api/user-auth/recovery-key before using MCP tools that access encrypted data.',
+            text: JSON.stringify({
+              ok: false,
+              error: {
+                code: 'unlock_required',
+                message: 'Recovery key required before Botmem memory data can be returned.',
+                nextSteps: [
+                  'Re-authorize through the web UI, or submit the recovery key with POST /api/user-auth/recovery-key.',
+                  'Retry the MCP tool after unlock succeeds.',
+                ],
+              },
+            }),
           },
         ],
         isError: true,

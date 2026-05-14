@@ -50,7 +50,7 @@ describe('parseGlobalArgs logic', () => {
     envVars: Record<string, string> = {},
     storedCfg: Record<string, string | undefined> = {},
   ) {
-    const DEFAULT_API_URL = 'https://api.botmem.xyz/api';
+    const DEFAULT_API_URL = 'https://api.botmem.xyz';
     let apiUrl = envVars['BOTMEM_API_URL'] || storedCfg.apiUrl || DEFAULT_API_URL;
     let token = '';
     let explicitApiKey = '';
@@ -97,20 +97,42 @@ describe('parseGlobalArgs logic', () => {
 
     const apiKeyToken = explicitApiKey || envVars['BOTMEM_API_KEY'] || storedCfg.apiKey || '';
     const jwtToken = explicitJwt || envVars['BOTMEM_TOKEN'] || storedCfg.token || '';
-    if (!token)
-      token =
-        envVars['BOTMEM_API_KEY'] ||
-        envVars['BOTMEM_TOKEN'] ||
-        storedCfg.apiKey ||
-        storedCfg.token ||
-        '';
+    let tokenSource = 'none';
+    if (!token) {
+      if (envVars['BOTMEM_API_KEY']) {
+        token = envVars['BOTMEM_API_KEY'];
+        tokenSource = 'env-api-key';
+      } else if (envVars['BOTMEM_TOKEN']) {
+        token = envVars['BOTMEM_TOKEN'];
+        tokenSource = 'env-token';
+      } else if (storedCfg.token) {
+        token = storedCfg.token;
+        tokenSource = 'stored-token';
+      } else if (storedCfg.apiKey) {
+        token = storedCfg.apiKey;
+        tokenSource = 'stored-api-key';
+      }
+    } else {
+      tokenSource = explicitApiKey ? 'explicit-api-key' : 'explicit-token';
+    }
 
-    return { apiUrl, token, apiKeyToken, jwtToken, json, toon, toonFields, help, rest };
+    return {
+      apiUrl,
+      token,
+      apiKeyToken,
+      jwtToken,
+      tokenSource,
+      json,
+      toon,
+      toonFields,
+      help,
+      rest,
+    };
   }
 
   it('should use default API URL when nothing specified', () => {
     const result = parseArgs([]);
-    expect(result.apiUrl).toBe('https://api.botmem.xyz/api');
+    expect(result.apiUrl).toBe('https://api.botmem.xyz');
   });
 
   it('should use --api-url flag over env var', () => {
@@ -164,10 +186,12 @@ describe('parseGlobalArgs logic', () => {
     expect(result.token).toBe('jwt-stored');
   });
 
-  it('keeps stored jwt available when stored api key is selected for reads', () => {
+  it('prefers stored jwt over stored api key for data access', () => {
     const result = parseArgs([], {}, { apiKey: 'bm_sk_stored', token: 'jwt-stored' });
-    expect(result.token).toBe('bm_sk_stored');
+    expect(result.token).toBe('jwt-stored');
     expect(result.jwtToken).toBe('jwt-stored');
+    expect(result.apiKeyToken).toBe('bm_sk_stored');
+    expect(result.tokenSource).toBe('stored-token');
   });
 
   it('should set json=true for --json flag', () => {
@@ -225,14 +249,15 @@ describe('runConfig logic', () => {
       const isLocal = host.startsWith('localhost') || host.startsWith('127.0.0.1');
       host = `${isLocal ? 'http' : 'https'}://${host}`;
     }
-    if (!host.endsWith('/api')) {
+    const hostUrl = new URL(host);
+    if (hostUrl.hostname !== 'api.botmem.xyz' && hostUrl.pathname.replace(/\/+$/, '') === '') {
       host = host.replace(/\/+$/, '') + '/api';
     }
     return host;
   }
 
   it('should add https:// for non-local hosts', () => {
-    expect(normalizeHost('api.botmem.xyz')).toBe('https://api.botmem.xyz/api');
+    expect(normalizeHost('api.botmem.xyz')).toBe('https://api.botmem.xyz');
   });
 
   it('should add http:// for localhost', () => {

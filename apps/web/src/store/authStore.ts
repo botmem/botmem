@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { User } from '@botmem/shared';
 import { firebaseAuth, googleProvider, githubProvider, ensureFirebase } from '../lib/firebase';
 import { trackEvent, resetUser, identifyUser } from '../lib/posthog';
+import { API_BASE as ROOT_API_BASE } from '../lib/urls';
 
 interface AuthState {
   user: User | null;
@@ -27,7 +28,7 @@ interface AuthState {
 import { isFirebaseMode, detectAuthProvider } from '../lib/auth-provider';
 export { isFirebaseMode, detectAuthProvider };
 
-const API_BASE = '/api/user-auth';
+const API_BASE = `${ROOT_API_BASE}/user-auth`;
 
 // Mutex: only one refresh call at a time to prevent token rotation race
 let activeRefresh: Promise<boolean> | null = null;
@@ -122,7 +123,7 @@ export const useAuthStore = create<AuthState>()(
             const idToken = await getIdToken(cred.user);
 
             // Sync with backend (creates local user + recovery key)
-            const res = await fetch('/api/firebase-auth/sync', {
+            const res = await fetch(`${ROOT_API_BASE}/firebase-auth/sync`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ idToken, name }),
@@ -283,7 +284,7 @@ export const useAuthStore = create<AuthState>()(
             // Helper: sync a Firebase user with our backend
             const syncUser = async (firebaseUser: import('firebase/auth').User) => {
               const idToken = await getIdToken(firebaseUser);
-              const res = await fetch('/api/firebase-auth/sync', {
+              const res = await fetch(`${ROOT_API_BASE}/firebase-auth/sync`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ idToken }),

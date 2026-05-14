@@ -13,14 +13,13 @@ A production Botmem deployment consists of:
                   |  Caddy  |  (reverse proxy, auto SSL)
                   +----+----+
                        |
-                  +----+----+
-                  |   API   |  (NestJS container)
-                  +----+----+
-                    /  |  \
-        +----------+  |  +----------+
-        | PostgreSQL|  |  | PostgreSQL search index|
-        |   :5432   |  |  |  :8108   |
-        +-----------+  |  +----------+
+        +--------------+--------------+
+        |              |              |
+   Landing app    Authenticated app   API + MCP/OAuth
+   botmem.xyz     app.botmem.xyz      api.botmem.xyz
+                                      |
+                                  PostgreSQL
+                                      |
                   +----+----+
                   |  Redis  |
                   |  :6379  |
@@ -31,10 +30,13 @@ A production Botmem deployment consists of:
 
 ### Docker Image
 
-The official image is published to GHCR for both `amd64` and `arm64`:
+The official split images are published to GHCR for both `amd64` and `arm64`:
 
 ```bash
-docker pull ghcr.io/botmem/botmem:latest
+docker pull ghcr.io/botmem/botmem-api:latest
+docker pull ghcr.io/botmem/botmem-worker:latest
+docker pull ghcr.io/botmem/botmem-app:latest
+docker pull ghcr.io/botmem/botmem-landing:latest
 ```
 
 Or build locally from the repo:
@@ -50,15 +52,13 @@ The repo includes `docker-compose.prod.yml` ready for production use with Caddy 
 ```yaml
 services:
   api:
-    image: ghcr.io/botmem/botmem:latest
+    image: ghcr.io/botmem/botmem-api:latest
     restart: unless-stopped
     env_file: .env.prod
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      PostgreSQL search index:
         condition: service_healthy
 
   postgres:
@@ -88,18 +88,6 @@ services:
       timeout: 3s
       retries: 5
 
-  PostgreSQL search index:
-    image: PostgreSQL search index/PostgreSQL search index:27.1
-    restart: unless-stopped
-    volumes:
-      - PostgreSQL search index-data:/data
-    command: '--data-dir /data --api-key=${}'
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -sf http://localhost:8108/health || exit 1']
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -114,7 +102,6 @@ services:
 volumes:
   postgres-data:
   redis-data:
-  PostgreSQL search index-data:
   caddy-data:
   caddy-config:
 ```
@@ -142,8 +129,10 @@ JWT_REFRESH_SECRET=generate-another-random-string
 OAUTH_JWT_SECRET=generate-another-random-string
 
 # URLs
-FRONTEND_URL=https://yourdomain.com
-BASE_URL=https://yourdomain.com
+APP_URL=https://app.yourdomain.com
+LANDING_URL=https://yourdomain.com
+BASE_URL=https://api.yourdomain.com
+FRONTEND_URL=https://app.yourdomain.com,https://yourdomain.com
 
 # Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379

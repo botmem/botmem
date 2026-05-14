@@ -4,7 +4,7 @@
  * Botmem Apple Bridge CLI.
  *
  * Usage:
- *   npx @botmem/apple-bridge --token=<token> [--server=wss://botmem.xyz/apple-tunnel]
+ *   npx @botmem/apple-bridge --token=<token> [--server=wss://api.botmem.xyz/apple-tunnel]
  */
 
 import { Command } from 'commander';

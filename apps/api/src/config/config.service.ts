@@ -70,6 +70,20 @@ export class ConfigService implements OnModuleInit {
     return process.env.FRONTEND_URL || 'http://localhost:12412';
   }
 
+  get appUrl(): string {
+    return (
+      process.env.APP_URL || this.frontendUrl.split(',')[0]?.trim() || 'http://localhost:12412'
+    );
+  }
+
+  get landingUrl(): string {
+    return process.env.LANDING_URL || this.appUrl;
+  }
+
+  get corsAllowedOrigins(): string {
+    return process.env.CORS_ALLOWED_ORIGINS || this.frontendUrl;
+  }
+
   get ollamaBaseUrl(): string {
     return process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
   }

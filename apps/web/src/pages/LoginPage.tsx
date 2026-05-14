@@ -23,8 +23,7 @@ export function LoginPage() {
       : '';
 
   if (isLoading) return <LoadingScreen />;
-  if (user)
-    return <Navigate to={redirectTo || (user.onboarded ? '/dashboard' : '/onboarding')} replace />;
+  if (user) return <Navigate to={redirectTo || (user.onboarded ? '/me' : '/onboarding')} replace />;
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row">

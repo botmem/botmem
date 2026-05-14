@@ -117,7 +117,7 @@ sequenceDiagram
     User->>Web: Click "Add Gmail"
     Web->>Web: Show ConnectorSetupModal
     User->>Web: Enter config (or use server creds)
-    Web->>API: POST /api/auth/gmail/initiate<br/>{config}
+    Web->>API: POST /auth/gmail/initiate<br/>{config}
 
     API->>Conn: initiateAuth(config)
     Conn->>Conn: Build OAuth2 URL with scopes
@@ -127,7 +127,7 @@ sequenceDiagram
 
     Web->>Google: Redirect to OAuth consent
     User->>Google: Grant permissions
-    Google->>API: GET /api/auth/gmail/callback<br/>?code=xxx&state=yyy
+    Google->>API: GET /auth/gmail/callback<br/>?code=xxx&state=yyy
 
     API->>API: Verify state
     API->>Conn: completeAuth({code})

@@ -7,6 +7,7 @@ import {
   registerUser,
   submitRecoveryKey,
   createSeededUser,
+  injectAuth,
   injectAuthForOnboarding,
   seedDemoData,
   type TestUser,
@@ -19,42 +20,16 @@ async function injectOnboardedAuthWithDemo(
   page: import('@playwright/test').Page,
   user: TestUser,
 ): Promise<void> {
-  await page.goto('/');
-
-  // Login from page context to get httpOnly cookies
-  const result = await page.evaluate(
-    async ({ email, password }: { email: string; password: string }) => {
-      const res = await fetch('/api/user-auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email, password }),
-      });
-      if (!res.ok) return { ok: false as const, status: res.status };
-      const data = await res.json();
-      return { ok: true as const, user: data.user };
-    },
-    { email: user.email, password: user.password },
-  );
-
-  if (!result.ok) throw new Error(`Browser login failed: ${(result as { status: number }).status}`);
-
-  await page.evaluate(
-    ({ userData }: { userData: unknown }) => {
-      localStorage.setItem(
-        'botmem-auth',
-        JSON.stringify({ state: { user: userData }, version: 0 }),
-      );
-      localStorage.setItem(
-        'botmem-tour',
-        JSON.stringify({
-          state: { tourCompleted: false, demoMode: true, searchExamples: [] },
-          version: 0,
-        }),
-      );
-    },
-    { userData: result.user },
-  );
+  await injectAuth(page, user);
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'botmem-tour',
+      JSON.stringify({
+        state: { tourCompleted: false, demoMode: true, searchExamples: [] },
+        version: 0,
+      }),
+    );
+  });
 }
 
 /** Check if demo data exists. */

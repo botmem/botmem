@@ -1,14 +1,14 @@
 <?xml version="1.0"?>
 <Container version="2">
     <Name>botmem</Name>
-    <Repository>ghcr.io/botmem/botmem:latest</Repository>
-    <Registry>https://github.com/botmem/botmem/pkgs/container/botmem</Registry>
+    <Repository>ghcr.io/botmem/botmem-app:latest</Repository>
+    <Registry>https://github.com/botmem/botmem/pkgs/container/botmem-app</Registry>
     <Network>bridge</Network>
     <Shell>sh</Shell>
     <Privileged>false</Privileged>
     <Support>https://forums.unraid.net/topic/198623-support-botmem-personal-memory-rag-system/</Support>
     <Project>https://github.com/botmem/botmem</Project>
-    <Overview>Personal memory system that ingests events from multiple data sources (emails, messages, photos, locations), normalizes them into a unified memory schema, and provides cross-modal retrieval with weighted ranking. Local-first, privacy-focused: your data stays on your server.[br][br]Requires PostgreSQL 16 with pgvector and Redis 7. The companion compose in the Botmem repo exposes PostgreSQL on host port 15432 and Redis on host port 16379, which match this template's defaults.[br][br]AI processing can use local Ollama, Google Gemini, or OpenRouter. Ollama is optional if you configure a cloud backend instead.[br][br][b]Quick start:[/b] Start the companion dependency stack or point DATABASE_URL and REDIS_URL at your existing services, choose an AI backend, generate the required secrets, then open the WebUI and create your first local user. Queue workers run inside the Botmem container for self-hosted installs.</Overview>
+    <Overview>Botmem frontend for the self-hosted personal memory system. Requires the Botmem companion stack to run PostgreSQL, Redis, and the Botmem API. The frontend proxies API, MCP, OAuth, and WebSocket traffic to API_UPSTREAM so users still open a single WebUI URL.</Overview>
     <Category>Productivity: Tools:Utilities</Category>
     <WebUI>http://[IP]:[PORT:12412]</WebUI>
     <TemplateURL>https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem.xml</TemplateURL>
@@ -19,364 +19,27 @@
     <DonateLink>https://github.com/sponsors/botmem</DonateLink>
     <Beta>true</Beta>
     <ExtraSearchTerms>memory rag personal ai search email messages photos recall knowledge base vector</ExtraSearchTerms>
-    <Requires>PostgreSQL 16+ with pgvector, Redis 7+. Install these from Community Applications first, or use unraid/docker-compose.unraid.yml from the Botmem repo.</Requires>
+    <Requires>Run unraid/docker-compose.unraid.yml first. It starts PostgreSQL, Redis, and the Botmem API on host port 12413.</Requires>
 
-    <!-- === Ports === -->
     <Config
         Name="WebUI Port"
-        Target="12412"
+        Target="8080"
         Default="12412"
         Mode="tcp"
-        Description="Botmem web interface and API port."
+        Description="Botmem web interface port."
         Type="Port"
         Display="always"
         Required="true"
         Mask="false"/>
 
-    <!-- === Paths === -->
     <Config
-        Name="Data Directory"
-        Target="/app/data"
-        Default="/mnt/user/appdata/botmem/data"
-        Mode="rw"
-        Description="Persistent data directory for connector session files, logs, and caches. Must be writable by container uid 1000."
-        Type="Path"
-        Display="always"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="Plugins Directory"
-        Target="/plugins"
-        Default="/mnt/user/appdata/botmem/plugins"
-        Mode="ro"
-        Description="External plugin directory (optional). Mounted read-only and enabled by PLUGINS_DIR=/plugins. Must be readable by container uid 1000."
-        Type="Path"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <!-- === Required Variables === -->
-    <Config
-        Name="Database URL"
-        Target="DATABASE_URL"
-        Default="postgresql://botmem:changeme@host.docker.internal:15432/botmem"
+        Name="API Upstream"
+        Target="API_UPSTREAM"
+        Default="http://host.docker.internal:12413"
         Mode=""
-        Description="PostgreSQL connection string. Default matches the companion stack host port 15432."
+        Description="Internal Botmem API URL. Default matches the companion compose API port."
         Type="Variable"
         Display="always"
         Required="true"
         Mask="false"/>
-
-    <Config
-        Name="Redis URL"
-        Target="REDIS_URL"
-        Default="redis://host.docker.internal:16379"
-        Mode=""
-        Description="Redis connection string for BullMQ job queues. Default matches the companion stack host port 16379."
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="App Secret"
-        Target="APP_SECRET"
-        Default=""
-        Mode=""
-        Description="AES-256-GCM encryption key for credentials at rest. Generate with: openssl rand -base64 48"
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="true"/>
-
-    <Config
-        Name="JWT Access Secret"
-        Target="JWT_ACCESS_SECRET"
-        Default=""
-        Mode=""
-        Description="Secret for signing JWT access tokens. Generate with: openssl rand -base64 48"
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="true"/>
-
-    <Config
-        Name="JWT Refresh Secret"
-        Target="JWT_REFRESH_SECRET"
-        Default=""
-        Mode=""
-        Description="Secret for signing JWT refresh tokens. Generate with: openssl rand -base64 48"
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="true"/>
-
-    <Config
-        Name="OAuth State Secret"
-        Target="OAUTH_JWT_SECRET"
-        Default=""
-        Mode=""
-        Description="Secret for connector OAuth state tokens. Required in production. Generate with: openssl rand -base64 48"
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="true"/>
-
-    <Config
-        Name="Encryption Salt"
-        Target="ENCRYPTION_SALT"
-        Default=""
-        Mode=""
-        Description="Deployment-specific salt for encrypted credentials and memories. Generate with: openssl rand -base64 32"
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="true"/>
-
-    <Config
-        Name="Auth Provider"
-        Target="AUTH_PROVIDER"
-        Default="local"
-        Mode=""
-        Description="Authentication mode. Use local for self-hosted Unraid installs."
-        Type="Variable"
-        Display="advanced"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="Enable API Workers"
-        Target="BOTMEM_ENABLE_API_WORKERS"
-        Default="true"
-        Mode=""
-        Description="Run sync and memory queue workers inside the Botmem API container. Keep true for self-hosted installs so connectors such as iMessage can share the API websocket tunnel."
-        Type="Variable"
-        Display="advanced"
-        Required="true"
-        Mask="false"/>
-
-    <!-- === AI Backend === -->
-    <Config
-        Name="AI Backend"
-        Target="AI_BACKEND"
-        Default="ollama"
-        Mode=""
-        Description="AI inference backend: 'ollama' (local/remote), 'gemini' (Google API), or 'openrouter' (cloud API)."
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="Embedding Backend"
-        Target="EMBED_BACKEND"
-        Default=""
-        Mode=""
-        Description="Optional embedding backend override. Leave empty to follow AI_BACKEND. Supported: ollama, gemini, openrouter."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Ollama Base URL"
-        Target="OLLAMA_BASE_URL"
-        Default="http://host.docker.internal:11434"
-        Mode=""
-        Description="Ollama inference endpoint. Only needed when AI_BACKEND=ollama or EMBED_BACKEND=ollama."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Ollama Username"
-        Target="OLLAMA_USERNAME"
-        Default=""
-        Mode=""
-        Description="Basic auth username for Ollama (optional, for remote Ollama behind auth proxy)."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Ollama Password"
-        Target="OLLAMA_PASSWORD"
-        Default=""
-        Mode=""
-        Description="Basic auth password for Ollama (optional)."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="true"/>
-
-    <Config
-        Name="Ollama Embedding Model"
-        Target="OLLAMA_EMBED_MODEL"
-        Default="mxbai-embed-large"
-        Mode=""
-        Description="Ollama model for generating embeddings (1024d). Must be pulled in Ollama first."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Ollama Text Model"
-        Target="OLLAMA_TEXT_MODEL"
-        Default="qwen3:8b"
-        Mode=""
-        Description="Ollama model for text enrichment (entity extraction, claims, factuality)."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Ollama Vision Model"
-        Target="OLLAMA_VL_MODEL"
-        Default="qwen3-vl:4b"
-        Mode=""
-        Description="Ollama vision-language model for photo/image analysis."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <!-- === OpenRouter (alternative backend) === -->
-    <Config
-        Name="OpenRouter API Key"
-        Target="OPENROUTER_API_KEY"
-        Default=""
-        Mode=""
-        Description="API key for OpenRouter (required if AI_BACKEND=openrouter)."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="true"/>
-
-    <Config
-        Name="OpenRouter Embedding Model"
-        Target="OPENROUTER_EMBED_MODEL"
-        Default="google/gemini-embedding-001"
-        Mode=""
-        Description="OpenRouter embedding model."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="OpenRouter Text Model"
-        Target="OPENROUTER_TEXT_MODEL"
-        Default="mistralai/mistral-nemo"
-        Mode=""
-        Description="OpenRouter text enrichment model."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="OpenRouter Vision Model"
-        Target="OPENROUTER_VL_MODEL"
-        Default="google/gemma-3-4b-it"
-        Mode=""
-        Description="OpenRouter vision-language model for media parsing."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <!-- === Gemini (alternative backend) === -->
-    <Config
-        Name="Gemini API Key"
-        Target="GEMINI_API_KEY"
-        Default=""
-        Mode=""
-        Description="Google Gemini API key. Required if AI_BACKEND=gemini or EMBED_BACKEND=gemini."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="true"/>
-
-    <Config
-        Name="Gemini Embedding Model"
-        Target="GEMINI_EMBED_MODEL"
-        Default="gemini-embedding-2"
-        Mode=""
-        Description="Gemini embedding model."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Gemini Media Model"
-        Target="GEMINI_MEDIA_MODEL"
-        Default="gemini-2.5-flash-lite"
-        Mode=""
-        Description="Gemini model used for image/document/audio media parsing."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Gemini Embedding Dimensions"
-        Target="GEMINI_EMBED_DIMENSIONS"
-        Default="3072"
-        Mode=""
-        Description="Output dimensions for Gemini embeddings."
-        Type="Variable"
-        Display="advanced"
-        Required="false"
-        Mask="false"/>
-
-    <!-- === App URLs and runtime === -->
-    <Config
-        Name="Frontend URL"
-        Target="FRONTEND_URL"
-        Default="http://[IP]:[PORT:12412]"
-        Mode=""
-        Description="Public URL for CORS and OAuth redirects. Set to your Unraid IP:port or reverse proxy URL."
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="Base URL"
-        Target="BASE_URL"
-        Default="http://[IP]:[PORT:12412]"
-        Mode=""
-        Description="Public API/base URL used in connector OAuth callbacks and CLI login links."
-        Type="Variable"
-        Display="always"
-        Required="true"
-        Mask="false"/>
-
-    <Config
-        Name="Plugins Directory Env"
-        Target="PLUGINS_DIR"
-        Default="/plugins"
-        Mode=""
-        Description="Container path for external plugins. Matches the Plugins Directory path mapping."
-        Type="Variable"
-        Display="advanced-hide"
-        Required="false"
-        Mask="false"/>
-
-    <Config
-        Name="Port"
-        Target="PORT"
-        Default="12412"
-        Mode=""
-        Description="Internal API port (should match WebUI port mapping)."
-        Type="Variable"
-        Display="advanced-hide"
-        Required="false"
-        Mask="false">12412</Config>
 </Container>

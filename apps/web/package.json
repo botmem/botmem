@@ -6,6 +6,8 @@
   "scripts": {
     "dev:standalone": "vite",
     "build": "tsc -b && vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node prerender.mjs",
+    "build:app": "VITE_WEB_SURFACE=app pnpm build",
+    "build:landing": "VITE_WEB_SURFACE=landing pnpm build",
     "preview": "vite preview",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",

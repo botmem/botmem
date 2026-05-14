@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
+import { appUrl } from '../../lib/urls';
 
 const GITHUB_URL = 'https://github.com/botmem/botmem';
 
@@ -32,12 +33,12 @@ export function PublicFooter() {
             >
               Pricing
             </a>
-            <Link
-              to="/login"
+            <a
+              href={appUrl('/login')}
               className="hover:text-nb-text transition-colors duration-200 cursor-pointer"
             >
               Login
-            </Link>
+            </a>
           </div>
         </div>
         <div className="flex flex-wrap justify-center sm:justify-end gap-6 font-mono text-xs text-nb-muted">

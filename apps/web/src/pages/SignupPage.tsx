@@ -16,7 +16,7 @@ export function SignupPage() {
 
   const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
-  if (user) return <Navigate to={user.onboarded ? '/dashboard' : '/onboarding'} replace />;
+  if (user) return <Navigate to={user.onboarded ? '/me' : '/onboarding'} replace />;
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row">

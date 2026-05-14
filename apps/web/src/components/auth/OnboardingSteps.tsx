@@ -96,7 +96,7 @@ export function OnboardingSteps() {
 
   const handleFinish = () => {
     completeOnboarding();
-    navigate('/dashboard');
+    navigate('/me');
   };
 
   const handleCopyKey = async () => {
@@ -126,7 +126,7 @@ export function OnboardingSteps() {
         useTourStore.getState().setSearchExamples(result.searchExamples);
       }
       completeOnboarding();
-      navigate('/dashboard');
+      navigate('/me');
       // Small delay to let navigation complete before starting tour
       setTimeout(() => {
         useTourStore.getState().startTour(true);
@@ -147,7 +147,7 @@ export function OnboardingSteps() {
   const handleSkipOnboarding = () => {
     trackEvent('onboarding_skipped');
     completeOnboarding();
-    navigate('/dashboard');
+    navigate('/me');
   };
 
   // Step numbering: 0 = recovery key (conditional), 1 = choose path, 2 = connect sources, 3 = sync schedule

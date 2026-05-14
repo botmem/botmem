@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_DB_PATH, detectRunnerName, runPreflight } from './preflight.js';
 
-export const DEFAULT_BOTMEM_HOST = 'https://botmem.xyz';
+export const DEFAULT_BOTMEM_HOST = 'https://api.botmem.xyz';
 export const DEFAULT_TUNNEL_PATH = '/apple-tunnel';
 export const LAUNCH_AGENT_LABEL = 'xyz.botmem.apple-bridge.service';
 

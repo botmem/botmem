@@ -396,8 +396,9 @@ describe('CLI E2E Tests', () => {
       expect(data.jobs).toHaveProperty('retried');
       expect(data.memories).toHaveProperty('enqueued');
     } else {
-      // 403 Forbidden — API key lacks write scope (expected for read-only keys)
-      expect(stderr + stdout).toMatch(/403|Forbidden|write/i);
+      // 403 Forbidden — API key lacks write scope (expected for read-only keys).
+      // JSON CLI output normalizes 401/403 access errors to auth_required.
+      expect(stderr + stdout).toMatch(/403|Forbidden|write|auth_required/i);
     }
   });
 
