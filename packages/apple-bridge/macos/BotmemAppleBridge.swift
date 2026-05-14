@@ -21,6 +21,7 @@ struct ContactsPermissionState {
 }
 
 let DEFAULT_BOTMEM_HOST = "https://api.botmem.xyz"
+let PENDING_CONTACTS_REQUEST_KEY = "xyz.botmem.apple-bridge.pendingContactsRequest"
 
 final class ConfigStore {
   let appSupportURL: URL
@@ -249,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     service.removeStaleInstallIfNeeded()
     refreshStatus()
     showWindow()
+    maybeRequestPendingContactsPermission()
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(appBecameActive),
@@ -737,7 +739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .denied:
       return ContactsPermissionState(
         allowed: false,
-        detail: "macOS reports Contacts denied for this build. Reset it, then allow the prompt again.",
+        detail: "macOS reports Contacts denied for this build. Reset it; the app will reopen and ask again.",
         canRequest: false,
         canReset: true
       )
@@ -847,32 +849,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       try process.run()
       process.waitUntilExit()
       bridgeLog("tccutil reset AddressBook -> \(process.terminationStatus)")
-      DispatchQueue.main.async { [weak self] in
-        self?.requestContactsPermissionAfterReset(attempt: 0)
-      }
+      UserDefaults.standard.set(true, forKey: PENDING_CONTACTS_REQUEST_KEY)
+      relaunchAfterContactsReset()
     } catch {
       bridgeLog("tccutil reset AddressBook failed: \(error.localizedDescription)")
       refreshStatus()
     }
   }
 
-  private func requestContactsPermissionAfterReset(attempt: Int) {
+  private func maybeRequestPendingContactsPermission() {
+    guard UserDefaults.standard.bool(forKey: PENDING_CONTACTS_REQUEST_KEY),
+      config != nil,
+      sourcesContain("contacts")
+    else {
+      return
+    }
+
     let status = CNContactStore.authorizationStatus(for: .contacts)
-    bridgeLog("contacts reset poll attempt=\(attempt) raw=\(status.rawValue)")
+    bridgeLog("pending contacts request on launch raw=\(status.rawValue)")
 
-    if status == .notDetermined {
-      requestContactsPermission()
+    guard status == .notDetermined else {
+      UserDefaults.standard.removeObject(forKey: PENDING_CONTACTS_REQUEST_KEY)
+      refreshStatus()
       return
     }
 
-    if attempt < 15 {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-        self?.requestContactsPermissionAfterReset(attempt: attempt + 1)
+    UserDefaults.standard.removeObject(forKey: PENDING_CONTACTS_REQUEST_KEY)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+      self?.requestContactsPermission()
+    }
+  }
+
+  private func relaunchAfterContactsReset() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = ["-n", Bundle.main.bundlePath]
+    do {
+      try process.run()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        NSApp.terminate(nil)
       }
-      return
+    } catch {
+      bridgeLog("contacts reset relaunch failed: \(error.localizedDescription)")
+      refreshStatus()
     }
-
-    refreshStatus()
   }
 
   @objc private func checkAgain() {
