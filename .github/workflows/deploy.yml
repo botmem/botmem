@@ -273,11 +273,11 @@ jobs:
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
 
-  build-backend-amd64:
-    name: Build Backend Images (amd64)
+  build-amd64:
+    name: Build Changed Images (amd64)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [version, changes, quality-gate]
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.runtime == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -293,6 +293,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
+        if: needs.changes.outputs.backend == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -321,6 +322,7 @@ jobs:
           platforms: linux/amd64
 
       - name: Build and push worker image
+        if: needs.changes.outputs.backend == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -331,84 +333,8 @@ jobs:
             ghcr.io/botmem/botmem-worker:amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
-  build-backend-arm64:
-    name: Build Backend Images (arm64)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, changes, quality-gate]
-    if: needs.changes.outputs.backend == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
-
-      - name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push API image
-        uses: useblacksmith/build-push-action@v2
-        with:
-          context: .
-          file: ./Dockerfile
-          target: api
-          push: true
-          build-args: |
-            VITE_AUTH_PROVIDER=firebase
-            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_HOST=https://t.botmem.xyz
-            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
-            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
-            VITE_WEB_SURFACE=app
-            VITE_API_ORIGIN=https://app.botmem.xyz
-            VITE_API_BASE_URL=https://app.botmem.xyz/api
-            VITE_APP_URL=https://app.botmem.xyz
-            VITE_LANDING_URL=https://botmem.xyz
-            VITE_FIREBASE_PROJECT_ID=botmem-app
-            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
-            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
-            BOTMEM_BUILD_SHA=${{ github.sha }}
-            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
-          tags: |
-            ghcr.io/botmem/botmem-api:arm64-${{ needs.version.outputs.tag }}
-          platforms: linux/arm64
-
-      - name: Build and push worker image
-        uses: useblacksmith/build-push-action@v2
-        with:
-          context: .
-          file: ./Dockerfile
-          target: worker
-          push: true
-          tags: |
-            ghcr.io/botmem/botmem-worker:arm64-${{ needs.version.outputs.tag }}
-          platforms: linux/arm64
-
-  build-web-amd64:
-    name: Build Web Images (amd64)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [version, changes, quality-gate]
-    if: needs.changes.outputs.web == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
-
-      - name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push app image
+        if: needs.changes.outputs.web == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -437,6 +363,7 @@ jobs:
           platforms: linux/amd64
 
       - name: Build and push landing image
+        if: needs.changes.outputs.web == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -464,11 +391,11 @@ jobs:
             ghcr.io/botmem/botmem-landing:amd64-${{ needs.version.outputs.tag }}
           platforms: linux/amd64
 
-  build-web-arm64:
-    name: Build Web Images (arm64)
+  build-arm64:
+    name: Build Changed Images (arm64)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [version, changes, quality-gate]
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.runtime == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -483,7 +410,49 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and push API image
+        if: needs.changes.outputs.backend == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: api
+          push: true
+          build-args: |
+            VITE_AUTH_PROVIDER=firebase
+            VITE_POSTHOG_API_KEY=${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_HOST=https://t.botmem.xyz
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=app.botmem.xyz
+            VITE_WEB_SURFACE=app
+            VITE_API_ORIGIN=https://app.botmem.xyz
+            VITE_API_BASE_URL=https://app.botmem.xyz/api
+            VITE_APP_URL=https://app.botmem.xyz
+            VITE_LANDING_URL=https://botmem.xyz
+            VITE_FIREBASE_PROJECT_ID=botmem-app
+            VITE_FIREBASE_STORAGE_BUCKET=botmem-app.firebasestorage.app
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
+            BOTMEM_BUILD_SHA=${{ github.sha }}
+            BOTMEM_BUILD_VERSION=${{ needs.version.outputs.tag }}
+          tags: |
+            ghcr.io/botmem/botmem-api:arm64-${{ needs.version.outputs.tag }}
+          platforms: linux/arm64
+
+      - name: Build and push worker image
+        if: needs.changes.outputs.backend == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          target: worker
+          push: true
+          tags: |
+            ghcr.io/botmem/botmem-worker:arm64-${{ needs.version.outputs.tag }}
+          platforms: linux/arm64
+
       - name: Build and push app image
+        if: needs.changes.outputs.web == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -512,6 +481,7 @@ jobs:
           platforms: linux/arm64
 
       - name: Build and push landing image
+        if: needs.changes.outputs.web == 'true'
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -546,18 +516,14 @@ jobs:
       - version
       - changes
       - quality-gate
-      - build-backend-amd64
-      - build-backend-arm64
-      - build-web-amd64
-      - build-web-arm64
+      - build-amd64
+      - build-arm64
     if: |
       always() &&
       needs.quality-gate.result == 'success' &&
       needs.changes.outputs.runtime == 'true' &&
-      (needs.build-backend-amd64.result == 'success' || needs.build-backend-amd64.result == 'skipped') &&
-      (needs.build-backend-arm64.result == 'success' || needs.build-backend-arm64.result == 'skipped') &&
-      (needs.build-web-amd64.result == 'success' || needs.build-web-amd64.result == 'skipped') &&
-      (needs.build-web-arm64.result == 'success' || needs.build-web-arm64.result == 'skipped')
+      needs.build-amd64.result == 'success' &&
+      needs.build-arm64.result == 'success'
     steps:
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -602,7 +568,10 @@ jobs:
     if: |
       always() &&
       needs.quality-gate.result == 'success' &&
-      (needs.promote-runtime-images.result == 'success' || needs.promote-runtime-images.result == 'skipped') &&
+      (
+        (needs.changes.outputs.runtime == 'true' && needs.promote-runtime-images.result == 'success') ||
+        (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
+      ) &&
       (needs.changes.outputs.runtime == 'true' || needs.changes.outputs.docs == 'true')
     steps:
       - name: Checkout
