@@ -198,7 +198,7 @@ if (identity === '-') {
 }
 run('codesign', ['--force', '--deep', '--options', 'runtime', '--sign', identity, appDir]);
 
-const dmgName = process.env.BOTMEM_DMG_NAME || 'Botmem-Apple-Bridge.dmg';
+const dmgName = process.env.BOTMEM_DMG_NAME || 'botmem.dmg';
 const dmgPath = join(outDir, dmgName);
 rmSync(dmgAssetsDir, { recursive: true, force: true });
 mkdirSync(dmgAssetsDir, { recursive: true });

@@ -34,8 +34,8 @@ https://github.com/botmem/botmem/releases/latest
 
 Use the asset for your Mac:
 
-- Apple Silicon: `Botmem-Apple-Bridge-arm64.dmg`
-- Intel: `Botmem-Apple-Bridge-x64.dmg`
+- Apple Silicon: `botmem-arm64.dmg`
+- Intel: `botmem-x64.dmg`
 
 Open the DMG and drag **botmem** into **Applications**.
 
