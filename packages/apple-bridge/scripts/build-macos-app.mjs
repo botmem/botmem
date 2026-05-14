@@ -196,7 +196,17 @@ const identity = process.env.BOTMEM_CODESIGN_IDENTITY || '-';
 if (identity === '-') {
   console.warn('BOTMEM_CODESIGN_IDENTITY is not set; ad-hoc signing botmem.');
 }
-run('codesign', ['--force', '--deep', '--options', 'runtime', '--sign', identity, appDir]);
+run('codesign', [
+  '--force',
+  '--deep',
+  '--options',
+  'runtime',
+  '--entitlements',
+  join(root, 'macos', 'botmem.entitlements'),
+  '--sign',
+  identity,
+  appDir,
+]);
 
 const dmgName = process.env.BOTMEM_DMG_NAME || 'botmem.dmg';
 const dmgPath = join(outDir, dmgName);
