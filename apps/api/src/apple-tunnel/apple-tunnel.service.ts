@@ -249,21 +249,34 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getBridgeStatus(accountId: string): {
+  async getBridgeStatus(accountId: string): Promise<{
     connected: boolean;
     accountId: string;
     sources: AppleBridgeSources | null;
     lastSeenAt: string | null;
     lastError: string | null;
-  } {
+  }> {
     const sessionId = this.accountSessions.get(accountId);
     const session = sessionId ? this.sessions.get(sessionId) : undefined;
-    const connected = this.isConnected(accountId);
+    let connected = this.isConnected(accountId);
+    let relayed = false;
+    if (!connected) {
+      try {
+        relayed = (await this.sendRelayedRpcRequest(accountId, RELAY_STATUS_METHOD)) === true;
+        connected = relayed;
+      } catch {
+        relayed = false;
+      }
+    }
     return {
       connected,
       accountId,
       sources: session?.sources ?? null,
-      lastSeenAt: session ? new Date(session.connectedAt).toISOString() : null,
+      lastSeenAt: session
+        ? new Date(session.connectedAt).toISOString()
+        : relayed
+          ? new Date().toISOString()
+          : null,
       lastError: null,
     };
   }
