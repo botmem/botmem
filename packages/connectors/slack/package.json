@@ -21,10 +21,10 @@
   },
   "dependencies": {
     "@botmem/connector-sdk": "workspace:*",
-    "@slack/web-api": "^7.15.1"
+    "@slack/web-api": "^7.16.0"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.8.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
