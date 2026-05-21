@@ -359,6 +359,58 @@ describe('media extraction metadata', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('downloads photos connector attachments through the connector raw asset API', async () => {
+    const getRawAsset = vi.fn().mockResolvedValue({
+      contentType: 'image/jpeg',
+      contentLength: 11,
+      fileName: 'IMG_0001.JPG.preview',
+      buffer: Buffer.from('image bytes'),
+    });
+    const accountsService = {
+      getById: vi.fn().mockResolvedValue({
+        authContext: JSON.stringify({
+          accessToken: 'immich-api-key',
+          raw: { host: 'https://photos.example' },
+        }),
+      }),
+    };
+    const processor = Object.create(MemoryProcessor.prototype) as {
+      accountsService: typeof accountsService;
+      connectors: { get: ReturnType<typeof vi.fn> };
+      getFileBuffer(
+        metadata: Record<string, unknown>,
+        rawEvent: { accountId: string; connectorType: string; sourceId: string },
+      ): Promise<Buffer>;
+    };
+    processor.accountsService = accountsService;
+    processor.connectors = {
+      get: vi.fn().mockReturnValue({ getRawAsset }),
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const buffer = await processor.getFileBuffer(
+      {
+        fileUrl: 'https://photos.example/api/assets/asset-1/thumbnail?size=preview',
+        attachments: [
+          {
+            uri: 'https://photos.example/api/assets/asset-1/thumbnail?size=preview',
+            mimeType: 'image/jpeg',
+          },
+        ],
+      },
+      { accountId: 'account-1', connectorType: 'photos', sourceId: 'asset-1' },
+    );
+
+    expect(buffer.toString()).toBe('image bytes');
+    expect(processor.connectors.get).toHaveBeenCalledWith('photos');
+    expect(getRawAsset).toHaveBeenCalledWith(
+      'asset-1',
+      { accessToken: 'immich-api-key', raw: { host: 'https://photos.example' } },
+      'thumbnail',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('downgrades factuality when media extraction is low-confidence', () => {
     const factuality = (
       MemoryProcessor.prototype as unknown as {
