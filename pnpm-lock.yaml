@@ -238,8 +238,8 @@ importers:
         specifier: ^3.1.5
         version: 3.1.5
       stripe:
-        specifier: ^21.0.1
-        version: 21.0.1(@types/node@25.8.0)
+        specifier: ^22.1.0
+        version: 22.1.1(@types/node@25.8.0)
       unzipper:
         specifier: ^0.12.3
         version: 0.12.3
@@ -8634,8 +8634,8 @@ packages:
   strip-literal@3.1.0:
     resolution: {integrity: sha512-8r3mkIM/2+PpjHoOtiAW8Rg3jJLHaV7xPwG+YRGrv6FP0wwk/toTpATxWYOW0BKdWwl82VT2tFYi5DlROa0Mxg==}
 
-  stripe@21.0.1:
-    resolution: {integrity: sha512-ocv0j7dWttswDWV2XL/kb6+yiLpDXNXL3RQAOB5OB2kr49z0cEatdQc12+zP/j5nrXk6rAsT4N3y/NUvBbK7Pw==}
+  stripe@22.1.1:
+    resolution: {integrity: sha512-cmodIYP27tBkJ8G7DuGgWw0PFuemlFZbuF3Wwr1TrjFjUa3T7NIgCe6TVwX8BO2ynu+xtTuDGfHafNDCPt9lXA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@types/node': '>=18'
@@ -17908,7 +17908,7 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
-  stripe@21.0.1(@types/node@25.8.0):
+  stripe@22.1.1(@types/node@25.8.0):
     optionalDependencies:
       '@types/node': 25.8.0
 
