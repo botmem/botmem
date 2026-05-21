@@ -69,6 +69,22 @@ cleanup_docker_host() {
   show_disk_usage
 }
 
+pull_recreate_prune() {
+  local service="$1"
+  local image="$2"
+
+  echo "==> Pulling ${image}-${IMAGE_TAG}"
+  docker pull "ghcr.io/botmem/botmem:${image}-${IMAGE_TAG}"
+
+  echo "==> Recreating ${service}"
+  "${COMPOSE[@]}" up -d --no-deps "$service"
+
+  # The production VPS can run very close to full. Recreate services as soon as
+  # their new image is present, then prune layers from the previous image before
+  # pulling the next service image.
+  cleanup_docker_host "after ${service}"
+}
+
 remove_legacy_search_storage() {
   local legacy_service="type""sense"
   local legacy_volume="type""sense-data"
@@ -159,34 +175,30 @@ if [ "$DRAIN_TYPESENSE_ON_NEXT_STARTUP" = "1" ]; then
   fi
 fi
 
-# ── Pull new images ─────────────────────────────────────────────────────────
+# ── Pull and recreate changed app containers ────────────────────────────────
 if [ "$DEPLOY_BACKEND" = "true" ]; then
-  for image in api worker; do
-    docker pull "ghcr.io/botmem/botmem:${image}-${IMAGE_TAG}"
-  done
+  pull_recreate_prune api api
+  pull_recreate_prune worker worker
 fi
 
 if [ "$DEPLOY_WEB" = "true" ]; then
-  for image in app landing; do
-    docker pull "ghcr.io/botmem/botmem:${image}-${IMAGE_TAG}"
-  done
+  pull_recreate_prune app-web app
+  pull_recreate_prune landing-web landing
 fi
 
-# ── Recreate changed app containers (infra stays running) ───────────────────
 SERVICES=()
-if [ "$DEPLOY_BACKEND" = "true" ]; then
-  SERVICES+=(api worker)
-fi
 if [ "$DEPLOY_WEB" = "true" ]; then
-  SERVICES+=(app-web landing-web caddy)
+  SERVICES+=(caddy)
 fi
 
 if [ "${#SERVICES[@]}" -eq 0 ]; then
-  echo "==> No runtime services selected"
-  exit 0
+  if [ "$DEPLOY_BACKEND" != "true" ]; then
+    echo "==> No runtime services selected"
+    exit 0
+  fi
+else
+  "${COMPOSE[@]}" up -d --no-deps "${SERVICES[@]}"
 fi
-
-"${COMPOSE[@]}" up -d --no-deps "${SERVICES[@]}"
 
 # ── Health check via Docker network (port not exposed to host) ──────────────
 check_health() {
