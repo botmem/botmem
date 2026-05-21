@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import Stripe from 'stripe';
+import type { Stripe as StripeTypes } from 'stripe/cjs/stripe.core';
 import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConfigService } from '../config/config.service';
@@ -11,7 +12,7 @@ import type { BillingInfo, SubscriptionPlan } from '@botmem/shared';
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
-  private stripe: Stripe | null = null;
+  private stripe: StripeTypes | null = null;
 
   private get appUrl(): string {
     return this.config.appUrl || this.config.frontendUrl;
@@ -137,10 +138,10 @@ export class BillingService {
     return plan === 'pro';
   }
 
-  async handleWebhookEvent(event: Stripe.Event): Promise<void> {
+  async handleWebhookEvent(event: StripeTypes.Event): Promise<void> {
     switch (event.type) {
       case 'checkout.session.completed': {
-        const session = event.data.object as Stripe.Checkout.Session;
+        const session = event.data.object as StripeTypes.Checkout.Session;
         const userId = session.client_reference_id;
         if (!userId) {
           this.logger.warn('Checkout session missing client_reference_id');
@@ -162,7 +163,7 @@ export class BillingService {
       }
 
       case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
+        const subscription = event.data.object as StripeTypes.Subscription;
         const userId =
           subscription.metadata?.userId ||
           (await this.findUserIdByStripeCustomer(subscription.customer as string));
@@ -195,7 +196,7 @@ export class BillingService {
       }
 
       case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription;
+        const subscription = event.data.object as StripeTypes.Subscription;
         await this.db.systemDb((db) =>
           db
             .update(users)
@@ -211,7 +212,7 @@ export class BillingService {
       }
 
       case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice;
+        const invoice = event.data.object as StripeTypes.Invoice;
         if (invoice.customer) {
           await this.db.systemDb((db) =>
             db

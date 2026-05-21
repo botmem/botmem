@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
 
@@ -56,6 +56,9 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+
+      - name: Install native build tooling
+        run: npm install -g node-gyp
 
       - run: pnpm install --frozen-lockfile
 
@@ -83,13 +86,13 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.dmg }}
           path: packages/apple-bridge/dist-macos/${{ matrix.dmg }}
 
       - name: Attach to GitHub Release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: packages/apple-bridge/dist-macos/${{ matrix.dmg }}
