@@ -1,7 +1,7 @@
 # check=skip=SecretsUsedInArgOrEnv
 FROM node:26-alpine AS base
 RUN apk add --no-cache git python3 make g++
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+RUN npm install -g pnpm@9.15.0
 WORKDIR /app
 
 FROM base AS deps
