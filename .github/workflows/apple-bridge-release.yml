@@ -57,6 +57,9 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Install native build tooling
+        run: npm install -g node-gyp
+
       - run: pnpm install --frozen-lockfile
 
       - name: Import signing certificate
