@@ -44,6 +44,7 @@ import { RawEventPipelineClassifier } from './raw-event-pipeline-classifier.serv
 import { TraceContext, generateTraceId, generateSpanId } from '../tracing/trace.context';
 import { Traced } from '../tracing/traced.decorator';
 import type {
+  AuthContext,
   ConnectorDataEvent,
   EmbedResult,
   PipelineContext,
@@ -1731,7 +1732,24 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     if (rawEvent.connectorType === 'gmail') {
       return this.fetchGmailAttachment(connectorUri, rawEvent);
     }
+    if (rawEvent.connectorType === 'photos') {
+      return this.fetchPhotosAttachment(rawEvent);
+    }
     throw new Error(`Connector attachment fetch is not implemented for ${rawEvent.connectorType}`);
+  }
+
+  private async fetchPhotosAttachment(rawEvent: {
+    accountId: string;
+    connectorType: string;
+    sourceId: string;
+  }): Promise<Buffer> {
+    const auth = await this.getConnectorAuthContext(rawEvent.accountId);
+    const connector = this.connectors.get(rawEvent.connectorType);
+    const asset = await connector.getRawAsset(rawEvent.sourceId, auth, 'thumbnail');
+    if (!asset?.buffer) {
+      throw new Error(`Photo asset download returned no bytes for ${rawEvent.sourceId}`);
+    }
+    return asset.buffer;
   }
 
   private async fetchGmailAttachment(
@@ -1760,6 +1778,11 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     const data = (await res.json()) as { data?: string };
     if (!data.data) throw new Error('Gmail attachment response did not include data');
     return Buffer.from(data.data, 'base64url');
+  }
+
+  private async getConnectorAuthContext(accountId: string): Promise<AuthContext> {
+    const account = await this.accountsService.getById(accountId);
+    return account.authContext ? JSON.parse(account.authContext) : {};
   }
 
   private async fetchLinkedDocument(
