@@ -24,7 +24,7 @@
     "googleapis": "^171.4.0"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.2",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
