@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConnectorSetupModal } from '../connectors/ConnectorSetupModal';
 import { useConnectorStore } from '../../store/connectorStore';
 
@@ -436,7 +436,9 @@ describe('ConnectorSetupModal', () => {
     fireEvent.click(screen.getByText('COPY'));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('--token=token-1'));
     expect(screen.getByText('COPIED')).toBeInTheDocument();
-    vi.advanceTimersByTime(2000);
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
     expect(screen.getByText('COPY')).toBeInTheDocument();
     vi.useRealTimers();
   });
@@ -485,7 +487,9 @@ describe('ConnectorSetupModal', () => {
       'href',
       'https://github.com/botmem/botmem/releases/latest',
     );
-    vi.advanceTimersByTime(8000);
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
     expect(screen.getByText(/Still waiting for bridge app/)).toBeInTheDocument();
     vi.useRealTimers();
   });

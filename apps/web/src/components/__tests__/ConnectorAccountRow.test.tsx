@@ -158,7 +158,7 @@ describe('ConnectorAccountRow', () => {
       />,
     );
 
-    expect(screen.getByText(/Error:/)).toHaveTextContent('iMessage bridge not connected');
+    expect(screen.getByText(/Error:/).closest('p')).toHaveTextContent('iMessage bridge not connected');
     expect(screen.getAllByText(/Start the Botmem Apple bridge/)).toHaveLength(1);
   });
 });
