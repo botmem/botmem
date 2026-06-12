@@ -82,6 +82,18 @@ describe('AccountsController', () => {
     expect(result.type).toBe('gmail');
   });
 
+  it('serializes lastSync as ISO 8601', async () => {
+    vi.mocked(service.getById).mockResolvedValue({
+      ...fakeRow,
+      lastSyncAt: new Date('2026-06-12T08:09:10.000Z'),
+      userId: 'user-1',
+    });
+
+    const result = await controller.get({ id: 'user-1' }, 'a1');
+
+    expect(result.lastSync).toBe('2026-06-12T08:09:10.000Z');
+  });
+
   it('maps iMessage bridge recovery text with the concrete account id', async () => {
     vi.mocked(service.getById).mockResolvedValue({
       ...fakeRow,
