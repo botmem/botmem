@@ -321,6 +321,15 @@ describe('api', () => {
       );
     });
 
+    it('getContactMemories with pagination', async () => {
+      mockOk({ items: [], total: 0 });
+      await api.getContactMemories('c1', { limit: 10, offset: 20 });
+      const url = mockFetch.mock.calls[0][0];
+      expect(url).toContain('/api/people/c1/memories?');
+      expect(url).toContain('limit=10');
+      expect(url).toContain('offset=20');
+    });
+
     it('updateContact via PATCH', async () => {
       mockOk({ id: 'c1' });
       await api.updateContact('c1', { displayName: 'New' });

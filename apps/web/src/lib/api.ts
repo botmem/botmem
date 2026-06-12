@@ -63,6 +63,17 @@ export interface ApiContact {
     isPrimary?: boolean;
     connectorType?: string;
   }>;
+  members?: Array<{
+    id: string;
+    displayName: string;
+    avatars?: string | Array<{ url: string; source: string }>;
+    identifiers?: Array<{
+      identifierType?: string;
+      type?: string;
+      identifierValue?: string;
+      value?: string;
+    }>;
+  }>;
   memoryCount?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -76,6 +87,11 @@ export interface ApiContactMemory {
   connectorType?: string;
   text?: string;
   [key: string]: unknown;
+}
+
+export interface ApiContactMemoryPage {
+  items: ApiContactMemory[];
+  total: number;
 }
 
 export interface ApiGraphNode {
@@ -434,7 +450,12 @@ export const api = {
     return request<{ items: T[]; total: number }>(`/people?${query}`);
   },
   getContact: <T = ApiContact>(id: string) => request<T>(`/people/${id}`),
-  getContactMemories: (id: string) => request<ApiContactMemory[]>(`/people/${id}/memories`),
+  getContactMemories: (id: string, params?: { limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    return request<ApiContactMemoryPage>(`/people/${id}/memories?${query}`);
+  },
   searchContacts: <T = ApiContact>(query: string, entityType?: string, limit = 25) =>
     request<T[]>('/people/search', {
       method: 'POST',
