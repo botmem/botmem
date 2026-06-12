@@ -32,7 +32,7 @@ export class ConfigService implements OnModuleInit {
     ];
 
     const insecure = defaults.filter(({ value, default: def }) => value === def);
-    const isProduction = process.env.NODE_ENV === 'production';
+    const isProduction = this.isProduction;
 
     if (insecure.length > 0 && isProduction) {
       throw new Error(
@@ -48,6 +48,14 @@ export class ConfigService implements OnModuleInit {
 
   get port(): number {
     return Number.parseInt(process.env.PORT || '12412', 10);
+  }
+
+  get nodeEnv(): string {
+    return process.env.NODE_ENV || 'development';
+  }
+
+  get isProduction(): boolean {
+    return this.nodeEnv === 'production';
   }
 
   get redisUrl(): string {
