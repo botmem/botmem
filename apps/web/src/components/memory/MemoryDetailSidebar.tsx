@@ -132,6 +132,7 @@ export function MemoryDetailSidebar({ memory, onClose }: MemoryDetailSidebarProp
         </span>
         <button
           onClick={onClose}
+          aria-label="Close detail"
           className="border-2 border-nb-border size-6 flex items-center justify-center text-xs font-bold cursor-pointer hover:bg-nb-red hover:text-white text-nb-text"
         >
           X
