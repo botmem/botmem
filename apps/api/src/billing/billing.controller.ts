@@ -16,7 +16,6 @@ import { BillingService } from './billing.service';
 import { QuotaService } from './quota.service';
 import { ConfigService } from '../config/config.service';
 import Stripe from 'stripe';
-import type { Stripe as StripeTypes } from 'stripe/cjs/stripe.core';
 import type { Request, Response } from 'express';
 
 @ApiTags('Billing')
@@ -24,7 +23,7 @@ import type { Request, Response } from 'express';
 @Controller('billing')
 export class BillingController {
   private readonly logger = new Logger(BillingController.name);
-  private stripe: StripeTypes | null = null;
+  private stripe: Stripe | null = null;
 
   constructor(
     private billingService: BillingService,
@@ -86,7 +85,7 @@ export class BillingController {
       return res.status(400).json({ error: 'Raw body not available' });
     }
 
-    let event: StripeTypes.Event;
+    let event: Stripe.Event;
     try {
       event = this.stripe.webhooks.constructEvent(
         rawBody,
