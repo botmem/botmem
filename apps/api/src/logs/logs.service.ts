@@ -4,9 +4,20 @@ import { dirname } from 'path';
 import { ConfigService } from '../config/config.service';
 import { TraceContext } from '../tracing/trace.context';
 
+export const DEFAULT_LOGS_MAX_BYTES = 50 * 1024 * 1024;
+
+function logsMaxBytes(): number {
+  const parsed = Number.parseInt(process.env.LOGS_MAX_BYTES || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOGS_MAX_BYTES;
+}
+
 @Injectable()
 export class LogsService {
   private readonly logger = new Logger(LogsService.name);
+  private readonly maxBytes = logsMaxBytes();
+  private currentBytes: number | undefined;
+  private writeChain = Promise.resolve();
+
   constructor(
     private config: ConfigService,
     private traceContext: TraceContext,
@@ -52,13 +63,50 @@ export class LogsService {
 
     process.stdout.write(line);
 
-    fs.mkdir(dirname(path), { recursive: true })
-      .then(() => fs.appendFile(path, line, 'utf-8'))
+    const lineBytes = Buffer.byteLength(line, 'utf-8');
+    this.writeChain = this.writeChain
+      .then(async () => {
+        await fs.mkdir(dirname(path), { recursive: true });
+        await this.rotateIfNeeded(path, lineBytes);
+        await fs.appendFile(path, line, 'utf-8');
+        this.currentBytes = (this.currentBytes ?? 0) + lineBytes;
+      })
       .catch((err) =>
         this.logger.warn(
           `Failed to write log entry: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
+  }
+
+  private async rotateIfNeeded(path: string, incomingBytes: number): Promise<void> {
+    if (this.currentBytes === undefined) {
+      try {
+        this.currentBytes = (await fs.stat(path)).size;
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+          this.logger.warn(
+            `Failed to stat logs file: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        this.currentBytes = 0;
+      }
+    }
+    if (this.currentBytes + incomingBytes <= this.maxBytes) return;
+
+    try {
+      // ponytail: one rotated file caps app storage; add numbered generations only if ops needs them.
+      await fs.rm(`${path}.1`, { force: true });
+      await fs.rename(path, `${path}.1`);
+      this.currentBytes = 0;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        this.currentBytes = 0;
+        return;
+      }
+      this.logger.warn(
+        `Failed to rotate logs file: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async query(filters?: {

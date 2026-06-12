@@ -29,9 +29,43 @@ import { isFirebaseMode, detectAuthProvider } from '../lib/auth-provider';
 export { isFirebaseMode, detectAuthProvider };
 
 const API_BASE = `${ROOT_API_BASE}/user-auth`;
+const PENDING_RECOVERY_KEY_STORAGE_KEY = 'botmem.pendingRecoveryKey';
 
 // Mutex: only one refresh call at a time to prevent token rotation race
 let activeRefresh: Promise<boolean> | null = null;
+let firebaseTokenUnsubscribe: (() => void) | null = null;
+
+function readPendingRecoveryKey() {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(PENDING_RECOVERY_KEY_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function keepRecoveryKey(recoveryKey?: string | null) {
+  if (!recoveryKey) return readPendingRecoveryKey();
+  if (typeof window !== 'undefined') {
+    // ponytail: sessionStorage survives reload but not browser-session end; localStorage would persist plaintext too long.
+    try {
+      window.sessionStorage.setItem(PENDING_RECOVERY_KEY_STORAGE_KEY, recoveryKey);
+    } catch {
+      // Keep showing the in-memory key; failing closed here would hide the only recovery path.
+    }
+  }
+  return recoveryKey;
+}
+
+function clearPendingRecoveryKey() {
+  if (typeof window !== 'undefined') {
+    try {
+      window.sessionStorage.removeItem(PENDING_RECOVERY_KEY_STORAGE_KEY);
+    } catch {
+      // Nothing else to clear.
+    }
+  }
+}
 
 async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -99,7 +133,7 @@ export const useAuthStore = create<AuthState>()(
             accessToken: data.accessToken,
             isLoading: false,
             needsRecoveryKey: !!data.needsRecoveryKey,
-            recoveryKey: data.recoveryKey ?? null,
+            recoveryKey: keepRecoveryKey(data.recoveryKey),
           });
         } catch (err: unknown) {
           trackEvent('login_failed', {
@@ -144,7 +178,7 @@ export const useAuthStore = create<AuthState>()(
               user: data.user,
               accessToken: idToken,
               isLoading: false,
-              recoveryKey: data.recoveryKey ?? null,
+              recoveryKey: keepRecoveryKey(data.recoveryKey),
             });
           } else {
             // Local mode — direct API registration
@@ -167,7 +201,7 @@ export const useAuthStore = create<AuthState>()(
               user: data.user,
               accessToken: data.accessToken,
               isLoading: false,
-              recoveryKey: data.recoveryKey ?? null,
+              recoveryKey: keepRecoveryKey(data.recoveryKey),
             });
           }
         } catch (err: unknown) {
@@ -205,7 +239,10 @@ export const useAuthStore = create<AuthState>()(
         set({ needsRecoveryKey: false });
       },
 
-      dismissRecoveryKey: () => set({ recoveryKey: null }),
+      dismissRecoveryKey: () => {
+        clearPendingRecoveryKey();
+        set({ recoveryKey: null });
+      },
 
       logout: async () => {
         trackEvent('logout');
@@ -223,7 +260,7 @@ export const useAuthStore = create<AuthState>()(
           // Logout should always clear state even if API call fails
         }
         resetUser();
-        set({ user: null, accessToken: null, error: null });
+        set({ user: null, accessToken: null, error: null, recoveryKey: null });
       },
 
       refreshSession: async (): Promise<boolean> => {
@@ -232,6 +269,15 @@ export const useAuthStore = create<AuthState>()(
 
         activeRefresh = (async () => {
           try {
+            if (isFirebaseMode) {
+              await ensureFirebase();
+              if (!firebaseAuth?.currentUser) throw new Error('No Firebase user');
+              const { getIdToken } = await getFirebaseAuthFns();
+              const idToken = await getIdToken(firebaseAuth.currentUser, true);
+              set({ accessToken: idToken });
+              return true;
+            }
+
             const data = await authFetch<{ accessToken: string }>('/refresh', {
               method: 'POST',
             });
@@ -272,14 +318,33 @@ export const useAuthStore = create<AuthState>()(
       initialize: async () => {
         // Do not trust persisted partial users during boot. Firebase/local refresh must
         // establish a fresh token before protected routes render and call APIs.
-        set({ isLoading: true, user: null, accessToken: null });
+        set({
+          isLoading: true,
+          user: null,
+          accessToken: null,
+          recoveryKey: readPendingRecoveryKey(),
+        });
         try {
           if (isFirebaseMode) {
             await ensureFirebase();
           }
           if (isFirebaseMode && firebaseAuth) {
             const { getIdToken } = await getFirebaseAuthFns();
-            const { getRedirectResult } = await import('firebase/auth');
+            const { getRedirectResult, onIdTokenChanged } = await import('firebase/auth');
+
+            if (!firebaseTokenUnsubscribe) {
+              firebaseTokenUnsubscribe = onIdTokenChanged(firebaseAuth, async (firebaseUser) => {
+                if (!firebaseUser) {
+                  set({ user: null, accessToken: null });
+                  return;
+                }
+                try {
+                  set({ accessToken: await getIdToken(firebaseUser) });
+                } catch {
+                  set({ user: null, accessToken: null });
+                }
+              });
+            }
 
             // Helper: sync a Firebase user with our backend
             const syncUser = async (firebaseUser: import('firebase/auth').User) => {
@@ -306,7 +371,7 @@ export const useAuthStore = create<AuthState>()(
                 set({
                   user: merged,
                   accessToken: idToken,
-                  recoveryKey: data.recoveryKey ?? null,
+                  recoveryKey: keepRecoveryKey(data.recoveryKey),
                   needsRecoveryKey: !!data.needsRecoveryKey,
                 });
                 return true;

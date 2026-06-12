@@ -12,6 +12,8 @@ import { BillingModule } from '../billing/billing.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
 import { PeopleModule } from '../people/people.module';
 
+export const JOBS_REMOVE_ON_COMPLETE = { age: 86400, count: 1000 };
+
 const jobsImports = [
   BullModule.forRootAsync({
     useFactory: (config: ConfigService) => ({
@@ -24,7 +26,7 @@ const jobsImports = [
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: { count: 1_000_000 },
+        removeOnComplete: JOBS_REMOVE_ON_COMPLETE,
         removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
       },
     }),

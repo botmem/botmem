@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api, subscribeToChannel, unsubscribeFromChannel } from '../api';
+import { useAuthStore } from '../../store/authStore';
 
 const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
+  useAuthStore.setState({ user: null, accessToken: null, error: null, isLoading: false });
 });
 
 afterEach(() => {
@@ -154,6 +156,53 @@ describe('api', () => {
     it('throws on non-ok response', async () => {
       mockError(400, 'Bad request');
       await expect(api.listConnectors()).rejects.toThrow('API 400');
+    });
+
+    it('refreshes once and retries the original request after a 401', async () => {
+      useAuthStore.setState({
+        user: { id: 'u1', email: 'test@test.com', name: 'Test', onboarded: true },
+        accessToken: 'old-token',
+      });
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 401 } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ accessToken: 'new-token' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ id: 'u1', email: 'test@test.com' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ connectors: [{ id: 'gmail' }] }),
+        });
+
+      const result = await api.listConnectors();
+
+      expect(result.connectors).toEqual([{ id: 'gmail' }]);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch.mock.calls[3][1].headers.Authorization).toBe('Bearer new-token');
+    });
+
+    it('logs out and does not retry the original request when refresh fails', async () => {
+      useAuthStore.setState({
+        user: { id: 'u1', email: 'test@test.com', name: 'Test', onboarded: true },
+        accessToken: 'old-token',
+      });
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 401 } as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ message: 'Expired' }),
+        });
+
+      await expect(api.listConnectors()).rejects.toThrow('Session expired');
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(useAuthStore.getState().accessToken).toBeNull();
     });
   });
 

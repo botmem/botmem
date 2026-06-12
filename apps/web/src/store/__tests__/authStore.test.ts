@@ -47,6 +47,7 @@ function failResponse(status: number, message: string) {
 describe('authStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     useAuthStore.setState({
       user: null,
       accessToken: null,
@@ -75,6 +76,7 @@ describe('authStore', () => {
       );
       await useAuthStore.getState().signup('test@test.com', 'pass', 'Test');
       expect(useAuthStore.getState().recoveryKey).toBe('rec-key-123');
+      expect(sessionStorage.getItem('botmem.pendingRecoveryKey')).toBe('rec-key-123');
     });
 
     it('sets error on failure', async () => {
@@ -170,10 +172,12 @@ describe('authStore', () => {
   });
 
   describe('dismissRecoveryKey', () => {
-    it('clears recoveryKey', () => {
+    it('clears recoveryKey and pending session key', () => {
       useAuthStore.setState({ recoveryKey: 'some-key' });
+      sessionStorage.setItem('botmem.pendingRecoveryKey', 'some-key');
       useAuthStore.getState().dismissRecoveryKey();
       expect(useAuthStore.getState().recoveryKey).toBeNull();
+      expect(sessionStorage.getItem('botmem.pendingRecoveryKey')).toBeNull();
     });
   });
 
@@ -239,6 +243,17 @@ describe('authStore', () => {
       await useAuthStore.getState().initialize();
 
       expect(useAuthStore.getState().isLoading).toBe(false);
+    });
+
+    it('re-surfaces a pending recovery key from sessionStorage on load', async () => {
+      sessionStorage.setItem('botmem.pendingRecoveryKey', 'pending-key');
+      mockFetch
+        .mockReturnValueOnce(okResponse({ accessToken: 'init-tok' }))
+        .mockReturnValueOnce(okResponse(mockUser));
+
+      await useAuthStore.getState().initialize();
+
+      expect(useAuthStore.getState().recoveryKey).toBe('pending-key');
     });
   });
 

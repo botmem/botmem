@@ -863,9 +863,9 @@ jobs:
         (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
       ) &&
       (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') &&
-      (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped') &&
+      (needs.publish-cli.result != 'cancelled') &&
       (needs.publish-apple-bridge.result == 'success' || needs.publish-apple-bridge.result == 'skipped') &&
-      (needs.publish-openclaw-plugin.result == 'success' || needs.publish-openclaw-plugin.result == 'skipped')
+      (needs.publish-openclaw-plugin.result != 'cancelled')
     permissions:
       contents: write
     steps:
@@ -991,9 +991,9 @@ jobs:
         (needs.changes.outputs.runtime != 'true' && needs.promote-runtime-images.result == 'skipped')
       ) &&
       (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') &&
-      (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped') &&
+      (needs.publish-cli.result != 'cancelled') &&
       (needs.publish-apple-bridge.result == 'success' || needs.publish-apple-bridge.result == 'skipped') &&
-      (needs.publish-openclaw-plugin.result == 'success' || needs.publish-openclaw-plugin.result == 'skipped') &&
+      (needs.publish-openclaw-plugin.result != 'cancelled') &&
       needs.tag.result == 'success' &&
       (
         (needs.changes.outputs.apple_bridge == 'true' && needs.apple-bridge-release.result == 'success') ||
