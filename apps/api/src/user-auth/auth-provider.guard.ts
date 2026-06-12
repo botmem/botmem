@@ -6,7 +6,7 @@ import { FirebaseAuthGuard } from './firebase-auth.guard';
 
 /**
  * Delegates to JwtAuthGuard (default) or FirebaseAuthGuard based on AUTH_PROVIDER env var.
- * This is the single APP_GUARD registered in AppModule.
+ * This is the global authentication guard registered in AppModule.
  */
 @Injectable()
 export class AuthProviderGuard implements CanActivate {
