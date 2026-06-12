@@ -8,18 +8,14 @@ function parseOrigins(frontendUrl: string): string[] {
     .filter(Boolean);
 }
 
+function canonicalMcpOrigins(): string[] {
+  return ['https://botmem.xyz', 'https://api.botmem.xyz'];
+}
+
 function isLocalhostOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
     return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function isHttpsOrigin(origin: string): boolean {
-  try {
-    return new URL(origin).protocol === 'https:';
   } catch {
     return false;
   }
@@ -47,7 +43,7 @@ export function isCorsOriginAllowed(params: {
   if (allowed.includes(origin)) return true;
 
   if (isMcpCorsPath(path)) {
-    if (isHttpsOrigin(origin)) return true;
+    if (canonicalMcpOrigins().includes(origin)) return true;
     if (nodeEnv !== 'production' && isLocalhostOrigin(origin)) return true;
   }
 
@@ -78,6 +74,6 @@ export function createCorsOptionsDelegate(frontendUrl: string): CorsOptionsDeleg
       exposedHeaders: ['Mcp-Session-Id'],
     };
 
-    callback(allowed ? null : new Error(`Origin ${origin} not allowed by CORS`), options);
+    callback(null, options);
   };
 }

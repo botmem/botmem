@@ -73,12 +73,19 @@ interface McpSession {
   userId: string;
   server: McpServer;
   transport: StreamableHTTPServerTransport;
+  lastActivity: number;
 }
 
 @Injectable()
 export class McpService {
   private readonly logger = new Logger(McpService.name);
   private readonly sessions = new Map<string, McpSession>();
+  private readonly sessionTtlMs = this.positiveInt(process.env.MCP_SESSION_TTL_MS, 30 * 60_000);
+  private readonly maxSessions = this.positiveInt(process.env.MCP_MAX_SESSIONS, 100);
+  private readonly sessionSweepTimer = setInterval(
+    () => this.sweepIdleSessions(),
+    Math.min(this.sessionTtlMs, 5 * 60_000),
+  );
 
   constructor(
     private memoryService: MemoryService,
@@ -91,9 +98,12 @@ export class McpService {
     @InjectQueue('embed') private embedQueue: Queue,
     @InjectQueue('enrich') private enrichQueue: Queue,
     @InjectQueue('maintenance') private maintenanceQueue: Queue,
-  ) {}
+  ) {
+    this.sessionSweepTimer.unref?.();
+  }
 
   async onModuleDestroy() {
+    clearInterval(this.sessionSweepTimer);
     await Promise.all(
       [...this.sessions.values()].map((session) => session.transport.close().catch(() => {})),
     );
@@ -104,7 +114,7 @@ export class McpService {
     await this.handleStatefulRequest(req, res, userId, false);
   }
 
-  handleSseStream(req: Request, res: Response, userId: string, clientId: string): void {
+  handleSseStream(req: Request, res: Response, userId: string, _clientId: string): void {
     const session = this.getExistingSession(req, res, userId);
     if (session) {
       session.transport.handleRequest(req, res, req.body).catch((err: unknown) => {
@@ -118,33 +128,8 @@ export class McpService {
     }
 
     if (this.requestSessionId(req)) return;
-
-    const startedAt = Date.now();
-
-    res.status(200);
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders?.();
-    res.write(': botmem-ready\n\n');
-
-    const heartbeat = setInterval(() => {
-      if (!res.writableEnded) res.write(': keepalive\n\n');
-    }, 25_000);
-
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      this.logger.debug(
-        JSON.stringify({
-          event: 'mcp.sse_closed',
-          method: req.method,
-          path: req.originalUrl,
-          userId,
-          clientId,
-          durationMs: Date.now() - startedAt,
-        }),
-      );
-    });
+    res.setHeader('Allow', 'POST, DELETE');
+    res.status(405).json({ error: 'method_not_allowed' });
   }
 
   async terminateSession(req: Request, res: Response, userId: string): Promise<void> {
@@ -170,6 +155,7 @@ export class McpService {
     this.attachRequestLog(req, res, userId);
     const existingSession = this.getExistingSession(req, res, userId);
     if (existingSession) {
+      existingSession.lastActivity = Date.now();
       await existingSession.transport.handleRequest(req, res, req.body);
       return;
     }
@@ -178,7 +164,11 @@ export class McpService {
     const session = await this.createSession(userId, enableJsonResponse);
     await session.transport.handleRequest(req, res, req.body);
     const sessionId = session.transport.sessionId;
-    if (sessionId) this.sessions.set(sessionId, session);
+    if (sessionId) {
+      session.lastActivity = Date.now();
+      this.sessions.set(sessionId, session);
+      this.evictOverflowSessions();
+    }
   }
 
   private async createSession(userId: string, enableJsonResponse: boolean): Promise<McpSession> {
@@ -196,7 +186,7 @@ export class McpService {
     };
 
     await server.connect(transport);
-    return { userId, server, transport };
+    return { userId, server, transport, lastActivity: Date.now() };
   }
 
   private getExistingSession(req: Request, res: Response, userId: string): McpSession | null {
@@ -209,6 +199,38 @@ export class McpService {
       return null;
     }
     return session;
+  }
+
+  private sweepIdleSessions(): void {
+    const cutoff = Date.now() - this.sessionTtlMs;
+    for (const [sessionId, session] of this.sessions) {
+      if (session.lastActivity >= cutoff) continue;
+      this.sessions.delete(sessionId);
+      // ponytail: close in background; next sweep can clean later if the transport hangs.
+      void session.transport.close().catch(() => {});
+    }
+  }
+
+  private evictOverflowSessions(): void {
+    while (this.sessions.size > this.maxSessions) {
+      let oldestId: string | null = null;
+      let oldestActivity = Infinity;
+      for (const [sessionId, session] of this.sessions) {
+        if (session.lastActivity < oldestActivity) {
+          oldestId = sessionId;
+          oldestActivity = session.lastActivity;
+        }
+      }
+      if (!oldestId) return;
+      const session = this.sessions.get(oldestId);
+      this.sessions.delete(oldestId);
+      void session?.transport.close().catch(() => {});
+    }
+  }
+
+  private positiveInt(value: string | undefined, fallback: number): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
   }
 
   private requestSessionId(req: Request): string | null {
@@ -467,11 +489,13 @@ export class McpService {
   }
 
   private error(err: unknown) {
+    this.logger.warn(`MCP tool error: ${err instanceof Error ? err.message : String(err)}`);
+    const message = typeof err === 'string' ? err : 'Internal MCP error';
     return {
       content: [
         {
           type: 'text' as const,
-          text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+          text: `Error: ${message}`,
         },
       ],
       isError: true as const,

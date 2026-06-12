@@ -44,7 +44,7 @@ import { PostHogLoggerService } from './analytics/posthog-logger.service';
 import { TraceContext } from './tracing/trace.context';
 import { HttpAdapterHost } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { createCorsOptionsDelegate } from './cors.util';
+import { createCorsOptionsDelegate, isCorsOriginAllowed } from './cors.util';
 
 const logger = new Logger('Bootstrap');
 type ViteMiddleware = (req: Request, res: Response, next: NextFunction) => void;
@@ -201,6 +201,21 @@ async function bootstrap() {
   const traceContext = app.get(TraceContext);
   phLogger.setTraceContext(traceContext);
 
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (
+      origin &&
+      !isCorsOriginAllowed({
+        frontendUrl: config.corsAllowedOrigins,
+        origin,
+        path: req.path || req.originalUrl || req.url,
+      })
+    ) {
+      res.status(403).json({ error: 'cors_origin_forbidden' });
+      return;
+    }
+    next();
+  });
   app.enableCors(createCorsOptionsDelegate(config.corsAllowedOrigins));
 
   // Global validation: reject invalid input, strip unknown properties

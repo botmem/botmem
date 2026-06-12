@@ -245,8 +245,7 @@ describe('McpService', () => {
     service.onModuleDestroy();
   });
 
-  it('starts SSE streams with an initial heartbeat comment', () => {
-    vi.useFakeTimers();
+  it('returns 405 for standalone GET without an MCP session', () => {
     const { service } = createService();
     const req = new EventEmitter() as EventEmitter & { method: string; originalUrl: string };
     req.method = 'GET';
@@ -254,21 +253,44 @@ describe('McpService', () => {
     const res = {
       status: vi.fn().mockReturnThis(),
       setHeader: vi.fn(),
-      flushHeaders: vi.fn(),
-      write: vi.fn(),
-      writableEnded: false,
+      json: vi.fn(),
     };
 
     service.handleSseStream(req as never, res as never, 'user-1', 'client-1');
 
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
-    expect(res.write).toHaveBeenCalledWith(': botmem-ready\n\n');
+    expect(res.setHeader).toHaveBeenCalledWith('Allow', 'POST, DELETE');
+    expect(res.status).toHaveBeenCalledWith(405);
+    expect(res.json).toHaveBeenCalledWith({ error: 'method_not_allowed' });
+    service.onModuleDestroy();
+  });
 
-    vi.advanceTimersByTime(25_000);
-    expect(res.write).toHaveBeenCalledWith(': keepalive\n\n');
+  it('evicts idle MCP sessions', () => {
+    const { service } = createService();
+    const close = vi.fn().mockResolvedValue(undefined);
+    const sessions = (
+      service as unknown as {
+        sessions: Map<
+          string,
+          {
+            userId: string;
+            server: unknown;
+            transport: { close: () => Promise<void> };
+            lastActivity: number;
+          }
+        >;
+      }
+    ).sessions;
+    sessions.set('idle', {
+      userId: 'user-1',
+      server: {},
+      transport: { close },
+      lastActivity: Date.now() - 31 * 60_000,
+    });
 
-    req.emit('close');
+    (service as unknown as { sweepIdleSessions: () => void }).sweepIdleSessions();
+
+    expect(sessions.has('idle')).toBe(false);
+    expect(close).toHaveBeenCalled();
     service.onModuleDestroy();
   });
 
@@ -313,6 +335,23 @@ describe('McpService', () => {
       content: [{ type: 'text', text: 'Error: Memory not found: missing' }],
     });
 
+    service.onModuleDestroy();
+  });
+
+  it('redacts internal tool errors from clients', async () => {
+    const { service, memoryService } = createService();
+    vi.mocked(memoryService.search).mockRejectedValueOnce(new Error('stacky database secret'));
+    const server = (
+      service as unknown as { createServer: (userId: string) => unknown }
+    ).createServer('user-1');
+    const search = getTool(server, 'search');
+
+    const response = await search.handler({ query: 'q' });
+
+    expect(response).toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: 'Error: Internal MCP error' }],
+    });
     service.onModuleDestroy();
   });
 
