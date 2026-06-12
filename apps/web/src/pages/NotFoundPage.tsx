@@ -4,6 +4,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 export function NotFoundPage() {
   usePageMeta({
     title: '404 - Botmem',
+    description: 'The requested page could not be found.',
     robots: 'noindex, nofollow',
   });
 
