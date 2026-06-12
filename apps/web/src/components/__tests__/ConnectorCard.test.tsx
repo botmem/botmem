@@ -12,35 +12,61 @@ const defaultConfig = {
 describe('ConnectorCard', () => {
   it('renders connector name', () => {
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={vi.fn()} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+      />,
     );
     expect(screen.getByText('Gmail')).toBeInTheDocument();
   });
 
   it('renders description when not compact', () => {
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={vi.fn()} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+      />,
     );
     expect(screen.getByText('Import emails from Gmail')).toBeInTheDocument();
   });
 
   it('hides description when compact', () => {
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={vi.fn()} compact />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+        compact
+      />,
     );
     expect(screen.queryByText('Import emails from Gmail')).not.toBeInTheDocument();
   });
 
   it('shows CONNECT button when disconnected', () => {
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={vi.fn()} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+      />,
     );
     expect(screen.getByText('CONNECT')).toBeInTheDocument();
   });
 
   it('shows connected status and ADD ANOTHER when connected', () => {
     render(
-      <ConnectorCard config={defaultConfig} connected={true} accountCount={2} onConnect={vi.fn()} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={true}
+        accountCount={2}
+        onConnect={vi.fn()}
+      />,
     );
     expect(screen.getByText(/2 CONNECTED/)).toBeInTheDocument();
     expect(screen.getByText('ADD ANOTHER')).toBeInTheDocument();
@@ -49,7 +75,12 @@ describe('ConnectorCard', () => {
   it('calls onConnect when CONNECT clicked', () => {
     const onConnect = vi.fn();
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={onConnect} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={onConnect}
+      />,
     );
     fireEvent.click(screen.getByText('CONNECT'));
     expect(onConnect).toHaveBeenCalled();
@@ -58,7 +89,13 @@ describe('ConnectorCard', () => {
   it('shows SKIP button when onSkip provided', () => {
     const onSkip = vi.fn();
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={vi.fn()} onSkip={onSkip} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+        onSkip={onSkip}
+      />,
     );
     expect(screen.getByText('SKIP')).toBeInTheDocument();
     fireEvent.click(screen.getByText('SKIP'));
@@ -67,8 +104,26 @@ describe('ConnectorCard', () => {
 
   it('does not show SKIP when not provided', () => {
     render(
-      <ConnectorCard config={defaultConfig} connected={false} accountCount={0} onConnect={vi.fn()} />
+      <ConnectorCard
+        config={defaultConfig}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+      />,
     );
     expect(screen.queryByText('SKIP')).not.toBeInTheDocument();
+  });
+
+  it('renders photo glyph with dark text on yellow tile', () => {
+    render(
+      <ConnectorCard
+        config={{ ...defaultConfig, type: 'photos', label: 'Photos', color: '#FFE66D' }}
+        connected={false}
+        accountCount={0}
+        onConnect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Ph')).toHaveClass('text-black');
   });
 });

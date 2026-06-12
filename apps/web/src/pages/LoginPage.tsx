@@ -37,7 +37,10 @@ export function LoginPage() {
         <LoginForm redirectTo={redirectTo || undefined} />
       </div>
 
-      <div className="hidden md:flex flex-1 bg-nb-bg text-nb-text items-center justify-center p-8 border-l-4 border-nb-border">
+      <div className="hidden md:flex relative flex-1 bg-nb-bg text-nb-text items-center justify-center p-8 border-l-4 border-nb-border">
+        <div data-testid="desktop-theme-toggle" className="absolute top-4 right-4">
+          <ThemeToggle variant="full" />
+        </div>
         <div>
           <Logo variant="full" height={36} className="mb-8" />
           <h1 className="font-display text-7xl font-bold leading-tight">
@@ -48,9 +51,6 @@ export function LoginPage() {
             <span className="text-nb-lime">HUMAN.</span>
           </h1>
           <div className="mt-6 w-24 h-2 bg-nb-pink" />
-          <div className="mt-6">
-            <ThemeToggle variant="full" />
-          </div>
         </div>
       </div>
     </main>

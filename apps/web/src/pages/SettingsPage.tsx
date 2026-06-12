@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
 import { Toggle } from '../components/ui/Toggle';
 import { Tabs } from '../components/ui/Tabs';
 import { ApiKeysTab } from '../components/settings/ApiKeysTab';
@@ -25,6 +24,17 @@ const BASE_TABS = [
 const SELF_HOSTED_TABS = [...BASE_TABS, { id: 'pipeline', label: 'Pipeline' }];
 
 const TABS = isFirebaseMode ? BASE_TABS : SELF_HOSTED_TABS;
+
+function ProfileValue({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="border-3 border-nb-border bg-nb-surface px-4 py-3 min-h-[44px]">
+      <p className="font-display text-xs font-bold uppercase tracking-wider text-nb-text">
+        {label}
+      </p>
+      <p className="mt-1 font-mono text-sm text-nb-text break-all">{value || 'Not set'}</p>
+    </div>
+  );
+}
 
 const CONCURRENCY_SETTINGS = [
   {
@@ -126,8 +136,8 @@ export function SettingsPage() {
               cannot be changed here.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="Name" value={user?.name || ''} disabled className="opacity-70" />
-              <Input label="Email" value={user?.email || ''} disabled className="opacity-70" />
+              <ProfileValue label="Name" value={user?.name} />
+              <ProfileValue label="Email" value={user?.email} />
             </div>
           </Card>
         )}

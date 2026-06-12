@@ -32,7 +32,7 @@
 
 /* ─── Light mode token overrides ───────────────────────────────────────────
    Warm off-white bg, white surfaces, subtle gray borders (matching POC).
-   Accent colors darken for legibility on light backgrounds.
+   Brand lime stays bright because accent-filled controls pair it with black.
    ─────────────────────────────────────────────────────────────────────────── */
 [data-theme="light"] {
   --color-nb-bg: #F5F3EF;
@@ -43,7 +43,7 @@
   --color-nb-border-strong: #B0ADA6;
   --color-nb-text: #1A1A1A;
   --color-nb-muted: #6B6B6B;
-  --color-nb-lime: #5A7A10;
+  --color-nb-lime: #C4F53A;
   --color-nb-blue: #0E8C83;
   --color-nb-green: #15803D;
   --color-nb-pink: #D4366C;
