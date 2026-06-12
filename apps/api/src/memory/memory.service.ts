@@ -29,6 +29,8 @@ import {
   INJECTED_CONTACT_BASELINE,
   CONTACT_BOOST_MIXED,
   CONTACT_BOOST_PURE_MULTI,
+  FINAL_SCORE_FLOOR,
+  SCORER_PLUGIN_BONUS_LIMIT,
   RECENCY_DECAY_RATE,
   DIVERSITY_FACTOR_DEFAULT,
   GRAPH_GROUP_STRENGTH,
@@ -436,13 +438,21 @@ function extractTransactionTokens(query: string): string[] {
   );
 }
 
+type CachedContact = {
+  id: string;
+  displayName: string;
+  entityType: string;
+  memoryCount: number;
+  durableIdentifiers?: string[];
+};
+
 @Injectable()
 export class MemoryService {
   private readonly logger = new Logger(MemoryService.name);
   private contactsCache: Map<
     string,
     {
-      data: { id: string; displayName: string; entityType: string; memoryCount: number }[];
+      data: CachedContact[];
       expires: number;
     }
   > = new Map();
@@ -734,9 +744,7 @@ export class MemoryService {
     return rows.length > 0;
   }
 
-  private async getCachedContacts(
-    userId?: string,
-  ): Promise<{ id: string; displayName: string; entityType: string; memoryCount: number }[]> {
+  private async getCachedContacts(userId?: string): Promise<CachedContact[]> {
     const cacheKey = userId || '__none__';
     const cached = this.contactsCache.get(cacheKey);
     if (cached && Date.now() < cached.expires) {
@@ -752,9 +760,31 @@ export class MemoryService {
         })
         .from(people),
     );
+    const personIds = rawData.map((c) => c.id);
+    const identifierRows = personIds.length
+      ? await this.dbService.withCurrentUser((db) =>
+          db
+            .select({
+              personId: personIdentifiers.personId,
+              identifierType: personIdentifiers.identifierType,
+              identifierValue: personIdentifiers.identifierValue,
+            })
+            .from(personIdentifiers)
+            .where(inArray(personIdentifiers.personId, personIds)),
+        )
+      : [];
+    const durableIdentifiersByPerson = new Map<string, string[]>();
+    for (const row of identifierRows) {
+      if (row.identifierType === 'name') continue;
+      const identifier = this.crypto.decrypt(row.identifierValue) ?? row.identifierValue;
+      const list = durableIdentifiersByPerson.get(row.personId) ?? [];
+      list.push(stripAccents(identifier.toLowerCase()));
+      durableIdentifiersByPerson.set(row.personId, list);
+    }
     const data = rawData.map((c) => ({
       ...c,
       displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
+      durableIdentifiers: durableIdentifiersByPerson.get(c.id) ?? [],
     }));
     this.contactsCache.set(cacheKey, {
       data,
@@ -763,10 +793,7 @@ export class MemoryService {
     return data;
   }
 
-  private async getContactsByIds(
-    ids: string[],
-    userId?: string,
-  ): Promise<{ id: string; displayName: string; entityType: string; memoryCount: number }[]> {
+  private async getContactsByIds(ids: string[], userId?: string): Promise<CachedContact[]> {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (!uniqueIds.length) return [];
     const allContacts = await this.getCachedContacts(userId);
@@ -966,8 +993,15 @@ export class MemoryService {
       for (let spanLen = remaining.length - i; spanLen >= 1; spanLen--) {
         const candidateWords = remaining.slice(i, i + spanLen).map((w) => stripAccents(w));
 
+        const candidateText = candidateWords.join(' ');
         const contactMatches = allContacts
-          .filter((c) => nameWordsMatch(c.displayName, candidateWords))
+          .filter((c) => {
+            const durableIdentifierMatch = (c.durableIdentifiers ?? []).includes(candidateText);
+            return (
+              durableIdentifierMatch ||
+              ((c.memoryCount ?? 0) >= 1 && nameWordsMatch(c.displayName, candidateWords))
+            );
+          })
           .sort((a, b) => {
             const aWords = stripAccents((a.displayName || '').toLowerCase()).split(/\s+/);
             const bWords = stripAccents((b.displayName || '').toLowerCase()).split(/\s+/);
@@ -1664,7 +1698,9 @@ export class MemoryService {
           : coverageTerms.length === 1
             ? 0.85 + queryCoverage * 0.3
             : 1.0;
-      const boostedScore = Math.min(
+      // ponytail: score is the sort key; add displayScore if clients need a 0-1 value.
+      const boostedScore = Math.max(
+        FINAL_SCORE_FLOOR,
         score *
           contactMultiplier *
           locationMultiplier *
@@ -1673,7 +1709,6 @@ export class MemoryService {
           intentScore.sourceBoost *
           intentScore.recencyBoost *
           intentScore.negativePrior,
-        1.0,
       );
       const boostedWeights = { ...weights, final: boostedScore };
 
@@ -3164,8 +3199,11 @@ export class MemoryService {
           /* ignore */
         }
       }
-      pluginBonus = Math.max(-0.05, Math.min(0.05, pluginBonus / scorers.length));
-      final = Math.max(0, Math.min(1, final + pluginBonus));
+      pluginBonus = Math.max(
+        -SCORER_PLUGIN_BONUS_LIMIT,
+        Math.min(SCORER_PLUGIN_BONUS_LIMIT, pluginBonus / scorers.length),
+      );
+      final = Math.max(FINAL_SCORE_FLOOR, final + pluginBonus);
     }
 
     // Pinned memories get a score floor of 0.75
