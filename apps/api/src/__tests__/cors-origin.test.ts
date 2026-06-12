@@ -55,11 +55,11 @@ describe('createCorsOriginChecker', () => {
     expect(allow).toBe(false);
   });
 
-  it('allows HTTPS origins for MCP and well-known metadata routes', () => {
+  it('allows only configured or canonical HTTPS origins for MCP and well-known metadata routes', () => {
     expect(
       isCorsOriginAllowed({
         frontendUrl: 'https://botmem.xyz',
-        origin: 'https://claude.ai',
+        origin: 'https://botmem.xyz',
         path: '/mcp',
         nodeEnv: 'production',
       }),
@@ -67,7 +67,7 @@ describe('createCorsOriginChecker', () => {
     expect(
       isCorsOriginAllowed({
         frontendUrl: 'https://botmem.xyz',
-        origin: 'https://chatgpt.com',
+        origin: 'https://api.botmem.xyz',
         path: '/mcp/',
         nodeEnv: 'production',
       }),
@@ -75,11 +75,11 @@ describe('createCorsOriginChecker', () => {
     expect(
       isCorsOriginAllowed({
         frontendUrl: 'https://botmem.xyz',
-        origin: 'https://example.com',
+        origin: 'https://evil.com',
         path: '/.well-known/oauth-protected-resource',
         nodeEnv: 'production',
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does not allow arbitrary HTTPS origins for normal API routes', () => {
@@ -109,7 +109,7 @@ describe('createCorsOriginChecker', () => {
     const options = await new Promise<{ err: Error | null; origin?: boolean }>((resolve) => {
       delegate(
         {
-          headers: { origin: 'https://claude.ai' },
+          headers: { origin: 'https://api.botmem.xyz' },
           path: '/mcp',
           originalUrl: '/mcp',
           url: '/mcp',
@@ -120,6 +120,24 @@ describe('createCorsOriginChecker', () => {
 
     expect(options.err).toBeNull();
     expect(options.origin).toBe(true);
+  });
+
+  it('does not turn CORS rejections into delegate errors', async () => {
+    const delegate = createCorsOptionsDelegate('https://botmem.xyz');
+    const options = await new Promise<{ err: Error | null; origin?: boolean }>((resolve) => {
+      delegate(
+        {
+          headers: { origin: 'https://evil.com' },
+          path: '/mcp',
+          originalUrl: '/mcp',
+          url: '/mcp',
+        } as never,
+        (err, opts) => resolve({ err, origin: opts?.origin as boolean | undefined }),
+      );
+    });
+
+    expect(options.err).toBeNull();
+    expect(options.origin).toBe(false);
   });
 
   it('trims whitespace in comma-separated origins', async () => {

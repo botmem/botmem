@@ -43,10 +43,10 @@ export class McpAuthGuard {
     }
 
     try {
-      const expectedAudience = `${this.config.baseUrl}/mcp`;
+      const allowedAudiences = this.allowedAudiences();
       const payload = this.jwtService.verify(token, {
         secret: this.config.oauthJwtSecret,
-        audience: expectedAudience,
+        audience: allowedAudiences,
       });
 
       return {
@@ -64,5 +64,28 @@ export class McpAuthGuard {
   /** The base URL for the WWW-Authenticate resource_metadata hint */
   get resourceMetadataUrl(): string {
     return `${this.config.baseUrl}/.well-known/oauth-protected-resource`;
+  }
+
+  private allowedAudiences(): [string, ...string[]] {
+    const configured = (process.env.MCP_ALLOWED_AUDIENCES || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const baseAudience = `${this.config.baseUrl}/mcp`;
+    return [
+      ...new Set([baseAudience, this.alternateBotmemAudience(baseAudience), ...configured]),
+    ] as [string, ...string[]];
+  }
+
+  private alternateBotmemAudience(audience: string): string {
+    try {
+      const url = new URL(audience);
+      // ponytail: only the known hosted apex/api pair; add MCP_ALLOWED_AUDIENCES for other deploys.
+      if (url.hostname === 'botmem.xyz') url.hostname = 'api.botmem.xyz';
+      else if (url.hostname === 'api.botmem.xyz') url.hostname = 'botmem.xyz';
+      return url.toString().replace(/\/$/, '');
+    } catch {
+      return audience;
+    }
   }
 }

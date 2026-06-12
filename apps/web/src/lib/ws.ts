@@ -1,4 +1,5 @@
 import { wsUrl } from './urls';
+import { useAuthStore } from '../store/authStore';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MessageHandler = (msg: { channel: string; event: string; data: any }) => void;
@@ -12,15 +13,13 @@ class WsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = 1000;
   private intentionalClose = false;
-  private token: string | null = null;
+  private refreshingAuth = false;
 
   connect(token?: string) {
-    if (token) {
-      this.token = token;
-    }
+    const authToken = useAuthStore.getState().accessToken || token;
 
     // Don't connect without a token -- server will reject with 4401
-    if (!this.token) return;
+    if (!authToken) return;
 
     if (
       this.ws &&
@@ -34,16 +33,25 @@ class WsClient {
     this.ws.onopen = () => {
       this.backoff = 1000;
       // Authenticate first, then re-subscribe all channels
-      this.ws!.send(JSON.stringify({ event: 'auth', data: { token: this.token } }));
+      const currentToken = useAuthStore.getState().accessToken;
+      if (!currentToken) {
+        this.close();
+        return;
+      }
+      this.ws!.send(JSON.stringify({ event: 'auth', data: { token: currentToken } }));
     };
 
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         // When auth is confirmed, re-subscribe all channels
-        if (msg.event === 'auth' && msg.data?.ok) {
-          for (const channel of this.channelRefs.keys()) {
-            this.ws!.send(JSON.stringify({ event: 'subscribe', data: { channel } }));
+        if (msg.event === 'auth') {
+          if (msg.data?.ok) {
+            for (const channel of this.channelRefs.keys()) {
+              this.ws!.send(JSON.stringify({ event: 'subscribe', data: { channel } }));
+            }
+          } else {
+            this.handleAuthFailure();
           }
           return;
         }
@@ -53,8 +61,12 @@ class WsClient {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
       if (this.intentionalClose) return;
+      if (event.code === 4401 || /auth|token|unauthor/i.test(event.reason)) {
+        this.handleAuthFailure();
+        return;
+      }
       this.scheduleReconnect();
     };
 
@@ -70,6 +82,22 @@ class WsClient {
       this.backoff = Math.min(this.backoff * 2, MAX_BACKOFF);
       this.connect();
     }, this.backoff);
+  }
+
+  private async handleAuthFailure() {
+    if (this.refreshingAuth) return;
+    this.refreshingAuth = true;
+    this.intentionalClose = true;
+    this.ws?.close();
+    this.ws = null;
+    const refreshed = await useAuthStore.getState().refreshSession();
+    this.refreshingAuth = false;
+    if (refreshed) {
+      this.intentionalClose = false;
+      this.connect();
+    } else {
+      this.close();
+    }
   }
 
   subscribe(channel: string, token?: string) {
@@ -114,3 +142,9 @@ class WsClient {
 }
 
 export const sharedWs = new WsClient();
+
+if (typeof window !== 'undefined') {
+  useAuthStore.subscribe((state, prev) => {
+    if (prev.accessToken && !state.accessToken) sharedWs.close();
+  });
+}

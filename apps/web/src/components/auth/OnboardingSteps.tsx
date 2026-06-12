@@ -22,6 +22,7 @@ interface OnboardingState {
   confirmed: boolean;
   demoLoading: boolean;
   demoError: string | null;
+  authError: string | null;
 }
 
 type OnboardingAction =
@@ -32,7 +33,8 @@ type OnboardingAction =
   | { type: 'SET_CONFIRMED'; confirmed: boolean }
   | { type: 'DEMO_START' }
   | { type: 'DEMO_ERROR'; error: string }
-  | { type: 'DEMO_DONE' };
+  | { type: 'DEMO_DONE' }
+  | { type: 'AUTH_ERROR'; error: string | null };
 
 function onboardingReducer(state: OnboardingState, action: OnboardingAction): OnboardingState {
   switch (action.type) {
@@ -52,6 +54,8 @@ function onboardingReducer(state: OnboardingState, action: OnboardingAction): On
       return { ...state, demoLoading: false, demoError: action.error };
     case 'DEMO_DONE':
       return { ...state, demoLoading: false };
+    case 'AUTH_ERROR':
+      return { ...state, authError: action.error };
   }
 }
 
@@ -67,21 +71,34 @@ export function OnboardingSteps() {
     confirmed: false,
     demoLoading: false,
     demoError: null,
+    authError: null,
   });
-  const { step, modalType, schedule, copied, confirmed, demoLoading, demoError } = state;
-  const { accounts, manifests, addAccount, fetchAccounts, loading } = useConnectors();
+  const { step, modalType, schedule, copied, confirmed, demoLoading, demoError, authError } = state;
+  const { accounts, manifests, fetchAccounts, updateSchedule, loading } = useConnectors();
   const { completeOnboarding } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Handle OAuth callback redirect — return user to the connect-sources step
   useEffect(() => {
+    const error =
+      searchParams.get('error') || (searchParams.get('auth') === 'error' ? 'error' : '');
+    if (error) {
+      dispatch({
+        type: 'AUTH_ERROR',
+        error: searchParams.get('error_description') || error,
+      });
+      dispatch({ type: 'SET_STEP', step: 2 });
+      setSearchParams({}, { replace: true });
+      return;
+    }
     if (searchParams.get('auth') === 'success') {
+      dispatch({ type: 'AUTH_ERROR', error: null });
       fetchAccounts();
       dispatch({ type: 'SET_STEP', step: 2 });
       setSearchParams({}, { replace: true });
     }
-  }, []);
+  }, [fetchAccounts, searchParams, setSearchParams]);
 
   // Prefer manifests from API over mock configs
   const displayConfigs =
@@ -94,7 +111,12 @@ export function OnboardingSteps() {
         }))
       : connectorConfigs;
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
+    await Promise.all(
+      accounts
+        .filter((a) => manifests.find((m) => m.id === a.type)?.sync?.configurable !== false)
+        .map((a) => updateSchedule(a.id, schedule)),
+    );
     completeOnboarding();
     navigate('/me');
   };
@@ -341,6 +363,10 @@ export function OnboardingSteps() {
             </div>
           )}
 
+          {authError && (
+            <p className="font-mono text-sm text-nb-red text-center mb-4">{authError}</p>
+          )}
+
           {accounts.length > 0 && (
             <Button
               size="lg"
@@ -387,7 +413,10 @@ export function OnboardingSteps() {
           open={!!modalType}
           onClose={() => dispatch({ type: 'SET_MODAL', modalType: null })}
           connectorType={modalType}
-          onConnect={(identifier) => addAccount(modalType, identifier)}
+          onConnect={() => {
+            fetchAccounts();
+            dispatch({ type: 'SET_MODAL', modalType: null });
+          }}
         />
       )}
     </div>

@@ -280,7 +280,7 @@ export const api = {
 
   // Accounts
   listAccounts: () => request<{ accounts: ConnectorAccount[] }>('/accounts'),
-  createAccount: (data: { connectorType: string; identifier: string }) =>
+  createAccount: (data: { connectorType: string; identifier: string; schedule?: string }) =>
     request<ConnectorAccount>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
   updateAccount: (id: string, data: { schedule?: string }) =>
     request<ConnectorAccount>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

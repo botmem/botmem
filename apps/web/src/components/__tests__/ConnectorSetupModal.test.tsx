@@ -114,6 +114,54 @@ describe('ConnectorSetupModal', () => {
     expect(await screen.findByText('CONNECT')).toBeInTheDocument();
   });
 
+  it('shows an error when auth completes without a backend account', async () => {
+    mockApi.initiateAuth.mockResolvedValue({ type: 'complete' });
+    const onConnect = vi.fn();
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={onConnect}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText('Client ID'), {
+      target: { value: 'client' },
+    });
+    fireEvent.change(screen.getByLabelText('Client Secret'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByText('CONNECT'));
+
+    expect(
+      await screen.findByText('Connection did not return a connected account'),
+    ).toBeInTheDocument();
+    expect(onConnect).not.toHaveBeenCalled();
+  });
+
+  it('shows auth initiation errors', async () => {
+    mockApi.initiateAuth.mockRejectedValue(new Error('OAuth denied'));
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText('Client ID'), {
+      target: { value: 'client' },
+    });
+    fireEvent.change(screen.getByLabelText('Client Secret'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByText('CONNECT'));
+
+    expect(await screen.findByText('OAuth denied')).toBeInTheDocument();
+  });
+
   it('renders Apple pairing copy without web-owned source controls', () => {
     useConnectorStore.setState({
       manifests: [

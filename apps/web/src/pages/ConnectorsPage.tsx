@@ -63,7 +63,6 @@ export function ConnectorsPage() {
   const {
     accounts,
     manifests,
-    addAccount,
     removeAccount,
     syncNow,
     syncAll,
@@ -73,14 +72,23 @@ export function ConnectorsPage() {
     clearError,
   } = useConnectors();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [oauthError, setOauthError] = useState<string | null>(null);
 
   // Handle OAuth callback redirect
   useEffect(() => {
+    const error =
+      searchParams.get('error') || (searchParams.get('auth') === 'error' ? 'error' : '');
+    if (error) {
+      setOauthError(searchParams.get('error_description') || error);
+      setSearchParams({}, { replace: true });
+      return;
+    }
     if (searchParams.get('auth') === 'success') {
+      setOauthError(null);
       fetchAccounts();
       setSearchParams({}, { replace: true });
     }
-  }, []);
+  }, [fetchAccounts, searchParams, setSearchParams]);
 
   // Subscribe to connector and job events so CLI-triggered syncs update this page too.
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -146,11 +154,14 @@ export function ConnectorsPage() {
         )}
       </div>
 
-      {error && (
+      {(error || oauthError) && (
         <div className="border-3 border-nb-red bg-nb-red/10 p-3 mb-4 flex items-center justify-between">
-          <span className="font-mono text-xs text-nb-text">{error}</span>
+          <span className="font-mono text-xs text-nb-text">{error || oauthError}</span>
           <button
-            onClick={clearError}
+            onClick={() => {
+              clearError();
+              setOauthError(null);
+            }}
             className="font-mono text-xs text-nb-muted hover:text-nb-text cursor-pointer uppercase"
           >
             Dismiss
@@ -238,7 +249,10 @@ export function ConnectorsPage() {
           open={!!modalType}
           onClose={() => setModalType(null)}
           connectorType={modalType}
-          onConnect={(identifier) => addAccount(modalType, identifier)}
+          onConnect={() => {
+            fetchAccounts();
+            setModalType(null);
+          }}
         />
       )}
 
