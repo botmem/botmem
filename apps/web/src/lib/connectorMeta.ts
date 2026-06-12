@@ -30,3 +30,7 @@ export const CONNECTOR_LABELS: Record<string, string> = {
 export function getConnectorIcon(type: string): string {
   return CONNECTOR_ICONS[type] ?? '?';
 }
+
+export function getConnectorGlyphClass(type: string): string {
+  return type === 'photos' || type === 'photos-immich' ? 'text-black' : '';
+}
