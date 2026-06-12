@@ -36,6 +36,7 @@ import { AnalyticsService } from '../analytics/analytics.service';
 
 const RAW_EVENT_RETRY_STATES = new Set(['pending', 'failed', 'quota_blocked']);
 const ACTIVE_JOB_STATES = new Set(['active', 'waiting', 'delayed', 'paused', 'prioritized']);
+export const MEMORY_RETRY_REMOVE_ON_COMPLETE = { age: 86400, count: 5000 };
 
 @ApiTags('Memories')
 @ApiBearerAuth()
@@ -201,7 +202,7 @@ export class MemoryController {
               attempts: 5,
               backoff: { type: 'exponential', delay: 10000 },
               jobId,
-              removeOnComplete: { age: 86400, count: 20000 },
+              removeOnComplete: MEMORY_RETRY_REMOVE_ON_COMPLETE,
               removeOnFail: { age: 604800, count: 20000 },
             },
           );
@@ -316,7 +317,7 @@ export class MemoryController {
             attempts: 5,
             backoff: { type: 'exponential', delay: 10000 },
             jobId,
-            removeOnComplete: { age: 86400, count: 20000 },
+            removeOnComplete: MEMORY_RETRY_REMOVE_ON_COMPLETE,
             removeOnFail: { age: 604800, count: 20000 },
           },
         );

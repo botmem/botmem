@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryController } from '../memory.controller';
+import { MEMORY_RETRY_REMOVE_ON_COMPLETE, MemoryController } from '../memory.controller';
 
 function createDbMock() {
   const where = vi.fn().mockResolvedValue(undefined);
@@ -106,6 +106,7 @@ describe('MemoryController raw event retry debt', () => {
       expect.objectContaining({
         attempts: 5,
         jobId: 'raw-event-retry-raw-1',
+        removeOnComplete: MEMORY_RETRY_REMOVE_ON_COMPLETE,
       }),
     );
   });
