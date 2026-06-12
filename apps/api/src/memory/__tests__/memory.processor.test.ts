@@ -230,7 +230,7 @@ describe('media extraction metadata', () => {
           kind: string;
           mimeType: string;
           fileName?: string;
-          hasInlineContent: boolean;
+          hasStoredContent: boolean;
           hasFetchableUrl: boolean;
           connectorUri?: string;
         } | null;
@@ -252,7 +252,7 @@ describe('media extraction metadata', () => {
       kind: 'file',
       mimeType: 'application/pdf',
       fileName: 'Flight Booking.pdf',
-      hasInlineContent: false,
+      hasStoredContent: false,
       hasFetchableUrl: false,
       connectorUri: 'gmail://attachment/att-123',
     });
@@ -356,6 +356,34 @@ describe('media extraction metadata', () => {
       connectorType: 'gmail',
       sourceId: 'message-1',
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reads blobRef media before connector-native attachments and generic URLs', async () => {
+    const processor = Object.create(MemoryProcessor.prototype) as {
+      blobStore: { get: ReturnType<typeof vi.fn> };
+      getFileBuffer(
+        metadata: Record<string, unknown>,
+        rawEvent: { accountId: string; connectorType: string; sourceId: string },
+      ): Promise<Buffer>;
+      fetchConnectorAttachment: ReturnType<typeof vi.fn>;
+    };
+    processor.blobStore = { get: vi.fn().mockResolvedValue(Buffer.from('blob bytes')) };
+    processor.fetchConnectorAttachment = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const buffer = await processor.getFileBuffer(
+      {
+        blobRef: 'sha256:abc',
+        fileUrl: 'https://example.com/should-not-be-fetched.pdf',
+        attachments: [{ uri: 'gmail://attachment/att-123', mimeType: 'application/pdf' }],
+      },
+      { accountId: 'account-1', connectorType: 'gmail', sourceId: 'message-1' },
+    );
+
+    expect(buffer.toString()).toBe('blob bytes');
+    expect(processor.blobStore.get).toHaveBeenCalledWith('sha256:abc');
+    expect(processor.fetchConnectorAttachment).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

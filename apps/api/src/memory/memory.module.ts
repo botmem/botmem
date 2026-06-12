@@ -10,6 +10,7 @@ import { CryptoModule } from '../crypto/crypto.module';
 import { JobsModule, JobsWorkerModule } from '../jobs/jobs.module';
 import { BillingModule } from '../billing/billing.module';
 import { GeoModule } from '../geo/geo.module';
+import { BlobStoreService } from '../blob/blob-store.service';
 import { OllamaService } from './ollama.service';
 import { OpenRouterService } from './openrouter.service';
 import { AiCacheService } from './ai-cache.service';
@@ -49,6 +50,7 @@ const memoryCommonProviders = [
   ContentCleaner,
   MemoryService,
   RawEventPipelineClassifier,
+  BlobStoreService,
 ];
 
 @Module({
