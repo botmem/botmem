@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useJobStore } from '../jobStore';
 import { useAuthStore } from '../authStore';
 import { sharedWs } from '../../lib/ws';
+import { api } from '../../lib/api';
+
+vi.mock('../../lib/api', () => ({
+  api: {
+    listJobs: vi.fn(),
+    listLogs: vi.fn(),
+  },
+}));
 
 vi.mock('../../lib/ws', () => ({
   sharedWs: {
@@ -15,7 +23,7 @@ vi.mock('../../lib/ws', () => ({
 
 describe('jobStore', () => {
   beforeEach(() => {
-    useJobStore.setState({ notifications: [] });
+    useJobStore.setState({ jobs: [], logsByAccount: {}, notifications: [] });
     vi.spyOn(useAuthStore, 'getState').mockReturnValue({
       user: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
       accessToken: 'token-1',
@@ -99,6 +107,84 @@ describe('jobStore', () => {
           'Memory limit reached (500 / 500). gmail sync will continue, but new memories require Pro.',
         read: false,
       });
+    });
+  });
+
+  describe('job activity', () => {
+    it('fetches jobs and merges account-scoped refreshes', async () => {
+      vi.mocked(api.listJobs).mockResolvedValueOnce({
+        jobs: [
+          {
+            id: 'j1',
+            connector: 'gmail',
+            accountId: 'a1',
+            accountIdentifier: 'test',
+            status: 'queued',
+            priority: 0,
+            progress: 0,
+            total: 0,
+            startedAt: null,
+            completedAt: null,
+            error: null,
+          },
+          {
+            id: 'j2',
+            connector: 'slack',
+            accountId: 'a2',
+            accountIdentifier: 'team',
+            status: 'done',
+            priority: 0,
+            progress: 1,
+            total: 1,
+            startedAt: null,
+            completedAt: null,
+            error: null,
+          },
+        ],
+      });
+      await useJobStore.getState().fetchJobs();
+
+      vi.mocked(api.listJobs).mockResolvedValueOnce({
+        jobs: [
+          {
+            id: 'j3',
+            connector: 'gmail',
+            accountId: 'a1',
+            accountIdentifier: 'test',
+            status: 'running',
+            priority: 0,
+            progress: 1,
+            total: 3,
+            startedAt: null,
+            completedAt: null,
+            error: null,
+          },
+        ],
+      });
+      await useJobStore.getState().fetchJobs('a1');
+
+      expect(useJobStore.getState().jobs.map((job) => job.id)).toEqual(['j3', 'j2']);
+    });
+
+    it('loads logs for an account', async () => {
+      vi.mocked(api.listLogs).mockResolvedValue({
+        logs: [
+          {
+            id: 'l1',
+            timestamp: '2026-06-12T00:00:00.000Z',
+            level: 'info',
+            connector: 'gmail',
+            stage: 'sync',
+            message: 'started',
+          },
+        ],
+        total: 1,
+      });
+
+      await useJobStore.getState().fetchLogs('a1', 'j1');
+
+      expect(api.listLogs).toHaveBeenCalledWith({ accountId: 'a1', jobId: 'j1', limit: 50 });
+      expect(useJobStore.getState().logsByAccount.a1[0].message).toBe('started');
     });
   });
 });

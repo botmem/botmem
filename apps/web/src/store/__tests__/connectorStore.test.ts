@@ -9,6 +9,8 @@ vi.mock('../../lib/api', () => ({
     deleteAccount: vi.fn(),
     updateAccount: vi.fn(),
     triggerSync: vi.fn(),
+    listJobs: vi.fn(),
+    listLogs: vi.fn(),
   },
 }));
 

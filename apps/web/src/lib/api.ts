@@ -1,4 +1,4 @@
-import type { ConnectorManifest, ConnectorAccount, Job } from '@botmem/shared';
+import type { ConnectorManifest, ConnectorAccount, Job, LogEntry } from '@botmem/shared';
 import { useAuthStore } from '../store/authStore';
 import { API_BASE, wsUrl } from './urls';
 
@@ -316,6 +316,14 @@ export const api = {
   // Jobs
   listJobs: (accountId?: string) =>
     request<{ jobs: Job[] }>(`/jobs${accountId ? `?accountId=${accountId}` : ''}`),
+  listLogs: (params: { accountId?: string; jobId?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.accountId) query.set('accountId', params.accountId);
+    if (params.jobId) query.set('jobId', params.jobId);
+    if (params.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return request<{ logs: LogEntry[]; total: number }>(`/logs${qs ? `?${qs}` : ''}`);
+  },
   triggerSync: (accountId: string, memoryBankId?: string) =>
     request<{ job: Job }>(`/jobs/sync/${accountId}`, {
       method: 'POST',

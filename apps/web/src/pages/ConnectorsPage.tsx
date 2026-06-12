@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ConnectorType } from '@botmem/shared';
-import { cn, CONNECTOR_COLORS } from '@botmem/shared';
+import { cn, CONNECTOR_COLORS, formatRelative } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -13,6 +13,8 @@ import { useConnectors } from '../hooks/useConnectors';
 import { api } from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from '../store/authStore';
+import { useJobStore } from '../store/jobStore';
+import { accountStatusView } from '../lib/accountStatus';
 import { EmptyState } from '../components/ui/EmptyState';
 
 const MAX_STATUS_POLLS = 60; // 5 minutes at 5s intervals
@@ -73,6 +75,8 @@ export function ConnectorsPage() {
   } = useConnectors();
   const [searchParams, setSearchParams] = useSearchParams();
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const jobs = useJobStore((s) => s.jobs);
+  const fetchJobs = useJobStore((s) => s.fetchJobs);
 
   // Handle OAuth callback redirect
   useEffect(() => {
@@ -86,9 +90,14 @@ export function ConnectorsPage() {
     if (searchParams.get('auth') === 'success') {
       setOauthError(null);
       fetchAccounts();
+      fetchJobs();
       setSearchParams({}, { replace: true });
     }
-  }, [fetchAccounts, searchParams, setSearchParams]);
+  }, [fetchAccounts, fetchJobs, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
 
   // Subscribe to connector and job events so CLI-triggered syncs update this page too.
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -101,6 +110,7 @@ export function ConnectorsPage() {
         (msg.channel === 'dashboard' && msg.event === 'dashboard:jobs')
       ) {
         fetchAccounts();
+        fetchJobs();
       }
     };
     sharedWs.subscribe('notifications', accessToken);
@@ -111,7 +121,16 @@ export function ConnectorsPage() {
       sharedWs.unsubscribe('dashboard');
       sharedWs.offMessage(handler);
     };
-  }, [fetchAccounts, accessToken]);
+  }, [fetchAccounts, fetchJobs, accessToken]);
+
+  useEffect(() => {
+    if (!jobs.some((job) => job.status === 'queued' || job.status === 'running')) return;
+    const timer = window.setInterval(() => {
+      fetchJobs();
+      fetchAccounts();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [fetchAccounts, fetchJobs, jobs]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
   const [editModal, setEditModal] = useState<{ type: ConnectorType; accountId: string } | null>(
@@ -172,6 +191,19 @@ export function ConnectorsPage() {
       <div className="flex flex-col gap-3" data-tour="connectors-grid">
         {displayConfigs.map((cfg) => {
           const typeAccounts = accounts.filter((a) => a.type === cfg.type);
+          const typeJobs = jobs.filter((job) => job.connector === cfg.type);
+          const activeStatus = typeAccounts
+            .map((account) =>
+              accountStatusView(
+                account,
+                typeJobs.filter((job) => job.accountId === account.id),
+              ),
+            )
+            .find((status) => status.status !== 'connected');
+          const lastSync = typeAccounts
+            .flatMap((account) => (account.lastSync ? [account.lastSync] : []))
+            .sort()
+            .at(-1);
           const isExpanded = expanded.has(cfg.type);
           return (
             <Card key={cfg.type} className="p-0 overflow-hidden">
@@ -201,10 +233,24 @@ export function ConnectorsPage() {
                     </div>
                     <p className="font-mono text-xs text-nb-muted">
                       {typeAccounts.length} accounts
+                      {lastSync ? ` • last sync ${formatRelative(lastSync)}` : ''}
                     </p>
                   </div>
                 </div>
-                <span className="font-bold text-lg">{isExpanded ? '−' : '+'}</span>
+                <div className="flex items-center gap-3">
+                  {typeAccounts.length > 0 && (
+                    <span
+                      className="border-2 border-nb-border px-2 py-1 font-mono text-[11px] font-bold uppercase"
+                      style={{
+                        color: activeStatus?.color || 'var(--color-nb-green)',
+                        backgroundColor: 'var(--color-nb-surface)',
+                      }}
+                    >
+                      {activeStatus?.label || 'CONNECTED'}
+                    </span>
+                  )}
+                  <span className="font-bold text-lg">{isExpanded ? '−' : '+'}</span>
+                </div>
               </button>
               {isExpanded && (
                 <div
