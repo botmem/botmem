@@ -31,9 +31,24 @@ function statusLabel(status: string): string {
 function actionLabel(account: ConnectorAccount, authType?: string): string {
   const action = account.syncHealth?.recoveryAction;
   if (action === 'rescan_qr' || authType === 'qr-code') return 'RE-SCAN QR';
-  if (action === 'start_bridge') return 'BRIDGE HELP';
+  if (action === 'start_bridge') return 'RECONNECT BRIDGE';
   if (action === 'reconnect') return 'RECONNECT';
   return 'EDIT';
+}
+
+const APPLE_BRIDGE_REMEDIATION =
+  'Start the Botmem Apple bridge from connector setup, then run `botmem sync';
+
+function appleBridgeError(account: ConnectorAccount) {
+  if (
+    !(account.type === 'apple' || account.type === 'imessage') ||
+    account.status !== 'failed' ||
+    !account.lastError
+  ) {
+    return account.lastError;
+  }
+  const idx = account.lastError.indexOf(APPLE_BRIDGE_REMEDIATION);
+  return idx === -1 ? account.lastError : account.lastError.slice(0, idx).trim();
 }
 
 interface ConnectorAccountRowProps {
@@ -211,7 +226,7 @@ export function ConnectorAccountRow({
                   ? 'Reconnect required: '
                   : 'Warning: '}
             </span>
-            {account.lastError}
+            {appleBridgeError(account)}
             {(account.type === 'apple' || account.type === 'imessage') &&
               account.status === 'failed' && (
                 <span className="block mt-1 text-nb-muted">

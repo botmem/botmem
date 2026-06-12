@@ -108,4 +108,57 @@ describe('ConnectorAccountRow', () => {
 
     expect(screen.getByText(/botmem sync/)).toHaveTextContent('botmem sync apple-msg-1');
   });
+
+  it('labels Apple bridge recovery as reconnect bridge', () => {
+    const onEdit = vi.fn();
+    render(
+      <ConnectorAccountRow
+        account={{
+          ...baseAccount,
+          id: 'apple-1',
+          type: 'apple',
+          status: 'failed',
+          lastError: 'Apple bridge not connected',
+          syncHealth: {
+            phase: null,
+            lastActivityAt: null,
+            activeJobId: null,
+            queuedJobId: null,
+            progress: null,
+            total: null,
+            recoveryAction: 'start_bridge',
+            recoveryReason: 'Apple bridge not connected',
+          },
+        }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={onEdit}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('RECONNECT BRIDGE'));
+    expect(onEdit).toHaveBeenCalledWith('apple-1');
+  });
+
+  it('dedupes Apple bridge remediation copy in the error banner', () => {
+    const remediation =
+      'Start the Botmem Apple bridge from connector setup, then run `botmem sync apple-msg-1`.';
+    render(
+      <ConnectorAccountRow
+        account={{
+          ...baseAccount,
+          id: 'apple-msg-1',
+          type: 'imessage',
+          status: 'failed',
+          lastError: `iMessage bridge not connected ${remediation}`,
+        }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Error:/)).toHaveTextContent('iMessage bridge not connected');
+    expect(screen.getAllByText(/Start the Botmem Apple bridge/)).toHaveLength(1);
+  });
 });

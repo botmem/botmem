@@ -80,13 +80,19 @@ export function ConnectorsPage() {
       searchParams.get('error') || (searchParams.get('auth') === 'error' ? 'error' : '');
     if (error) {
       setOauthError(searchParams.get('error_description') || error);
-      setSearchParams({}, { replace: true });
+      const params = new URLSearchParams(searchParams);
+      params.delete('auth');
+      params.delete('error');
+      params.delete('error_description');
+      setSearchParams(params, { replace: true });
       return;
     }
     if (searchParams.get('auth') === 'success') {
       setOauthError(null);
       fetchAccounts();
-      setSearchParams({}, { replace: true });
+      const params = new URLSearchParams(searchParams);
+      params.delete('auth');
+      setSearchParams(params, { replace: true });
     }
   }, [fetchAccounts, searchParams, setSearchParams]);
 
@@ -112,11 +118,12 @@ export function ConnectorsPage() {
       sharedWs.offMessage(handler);
     };
   }, [fetchAccounts, accessToken]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
-  const [editModal, setEditModal] = useState<{ type: ConnectorType; accountId: string } | null>(
-    null,
-  );
+  const [editModal, setEditModal] = useState<{
+    type: ConnectorType;
+    accountId: string;
+    identifier: string;
+  } | null>(null);
 
   // Use manifests from API if available, fall back to mock configs
   const displayConfigs =
@@ -129,11 +136,25 @@ export function ConnectorsPage() {
         }))
       : connectorConfigs;
 
+  const expanded = new Set(
+    searchParams
+      .get('expanded')
+      ?.split(',')
+      .filter(Boolean) || [],
+  );
+  for (const account of accounts) {
+    if (account.status === 'syncing' || account.status === 'queued') expanded.add(account.type);
+  }
+
   const toggle = (type: string) => {
     const next = new Set(expanded);
     if (next.has(type)) next.delete(type);
     else next.add(type);
-    setExpanded(next);
+    const params = new URLSearchParams(searchParams);
+    const value = [...next].sort().join(',');
+    if (value) params.set('expanded', value);
+    else params.delete('expanded');
+    setSearchParams(params, { replace: true });
   };
 
   return (
@@ -221,7 +242,13 @@ export function ConnectorsPage() {
                         syncConfig={manifest?.sync}
                         onRemove={removeAccount}
                         onSyncNow={(id: string, memoryBankId?: string) => syncNow(id, memoryBankId)}
-                        onEdit={(id) => setEditModal({ type: cfg.type, accountId: id })}
+                        onEdit={(id) =>
+                          setEditModal({
+                            type: cfg.type,
+                            accountId: id,
+                            identifier: acc.identifier,
+                          })
+                        }
                       />
                     );
                   })}
@@ -265,6 +292,7 @@ export function ConnectorsPage() {
           onClose={() => setEditModal(null)}
           connectorType={editModal.type}
           editAccountId={editModal.accountId}
+          editIdentifier={editModal.identifier}
           onConnect={() => {
             fetchAccounts();
             setEditModal(null);
