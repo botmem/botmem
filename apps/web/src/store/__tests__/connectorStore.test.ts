@@ -16,7 +16,7 @@ import { api } from '../../lib/api';
 
 describe('connectorStore', () => {
   beforeEach(() => {
-    useConnectorStore.setState({ accounts: [], manifests: [], loading: false });
+    useConnectorStore.setState({ accounts: [], manifests: [], loading: false, error: null });
     vi.clearAllMocks();
   });
 
@@ -65,44 +65,29 @@ describe('connectorStore', () => {
       expect(useConnectorStore.getState().accounts[0].id).toBe('a1');
     });
 
-    it('creates local account on API failure', async () => {
+    it('does not create a local connected account on API failure', async () => {
       (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('fail'),
       );
-      await useConnectorStore.getState().addAccount('gmail', 'test');
-      const accounts = useConnectorStore.getState().accounts;
-      expect(accounts).toHaveLength(1);
-      expect(accounts[0].type).toBe('gmail');
-      expect(accounts[0].status).toBe('connected');
-      expect(accounts[0].schedule).toBe('daily');
+      await expect(useConnectorStore.getState().addAccount('gmail', 'test')).rejects.toThrow(
+        'fail',
+      );
+      expect(useConnectorStore.getState().accounts).toEqual([]);
+      expect(useConnectorStore.getState().error).toBe('fail');
     });
 
-    it('creates local WhatsApp account without scheduled sync on API failure', async () => {
-      useConnectorStore.setState({
-        manifests: [
-          {
-            id: 'whatsapp',
-            name: 'WhatsApp',
-            description: 'Import chat messages from WhatsApp',
-            color: '#22C55E',
-            icon: 'message-circle',
-            authType: 'qr-code',
-            configSchema: {},
-            entities: ['person', 'message'],
-            pipeline: { clean: true, embed: true, enrich: false },
-            trustScore: 0.8,
-            sync: { defaultSchedule: 'manual', configurable: false },
-          },
-        ],
+    it('sends selected schedule when creating an account', async () => {
+      const account = { id: 'a1', type: 'gmail', identifier: 'test', status: 'connected' };
+      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(account);
+      (api.listAccounts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        accounts: [account],
       });
-      (api.createAccount as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('fail'),
-      );
-      await useConnectorStore.getState().addAccount('whatsapp', 'whatsapp');
-      const accounts = useConnectorStore.getState().accounts;
-      expect(accounts).toHaveLength(1);
-      expect(accounts[0].type).toBe('whatsapp');
-      expect(accounts[0].schedule).toBe('manual');
+      await useConnectorStore.getState().addAccount('gmail', 'test', 'hourly');
+      expect(api.createAccount).toHaveBeenCalledWith({
+        connectorType: 'gmail',
+        identifier: 'test',
+        schedule: 'hourly',
+      });
     });
   });
 
