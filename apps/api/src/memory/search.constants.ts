@@ -5,6 +5,8 @@ export const HYBRID_K_CAP = 250;
 export const INJECTED_CONTACT_BASELINE = 0.4;
 export const CONTACT_BOOST_MIXED = 1.2;
 export const CONTACT_BOOST_PURE_MULTI = 1.3;
+export const FINAL_SCORE_FLOOR = 0;
+export const SCORER_PLUGIN_BONUS_LIMIT = 0.05;
 export const RECENCY_DECAY_RATE = 0.005;
 export const DIVERSITY_FACTOR_DEFAULT = 0.25;
 

@@ -37,7 +37,7 @@ export function TimelineMemoryItem({ memory, selected, onClick }: TimelineMemory
           className="font-bold text-[11px] px-1 border border-nb-border"
           style={{ color: score > 0.7 ? 'var(--color-nb-lime)' : 'var(--color-nb-muted)' }}
         >
-          {(score * 100).toFixed(0)}%
+          {(Math.min(score, 1) * 100).toFixed(0)}%
         </span>
       </div>
       <p className="text-nb-text line-clamp-2 text-[11px] mb-1">{memory.text}</p>
