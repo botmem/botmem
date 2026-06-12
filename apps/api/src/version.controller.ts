@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from './user-auth/decorators/public.decorator';
 import { ConfigService } from './config/config.service';
 
@@ -41,6 +42,7 @@ const BUILD_METADATA = resolveBuildMetadata();
 
 @ApiTags('System')
 @Public()
+@SkipThrottle()
 @Controller('version')
 export class VersionController {
   constructor(private config: ConfigService) {}
