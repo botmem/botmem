@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import type { ConnectorAccount, ConnectorManifest, SyncSchedule } from '@botmem/shared';
 import { cn, formatRelative, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
@@ -47,8 +48,8 @@ export function ConnectorAccountRow({
   syncConfig,
 }: ConnectorAccountRowProps) {
   const { memoryBanks, activeMemoryBankId } = useMemoryBankStore();
-  const jobs = useJobStore((s) => s.jobs.filter((job) => job.accountId === account.id));
-  const logs = useJobStore((s) => s.logsByAccount[account.id] || []);
+  const jobs = useJobStore(useShallow((s) => s.jobs.filter((job) => job.accountId === account.id)));
+  const logs = useJobStore(useShallow((s) => s.logsByAccount[account.id] || []));
   const fetchLogs = useJobStore((s) => s.fetchLogs);
   const defaultBankId = activeMemoryBankId || memoryBanks.find((b) => b.isDefault)?.id;
   const [selectedBankId, setSelectedBankId] = useState(defaultBankId);
