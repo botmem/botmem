@@ -64,4 +64,12 @@ describe('MemoryDetailCore', () => {
     );
     expect(screen.getByText(/Sarah Ahmed/)).toBeDefined();
   });
+
+  it('renders a thumbnail surface for photo memories without trusting upstream fileUrl metadata', () => {
+    render(
+      <MemoryDetailCore {...baseProps} source="photo" metadata={{ width: 640, height: 480 }} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Open memory thumbnail' })).toBeInTheDocument();
+  });
 });

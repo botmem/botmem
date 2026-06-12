@@ -10,6 +10,8 @@ import { rawEvents } from '../db/schema';
 import { rawEventSourceHash } from '../db/raw-event-source-hash';
 import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 
+export const MIN_EVENT_TIME = new Date('1970-01-01T00:00:00.000Z');
+
 export interface RawEventIngestInput {
   accountId: string;
   connectorType: string;
@@ -37,6 +39,10 @@ export class RawEventIngestService {
     const rawEventId = randomUUID();
     const now = new Date();
     const event = await this.offloadInlineMedia(input.event);
+    const eventTime = new Date(event.timestamp);
+    if (!Number.isFinite(eventTime.getTime()) || eventTime < MIN_EVENT_TIME) {
+      throw new Error('Invalid event timestamp');
+    }
     const connectorType = canonicalConnectorType(input.connectorType);
     const sourceHash = rawEventSourceHash(input.accountId, connectorType, input.event.sourceId);
 
@@ -51,7 +57,7 @@ export class RawEventIngestService {
           sourceHash,
           sourceType: event.sourceType,
           payload: this.crypto.encrypt(JSON.stringify(event))!,
-          timestamp: new Date(event.timestamp),
+          timestamp: eventTime,
           jobId: input.jobId ?? null,
           createdAt: now,
         })

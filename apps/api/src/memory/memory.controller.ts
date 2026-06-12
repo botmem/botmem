@@ -518,6 +518,22 @@ export class MemoryController {
       return res.send(buffer);
     }
 
+    if (memory.connectorType === 'photos') {
+      try {
+        const asset = await this.memoryService.getRawAssetById(id, user.id, undefined, 'thumbnail');
+        if (asset) {
+          res.setHeader('Content-Type', asset.contentType);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          if (asset.contentLength != null) {
+            res.setHeader('Content-Length', String(asset.contentLength));
+          }
+          return res.send(asset.buffer);
+        }
+      } catch {
+        return res.status(HttpStatus.BAD_GATEWAY).json({ error: 'upstream failed' });
+      }
+    }
+
     const fileUrl: string | undefined = metadata.fileUrl as string | undefined;
     if (!fileUrl) return res.status(HttpStatus.NOT_FOUND).json({ error: 'no file' });
 

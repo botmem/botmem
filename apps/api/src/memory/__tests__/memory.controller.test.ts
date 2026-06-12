@@ -18,6 +18,8 @@ function createController() {
   const db = createDbMock();
   const memoryService = {
     needsRecoveryKey: vi.fn().mockResolvedValue(false),
+    getById: vi.fn(),
+    getRawAssetById: vi.fn(),
   };
   const memoryQueue = {
     getJob: vi.fn().mockResolvedValue(null),
@@ -122,5 +124,39 @@ describe('MemoryController raw event retry debt', () => {
 
     expect(db.execute).not.toHaveBeenCalled();
     expect(memoryQueue.add).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryController thumbnails', () => {
+  it('serves photo thumbnails through the raw asset backend without requiring fileUrl metadata', async () => {
+    const { controller, memoryService } = createController();
+    memoryService.getById.mockResolvedValueOnce({
+      id: 'mem-1',
+      connectorType: 'photos',
+      metadata: {},
+    });
+    memoryService.getRawAssetById.mockResolvedValueOnce({
+      contentType: 'image/jpeg',
+      contentLength: 3,
+      fileName: 'thumb.jpg',
+      buffer: Buffer.from('img'),
+    });
+    const res = {
+      setHeader: vi.fn(),
+      send: vi.fn(),
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+
+    await controller.getThumbnail('mem-1', { id: 'user-1' }, res as never);
+
+    expect(memoryService.getRawAssetById).toHaveBeenCalledWith(
+      'mem-1',
+      'user-1',
+      undefined,
+      'thumbnail',
+    );
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
+    expect(res.send).toHaveBeenCalledWith(Buffer.from('img'));
   });
 });
