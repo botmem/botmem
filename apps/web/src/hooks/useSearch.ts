@@ -34,6 +34,7 @@ export interface UseSearchReturn {
   pending: boolean;
   pendingMore: boolean;
   hasMore: boolean;
+  error: string | null;
   results: SearchResult | null;
   clear: () => void;
   loadMore: () => Promise<void>;
@@ -49,9 +50,11 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
   const [pending, setPending] = useState(false);
   const [pendingMore, setPendingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchResult | null>(null);
   const hadResults = useRef(false);
   const currentLimit = useRef(pageSize);
+  const requestSeq = useRef(0);
   const onResultsRef = useRef(onResults);
   const onClearRef = useRef(onClear);
 
@@ -100,17 +103,23 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
     setPending(false);
     setPendingMore(false);
     setHasMore(false);
+    setError(null);
     setResults(null);
     currentLimit.current = pageSize;
     hadResults.current = false;
+    requestSeq.current++;
     onClearRef.current?.();
   }, [pageSize]);
 
   const runSearch = useCallback(
     async (query: string, requestedLimit: number) => {
+      const seq = ++requestSeq.current;
       const bankId = useMemoryBankStore.getState().activeMemoryBankId;
       const res = await api.searchMemories(query, undefined, requestedLimit, bankId || undefined);
+      if (seq !== requestSeq.current) return false;
+      setError(null);
       applyResponse(res, requestedLimit);
+      return true;
     },
     [applyResponse],
   );
@@ -127,10 +136,14 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
 
     setPendingMore(true);
     try {
-      await runSearch(trimmed, nextLimit);
-      currentLimit.current = nextLimit;
+      const applied = await runSearch(trimmed, nextLimit);
+      if (applied) currentLimit.current = nextLimit;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed');
+      setResults(null);
+      setHasMore(false);
     } finally {
-      setPendingMore(false);
+      if (trimmed === term.trim()) setPendingMore(false);
     }
   }, [hasMore, minLength, pageSize, pending, pendingMore, runSearch, term]);
 
@@ -143,28 +156,40 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
       setPending(false);
       setPendingMore(false);
       setHasMore(false);
+      setError(null);
       currentLimit.current = pageSize;
+      requestSeq.current++;
       if (shouldNotify) onClearRef.current?.();
       return;
     }
-    if (trimmed.length < minLength) return;
+    if (trimmed.length < minLength) {
+      requestSeq.current++;
+      return;
+    }
 
+    const seq = ++requestSeq.current;
     const timer = setTimeout(async () => {
       setPending(true);
       setHasMore(false);
+      setError(null);
       currentLimit.current = pageSize;
       try {
-        await runSearch(trimmed, pageSize);
-        setPending(false);
-      } catch {
+        const bankId = useMemoryBankStore.getState().activeMemoryBankId;
+        const res = await api.searchMemories(trimmed, undefined, pageSize, bankId || undefined);
+        if (seq !== requestSeq.current) return;
+        applyResponse(res, pageSize);
+      } catch (err) {
+        if (seq !== requestSeq.current) return;
+        setError(err instanceof Error ? err.message : 'Search failed');
         setResults(null);
         setHasMore(false);
-        setPending(false);
+      } finally {
+        if (seq === requestSeq.current) setPending(false);
       }
     }, debounceMs);
 
     return () => clearTimeout(timer);
-  }, [debounceMs, minLength, pageSize, runSearch, term]);
+  }, [applyResponse, debounceMs, minLength, pageSize, term]);
 
-  return { term, setTerm, pending, pendingMore, hasMore, results, clear, loadMore };
+  return { term, setTerm, pending, pendingMore, hasMore, error, results, clear, loadMore };
 }

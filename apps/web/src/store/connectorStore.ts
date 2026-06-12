@@ -15,7 +15,7 @@ interface ConnectorState {
   error: string | null;
   fetchManifests: () => Promise<void>;
   fetchAccounts: () => Promise<void>;
-  addAccount: (type: ConnectorType, identifier: string) => Promise<void>;
+  addAccount: (type: ConnectorType, identifier: string, schedule?: SyncSchedule) => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
   updateSchedule: (id: string, schedule: SyncSchedule) => Promise<void>;
   syncNow: (id: string, memoryBankId?: string) => Promise<void>;
@@ -53,32 +53,20 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
     }
   },
 
-  addAccount: async (type, identifier) => {
+  addAccount: async (type, identifier, schedule) => {
     try {
-      const account = await api.createAccount({ connectorType: type, identifier });
+      const account = await api.createAccount({ connectorType: type, identifier, schedule });
       trackEvent('connector_added', { connector_type: type });
-      set((state) => ({ accounts: [...state.accounts, account] }));
-    } catch {
-      // Fallback to local-only
-      const manifest = _get().manifests.find((m) => m.id === type);
-      const defaultSchedule = manifest?.sync?.defaultSchedule ?? 'daily';
-      set((state) => ({
-        accounts: [
-          ...state.accounts,
-          {
-            id: crypto.randomUUID(),
-            type,
-            identifier,
-            status: 'connected' as const,
-            schedule: defaultSchedule,
-            lastSync: null,
-            memoriesIngested: 0,
-            contactsCount: 0,
-            groupsCount: 0,
-            lastError: null,
-          },
-        ],
-      }));
+      await _get().fetchAccounts();
+      set((state) =>
+        state.accounts.some((a) => a.id === account.id)
+          ? state
+          : { accounts: [...state.accounts, account] },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to connect account';
+      set({ error: message });
+      throw err;
     }
   },
 

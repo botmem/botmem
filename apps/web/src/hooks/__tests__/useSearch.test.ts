@@ -159,6 +159,47 @@ describe('useSearch', () => {
     });
 
     expect(result.current.results).toBeNull();
+    expect(result.current.error).toBe('Network error');
     expect(result.current.pending).toBe(false);
+  });
+
+  it('does not let a stale slower response overwrite a newer one', async () => {
+    let resolveSlow: (value: typeof mockSearchResult) => void = () => {};
+    vi.mocked(api.searchMemories)
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveSlow = resolve;
+      }) as never)
+      .mockResolvedValueOnce({
+        ...mockSearchResult,
+        items: [{ id: 'mem-new', text: 'New result' }],
+      } as never);
+
+    const { result } = renderHook(() => useSearch({ debounceMs: 100 }));
+
+    act(() => {
+      result.current.setTerm('old query');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.setTerm('new query');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await vi.runAllTimersAsync();
+    });
+
+    await act(async () => {
+      resolveSlow({
+        ...mockSearchResult,
+        items: [{ id: 'mem-old', text: 'Old result' }],
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.results?.items[0].id).toBe('mem-new');
   });
 });

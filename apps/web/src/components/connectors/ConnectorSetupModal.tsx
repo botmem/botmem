@@ -21,6 +21,7 @@ const FIREBASE_HIDDEN_FIELDS = new Set([
 const APPLE_BRIDGE_GITHUB_RELEASE_URL =
   (import.meta.env.VITE_APPLE_BRIDGE_GITHUB_RELEASE_URL as string | undefined) ||
   'https://github.com/botmem/botmem/releases/latest';
+const AUTH_TIMEOUT_MS = 120_000;
 
 interface ConnectorSetupModalProps {
   open: boolean;
@@ -165,6 +166,17 @@ function schemaToFields(schema: JsonSchema): SchemaField[] {
   }));
 }
 
+function authErrorMessage(err: unknown, fallback: string) {
+  const raw = (err instanceof Error ? err.message : String(err)) || '';
+  const jsonMatch = raw.match(/API \d+: (.+)/s);
+  if (!jsonMatch) return raw || fallback;
+  try {
+    return JSON.parse(jsonMatch[1]).message || fallback;
+  } catch {
+    return jsonMatch[1] || fallback;
+  }
+}
+
 // --- Step indicator for multi-step flows ---
 
 function StepIndicator({ current, total }: { current: number; total: number }) {
@@ -236,6 +248,17 @@ function PhoneCodeAuthView({
     if (step === '2fa') passwordInputRef.current?.focus();
   }, [step]);
 
+  useEffect(() => {
+    if (step === 'phone' || error) return;
+    // ponytail: fixed timeout; make it server-driven if auth sessions gain explicit expiry.
+    const timer = setTimeout(() => {
+      setError('Authentication timed out. Try again.');
+      setLoading(false);
+      cleanupWs();
+    }, AUTH_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [cleanupWs, error, step]);
+
   const setupWsListener = useCallback(
     (channel: string) => {
       const ws = createWsConnection();
@@ -304,17 +327,7 @@ function PhoneCodeAuthView({
         setLoading(false);
       }
     } catch (err: unknown) {
-      let msg = 'Failed to send code';
-      const raw = (err instanceof Error ? err.message : String(err)) || '';
-      const jsonMatch = raw.match(/API \d+: (.+)/s);
-      if (jsonMatch) {
-        try {
-          msg = JSON.parse(jsonMatch[1]).message || msg;
-        } catch {
-          msg = jsonMatch[1];
-        }
-      }
-      setError(msg);
+      setError(authErrorMessage(err, 'Failed to send code'));
       setLoading(false);
     }
   };
@@ -784,6 +797,19 @@ function QrAuthView({
       );
   }, [connectorType, wsRef, cleanupWs, fetchAccounts, onClose, dispatch]);
 
+  useEffect(() => {
+    if (!state.qrData || state.qrError) return;
+    // ponytail: fixed timeout; replace with backend expiry when QR auth exposes one.
+    const timer = setTimeout(() => {
+      dispatch({
+        type: 'QR_ERROR',
+        error: 'QR login timed out. Generate a new code and try again.',
+      });
+      cleanupWs();
+    }, AUTH_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [cleanupWs, dispatch, state.qrData, state.qrError]);
+
   return (
     <Modal
       open
@@ -868,26 +894,19 @@ function FormView({
       }
 
       if (result.type === 'complete') {
-        onConnect(result.account?.identifier || connectorType);
+        if (!result.account) {
+          dispatch({ type: 'SET_ERROR', error: 'Connection did not return a connected account' });
+          return;
+        }
+        onConnect(result.account.identifier || connectorType);
         dispatch({ type: 'RESET_VALUES' });
         onClose();
         return;
       }
 
-      onClose();
+      dispatch({ type: 'SET_ERROR', error: 'Connection did not complete' });
     } catch (err: unknown) {
-      let msg = 'Connection failed — check your configuration';
-      const raw = (err instanceof Error ? err.message : String(err)) || '';
-      // Parse NestJS error body from "API 400: {json}"
-      const jsonMatch = raw.match(/API \d+: (.+)/s);
-      if (jsonMatch) {
-        try {
-          msg = JSON.parse(jsonMatch[1]).message || msg;
-        } catch {
-          msg = jsonMatch[1];
-        }
-      }
-      dispatch({ type: 'SET_ERROR', error: msg });
+      dispatch({ type: 'SET_ERROR', error: authErrorMessage(err, 'Connection failed') });
     } finally {
       dispatch({ type: 'SET_LOADING', loading: false });
     }
@@ -1055,7 +1074,11 @@ export function ConnectorSetupModal({
               .then((result) => {
                 if (result.type === 'redirect' && result.url) window.location.href = result.url;
               })
-              .catch(() => {
+              .catch((err) => {
+                dispatch({
+                  type: 'SET_ERROR',
+                  error: authErrorMessage(err, 'Authorization failed'),
+                });
                 dispatch({ type: 'CREDENTIALS_CHECKED' });
                 dispatch({ type: 'SET_LOADING', loading: false });
               });
