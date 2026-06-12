@@ -64,4 +64,16 @@ describe('MemoryDetailCore', () => {
     );
     expect(screen.getByText(/Sarah Ahmed/)).toBeDefined();
   });
+
+  it('shows the semantic score row even when it is zero', () => {
+    render(
+      <MemoryDetailCore
+        {...baseProps}
+        weights={{ semantic: 0, recency: 0.2, importance: 0.3, trust: 0.4, final: 0.5 }}
+      />,
+    );
+
+    expect(screen.getByText('semantic')).toBeDefined();
+    expect(screen.getByText('final')).toBeDefined();
+  });
 });

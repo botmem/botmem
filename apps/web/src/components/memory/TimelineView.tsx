@@ -11,6 +11,7 @@ interface TimelineViewProps {
   loadingMore?: boolean;
   hasMore?: boolean;
   onLoadMore?: () => void | Promise<void>;
+  emptyMessage?: string;
 }
 
 export function TimelineView({
@@ -19,6 +20,7 @@ export function TimelineView({
   loadingMore = false,
   hasMore = false,
   onLoadMore,
+  emptyMessage = 'No memories found. Try a search query.',
 }: TimelineViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -71,7 +73,7 @@ export function TimelineView({
           )}
           {!loading && memories.length === 0 && (
             <div className="p-8 text-center font-mono text-sm text-nb-muted">
-              No memories found. Try a search query.
+              {emptyMessage}
             </div>
           )}
           {dayGroups.map(([day, mems]) => (

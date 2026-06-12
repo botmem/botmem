@@ -143,6 +143,18 @@ describe('contactStore', () => {
     vi.useRealTimers();
   });
 
+  it('reapplies the current query when switching to groups', async () => {
+    useContactStore.setState({ searchQuery: 'team' });
+    vi.mocked(api.searchContacts).mockResolvedValue([
+      { ...rawAlice, id: 'g1', displayName: 'Team Chat', entityType: 'group' },
+    ] as never);
+
+    useContactStore.getState().setEntityFilter('group');
+
+    expect(api.searchContacts).toHaveBeenCalledWith('team', 'group');
+    expect(api.listContacts).not.toHaveBeenCalled();
+  });
+
   it('loads merge suggestions and refreshes visible contacts', async () => {
     useContactStore.setState({ contacts: [rawAlice as any], total: 1 });
     vi.mocked(api.getMergeSuggestions).mockResolvedValue([

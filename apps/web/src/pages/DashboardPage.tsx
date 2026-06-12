@@ -275,6 +275,11 @@ export function DashboardPage() {
               loadingMore={searchTimelineMemories ? graphSearch.pendingMore : timelineLoadingMore}
               hasMore={searchTimelineMemories ? graphSearch.hasMore : timelineHasMore}
               onLoadMore={searchTimelineMemories ? graphSearch.loadMore : loadMoreMemories}
+              emptyMessage={
+                graphSearch.results?.lowConfidence
+                  ? `No real matches for "${graphSearch.term}".`
+                  : undefined
+              }
             />
           </Suspense>
         )}

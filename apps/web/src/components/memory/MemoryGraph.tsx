@@ -147,6 +147,16 @@ export function MemoryGraph({
     return () => observer.disconnect();
   }, [ForceGraph, ui.isFullscreen]);
 
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const keepPageScroll = (event: WheelEvent) => {
+      if (!event.metaKey && !event.ctrlKey) event.stopImmediatePropagation();
+    };
+    el.addEventListener('wheel', keepPageScroll, { capture: true });
+    return () => el.removeEventListener('wheel', keepPageScroll, { capture: true });
+  }, [ForceGraph]);
+
   const connectionCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const link of data.links) {
@@ -203,6 +213,7 @@ export function MemoryGraph({
     adjacency,
     linkColor,
     linkWidth,
+    zoomToFitClamped,
   } = useFilteredGraph({
     data,
     filters,
@@ -235,8 +246,8 @@ export function MemoryGraph({
 
   const handleNodeDoubleClick = useCallback(
     async (node: GraphNode) => {
+      dispatchUI({ type: 'selectNode', node });
       await expandNode(node.id);
-      dispatchUI({ type: 'doubleClickNode', node });
     },
     [expandNode],
   );
@@ -341,10 +352,13 @@ export function MemoryGraph({
   });
 
   const graphNotReady = !ForceGraph || (graphLoading && data.nodes.length === 0);
+  const staleSearch = searchState.pending && !!searchState.results;
 
   const totalNodes = data.nodes.length;
   const visibleNodes = filteredData.nodes.length;
-  const matchCount = searchMatchIds?.size || 0;
+  const matchCount = searchMatchIds
+    ? filteredData.nodes.filter((node) => searchMatchIds.has(node.id)).length
+    : 0;
 
   return (
     <div
@@ -356,6 +370,8 @@ export function MemoryGraph({
       <div className="flex items-center gap-4 mb-2 font-mono text-xs text-nb-muted uppercase">
         {graphNotReady ? (
           <span className="text-nb-lime">LOADING...</span>
+        ) : searchState.pending ? (
+          <span className="text-nb-lime">SEARCHING...</span>
         ) : (
           <>
             <span>
@@ -390,6 +406,9 @@ export function MemoryGraph({
         <SearchResultsBanner
           resolvedEntities={searchState.results.resolvedEntities ?? null}
           resultCount={searchState.results.memoryIds.size}
+          searchFallback={search.results?.fallback || search.results?.lowConfidence}
+          query={search.term}
+          parsed={search.results?.parsed}
         />
       )}
 
@@ -398,6 +417,7 @@ export function MemoryGraph({
         className={cn(
           'relative border-3 border-nb-border bg-nb-surface overflow-hidden',
           ui.isFullscreen && 'flex-1',
+          staleSearch && 'opacity-45',
         )}
         style={ui.isFullscreen ? undefined : { maxHeight: dimensions.height, minHeight: 300 }}
       >
@@ -433,6 +453,11 @@ export function MemoryGraph({
               node.fy = undefined;
             }}
             onBackgroundClick={() => dispatchUI({ type: 'clearFocus' })}
+            onZoom={(transform: { k: number }, event?: WheelEvent) => {
+              if (event instanceof WheelEvent && !event.metaKey && !event.ctrlKey) {
+                graphRef.current?.zoom(transform.k, 0);
+              }
+            }}
             d3VelocityDecay={0.4}
             cooldownTicks={adaptiveConfig.cooldownTicks}
             onEngineStop={() => {
@@ -446,9 +471,9 @@ export function MemoryGraph({
                   | undefined;
                 if (meNode && meNode.x !== undefined) {
                   g.centerAt(meNode.x, meNode.y || 0, 400);
-                  setTimeout(() => g.zoomToFit(400, 80), 450);
+                  setTimeout(zoomToFitClamped, 450);
                 } else {
-                  g.zoomToFit(400, 80);
+                  zoomToFitClamped();
                 }
                 if (gd?.nodes) {
                   for (const n of gd.nodes as SimulationNode[]) {
@@ -498,6 +523,7 @@ export function MemoryGraph({
             connectionCounts={connectionCounts}
             onClose={() => dispatchUI({ type: 'selectNode', node: null })}
             onExpand={onExpandNode ? handleExpandSelectedNode : undefined}
+            expanding={expandingNodeId === ui.selectedNode.id}
             onRemoveIdentifier={handleRemoveIdentifier}
           />
         )}

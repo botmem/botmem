@@ -17,6 +17,7 @@ export interface SearchResult {
   scoreMap: Map<string, number>;
   resolvedEntities: ResolvedEntities | null;
   fallback: boolean;
+  lowConfidence: boolean;
   parsed?: ApiSearchResponse['parsed'];
 }
 
@@ -41,6 +42,23 @@ export interface UseSearchReturn {
 }
 
 const SEARCH_MAX_LIMIT = 250;
+// ponytail: UI-only score floor; move to the API if other clients need shared relevance semantics.
+const MIN_DISPLAY_SCORE = 0.5;
+
+function itemScore(item: ApiMemoryItem): number {
+  if (typeof item.score === 'number') return item.score;
+  const weights = item.weights;
+  if (weights == null) return 1;
+  if (typeof weights === 'string') {
+    try {
+      const parsed = JSON.parse(weights) as { final?: number };
+      return parsed.final ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+  return weights?.final ?? 0;
+}
 
 export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
   const { debounceMs = 500, minLength = 3, limit = 100, onResults, onClear } = opts;
@@ -69,28 +87,34 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
       useAuthStore.setState({ needsRecoveryKey: true });
     }
 
-    const memoryIds = new Set<string>(res.items.map((item) => item.id));
+    const fallback = res.fallback ?? false;
+    const displayItems = fallback
+      ? res.items
+      : res.items.filter((item) => itemScore(item) >= MIN_DISPLAY_SCORE);
+    const lowConfidence = !fallback && res.items.length > 0 && displayItems.length === 0;
+    const memoryIds = new Set<string>(displayItems.map((item) => item.id));
     const contactNodeIds = (res.resolvedEntities?.contacts || []).map(
       (c: { id: string }) => `contact-${c.id}`,
     );
     const scoreMap = new Map<string, number>();
-    const total = res.items.length;
-    res.items.forEach((item, idx) => {
+    const total = displayItems.length;
+    displayItems.forEach((item, idx) => {
       scoreMap.set(item.id, total > 1 ? 1 - idx / (total - 1) : 1);
     });
     for (const id of contactNodeIds) scoreMap.set(id, 1);
 
     const result: SearchResult = {
-      items: res.items,
+      items: displayItems,
       memoryIds,
       contactNodeIds,
       scoreMap,
       resolvedEntities: res.resolvedEntities ?? null,
-      fallback: res.fallback ?? false,
+      fallback,
+      lowConfidence,
       parsed: res.parsed,
     };
 
-    const reportedTotal = res.found ?? res.items.length;
+    const reportedTotal = lowConfidence ? 0 : (res.found ?? displayItems.length);
     const canAskForMore = requestedLimit < SEARCH_MAX_LIMIT;
     setHasMore(res.items.length < reportedTotal && canAskForMore);
     hadResults.current = true;
