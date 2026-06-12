@@ -1,12 +1,12 @@
-import { Controller, Post, Delete, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Delete, Body, Logger, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { randomUUID } from 'crypto';
 import { eq, and, like, sql } from 'drizzle-orm';
 import { CurrentUser } from '../user-auth/decorators/current-user.decorator';
-import { Public } from '../user-auth/decorators/public.decorator';
 import { DemoService } from './demo.service';
 import { DbService } from '../db/db.service';
 import * as schema from '../db/schema';
+import { ConfigService } from '../config/config.service';
 
 @ApiTags('Demo')
 @ApiBearerAuth()
@@ -17,6 +17,7 @@ export class DemoController {
   constructor(
     private demo: DemoService,
     private db: DbService,
+    private config: ConfigService,
   ) {}
 
   @Post('seed')
@@ -67,9 +68,12 @@ export class DemoController {
   }
 
   /** Clean up test users matching a specific email pattern. Only works in non-production. */
-  @Public()
   @Post('cleanup-test-users')
   async cleanupTestUsers(@Body() body: { emailPattern: string }) {
+    if (this.config.isProduction) {
+      throw new NotFoundException();
+    }
+
     const pattern = body.emailPattern;
     if (!pattern || !pattern.includes('@test.botmem.xyz')) {
       return { ok: false, error: 'Pattern must target @test.botmem.xyz emails' };
