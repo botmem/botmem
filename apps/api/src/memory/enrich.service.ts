@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { UnrecoverableError } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { eq, and, or, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -29,6 +30,8 @@ import {
 
 const SIMILARITY_THRESHOLD = 0.8;
 const SIMILAR_MEMORY_LIMIT = 5;
+const MISSING_USER_KEY_MESSAGE =
+  'User key not available. Submit recovery key to unlock encryption.';
 
 /** Messages shorter than this with no URLs/attachments skip enrichment entirely */
 const TRIVIAL_MESSAGE_MAX_CHARS = 30;
@@ -115,7 +118,7 @@ export class EnrichService {
       if (acct?.userId) {
         const userKey = await this.userKeyService.getDek(acct.userId);
         if (!userKey) {
-          throw new Error('User key not available. Submit recovery key to unlock encryption.');
+          throw new UnrecoverableError(MISSING_USER_KEY_MESSAGE);
         }
         memory = this.crypto.decryptMemoryFieldsWithKey(rawMemory, userKey);
       }
