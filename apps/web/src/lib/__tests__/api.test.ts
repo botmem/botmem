@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { api, subscribeToChannel, unsubscribeFromChannel } from '../api';
+import { __resetApiCacheForTests, api, subscribeToChannel, unsubscribeFromChannel } from '../api';
 import { useAuthStore } from '../../store/authStore';
 
 const mockFetch = vi.fn();
@@ -7,6 +7,7 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
+  __resetApiCacheForTests();
   useAuthStore.setState({ user: null, accessToken: null, error: null, isLoading: false });
 });
 
@@ -411,6 +412,31 @@ describe('api', () => {
       mockOk({ total: 50 });
       await api.getMemoryStats({ memoryBankId: 'b1' });
       expect(mockFetch.mock.calls[0][0]).toContain('memoryBankId=b1');
+    });
+
+    it('dedupes concurrent stats requests', async () => {
+      mockOk({ total: 100 });
+      const [a, b] = await Promise.all([api.getMemoryStats(), api.getMemoryStats()]);
+      expect(a.total).toBe(100);
+      expect(b.total).toBe(100);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a GET once after a 503', async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch
+          .mockResolvedValueOnce({ ok: false, status: 503, text: () => Promise.resolve('busy') })
+          .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ total: 100 }) });
+
+        const promise = api.getMemoryStats();
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(250);
+        await expect(promise).resolves.toMatchObject({ total: 100 });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

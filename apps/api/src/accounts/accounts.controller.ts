@@ -204,7 +204,17 @@ export class AccountsController {
     if (account.userId !== user.id) {
       throw new NotFoundException('Account not found');
     }
-    return this.appleTunnel.getBridgeStatus(id);
+    try {
+      return await this.appleTunnel.getBridgeStatus(id);
+    } catch {
+      return {
+        connected: false,
+        accountId: id,
+        sources: null,
+        lastSeenAt: null,
+        lastError: 'Apple bridge unreachable. Start the Botmem Apple bridge.',
+      };
+    }
   }
 
   @RequiresJwt()
