@@ -27,8 +27,9 @@ function okResponse(): Response {
 describe('AuthedImage', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:avatar');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    // jsdom lacks URL.createObjectURL/revokeObjectURL — define rather than spy.
+    URL.createObjectURL = vi.fn(() => 'blob:avatar');
+    URL.revokeObjectURL = vi.fn();
   });
 
   afterEach(() => {
