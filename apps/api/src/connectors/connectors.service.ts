@@ -1,13 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConnectorRegistry, BaseConnector } from '@botmem/connector-sdk';
 import type { SyncSchedule } from '@botmem/connector-sdk';
+import { canonicalConnectorType } from './canonical-connector-type';
 
 @Injectable()
 export class ConnectorsService {
   public readonly registry = new ConnectorRegistry();
 
   private normalizeId(id: string): string {
-    return id === 'imessage' ? 'apple' : id;
+    return canonicalConnectorType(id);
   }
 
   register(factory: () => BaseConnector) {

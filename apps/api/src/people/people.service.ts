@@ -14,6 +14,7 @@ import {
   personRelationships,
   settings,
 } from '../db/schema';
+import { SYSTEM_SETTINGS_USER_ID } from '../settings/settings.service';
 
 export interface IdentifierInput {
   type: string;
@@ -1209,15 +1210,16 @@ export class PeopleService {
     // Get selfPersonId to pin it first. Self identity is scoped per user.
     let selfPersonId = '';
     if (params.userId) {
+      const userId = params.userId;
       const perUserRow = await this.dbService.withCurrentUser((db) =>
         db
           .select({ value: settings.value })
           .from(settings)
           .where(
-            inArray(settings.key, [
-              `selfPersonId:${params.userId}`,
-              `selfContactId:${params.userId}`,
-            ]),
+            and(
+              eq(settings.userId, userId),
+              inArray(settings.key, ['selfPersonId', 'selfContactId']),
+            ),
           )
           .limit(1),
       );
@@ -1925,10 +1927,8 @@ export class PeopleService {
                 .set({ value: targetId })
                 .where(
                   and(
-                    inArray(settings.key, [
-                      `selfContactId:${target.userId}`,
-                      `selfPersonId:${target.userId}`,
-                    ]),
+                    eq(settings.userId, target.userId ?? SYSTEM_SETTINGS_USER_ID),
+                    inArray(settings.key, ['selfContactId', 'selfPersonId']),
                     eq(settings.value, sourceId),
                   ),
                 );
