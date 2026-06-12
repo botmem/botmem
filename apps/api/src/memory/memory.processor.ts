@@ -562,15 +562,19 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     let selfContactId: string | null = null;
     const resolvedContacts: Array<{ contactId: string; role: string; name?: string }> = [];
     try {
-      const selfKeys = ownerUserId
-        ? [`selfContactId:${ownerUserId}`, `selfPersonId:${ownerUserId}`]
-        : [];
-      if (selfKeys.length) {
-        const selfRow = await this.dbService.db
-          .select({ value: settings.value })
-          .from(settings)
-          .where(inArray(settings.key, selfKeys))
-          .limit(1);
+      if (ownerUserId) {
+        const selfRow = await this.dbService.withUserId(ownerUserId, (db) =>
+          db
+            .select({ value: settings.value })
+            .from(settings)
+            .where(
+              and(
+                eq(settings.userId, ownerUserId),
+                inArray(settings.key, ['selfContactId', 'selfPersonId']),
+              ),
+            )
+            .limit(1),
+        );
         selfContactId = selfRow[0]?.value || null;
       }
 

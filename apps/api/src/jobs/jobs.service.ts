@@ -12,10 +12,30 @@ import { QuotaService } from '../billing/quota.service';
 /** How long a job can stay "running" with no progress before being marked stale */
 const STALE_JOB_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 const WHATSAPP_HISTORY_CURSOR = 'whatsapp-history-v1';
+const QUEUE_STATS_TTL_MS = 5_000;
+
+type QueueStats = Record<
+  string,
+  {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+    contradictions?: Array<{
+      jobId: string;
+      dbStatus?: string;
+      bullState: string;
+      action: string;
+    }>;
+  }
+>;
 
 @Injectable()
 export class JobsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(JobsService.name);
+  private queueStatsCache?: { key: string; expiresAt: number; value: QueueStats };
+  private queueStatsInflight?: Promise<QueueStats>;
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
@@ -475,38 +495,44 @@ export class JobsService implements OnApplicationBootstrap {
   }
 
   async getQueueStats(queues: Record<string, Queue>) {
-    const stats: Record<
-      string,
-      {
-        waiting: number;
-        active: number;
-        completed: number;
-        failed: number;
-        delayed: number;
-        contradictions?: Array<{
-          jobId: string;
-          dbStatus?: string;
-          bullState: string;
-          action: string;
-        }>;
-      }
-    > = {};
-    for (const [name, queue] of Object.entries(queues)) {
-      const counts = await queue.getJobCounts(
-        'waiting',
-        'active',
-        'completed',
-        'failed',
-        'delayed',
-      );
-      stats[name] = {
-        waiting: counts.waiting ?? 0,
-        active: counts.active ?? 0,
-        completed: counts.completed ?? 0,
-        failed: counts.failed ?? 0,
-        delayed: counts.delayed ?? 0,
-      };
+    const key = Object.keys(queues).sort().join(',');
+    const now = Date.now();
+    if (this.queueStatsCache?.key === key && this.queueStatsCache.expiresAt > now) {
+      return this.queueStatsCache.value;
     }
+    if (this.queueStatsInflight) return this.queueStatsInflight;
+    // ponytail: process-local TTL; use Redis/metrics snapshot if multi-instance freshness matters.
+    this.queueStatsInflight = this.loadQueueStats(queues)
+      .then((value) => {
+        this.queueStatsCache = { key, value, expiresAt: Date.now() + QUEUE_STATS_TTL_MS };
+        return value;
+      })
+      .finally(() => {
+        this.queueStatsInflight = undefined;
+      });
+    return this.queueStatsInflight;
+  }
+
+  private async loadQueueStats(queues: Record<string, Queue>): Promise<QueueStats> {
+    const stats: QueueStats = {};
+    await Promise.all(
+      Object.entries(queues).map(async ([name, queue]) => {
+        const counts = await queue.getJobCounts(
+          'waiting',
+          'active',
+          'completed',
+          'failed',
+          'delayed',
+        );
+        stats[name] = {
+          waiting: counts.waiting ?? 0,
+          active: counts.active ?? 0,
+          completed: counts.completed ?? 0,
+          failed: counts.failed ?? 0,
+          delayed: counts.delayed ?? 0,
+        };
+      }),
+    );
     if (queues.sync) {
       const contradictions = await this.findSyncContradictions(queues.sync, true);
       if (contradictions.length) stats.sync.contradictions = contradictions;

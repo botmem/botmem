@@ -121,6 +121,20 @@ export interface PersonWithIdentifiers {
   }>;
 }
 
+type MergeSuggestion = {
+  contact1: PersonWithIdentifiers;
+  contact2: PersonWithIdentifiers;
+  reason: string;
+  confidence: number;
+  positiveEvidence: string[];
+  negativeEvidence: string[];
+  sharedIdentifiers: string[];
+  aliasSimilarity: number;
+  cooccurrenceConflicts: string[];
+  sourceConnectors: string[];
+  sampleMemoryIds: string[];
+};
+
 /** Generic short names that should never trigger merge suggestions */
 export const GENERIC_NAMES = new Set([
   'me',
@@ -540,6 +554,11 @@ export function isMultiWordName(name: string): boolean {
 @Injectable()
 export class PeopleService {
   private readonly logger = new Logger(PeopleService.name);
+  private readonly suggestionsTtlMs = 10_000;
+  private suggestionsCache = new Map<
+    string,
+    { expiresAt: number; value?: MergeSuggestion[]; refresh?: Promise<MergeSuggestion[]> }
+  >();
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
@@ -1715,6 +1734,7 @@ export class PeopleService {
       db.update(people).set(patch).where(eq(people.id, id)),
     );
 
+    this.clearSuggestionsCache();
     return this.getById(id);
   }
 
@@ -1941,7 +1961,7 @@ export class PeopleService {
               await tx.delete(people).where(eq(people.id, sourceId));
             }),
         );
-        // Success — return
+        this.clearSuggestionsCache();
         return this.getById(targetId) as Promise<PersonWithIdentifiers>;
       } catch (err: unknown) {
         lastError = err;
@@ -1970,23 +1990,46 @@ export class PeopleService {
         .where(or(eq(mergeDismissals.personId1, id), eq(mergeDismissals.personId2, id))!);
       await db.delete(people).where(eq(people.id, id));
     });
+    this.clearSuggestionsCache();
   }
 
-  async getSuggestions(userId?: string): Promise<
-    Array<{
-      contact1: PersonWithIdentifiers;
-      contact2: PersonWithIdentifiers;
-      reason: string;
-      confidence: number;
-      positiveEvidence: string[];
-      negativeEvidence: string[];
-      sharedIdentifiers: string[];
-      aliasSimilarity: number;
-      cooccurrenceConflicts: string[];
-      sourceConnectors: string[];
-      sampleMemoryIds: string[];
-    }>
-  > {
+  async getSuggestions(userId?: string): Promise<MergeSuggestion[]> {
+    const key = userId ?? '*';
+    const cached = this.suggestionsCache.get(key);
+    const now = Date.now();
+    if (cached?.value && cached.expiresAt > now) return cached.value;
+    if (cached?.value) {
+      void this.refreshSuggestionsCache(key, userId);
+      return cached.value;
+    }
+    // ponytail: cold miss still computes once; add a background snapshot job if first-hit latency matters.
+    return this.refreshSuggestionsCache(key, userId);
+  }
+
+  private refreshSuggestionsCache(userIdKey: string, userId?: string) {
+    const cached = this.suggestionsCache.get(userIdKey);
+    if (cached?.refresh) return cached.refresh;
+    const refresh = this.loadSuggestions(userId)
+      .then((value) => {
+        this.suggestionsCache.set(userIdKey, {
+          value,
+          expiresAt: Date.now() + this.suggestionsTtlMs,
+        });
+        return value;
+      })
+      .catch((err) => {
+        this.suggestionsCache.delete(userIdKey);
+        throw err;
+      });
+    this.suggestionsCache.set(userIdKey, { ...cached, refresh, expiresAt: cached?.expiresAt ?? 0 });
+    return refresh;
+  }
+
+  private clearSuggestionsCache() {
+    this.suggestionsCache.clear();
+  }
+
+  private async loadSuggestions(userId?: string): Promise<MergeSuggestion[]> {
     // Load contacts — filter by userId if provided, decrypt display names
     const rawContacts = await this.dbService.withCurrentUser((db) =>
       userId ? db.select().from(people).where(eq(people.userId, userId)) : db.select().from(people),
@@ -2106,6 +2149,7 @@ export class PeopleService {
       for (const source of active.slice(1)) {
         try {
           await this.mergePeople(target.id, source.id);
+          this.clearSuggestionsCache();
           mergedAway.add(source.id);
           contactById.delete(source.id);
         } catch (err) {
@@ -2141,6 +2185,7 @@ export class PeopleService {
       for (const source of active.slice(1)) {
         try {
           await this.mergePeople(target.id, source.id);
+          this.clearSuggestionsCache();
           mergedAway.add(source.id);
           contactById.delete(source.id);
         } catch (err) {
@@ -3000,6 +3045,7 @@ export class PeopleService {
       if ((err as { code?: string }).code === '23503') return;
       throw err;
     }
+    this.clearSuggestionsCache();
   }
 
   async undismissSuggestion(contactId1: string, contactId2: string): Promise<void> {
@@ -3009,5 +3055,6 @@ export class PeopleService {
         .delete(mergeDismissals)
         .where(and(eq(mergeDismissals.personId1, id1), eq(mergeDismissals.personId2, id2))),
     );
+    this.clearSuggestionsCache();
   }
 }

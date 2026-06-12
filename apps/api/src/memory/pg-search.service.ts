@@ -426,6 +426,10 @@ export class PgSearchService {
     if (!conditions.length) conditions.push(sql`TRUE`);
     const vectorLiteral = toPgVectorLiteral(vector);
     const candidateLimit = Math.max(Math.max(1, limit) * 20, 100);
+    const fallbackCandidateConditions = [...conditions];
+    if (vectorLiteral && q) {
+      fallbackCandidateConditions.push(sql`search_tokens @@ websearch_to_tsquery('english', ${q})`);
+    }
     try {
       if (vectorLiteral && vector.length === PGVECTOR_INDEXED_DIMENSION) {
         const result = await this.dbService.systemDb((db) =>
@@ -465,6 +469,18 @@ export class PgSearchService {
 
       const result = await this.dbService.systemDb((db) =>
         db.execute(sql`
+          WITH candidates AS (
+            SELECT *
+            FROM memory_search_index
+            WHERE ${sql.join(fallbackCandidateConditions, sql` AND `)}
+            ORDER BY ${
+              q
+                ? sql`ts_rank_cd(search_tokens, websearch_to_tsquery('english', ${q})) DESC, event_time DESC`
+                : sql`event_time DESC`
+            }
+            -- ponytail: bound non-indexed fallback; add a matching vector index if semantic recall suffers.
+            LIMIT ${candidateLimit}
+          )
           SELECT
             memory_id AS id,
             (
@@ -491,8 +507,7 @@ export class PgSearchService {
             source_type,
             factuality_label,
             people
-          FROM memory_search_index
-          WHERE ${sql.join(conditions, sql` AND `)}
+          FROM candidates
           ORDER BY score DESC, event_time DESC
           LIMIT ${Math.max(1, limit)}
         `),

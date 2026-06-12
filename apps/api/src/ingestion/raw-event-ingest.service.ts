@@ -8,6 +8,7 @@ import { CryptoService } from '../crypto/crypto.service';
 import { DbService } from '../db/db.service';
 import { rawEvents } from '../db/schema';
 import { rawEventSourceHash } from '../db/raw-event-source-hash';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 
 export interface RawEventIngestInput {
   accountId: string;
@@ -36,11 +37,8 @@ export class RawEventIngestService {
     const rawEventId = randomUUID();
     const now = new Date();
     const event = await this.offloadInlineMedia(input.event);
-    const sourceHash = rawEventSourceHash(
-      input.accountId,
-      input.connectorType,
-      input.event.sourceId,
-    );
+    const connectorType = canonicalConnectorType(input.connectorType);
+    const sourceHash = rawEventSourceHash(input.accountId, connectorType, input.event.sourceId);
 
     const insert = async (db: typeof this.dbService.db) =>
       db
@@ -48,7 +46,7 @@ export class RawEventIngestService {
         .values({
           id: rawEventId,
           accountId: input.accountId,
-          connectorType: input.connectorType,
+          connectorType,
           sourceId: event.sourceId,
           sourceHash,
           sourceType: event.sourceType,

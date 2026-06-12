@@ -179,7 +179,7 @@ const REQUIRED_SCHEMA: Record<string, string[]> = {
     'revoked_at',
     'created_at',
   ],
-  settings: ['key', 'value'],
+  settings: ['user_id', 'key', 'value'],
   oauth_clients: [
     'client_id',
     'client_secret',
@@ -464,7 +464,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
    * Enables Row-Level Security on all user-owned tables and creates idempotent
    * per-user policies using the session variable app.current_user_id.
    *
-   * Tables excluded (no per-user ownership): users, settings, connector_credentials.
+   * Tables excluded (no per-user ownership): users, connector_credentials.
    */
   private async createRlsPolicies() {
     const client = await this.pool.connect();
@@ -472,7 +472,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       await client.query(`
         -- =====================================================================
         -- TABLES WITH DIRECT user_id COLUMN
-        -- accounts, people, memory_banks, api_keys, refresh_tokens, password_resets
+        -- accounts, people, memory_banks, api_keys, refresh_tokens, password_resets, settings
         -- =====================================================================
 
         ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
@@ -551,6 +551,17 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         CREATE POLICY rls_password_resets_insert ON password_resets FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
         CREATE POLICY rls_password_resets_update ON password_resets FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
         CREATE POLICY rls_password_resets_delete ON password_resets FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
+
+        ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE settings FORCE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_settings_select ON settings;
+        DROP POLICY IF EXISTS rls_settings_insert ON settings;
+        DROP POLICY IF EXISTS rls_settings_update ON settings;
+        DROP POLICY IF EXISTS rls_settings_delete ON settings;
+        CREATE POLICY rls_settings_select ON settings FOR SELECT USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_settings_insert ON settings FOR INSERT WITH CHECK (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_settings_update ON settings FOR UPDATE USING (user_id = current_setting('app.current_user_id', true));
+        CREATE POLICY rls_settings_delete ON settings FOR DELETE USING (user_id = current_setting('app.current_user_id', true));
 
         -- =====================================================================
         -- TABLES WITH account_id → accounts.user_id

@@ -22,6 +22,7 @@ import { PeopleService, type IdentifierInput } from '../people/people.service';
 import { Traced } from '../tracing/traced.decorator';
 import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
 import { ConnectorSyncPolicyService } from '../connectors/connector-sync-policy.service';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 import {
   BaseConnector,
   type SyncContext,
@@ -223,7 +224,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     }>,
   ) {
     const { accountId } = job.data;
-    const connectorType = job.data.connectorType === 'imessage' ? 'apple' : job.data.connectorType;
+    const connectorType = canonicalConnectorType(job.data.connectorType);
     let { jobId } = job.data;
     const currentTrace = this.traceContext.current()!;
     const syncStartTime = Date.now();
@@ -284,6 +285,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     const abortController = new AbortController();
     let cursor = account.lastCursor;
     let totalProcessed = 0;
+    let totalEmitted = 0;
     let totalInserted = 0;
     let knownTotal = 0;
     let degradedReason: string | null = null;
@@ -296,6 +298,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     }
 
     connector.on('data', (event: ConnectorDataEvent) => {
+      totalEmitted += 1;
       this.events.emitToChannel(`job:${jobId}`, 'connector:data', event);
 
       const writePromise = this.rawEventIngest
@@ -393,6 +396,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         };
 
         const ctx = connector.wrapSyncContext(rawCtx);
+        const emittedBeforePage = totalEmitted;
 
         // Inject tunnel transport for remote Apple bridge (lazy — module may not be loaded)
         if (connectorType === 'apple' && account.tunnelMode && 'setTunnelTransport' in connector) {
@@ -411,14 +415,15 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         }
 
         const result = await connector.sync(ctx);
-        totalProcessed += result.processed;
+        const pageProcessed = Math.max(result.processed, totalEmitted - emittedBeforePage);
+        totalProcessed += pageProcessed;
         cursor = result.cursor;
         hasMore = result.hasMore && !connector.isLimitReached;
 
         // Update cursor after each page so we can resume if interrupted
         await this.accountsService.update(accountId, {
           lastCursor: result.cursor ?? null,
-          itemsSynced: (account.itemsSynced || 0) + result.processed,
+          itemsSynced: (account.itemsSynced || 0) + pageProcessed,
         });
 
         // Refresh account for next iteration

@@ -114,6 +114,27 @@ describe('AccountsService', () => {
 
       expect(mockDb.values.mock.calls[0][0]).toMatchObject({ schedule: 'manual' });
     });
+
+    it('stores canonical connector type for legacy aliases', async () => {
+      const account = {
+        id: 'test-id',
+        connectorType: 'photos',
+        identifier: 'photos',
+        authContext: null,
+        status: 'connected',
+      };
+      mockDb = createChainDb([[account]]);
+      dbService.withCurrentUser = vi.fn((fn: (db: unknown) => unknown) => fn(mockDb));
+      service = new AccountsService(dbService, crypto, connectors, searchIndex, analytics);
+
+      await service.create({
+        connectorType: 'photos-immich',
+        identifier: 'photos',
+      });
+
+      expect(mockDb.values.mock.calls[0][0]).toMatchObject({ connectorType: 'photos' });
+      expect(connectors.getSyncConfig).toHaveBeenCalledWith('photos');
+    });
   });
 
   describe('getAll', () => {

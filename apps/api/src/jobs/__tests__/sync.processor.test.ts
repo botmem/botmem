@@ -265,6 +265,10 @@ describe('SyncProcessor', () => {
     } as unknown as import('bullmq').Job);
 
     expect(memoryQueue.add).toHaveBeenCalledOnce();
+    expect(accountsService.update).toHaveBeenCalledWith(
+      'acc-1',
+      expect.objectContaining({ itemsSynced: 6 }),
+    );
     expect(jobsService.updateJob).toHaveBeenCalledWith('j1', { total: 1 });
     expect(jobsService.updateJob).not.toHaveBeenCalledWith(
       'j1',
