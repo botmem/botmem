@@ -314,7 +314,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           if (result.inserted) totalInserted += 1;
         })
         .catch((err) => {
-          logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`);
+          logger.error(`Failed to persist/enqueue connector event: ${err.message}`);
           throw err;
         });
       pendingWrites.push(writePromise);
@@ -353,7 +353,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         .resolvePerson(identifiers, 'person', ownerUserId)
         .catch((err) => {
           logger.warn(
-            `Failed to resolve Apple contact ${event.contact.id || event.contact.displayName || 'unknown'}: ${
+            `Failed to resolve Apple contact identity: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
@@ -399,7 +399,11 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         const emittedBeforePage = totalEmitted;
 
         // Inject tunnel transport for remote Apple bridge (lazy — module may not be loaded)
-        if (connectorType === 'apple' && account.tunnelMode && 'setTunnelTransport' in connector) {
+        if (
+          (connectorType === 'apple' || connectorType === 'imessage') &&
+          account.tunnelMode &&
+          'setTunnelTransport' in connector
+        ) {
           const tunnel = this.getAppleTunnel();
           if (!tunnel) {
             throw new Error('Apple tunnel service is unavailable. Restart Botmem and try again.');
@@ -408,7 +412,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
             new AppleTunnelTransport(tunnel, accountId),
           );
-        } else if (connectorType === 'apple') {
+        } else if (connectorType === 'apple' || connectorType === 'imessage') {
           throw new Error(
             'Legacy local Apple TCP bridge is no longer supported. Reconnect Apple from connector setup, run the generated bridge command, then retry sync.',
           );
@@ -420,7 +424,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         cursor = result.cursor;
         hasMore = result.hasMore && !connector.isLimitReached;
 
-        // Update cursor after each page so we can resume if interrupted
+        // Update cursor only after emitted data writes land; otherwise aborts can skip data.
+        await Promise.all(pendingWrites);
         await this.accountsService.update(accountId, {
           lastCursor: result.cursor ?? null,
           itemsSynced: (account.itemsSynced || 0) + pageProcessed,

@@ -51,10 +51,12 @@ export interface AppleTunnelSession {
   bridgeWs: WebSocket | null;
   sessionKey: Buffer | null;
   connectedAt: number;
+  lastSeenAt: number;
   pendingRpc: Map<number, PendingRpc>;
   nextRpcId: number;
   disconnectedAt: number | null;
   graceTimer: ReturnType<typeof setTimeout> | null;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
   sources: AppleBridgeSources;
 }
 
@@ -107,7 +109,10 @@ function decryptPayload(key: Buffer, payload: Buffer): string {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const RPC_TIMEOUT_MS = 30_000;
+const STATUS_TIMEOUT_MS = 3_000;
 const GRACE_PERIOD_MS = 60_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_STALE_MS = 90_000;
 const TOKEN_PREFIX = 'apple_bt_';
 const RELAY_REQUEST_CHANNEL = 'apple:tunnel:rpc:request';
 const RELAY_RESPONSE_CHANNEL = 'apple:tunnel:rpc:response';
@@ -209,15 +214,18 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
       bridgeWs: ws,
       sessionKey,
       connectedAt: Date.now(),
+      lastSeenAt: Date.now(),
       pendingRpc: new Map(),
       nextRpcId: 1,
       disconnectedAt: null,
       graceTimer: null,
+      heartbeatTimer: null,
       sources,
     };
 
     this.sessions.set(sessionId, session);
     this.accountSessions.set(account.id, sessionId);
+    this.startHeartbeat(session);
 
     this.logger.log(`Bridge connected: account=${account.id}, session=${sessionId}`);
     this.emitStatus(account.id, true);
@@ -250,7 +258,14 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
   async hasConnectedBridge(accountId: string): Promise<boolean> {
     if (this.isConnected(accountId)) return true;
     try {
-      return (await this.sendRelayedRpcRequest(accountId, RELAY_STATUS_METHOD)) === true;
+      return (
+        (await this.sendRelayedRpcRequest(
+          accountId,
+          RELAY_STATUS_METHOD,
+          undefined,
+          STATUS_TIMEOUT_MS,
+        )) === true
+      );
     } catch {
       return false;
     }
@@ -269,7 +284,13 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     let relayed = false;
     if (!connected) {
       try {
-        relayed = (await this.sendRelayedRpcRequest(accountId, RELAY_STATUS_METHOD)) === true;
+        relayed =
+          (await this.sendRelayedRpcRequest(
+            accountId,
+            RELAY_STATUS_METHOD,
+            undefined,
+            STATUS_TIMEOUT_MS,
+          )) === true;
         connected = relayed;
       } catch {
         relayed = false;
@@ -280,11 +301,11 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
       accountId,
       sources: session?.sources ?? null,
       lastSeenAt: session
-        ? new Date(session.connectedAt).toISOString()
+        ? new Date(session.lastSeenAt).toISOString()
         : relayed
           ? new Date().toISOString()
           : null,
-      lastError: null,
+      lastError: connected ? null : 'Apple bridge unreachable. Start the Botmem Apple bridge.',
     };
   }
 
@@ -330,6 +351,7 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     accountId: string,
     method: string,
     params?: Record<string, unknown>,
+    timeoutMs = RPC_TIMEOUT_MS,
   ): Promise<unknown> {
     if (!this.redisPub || !this.redisSub) {
       throw new Error('No bridge session for this account');
@@ -341,8 +363,8 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRelayRpc.delete(requestId);
-        reject(new Error(`Bridge RPC ${method} timed out after ${RPC_TIMEOUT_MS}ms`));
-      }, RPC_TIMEOUT_MS);
+        reject(new Error(`Bridge RPC ${method} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
 
       this.pendingRelayRpc.set(requestId, { resolve, reject, timer });
 
@@ -358,6 +380,7 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
   handleBridgeMessage(sessionId: string, data: Buffer): void {
     const session = this.sessions.get(sessionId);
     if (!session?.sessionKey) return;
+    session.lastSeenAt = Date.now();
 
     try {
       const decrypted = decryptPayload(session.sessionKey, data);
@@ -397,11 +420,16 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
 
     session.bridgeWs = null;
     session.disconnectedAt = Date.now();
+    if (session.heartbeatTimer) {
+      clearInterval(session.heartbeatTimer);
+      session.heartbeatTimer = null;
+    }
 
     this.logger.log(
       `Bridge disconnected: session=${sessionId}, grace period ${GRACE_PERIOD_MS / 1000}s`,
     );
     this.emitStatus(session.accountId, false);
+    void this.setBridgeDisconnectedWarning(session.accountId);
 
     // Reject all pending RPCs
     for (const [id, pending] of session.pendingRpc) {
@@ -422,6 +450,7 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     if (!session) return;
 
     if (session.graceTimer) clearTimeout(session.graceTimer);
+    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
 
     for (const [, pending] of session.pendingRpc) {
       clearTimeout(pending.timer);
@@ -449,7 +478,10 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     const sessionId = this.accountSessions.get(accountId);
     if (!sessionId) return false;
     const session = this.sessions.get(sessionId);
-    return !!session?.bridgeWs && session.bridgeWs.readyState === WebSocket.OPEN;
+    if (!session?.bridgeWs || session.bridgeWs.readyState !== WebSocket.OPEN) return false;
+    if (Date.now() - session.lastSeenAt <= HEARTBEAT_STALE_MS) return true;
+    this.handleDisconnect(sessionId);
+    return false;
   }
 
   /** Subscribe to connection status changes for an account. */
@@ -630,6 +662,45 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
         }`,
       );
     }
+  }
+
+  private async setBridgeDisconnectedWarning(accountId: string): Promise<void> {
+    const message =
+      'Apple bridge not connected. Start the Botmem Apple bridge from connector setup, then retry sync.';
+    try {
+      await this.dbService.queryRaw(
+        `UPDATE accounts
+         SET status = CASE
+           WHEN status = 'reconnect_required' THEN status
+           ELSE 'degraded'
+         END,
+         last_error = $1
+         WHERE id = $2`,
+        [message, accountId],
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist Apple bridge disconnect for ${accountId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private startHeartbeat(session: AppleTunnelSession): void {
+    session.bridgeWs?.on?.('pong', () => {
+      session.lastSeenAt = Date.now();
+    });
+    session.heartbeatTimer = setInterval(() => {
+      if (!session.bridgeWs || session.bridgeWs.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - session.lastSeenAt > HEARTBEAT_STALE_MS) {
+        this.handleDisconnect(session.sessionId);
+        return;
+      }
+      // ponytail: one server-side ping loop; move to per-node metrics if bridge count grows.
+      session.bridgeWs.ping?.();
+    }, HEARTBEAT_INTERVAL_MS);
+    session.heartbeatTimer.unref?.();
   }
 
   private describeBridgeSourceMismatch(

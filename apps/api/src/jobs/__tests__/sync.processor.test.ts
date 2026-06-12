@@ -339,7 +339,7 @@ describe('SyncProcessor', () => {
     expect(logsService.add).toHaveBeenCalledWith(
       expect.objectContaining({
         level: 'error',
-        message: expect.stringContaining('Failed to persist/enqueue event msg-1'),
+        message: expect.stringContaining('Failed to persist/enqueue connector event'),
       }),
     );
   });
