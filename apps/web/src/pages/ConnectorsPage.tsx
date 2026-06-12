@@ -5,7 +5,7 @@ import { cn, CONNECTOR_COLORS } from '@botmem/shared';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { getConnectorIcon } from '../lib/connectorMeta';
+import { getConnectorGlyphClass, getConnectorIcon } from '../lib/connectorMeta';
 import { ConnectorAccountRow } from '../components/connectors/ConnectorAccountRow';
 import { ConnectorSetupModal } from '../components/connectors/ConnectorSetupModal';
 import { connectorConfigs } from '../mock/connectors';
@@ -185,7 +185,10 @@ export function ConnectorsPage() {
               >
                 <div className="flex items-center gap-3">
                   <div
-                    className="size-10 border-3 border-nb-border flex items-center justify-center text-lg font-bold"
+                    className={cn(
+                      'size-10 border-3 border-nb-border flex items-center justify-center text-lg font-bold',
+                      getConnectorGlyphClass(cfg.type),
+                    )}
                     style={{ backgroundColor: cfg.color || CONNECTOR_COLORS[cfg.type] }}
                   >
                     {getConnectorIcon(cfg.type)}
