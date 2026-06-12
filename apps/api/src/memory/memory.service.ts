@@ -809,7 +809,8 @@ export class MemoryService {
     if (
       mediaExtraction &&
       typeof mediaExtraction === 'object' &&
-      typeof (mediaExtraction as Record<string, unknown>).extractedText === 'string'
+      (typeof (mediaExtraction as Record<string, unknown>).extractedText === 'string' ||
+        (mediaExtraction as Record<string, unknown>).status === 'extracted')
     ) {
       return 'attachment_ocr';
     }
@@ -3387,7 +3388,6 @@ export class MemoryService {
           .set({
             text: encrypted.text,
             metadata: encrypted.metadata,
-            searchTokens: sql`to_tsvector('english', ${text})`,
           })
           .where(eq(memories.id, mem.id)),
       );
