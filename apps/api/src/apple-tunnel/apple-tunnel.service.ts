@@ -22,6 +22,7 @@ import Redis from 'ioredis';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { ConfigService } from '../config/config.service';
+import { LogsService } from '../logs/logs.service';
 // accounts schema import removed — using raw SQL to bypass RLS
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private dbService: DbService,
     private crypto: CryptoService,
+    private logsService: LogsService,
     @Optional() private config?: ConfigService,
   ) {}
 
@@ -179,7 +181,12 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
     const sources = this.normalizeSources(sourceList);
-    await this.updateAccountSources(account, sources);
+    const sourceState = await this.updateAccountSources(account.id, sources);
+    if (sourceState?.mismatch) {
+      const message = this.describeBridgeSourceMismatch(sourceState.persistedSources!, sources);
+      this.logger.warn(message);
+      await this.setBridgeSourceWarning(account.id, message);
+    }
 
     // ECDH key exchange
     const serverKP = generateECDH();
@@ -520,32 +527,131 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async updateAccountSources(
-    account: { id: string; decryptedAuthContext: string },
-    selectedSources: AppleBridgeSources,
-  ): Promise<void> {
+    accountId: string,
+    reportedSources: AppleBridgeSources,
+  ): Promise<{
+    persistedSources: AppleBridgeSources | null;
+    mismatch: boolean;
+  }> {
     try {
-      const ctx = JSON.parse(account.decryptedAuthContext) as {
-        raw?: Record<string, unknown>;
-      };
-      const next = {
-        ...ctx,
-        raw: {
-          ...(ctx.raw ?? {}),
-          selectedSources,
-        },
-      };
-      const encrypted = this.crypto.encrypt(JSON.stringify(next));
-      await this.dbService.queryRaw('UPDATE accounts SET auth_context = $1 WHERE id = $2', [
-        encrypted,
-        account.id,
-      ]);
+      const client = await this.dbService.connectionPool.connect();
+      try {
+        await client.query('BEGIN');
+
+        const result = await client.query<
+          { auth_context: string | null; raw?: never } & Record<string, never>
+        >('SELECT auth_context FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+        const row = result.rows[0];
+        if (!row?.auth_context) {
+          await client.query('COMMIT');
+          return { persistedSources: null, mismatch: false };
+        }
+
+        const decrypted = this.crypto.decrypt(row.auth_context);
+        if (!decrypted) {
+          await client.query('COMMIT');
+          return { persistedSources: null, mismatch: false };
+        }
+
+        const ctx = JSON.parse(decrypted) as {
+          raw?: Record<string, unknown>;
+        };
+        const raw = ctx.raw && typeof ctx.raw === 'object' ? ctx.raw : {};
+        const hasPersistedSources = Object.prototype.hasOwnProperty.call(raw, 'selectedSources');
+        const persistedSources = this.normalizeSelectedSources(
+          hasPersistedSources ? raw.selectedSources : undefined,
+        );
+
+        const mismatch =
+          hasPersistedSources &&
+          (persistedSources.contacts !== reportedSources.contacts ||
+            persistedSources.imessages !== reportedSources.imessages);
+
+        if (!hasPersistedSources) {
+          const next = {
+            ...ctx,
+            raw: {
+              ...raw,
+              selectedSources: reportedSources,
+            },
+          };
+          const encrypted = this.crypto.encrypt(JSON.stringify(next));
+          await client.query('UPDATE accounts SET auth_context = $1 WHERE id = $2', [
+            encrypted,
+            accountId,
+          ]);
+        }
+
+        await client.query('COMMIT');
+        return {
+          persistedSources: hasPersistedSources ? persistedSources : null,
+          mismatch,
+        };
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       this.logger.warn(
-        `Failed to update Apple bridge sources for ${account.id}: ${
+        `Failed to update Apple bridge sources for ${accountId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { persistedSources: null, mismatch: false };
+    }
+  }
+
+  private async setBridgeSourceWarning(accountId: string, message: string): Promise<void> {
+    const safeMessage = message.slice(0, 400);
+    try {
+      await this.dbService.queryRaw(
+        `UPDATE accounts
+         SET status = CASE
+           WHEN status IN ('reconnect_required', 'failed', 'error') THEN status
+           ELSE 'degraded'
+         END,
+         last_error = $1
+         WHERE id = $2`,
+        [safeMessage, accountId],
+      );
+      this.logsService.add({
+        connectorType: 'apple',
+        accountId,
+        stage: 'bridge',
+        level: 'warn',
+        message: safeMessage,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist Apple bridge source warning for ${accountId}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
     }
+  }
+
+  private describeBridgeSourceMismatch(
+    persistedSources: AppleBridgeSources,
+    reportedSources: AppleBridgeSources,
+  ): string {
+    return `Apple source selection mismatch: reported [contacts=${
+      reportedSources.contacts ? 'on' : 'off'
+    }, imessages=${reportedSources.imessages ? 'on' : 'off'}] vs account [contacts=${
+      persistedSources.contacts ? 'on' : 'off'
+    }, imessages=${persistedSources.imessages ? 'on' : 'off'}]. Using persisted account settings.`;
+  }
+
+  private normalizeSelectedSources(raw: unknown): AppleBridgeSources {
+    const value =
+      raw && typeof raw === 'object'
+        ? (raw as Partial<Record<keyof AppleBridgeSources, unknown>>)
+        : {};
+    return {
+      contacts: value.contacts !== false,
+      imessages: value.imessages !== false,
+    };
   }
 
   private emitStatus(accountId: string, connected: boolean): void {
