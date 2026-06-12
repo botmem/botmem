@@ -889,7 +889,7 @@ function FormView({
       });
 
       if (result.type === 'redirect' && result.url) {
-        window.location.href = result.url;
+        window.open(result.url, '_blank', 'noopener,noreferrer');
         return;
       }
 
@@ -1072,7 +1072,9 @@ export function ConnectorSetupModal({
             api
               .initiateAuth(connectorType, { returnTo: window.location.pathname })
               .then((result) => {
-                if (result.type === 'redirect' && result.url) window.location.href = result.url;
+                if (result.type === 'redirect' && result.url) {
+                  window.open(result.url, '_blank', 'noopener,noreferrer');
+                }
               })
               .catch((err) => {
                 dispatch({

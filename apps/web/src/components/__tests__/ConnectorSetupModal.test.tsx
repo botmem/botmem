@@ -162,6 +162,40 @@ describe('ConnectorSetupModal', () => {
     expect(await screen.findByText('OAuth denied')).toBeInTheDocument();
   });
 
+  it('opens OAuth redirects in a new tab', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'redirect',
+      url: 'https://accounts.example/auth',
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText('Client ID'), {
+      target: { value: 'client' },
+    });
+    fireEvent.change(screen.getByLabelText('Client Secret'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByText('CONNECT'));
+
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        'https://accounts.example/auth',
+        '_blank',
+        'noopener,noreferrer',
+      ),
+    );
+    open.mockRestore();
+  });
+
   it('renders Apple pairing copy without web-owned source controls', () => {
     useConnectorStore.setState({
       manifests: [

@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
 interface AuthGuardProps {
@@ -8,6 +8,7 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, requireOnboarded }: AuthGuardProps) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -17,7 +18,10 @@ export function AuthGuard({ children, requireOnboarded }: AuthGuardProps) {
     );
   }
 
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const redirect = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(redirect)}`} replace />;
+  }
 
   if (requireOnboarded && !user.onboarded) {
     return <Navigate to="/onboarding" replace />;

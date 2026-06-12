@@ -18,6 +18,9 @@ const TermsPage = lazy(() => import('./pages/TermsPage').then((m) => ({ default:
 const DataPolicyPage = lazy(() =>
   import('./pages/DataPolicyPage').then((m) => ({ default: m.DataPolicyPage })),
 );
+const NotFoundPage = lazy(() =>
+  import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
+);
 
 function PageviewTracker() {
   const location = useLocation();
@@ -68,7 +71,7 @@ function RoutesOnly(): ReactNode {
             <Route path="/people" element={<AppRedirect to="/people" />} />
             <Route path="/contacts" element={<AppRedirect to="/people" />} />
             <Route path="/settings" element={<AppRedirect to="/settings" />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>
