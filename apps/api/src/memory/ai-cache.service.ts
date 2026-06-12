@@ -5,9 +5,14 @@ import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
 
 /** Max age for cache entries before eviction */
-const CACHE_TTL_DAYS = 30;
+const envInt = (key: string, fallback: number) => {
+  const value = Number.parseInt(process.env[key] ?? '', 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
+const CACHE_TTL_DAYS = envInt('LLM_CACHE_TTL_DAYS', 14);
 /** Max number of cache entries to keep */
-const CACHE_MAX_ENTRIES = 100_000;
+const CACHE_MAX_ENTRIES = envInt('LLM_CACHE_MAX_ENTRIES', 25_000);
 /** How often to run eviction (ms) */
 const EVICTION_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -34,11 +39,6 @@ export class AiCacheService implements OnModuleInit {
     return createHash('sha256').update(inputText).digest('hex');
   }
 
-  private computeLegacyId(model: string, inputText: string): string {
-    const inputHash = createHash('sha256').update(inputText).digest('hex');
-    return createHash('sha256').update(`${model}:${inputHash}`).digest('hex');
-  }
-
   private computeId(backend: string, operation: string, model: string, inputText: string): string {
     const inputHash = this.inputHash(inputText);
     return createHash('sha256')
@@ -54,11 +54,9 @@ export class AiCacheService implements OnModuleInit {
   ): Promise<{ output: string; hit: true } | { hit: false }> {
     try {
       const id = this.computeId(backend, operation, model, inputText);
-      const legacyId = this.computeLegacyId(model, inputText);
+      // ponytail: old-format ids are intentionally abandoned; TTL eviction clears them.
       const rows = await this.db.systemDb((db) =>
-        db.execute(
-          sql`SELECT output FROM llm_cache WHERE id IN (${id}, ${legacyId}) ORDER BY CASE WHEN id = ${id} THEN 0 ELSE 1 END LIMIT 1`,
-        ),
+        db.execute(sql`SELECT output FROM llm_cache WHERE id = ${id} LIMIT 1`),
       );
 
       if (!rows.rows?.length) return { hit: false };
