@@ -249,6 +249,11 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       connectionTimeoutMillis: 30000,
     });
     this.poolEnded = false;
+    this.pool.on('error', (err) => {
+      this.logger.error(
+        `[postgres pool] idle client error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+      );
+    });
 
     this.db = drizzle(this.pool, { schema });
 

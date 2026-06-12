@@ -1,6 +1,6 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { OnModuleInit, Logger } from '@nestjs/common';
-import { Job, Queue } from 'bullmq';
+import { Job, Queue, UnrecoverableError } from 'bullmq';
 import { randomUUID, createHash } from 'crypto';
 import { eq, and, sql, inArray, desc } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -103,6 +103,8 @@ const MAX_MEDIA_TEXT_CHARS = 8_000;
 const MAX_IMAGE_DESCRIPTION_BYTES = 12 * 1024 * 1024;
 const MAX_LINKED_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
+const MISSING_USER_KEY_MESSAGE =
+  'User key not available. Submit recovery key to unlock encryption.';
 const DOCUMENT_CONTENT_TYPES = new Set([
   'application/pdf',
   'application/msword',
@@ -392,6 +394,57 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       metadata.attachments = attachments;
     }
 
+    // Look up memory bank and owner before any embedding/enrichment/quota work.
+    let memoryBankId: string | null = null;
+    let ownerUserId: string | null = null;
+    let ownerUserKey: Buffer | null = null;
+    try {
+      if (parentJobId) {
+        const [parentJob] = await this.dbService.db
+          .select({ memoryBankId: jobs.memoryBankId })
+          .from(jobs)
+          .where(eq(jobs.id, parentJobId));
+        if (parentJob?.memoryBankId) {
+          memoryBankId = parentJob.memoryBankId;
+        }
+      }
+
+      const [acct] = await this.dbService.db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(eq(accounts.id, rawEvent.accountId));
+      ownerUserId = acct?.userId || null;
+
+      if (!memoryBankId && acct?.userId) {
+        const [defaultBank] = await this.dbService.db
+          .select({ id: memoryBanks.id })
+          .from(memoryBanks)
+          .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, true)));
+        memoryBankId = defaultBank?.id || null;
+      }
+    } catch (err) {
+      this.logger.warn(
+        'Memory bank lookup failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    if (ownerUserId) {
+      ownerUserKey = await this.userKeyService.getDek(ownerUserId);
+      if (!ownerUserKey) {
+        // Reuse "failed" so existing raw-event debt can requeue after unlock.
+        await this.markRawEventState(rawEventId, 'failed');
+        this.addLog(
+          rawEvent.connectorType,
+          rawEvent.accountId,
+          'warn',
+          `[memory:key] ${mid} blocked until recovery key is available`,
+          parentJobId,
+        );
+        throw new UnrecoverableError(MISSING_USER_KEY_MESSAGE);
+      }
+    }
+
     const ctx = await this.buildPipelineContext(
       rawEvent.accountId,
       rawEvent.connectorType,
@@ -474,40 +527,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       await this.markRawEventState(rawEventId, 'skipped_empty');
       await this.advanceAndComplete(parentJobId);
       return;
-    }
-
-    // Look up memory bank
-    let memoryBankId: string | null = null;
-    let ownerUserId: string | null = null;
-    try {
-      if (parentJobId) {
-        const [parentJob] = await this.dbService.db
-          .select({ memoryBankId: jobs.memoryBankId })
-          .from(jobs)
-          .where(eq(jobs.id, parentJobId));
-        if (parentJob?.memoryBankId) {
-          memoryBankId = parentJob.memoryBankId;
-        }
-      }
-
-      const [acct] = await this.dbService.db
-        .select({ userId: accounts.userId })
-        .from(accounts)
-        .where(eq(accounts.id, rawEvent.accountId));
-      ownerUserId = acct?.userId || null;
-
-      if (!memoryBankId && acct?.userId) {
-        const [defaultBank] = await this.dbService.db
-          .select({ id: memoryBanks.id })
-          .from(memoryBanks)
-          .where(and(eq(memoryBanks.userId, acct.userId), eq(memoryBanks.isDefault, true)));
-        memoryBankId = defaultBank?.id || null;
-      }
-    } catch (err) {
-      this.logger.warn(
-        'Memory bank lookup failed',
-        err instanceof Error ? err.message : String(err),
-      );
     }
 
     // Dedup check
@@ -1162,14 +1181,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     let insertMetadata = metadataStr;
 
     if (ownerUserId) {
-      const userKey = await this.userKeyService.getDek(ownerUserId);
-      if (!userKey) {
-        throw new Error('User key not available. Submit recovery key to unlock encryption.');
+      if (!ownerUserKey) {
+        await this.markRawEventState(rawEventId, 'failed');
+        throw new UnrecoverableError(MISSING_USER_KEY_MESSAGE);
       }
 
       const enc = this.crypto.encryptMemoryFieldsWithKey(
         { text: currentText, entities: '', claims: '', metadata: metadataStr },
-        userKey,
+        ownerUserKey,
       );
       insertText = enc.text;
       insertMetadata = enc.metadata;
@@ -1375,6 +1394,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         await this.upsertEmailThreadAggregate({
           rawEvent,
           ownerUserId,
+          ownerUserKey,
           memoryBankId,
           threadId: String(
             mergedMetadata.emailThreadKey || mergedMetadata.threadId || threadIds[0],
@@ -2219,6 +2239,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
   private async upsertEmailThreadAggregate(input: {
     rawEvent: LoadedRawEvent;
     ownerUserId: string | null;
+    ownerUserKey: Buffer | null;
     memoryBankId: string | null;
     threadId: string;
     subject?: string;
@@ -2296,8 +2317,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         (id, index, all) => all.indexOf(id) === index,
       ),
     };
-    const userKey = await this.userKeyService.getDek(input.ownerUserId);
-    if (!userKey) return;
+    if (!input.ownerUserKey) return;
     const encrypted = this.crypto.encryptMemoryFieldsWithKey(
       {
         text: stripNullBytes(aggregateText),
@@ -2305,7 +2325,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         claims: '[]',
         metadata: stripNullBytes(JSON.stringify(metadata)),
       },
-      userKey,
+      input.ownerUserKey,
     );
     const now = new Date();
     const weights = { semantic: 0, recency: 0.9, importance: 0.65, trust: 0.8, final: 0 };
