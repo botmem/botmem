@@ -15,6 +15,7 @@ import {
   users,
 } from '../db/schema';
 import { normalizeEmail, normalizePhone } from '../people/people.service';
+import { SYSTEM_SETTINGS_USER_ID } from '../settings/settings.service';
 
 const SELF_CONTACT_ID_KEY = 'selfContactId';
 
@@ -44,11 +45,14 @@ export class MeService {
       throw new Error(`Contact ${contactId} not found`);
     }
 
-    const settingKey = userId ? `${SELF_CONTACT_ID_KEY}:${userId}` : SELF_CONTACT_ID_KEY;
+    const settingUserId = userId ?? SYSTEM_SETTINGS_USER_ID;
     await db
       .insert(settings)
-      .values({ key: settingKey, value: contactId })
-      .onConflictDoUpdate({ target: settings.key, set: { value: contactId } });
+      .values({ userId: settingUserId, key: SELF_CONTACT_ID_KEY, value: contactId })
+      .onConflictDoUpdate({
+        target: [settings.userId, settings.key],
+        set: { value: contactId },
+      });
 
     return { ok: true };
   }
@@ -154,8 +158,15 @@ export class MeService {
 
     // Check per-user manual override. Do not fall back to a global self contact
     // when a user is present; that can pin another tenant's identity.
-    const settingKey = userId ? `${SELF_CONTACT_ID_KEY}:${userId}` : SELF_CONTACT_ID_KEY;
-    const [row] = await db.select().from(settings).where(eq(settings.key, settingKey));
+    const [row] = await db
+      .select()
+      .from(settings)
+      .where(
+        and(
+          eq(settings.userId, userId ?? SYSTEM_SETTINGS_USER_ID),
+          eq(settings.key, SELF_CONTACT_ID_KEY),
+        ),
+      );
 
     if (row?.value) {
       // Verify it still exists (and belongs to user if userId given)

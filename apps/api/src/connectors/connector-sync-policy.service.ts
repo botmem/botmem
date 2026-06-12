@@ -19,14 +19,14 @@ export class ConnectorSyncPolicyService {
   }
 
   shouldIgnoreCursor(connectorType: string, scheduled: boolean | undefined): boolean {
-    return (
-      (connectorType === 'whatsapp' || connectorType === 'apple' || connectorType === 'imessage') &&
-      !scheduled
-    );
+    return connectorType === 'whatsapp' && !scheduled;
   }
 
   private classifyAccountFailure(connectorType: string, message: string): AccountFailureStatus {
     const msg = message.toLowerCase();
+    if ((connectorType === 'apple' || connectorType === 'imessage') && this.isBridgeDown(msg)) {
+      return 'reconnect_required';
+    }
     if (
       msg.includes('invalid_grant') ||
       msg.includes('401') ||
@@ -61,8 +61,20 @@ export class ConnectorSyncPolicyService {
     const msg = message.toLowerCase();
     return (
       this.classifyAccountFailure(connectorType, message) === 'reconnect_required' ||
-      ((connectorType === 'apple' || connectorType === 'imessage') &&
-        (msg.includes('bridge not running') || msg.includes('bridge not connected')))
+      ((connectorType === 'apple' || connectorType === 'imessage') && this.isBridgeDown(msg))
+    );
+  }
+
+  private isBridgeDown(message: string): boolean {
+    return (
+      message.includes('bridge not running') ||
+      message.includes('bridge not connected') ||
+      message.includes('bridge is not connected') ||
+      message.includes('bridge disconnected') ||
+      message.includes('bridge unreachable') ||
+      message.includes('no bridge session') ||
+      message.includes('tunnel is not connected') ||
+      message.includes('tunnel is unavailable')
     );
   }
 }

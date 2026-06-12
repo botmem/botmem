@@ -265,6 +265,10 @@ describe('SyncProcessor', () => {
     } as unknown as import('bullmq').Job);
 
     expect(memoryQueue.add).toHaveBeenCalledOnce();
+    expect(accountsService.update).toHaveBeenCalledWith(
+      'acc-1',
+      expect.objectContaining({ itemsSynced: 6 }),
+    );
     expect(jobsService.updateJob).toHaveBeenCalledWith('j1', { total: 1 });
     expect(jobsService.updateJob).not.toHaveBeenCalledWith(
       'j1',
@@ -335,7 +339,7 @@ describe('SyncProcessor', () => {
     expect(logsService.add).toHaveBeenCalledWith(
       expect.objectContaining({
         level: 'error',
-        message: expect.stringContaining('Failed to persist/enqueue event msg-1'),
+        message: expect.stringContaining('Failed to persist/enqueue connector event'),
       }),
     );
   });

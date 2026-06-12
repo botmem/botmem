@@ -52,6 +52,14 @@ class ManagedSyncConnector extends FakeConnector {
   };
 }
 
+class AppleConnector extends FakeConnector {
+  readonly manifest: ConnectorManifest = { ...new FakeConnector().manifest, id: 'apple' };
+}
+
+class PhotosConnector extends FakeConnector {
+  readonly manifest: ConnectorManifest = { ...new FakeConnector().manifest, id: 'photos' };
+}
+
 describe('ConnectorsService', () => {
   it('registers and gets a connector', () => {
     const service = new ConnectorsService();
@@ -109,6 +117,15 @@ describe('ConnectorsService', () => {
       defaultSchedule: 'daily',
       configurable: true,
     });
+  });
+
+  it('maps legacy connector ids to canonical connectors', () => {
+    const service = new ConnectorsService();
+    service.register(() => new AppleConnector());
+    service.register(() => new PhotosConnector());
+
+    expect(service.get('imessage').manifest.id).toBe('apple');
+    expect(service.get('photos-immich').manifest.id).toBe('photos');
   });
 
   it('exposes registry', () => {

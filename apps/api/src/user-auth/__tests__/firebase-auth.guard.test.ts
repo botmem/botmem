@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UnauthorizedException, ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { FirebaseAuthGuard } from '../firebase-auth.guard';
 
 function makeExecutionContext(overrides: {
@@ -39,23 +40,32 @@ function makeApiKeysService() {
   } as any;
 }
 
+function makeJwtGuard() {
+  return {
+    canActivate: vi.fn(),
+  } as any;
+}
+
 describe('FirebaseAuthGuard', () => {
   let guard: FirebaseAuthGuard;
   let reflector: ReturnType<typeof makeReflector>;
   let firebaseAuthService: ReturnType<typeof makeFirebaseAuthService>;
   let apiKeysService: ReturnType<typeof makeApiKeysService>;
+  let jwtGuard: ReturnType<typeof makeJwtGuard>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     reflector = makeReflector();
     firebaseAuthService = makeFirebaseAuthService();
     apiKeysService = makeApiKeysService();
-    guard = new FirebaseAuthGuard(reflector, firebaseAuthService, apiKeysService);
+    jwtGuard = makeJwtGuard();
+    jwtGuard.canActivate.mockRejectedValue(new UnauthorizedException('Invalid JWT'));
+    guard = new FirebaseAuthGuard(reflector, firebaseAuthService, apiKeysService, jwtGuard);
   });
 
   it('should allow access for @Public endpoints', async () => {
     reflector = makeReflector({ isPublic: true });
-    guard = new FirebaseAuthGuard(reflector, firebaseAuthService, apiKeysService);
+    guard = new FirebaseAuthGuard(reflector, firebaseAuthService, apiKeysService, jwtGuard);
 
     const ctx = makeExecutionContext({});
     const result = await guard.canActivate(ctx);
@@ -113,7 +123,7 @@ describe('FirebaseAuthGuard', () => {
 
     it('should block API key on @RequiresJwt endpoints', async () => {
       reflector = makeReflector({ requiresJwt: true });
-      guard = new FirebaseAuthGuard(reflector, firebaseAuthService, apiKeysService);
+      guard = new FirebaseAuthGuard(reflector, firebaseAuthService, apiKeysService, jwtGuard);
 
       apiKeysService.validateKey.mockResolvedValue({ id: 'k1', userId: 'u1' });
 
@@ -125,6 +135,32 @@ describe('FirebaseAuthGuard', () => {
   });
 
   describe('Firebase token auth', () => {
+    it('should authenticate valid app JWT before Firebase fallback', async () => {
+      const token = new JwtService().sign(
+        { sub: 'user-1', email: 'cli@example.com' },
+        { secret: 'test-access-secret', algorithm: 'HS256' },
+      );
+      jwtGuard.canActivate.mockImplementation(async (context: ExecutionContext) => {
+        const request = context.switchToHttp().getRequest();
+        const bearer = request.headers.authorization.replace(/^Bearer\s+/i, '');
+        const payload = new JwtService().verify(bearer, { secret: 'test-access-secret' });
+        request.user = { id: payload.sub, email: payload.email };
+        return true;
+      });
+
+      const ctx = makeExecutionContext({
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await guard.canActivate(ctx);
+
+      expect(result).toBe(true);
+      expect((ctx as any)._request.user).toEqual({
+        id: 'user-1',
+        email: 'cli@example.com',
+      });
+      expect(firebaseAuthService.verifyIdToken).not.toHaveBeenCalled();
+    });
+
     it('should authenticate valid Firebase token', async () => {
       const decoded = { uid: 'fb-uid', email: 'test@example.com' };
       firebaseAuthService.verifyIdToken.mockResolvedValue(decoded);

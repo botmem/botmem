@@ -9,6 +9,7 @@ describe('JobsService', () => {
     add: ReturnType<typeof vi.fn>;
     getJob: ReturnType<typeof vi.fn>;
     getRepeatableJobs: ReturnType<typeof vi.fn>;
+    getJobCounts?: ReturnType<typeof vi.fn>;
   };
 
   const fakeJob = {
@@ -44,6 +45,9 @@ describe('JobsService', () => {
       add: vi.fn().mockResolvedValue(undefined),
       getJob: vi.fn().mockResolvedValue(null),
       getRepeatableJobs: vi.fn().mockResolvedValue([]),
+      getJobCounts: vi
+        .fn()
+        .mockResolvedValue({ waiting: 1, active: 2, completed: 3, failed: 4, delayed: 5 }),
     };
 
     const cryptoService = {
@@ -174,6 +178,30 @@ describe('JobsService', () => {
     it('converts string dates to Date objects', async () => {
       await service.updateJob('job-1', { startedAt: '2025-01-01T00:00:00Z' });
       expect(mockDb.set).toHaveBeenCalled();
+    });
+  });
+
+  describe('getQueueStats', () => {
+    it('returns cached queue stats within the TTL', async () => {
+      const memoryQueue = {
+        getJobCounts: vi
+          .fn()
+          .mockResolvedValue({ waiting: 0, active: 1, completed: 2, failed: 0, delayed: 0 }),
+      };
+      vi.spyOn(
+        service as unknown as { findSyncContradictions: () => Promise<unknown[]> },
+        'findSyncContradictions',
+      ).mockResolvedValue([]);
+
+      const queues = { sync: syncQueue, memory: memoryQueue } as unknown as Parameters<
+        typeof service.getQueueStats
+      >[0];
+      const first = await service.getQueueStats(queues);
+      const second = await service.getQueueStats(queues);
+
+      expect(second).toEqual(first);
+      expect(syncQueue.getJobCounts).toHaveBeenCalledTimes(1);
+      expect(memoryQueue.getJobCounts).toHaveBeenCalledTimes(1);
     });
   });
 

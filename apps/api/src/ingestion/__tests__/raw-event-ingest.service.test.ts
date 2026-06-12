@@ -85,6 +85,32 @@ describe('RawEventIngestService', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
+  it('stores canonical connector types', async () => {
+    const chain = insertChain([{ id: 'raw-1' }]);
+    const dbService = {
+      db: { insert: vi.fn().mockReturnValue(chain) },
+    } as unknown as DbService;
+    const crypto = {
+      encrypt: vi.fn((value: string) => `enc:${value}`),
+    } as unknown as CryptoService;
+    const queue = { add: vi.fn().mockResolvedValue(undefined) } as unknown as Queue;
+    const blobStore = { put: vi.fn() } as unknown as BlobStoreService;
+    const service = new RawEventIngestService(dbService, crypto, queue, blobStore);
+
+    await service.ingest({
+      accountId: 'acc-1',
+      connectorType: 'photos-immich',
+      event: {
+        sourceType: 'photo',
+        sourceId: 'photo-1',
+        timestamp: '2026-05-04T08:00:00.000Z',
+        content: { text: 'photo', metadata: {} },
+      },
+    });
+
+    expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ connectorType: 'photos' }));
+  });
+
   it('offloads fileBase64 before encrypting raw events', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'botmem-ingest-blobs-'));
     try {

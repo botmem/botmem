@@ -18,6 +18,7 @@ import { ConfigService } from '../config/config.service';
 import { DemoService } from '../demo/demo.service';
 import { OAuthStateService } from './oauth-state.service';
 import { connectorCredentials } from '../db/schema';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 
 function getBridgeToken(authContext: string | null | undefined): string | null {
   if (!authContext) return null;
@@ -188,7 +189,7 @@ export class AuthService implements OnModuleInit {
 
   async initiate(connectorType: string, config: Record<string, unknown>, userId?: string) {
     const requestedConnectorType = connectorType;
-    connectorType = connectorType === 'imessage' ? 'apple' : connectorType;
+    connectorType = canonicalConnectorType(connectorType);
     const connector = this.connectors.get(connectorType);
     const { returnTo, ...connectorConfig } = config;
 

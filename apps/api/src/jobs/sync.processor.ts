@@ -22,6 +22,7 @@ import { PeopleService, type IdentifierInput } from '../people/people.service';
 import { Traced } from '../tracing/traced.decorator';
 import { RawEventIngestService } from '../ingestion/raw-event-ingest.service';
 import { ConnectorSyncPolicyService } from '../connectors/connector-sync-policy.service';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 import {
   BaseConnector,
   type SyncContext,
@@ -223,7 +224,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     }>,
   ) {
     const { accountId } = job.data;
-    const connectorType = job.data.connectorType === 'imessage' ? 'apple' : job.data.connectorType;
+    const connectorType = canonicalConnectorType(job.data.connectorType);
     let { jobId } = job.data;
     const currentTrace = this.traceContext.current()!;
     const syncStartTime = Date.now();
@@ -284,6 +285,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     const abortController = new AbortController();
     let cursor = account.lastCursor;
     let totalProcessed = 0;
+    let totalEmitted = 0;
     let totalInserted = 0;
     let knownTotal = 0;
     let degradedReason: string | null = null;
@@ -296,6 +298,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     }
 
     connector.on('data', (event: ConnectorDataEvent) => {
+      totalEmitted += 1;
       this.events.emitToChannel(`job:${jobId}`, 'connector:data', event);
 
       const writePromise = this.rawEventIngest
@@ -311,7 +314,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           if (result.inserted) totalInserted += 1;
         })
         .catch((err) => {
-          logger.error(`Failed to persist/enqueue event ${event.sourceId}: ${err.message}`);
+          logger.error(`Failed to persist/enqueue connector event: ${err.message}`);
           throw err;
         });
       pendingWrites.push(writePromise);
@@ -350,7 +353,7 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         .resolvePerson(identifiers, 'person', ownerUserId)
         .catch((err) => {
           logger.warn(
-            `Failed to resolve Apple contact ${event.contact.id || event.contact.displayName || 'unknown'}: ${
+            `Failed to resolve Apple contact identity: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
@@ -393,9 +396,14 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
         };
 
         const ctx = connector.wrapSyncContext(rawCtx);
+        const emittedBeforePage = totalEmitted;
 
         // Inject tunnel transport for remote Apple bridge (lazy — module may not be loaded)
-        if (connectorType === 'apple' && account.tunnelMode && 'setTunnelTransport' in connector) {
+        if (
+          (connectorType === 'apple' || connectorType === 'imessage') &&
+          account.tunnelMode &&
+          'setTunnelTransport' in connector
+        ) {
           const tunnel = this.getAppleTunnel();
           if (!tunnel) {
             throw new Error('Apple tunnel service is unavailable. Restart Botmem and try again.');
@@ -404,21 +412,23 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
           (connector as unknown as { setTunnelTransport(t: unknown): void }).setTunnelTransport(
             new AppleTunnelTransport(tunnel, accountId),
           );
-        } else if (connectorType === 'apple') {
+        } else if (connectorType === 'apple' || connectorType === 'imessage') {
           throw new Error(
             'Legacy local Apple TCP bridge is no longer supported. Reconnect Apple from connector setup, run the generated bridge command, then retry sync.',
           );
         }
 
         const result = await connector.sync(ctx);
-        totalProcessed += result.processed;
+        const pageProcessed = Math.max(result.processed, totalEmitted - emittedBeforePage);
+        totalProcessed += pageProcessed;
         cursor = result.cursor;
         hasMore = result.hasMore && !connector.isLimitReached;
 
-        // Update cursor after each page so we can resume if interrupted
+        // Update cursor only after emitted data writes land; otherwise aborts can skip data.
+        await Promise.all(pendingWrites);
         await this.accountsService.update(accountId, {
           lastCursor: result.cursor ?? null,
-          itemsSynced: (account.itemsSynced || 0) + result.processed,
+          itemsSynced: (account.itemsSynced || 0) + pageProcessed,
         });
 
         // Refresh account for next iteration

@@ -190,6 +190,20 @@
       "when": 1777952000000,
       "tag": "0031_migrate_imessage_to_apple",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1777953000000,
+      "tag": "0032_scope_settings_by_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1777954000000,
+      "tag": "0033_canonical_connector_types",
+      "breakpoints": true
     }
   ]
 }

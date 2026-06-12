@@ -562,15 +562,19 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     let selfContactId: string | null = null;
     const resolvedContacts: Array<{ contactId: string; role: string; name?: string }> = [];
     try {
-      const selfKeys = ownerUserId
-        ? [`selfContactId:${ownerUserId}`, `selfPersonId:${ownerUserId}`]
-        : [];
-      if (selfKeys.length) {
-        const selfRow = await this.dbService.db
-          .select({ value: settings.value })
-          .from(settings)
-          .where(inArray(settings.key, selfKeys))
-          .limit(1);
+      if (ownerUserId) {
+        const selfRow = await this.dbService.withUserId(ownerUserId, (db) =>
+          db
+            .select({ value: settings.value })
+            .from(settings)
+            .where(
+              and(
+                eq(settings.userId, ownerUserId),
+                inArray(settings.key, ['selfContactId', 'selfPersonId']),
+              ),
+            )
+            .limit(1),
+        );
         selfContactId = selfRow[0]?.value || null;
       }
 
@@ -1160,6 +1164,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // 9. Encrypt all fields (single pass)
     currentText = stripNullBytes(currentText);
     this.stripInlineMediaContent(mergedMetadata);
+    this.stripRedundantSearchText(mergedMetadata);
     const metadataStr = stripNullBytes(JSON.stringify(mergedMetadata));
 
     // Quota check
@@ -1229,19 +1234,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             target: [memories.accountId, memories.sourceId, memories.connectorType],
           }),
       );
-      // 10. Compute search_tokens from plaintext
-      await this.dbService.withUserId(ownerUserId, (db) =>
-        db
-          .update(memories)
-          .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
-          .where(
-            and(
-              eq(memories.sourceId, event.sourceId),
-              eq(memories.connectorType, rawEvent.connectorType),
-              eq(memories.accountId, rawEvent.accountId),
-            ),
-          ),
-      );
     } else {
       await this.dbService.db
         .insert(memories)
@@ -1269,16 +1261,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         .onConflictDoNothing({
           target: [memories.accountId, memories.sourceId, memories.connectorType],
         });
-      await this.dbService.db
-        .update(memories)
-        .set({ searchTokens: sql`to_tsvector('english', ${currentText})` })
-        .where(
-          and(
-            eq(memories.sourceId, event.sourceId),
-            eq(memories.connectorType, rawEvent.connectorType),
-            eq(memories.accountId, rawEvent.accountId),
-          ),
-        );
     }
     const dbInsertMs = Date.now() - t0;
     const persistedMemoryRows = await this.dbService.systemDb((db) =>
@@ -1709,6 +1691,21 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     if (typeof metadata.thumbnailBase64 === 'string') {
       delete metadata.thumbnailBase64;
       metadata.thumbnailStored = false;
+    }
+  }
+
+  private stripRedundantSearchText(metadata: Record<string, unknown>) {
+    // ponytail: memories.text and memory_search_index are canonical; metadata keeps provenance only.
+    const mediaExtraction = metadata.mediaExtraction;
+    if (mediaExtraction && typeof mediaExtraction === 'object' && !Array.isArray(mediaExtraction)) {
+      delete (mediaExtraction as Record<string, unknown>).extractedText;
+    }
+
+    if (!Array.isArray(metadata.linkedDocuments)) return;
+    for (const doc of metadata.linkedDocuments) {
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) continue;
+      delete (doc as Record<string, unknown>).extractedText;
+      delete (doc as Record<string, unknown>).searchableText;
     }
   }
 
@@ -2400,12 +2397,6 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             pipelineComplete: true,
           },
         }),
-    );
-    await this.dbService.withUserId(input.ownerUserId, (db) =>
-      db
-        .update(memories)
-        .set({ searchTokens: sql`to_tsvector('english', ${aggregateText})` })
-        .where(eq(memories.id, aggregateId)),
     );
     const vector = await this.ai.embed(aggregateText.slice(0, 6000));
     await this.searchIndex.upsert(aggregateId, vector, {
