@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getConnectorIcon, getConnectorColor, CONNECTOR_ICONS, CONNECTOR_LABELS } from '../connectorMeta';
+import {
+  getConnectorIcon,
+  getConnectorColor,
+  getConnectorGlyphClass,
+  CONNECTOR_ICONS,
+  CONNECTOR_LABELS,
+} from '../connectorMeta';
 
 describe('connectorMeta', () => {
   describe('getConnectorIcon', () => {
@@ -21,6 +27,17 @@ describe('connectorMeta', () => {
 
     it('returns fallback for unknown connector', () => {
       expect(getConnectorColor('unknown')).toBe('#999');
+    });
+  });
+
+  describe('getConnectorGlyphClass', () => {
+    it('uses dark text on pale photo tiles', () => {
+      expect(getConnectorGlyphClass('photos')).toBe('text-black');
+      expect(getConnectorGlyphClass('photos-immich')).toBe('text-black');
+    });
+
+    it('leaves other connector glyph colors alone', () => {
+      expect(getConnectorGlyphClass('gmail')).toBe('');
     });
   });
 

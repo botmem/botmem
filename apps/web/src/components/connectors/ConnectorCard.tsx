@@ -2,7 +2,7 @@ import { cn } from '@botmem/shared';
 import type { ConnectorConfig } from '@botmem/shared';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { getConnectorIcon } from '../../lib/connectorMeta';
+import { getConnectorGlyphClass, getConnectorIcon } from '../../lib/connectorMeta';
 
 interface ConnectorCardProps {
   config: ConnectorConfig;
@@ -31,7 +31,10 @@ export function ConnectorCard({
       style={connected ? { borderColor: config.color } : undefined}
     >
       <div
-        className="size-14 border-3 border-nb-border flex items-center justify-center text-2xl font-bold shrink-0"
+        className={cn(
+          'size-14 border-3 border-nb-border flex items-center justify-center text-2xl font-bold shrink-0',
+          getConnectorGlyphClass(config.type),
+        )}
         style={{ backgroundColor: config.color }}
       >
         {getConnectorIcon(config.type)}
