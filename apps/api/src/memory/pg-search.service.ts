@@ -268,21 +268,6 @@ export class PgSearchService {
     }
   }
 
-  async conversationSearch(
-    query: string,
-    vector: number[],
-    limit: number,
-    _conversationModelId: string,
-    _conversationId?: string,
-    filter?: FilterInput,
-  ): Promise<{
-    results: ScoredPoint[];
-    conversation?: { answer: string; conversationId: string };
-  }> {
-    const { results } = await this.hybridSearch(query, vector, limit, filter);
-    return { results };
-  }
-
   async remove(id: string): Promise<void> {
     await this.dbService.systemDb((db) =>
       db.execute(sql`DELETE FROM memory_search_index WHERE memory_id = ${id}`),
