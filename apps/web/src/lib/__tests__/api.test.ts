@@ -422,6 +422,43 @@ describe('api', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
+    it('serves a cached stats result within TTL without refetching', async () => {
+      mockOk({ total: 7 });
+      const first = await api.getMemoryStats();
+      const second = await api.getMemoryStats();
+      expect(first.total).toBe(7);
+      expect(second.total).toBe(7);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cache when the GET ultimately fails', async () => {
+      mockError(500, 'boom');
+      await expect(api.getMemoryStats()).rejects.toThrow();
+      mockOk({ total: 9 });
+      const result = await api.getMemoryStats();
+      expect(result.total).toBe(9);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('serves a stale stats value and revalidates after the TTL expires', async () => {
+      vi.useFakeTimers();
+      try {
+        mockOk({ total: 1 });
+        const first = await api.getMemoryStats();
+        expect(first.total).toBe(1);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(11_000); // expire the 10s TTL
+
+        mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ total: 2 }) });
+        const stale = await api.getMemoryStats();
+        expect(stale.total).toBe(1); // stale-while-revalidate returns prior value
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('retries a GET once after a 503', async () => {
       vi.useFakeTimers();
       try {

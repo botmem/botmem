@@ -2,9 +2,10 @@ import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthedImage } from '../AuthedImage';
 
+const authState = vi.hoisted(() => ({ token: 'token-1' as string | null }));
 vi.mock('../../../store/authStore', () => ({
   useAuthStore: {
-    getState: () => ({ accessToken: 'token-1' }),
+    getState: () => ({ accessToken: authState.token }),
   },
 }));
 
@@ -26,6 +27,7 @@ function okResponse(): Response {
 
 describe('AuthedImage', () => {
   beforeEach(() => {
+    authState.token = 'token-1';
     vi.stubGlobal('fetch', vi.fn());
     // jsdom lacks URL.createObjectURL/revokeObjectURL — define rather than spy.
     URL.createObjectURL = vi.fn(() => 'blob:avatar');
@@ -73,5 +75,32 @@ describe('AuthedImage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('renders fallback and calls onError when the fetch fails', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 404 } as Response);
+    const onError = vi.fn();
+    const { container } = render(
+      <AuthedImage
+        src="/api/people/err/avatar"
+        fallback={<span>fallback</span>}
+        onError={onError}
+      />,
+    );
+
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.textContent).toContain('fallback');
+  });
+
+  it('omits the Authorization header when there is no access token', async () => {
+    authState.token = null;
+    vi.mocked(fetch).mockResolvedValue(okResponse());
+
+    render(<AuthedImage src="/api/people/anon/avatar" fallback={null} />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 });
