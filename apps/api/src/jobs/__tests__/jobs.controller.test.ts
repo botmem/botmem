@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { NotFoundException } from '@nestjs/common';
 import { JobsController } from '../jobs.controller';
 import { JobsService } from '../jobs.service';
 import { AccountsService } from '../../accounts/accounts.service';
@@ -199,7 +200,7 @@ describe('JobsController', () => {
     expect(result.id).toBe('j1');
   });
 
-  it('get returns error for not found', async () => {
+  it('get throws 404 for not found', async () => {
     const {
       jobsService,
       accountsService,
@@ -224,8 +225,9 @@ describe('JobsController', () => {
       embedQueue,
       enrichQueue,
     );
-    const result = await controller.get({ id: 'u1' }, 'nonexistent');
-    expect(result).toEqual({ error: 'not found' });
+    await expect(controller.get({ id: 'u1' }, 'nonexistent')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('triggerSync fetches account and triggers', async () => {

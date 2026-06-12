@@ -321,7 +321,7 @@ describe('AgentService', () => {
 
   describe('status', () => {
     it('returns memory and contact stats using withCurrentUser', async () => {
-      mockDb.from.mockResolvedValueOnce([{ count: 25 }]); // contacts count
+      mockDb.from.mockResolvedValueOnce([{ count: '25' }]); // contacts count
 
       const result = await service.status();
       expect(dbService.withCurrentUser).toHaveBeenCalled();

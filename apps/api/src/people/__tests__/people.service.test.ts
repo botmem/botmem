@@ -171,7 +171,7 @@ describe('PeopleService runtime behavior', () => {
 
   it('maps list and search results with decrypted identifiers', async () => {
     const { service } = makeDb([
-      [{ count: 1 }],
+      [{ count: '1' }],
       [{ value: 'p1' }],
       [personRow()],
       [identifierRow()],
