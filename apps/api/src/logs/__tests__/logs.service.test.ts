@@ -18,13 +18,24 @@ function makeService(logsPath: string): LogsService {
 
 describe('LogsService', () => {
   const paths: string[] = [];
+  const originalLogsMaxBytes = process.env.LOGS_MAX_BYTES;
 
   afterEach(async () => {
+    if (originalLogsMaxBytes === undefined) {
+      delete process.env.LOGS_MAX_BYTES;
+    } else {
+      process.env.LOGS_MAX_BYTES = originalLogsMaxBytes;
+    }
     for (const p of paths) {
       try {
         await fs.unlink(p);
       } catch {
         // file may not exist
+      }
+      try {
+        await fs.unlink(`${p}.1`);
+      } catch {
+        // rotated file may not exist
       }
     }
     paths.length = 0;
@@ -154,5 +165,26 @@ describe('LogsService', () => {
     expect(entry.jobId).toBeNull();
     expect(entry.accountId).toBeNull();
     expect(entry.stage).toBeNull();
+  });
+
+  it('rotates at the size cap and keeps recent lines plus one rotated file', async () => {
+    process.env.LOGS_MAX_BYTES = '700';
+    const path = makeTmpPath();
+    paths.push(path);
+    const service = makeService(path);
+
+    for (let i = 0; i < 8; i++) {
+      service.add({
+        connectorType: 'gmail',
+        level: 'info',
+        message: `rotate-${i}-${'x'.repeat(160)}`,
+      });
+    }
+    await new Promise((r) => setTimeout(r, 150));
+
+    const result = await service.query();
+    expect(result.logs.some((log) => String(log.message).startsWith('rotate-7-'))).toBe(true);
+    expect((await fs.stat(`${path}.1`)).isFile()).toBe(true);
+    await expect(fs.stat(`${path}.2`)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
