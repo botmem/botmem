@@ -28,7 +28,7 @@ import { DemoModule } from './demo/demo.module';
 import { PlanGuard } from './billing/plan.guard';
 import { VersionController } from './version.controller';
 import { HealthController } from './health.controller';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './user-auth/jwt-auth.guard';
 import { FirebaseAuthModule } from './user-auth/firebase-auth.module';
 import { FirebaseAuthGuard } from './user-auth/firebase-auth.guard';
@@ -90,6 +90,10 @@ const enableApiWorkers = process.env.BOTMEM_ENABLE_API_WORKERS === 'true';
     JwtAuthGuard,
     FirebaseAuthGuard,
     AuthProviderGuard,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: AuthProviderGuard,

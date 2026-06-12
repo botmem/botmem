@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import Redis from 'ioredis';
 import { Public } from './user-auth/decorators/public.decorator';
 import { DbService } from './db/db.service';
@@ -8,6 +9,7 @@ import { ConfigService } from './config/config.service';
 
 @ApiTags('System')
 @Public()
+@SkipThrottle()
 @Controller('health')
 export class HealthController {
   private redis: Redis;
