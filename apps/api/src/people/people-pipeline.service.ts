@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, eq, inArray, like, or } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import { rawEvents, memories, accounts, settings } from '../db/schema';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -68,9 +68,7 @@ export class PeoplePipelineService {
         await db.delete(memoryPeople);
         await db.delete(personIdentifiers);
         await db.delete(people);
-        await db
-          .delete(settings)
-          .where(or(like(settings.key, 'selfContactId%'), like(settings.key, 'selfPersonId%')));
+        await db.delete(settings).where(inArray(settings.key, ['selfContactId', 'selfPersonId']));
         return;
       }
 
@@ -114,9 +112,9 @@ export class PeoplePipelineService {
       await db
         .delete(settings)
         .where(
-          or(
-            eq(settings.key, `selfContactId:${userId}`),
-            eq(settings.key, `selfPersonId:${userId}`),
+          and(
+            eq(settings.userId, userId),
+            inArray(settings.key, ['selfContactId', 'selfPersonId']),
           ),
         );
     });

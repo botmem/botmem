@@ -8,6 +8,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  primaryKey,
   customType,
 } from 'drizzle-orm/pg-core';
 
@@ -437,10 +438,15 @@ export const apiKeys = pgTable(
 
 // --- Settings table ---
 
-export const settings = pgTable('settings', {
-  key: text('key').primaryKey(),
-  value: text('value').notNull(),
-});
+export const settings = pgTable(
+  'settings',
+  {
+    userId: text('user_id').notNull(),
+    key: text('key').notNull(),
+    value: text('value').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key] })],
+);
 
 // --- OAuth 2.1 tables ---
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { IMessageConnector } from '../index.js';
+import { IMessageConnector, parseSyncCursor } from '../index.js';
 import type { SyncContext, PipelineContext } from '@botmem/connector-sdk';
 
 const mockConnect = vi.fn().mockResolvedValue(undefined);
@@ -204,7 +204,7 @@ describe('IMessageConnector', () => {
 
       expect(mockConnect).toHaveBeenCalledOnce();
       expect(mockChatsList).toHaveBeenCalledWith(10_000);
-      expect(mockMessagesHistory).toHaveBeenCalledWith(1, { start: undefined });
+      expect(mockMessagesHistory).toHaveBeenCalledWith(1, { limit: 500, start: undefined });
 
       expect(dataListener).toHaveBeenCalledOnce();
       expect(dataListener).toHaveBeenCalledWith(
@@ -229,8 +229,15 @@ describe('IMessageConnector', () => {
       await connector.sync(ctx);
 
       expect(mockMessagesHistory).toHaveBeenCalledWith(1, {
+        limit: 500,
         start: '2025-01-01T00:00:00.001Z',
       });
+    });
+
+    it('round-trips stored ISO cursors without falling back to epoch', () => {
+      const stored = '2025-01-01T00:00:00.000Z';
+      expect(parseSyncCursor(stored)).toBe(stored);
+      expect(parseSyncCursor('not-a-date')).toBeUndefined();
     });
 
     it('disconnects even on error (try/finally)', async () => {
@@ -250,6 +257,104 @@ describe('IMessageConnector', () => {
 
       expect(result.cursor).toBe('2024-12-01T00:00:00Z');
       expect(result.processed).toBe(0);
+    });
+
+    it('pages large chats with a bounded per-RPC limit', async () => {
+      const firstPage = Array.from({ length: 500 }, (_, i) => ({
+        id: i + 1,
+        chat_id: 1,
+        guid: `guid-${i + 1}`,
+        sender: '+1234567890',
+        is_from_me: false,
+        text: `Message ${i + 1}`,
+        created_at: `2025-01-01T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(
+          i % 60,
+        ).padStart(2, '0')}.000Z`,
+        attachments: [],
+        reactions: [],
+        chat_identifier: '+1234567890',
+        chat_name: 'Chat 1',
+        participants: ['+1234567890'],
+        is_group: false,
+      }));
+      const secondPage = [
+        {
+          id: 501,
+          chat_id: 1,
+          guid: 'guid-501',
+          sender: '+1234567890',
+          is_from_me: false,
+          text: 'Message 501',
+          created_at: '2025-01-01T00:08:20.000Z',
+          attachments: [],
+          reactions: [],
+          chat_identifier: '+1234567890',
+          chat_name: 'Chat 1',
+          participants: ['+1234567890'],
+          is_group: false,
+        },
+      ];
+      mockMessagesHistory.mockResolvedValueOnce(firstPage).mockResolvedValueOnce(secondPage);
+
+      const result = await connector.sync(makeSyncCtx());
+
+      expect(mockMessagesHistory).toHaveBeenNthCalledWith(1, 1, {
+        limit: 500,
+        start: undefined,
+      });
+      expect(mockMessagesHistory).toHaveBeenNthCalledWith(2, 1, {
+        limit: 500,
+        start: '2025-01-01T00:08:19.001Z',
+      });
+      expect(result.processed).toBe(501);
+      expect(result.cursor).toBe('2025-01-01T00:08:20.000Z');
+    });
+
+    it('does not advance the cursor when aborted before all chats are scanned', async () => {
+      mockChatsList.mockResolvedValueOnce([
+        {
+          id: 1,
+          name: 'Chat 1',
+          identifier: '+1234567890',
+          service: 'iMessage',
+          last_message_at: '2025-01-02T00:00:00Z',
+        },
+        {
+          id: 2,
+          name: 'Chat 2',
+          identifier: '+1987654321',
+          service: 'iMessage',
+          last_message_at: '2025-01-01T00:00:00Z',
+        },
+      ]);
+      const controller = new AbortController();
+      mockMessagesHistory.mockImplementationOnce(async () => {
+        controller.abort();
+        return [
+          {
+            id: 101,
+            chat_id: 1,
+            guid: 'guid-1',
+            sender: '+1234567890',
+            is_from_me: false,
+            text: 'Hello',
+            created_at: '2025-01-02T12:00:00.000Z',
+            attachments: [],
+            reactions: [],
+            chat_identifier: '+1234567890',
+            chat_name: 'Chat 1',
+            participants: ['+1234567890'],
+            is_group: false,
+          },
+        ];
+      });
+
+      const result = await connector.sync(
+        makeSyncCtx({ cursor: '2025-01-01T00:00:00.000Z', signal: controller.signal }),
+      );
+
+      expect(result.cursor).toBe('2025-01-01T00:00:00.000Z');
+      expect(mockMessagesHistory).toHaveBeenCalledTimes(1);
     });
 
     it('syncs contacts before iMessages', async () => {

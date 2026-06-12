@@ -452,7 +452,10 @@ describe('api', () => {
       await api.updateSettings({ key: 'new' });
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/settings',
-        expect.objectContaining({ method: 'PATCH' }),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ settings: { key: 'new' } }),
+        }),
       );
     });
   });

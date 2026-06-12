@@ -217,4 +217,35 @@ describe('AppleTunnelService', () => {
     const payload = JSON.parse(updatedAuthContext!.replace('enc:', ''));
     expect(payload.raw.bridgeToken).toBe('bridge-token-fresh');
   });
+
+  it('returns bridge status quickly when relay does not answer', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new AppleTunnelService(
+        {
+          queryRaw: vi.fn().mockResolvedValue([]),
+          connectionPool: makeMockConnectionPool(async () => ({ rows: [] })),
+        } as never,
+        { decrypt: vi.fn(), encrypt: vi.fn() } as never,
+        { add: vi.fn() } as never,
+        undefined,
+      );
+      (service as unknown as { redisPub: { publish: ReturnType<typeof vi.fn> } }).redisPub = {
+        publish: vi.fn().mockResolvedValue(1),
+      };
+      (service as unknown as { redisSub: object }).redisSub = {};
+
+      const statusPromise = service.getBridgeStatus('acct-1');
+      await vi.advanceTimersByTimeAsync(3000);
+      const status = await statusPromise;
+
+      expect(status).toMatchObject({
+        accountId: 'acct-1',
+        connected: false,
+        lastError: expect.stringContaining('Apple bridge unreachable'),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

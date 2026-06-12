@@ -220,6 +220,46 @@ describe('media extraction metadata', () => {
     expect(metadata.extractedText).toContain('Official document');
   });
 
+  it('drops redundant extraction text from persisted metadata', () => {
+    const metadata = {
+      mediaExtraction: {
+        status: 'extracted',
+        source: 'vision_ocr',
+        confidence: 0.7,
+        extractedText: 'Visible total: AED 120',
+      },
+      linkedDocuments: [
+        {
+          status: 'extracted',
+          fileName: 'certificate.pdf',
+          searchSummary: 'Official certificate details',
+          extractedText: 'Certificate number 123',
+          searchableText: 'Linked file context\n\nCertificate number 123',
+        },
+      ],
+    };
+
+    (
+      MemoryProcessor.prototype as unknown as {
+        stripRedundantSearchText(metadata: Record<string, unknown>): void;
+      }
+    ).stripRedundantSearchText(metadata);
+
+    expect(metadata.mediaExtraction).toMatchObject({
+      status: 'extracted',
+      source: 'vision_ocr',
+      confidence: 0.7,
+    });
+    expect(metadata.mediaExtraction).not.toHaveProperty('extractedText');
+    expect(metadata.linkedDocuments[0]).toMatchObject({
+      status: 'extracted',
+      fileName: 'certificate.pdf',
+      searchSummary: 'Official certificate details',
+    });
+    expect(metadata.linkedDocuments[0]).not.toHaveProperty('extractedText');
+    expect(metadata.linkedDocuments[0]).not.toHaveProperty('searchableText');
+  });
+
   it('treats Gmail attachment URIs as fetchable media', () => {
     const media = (
       MemoryProcessor.prototype as unknown as {

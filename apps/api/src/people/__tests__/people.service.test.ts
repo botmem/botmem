@@ -136,6 +136,15 @@ describe('normalizePhone', () => {
 });
 
 describe('PeopleService runtime behavior', () => {
+  it('serves merge suggestions from cache within the TTL', async () => {
+    const { service, dbService } = makeDb([[]]);
+
+    await expect(service.getSuggestions('user-1')).resolves.toEqual([]);
+    await expect(service.getSuggestions('user-1')).resolves.toEqual([]);
+
+    expect(dbService.withCurrentUser).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves a new person only when a durable identifier is present', async () => {
     const { service: guardedService } = makeDb([]);
     await expect(

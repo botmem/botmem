@@ -9,6 +9,7 @@ import { PgSearchService } from '../memory/pg-search.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { accounts, jobs } from '../db/schema';
 import type { SyncSchedule } from '@botmem/shared';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 
 @Injectable()
 export class AccountsService {
@@ -42,15 +43,16 @@ export class AccountsService {
   }) {
     const id = crypto.randomUUID();
     const now = new Date();
+    const connectorType = canonicalConnectorType(data.connectorType);
     await this.dbService.withCurrentUser(async (db) => {
       await db.insert(accounts).values({
         id,
         userId: data.userId || null,
-        connectorType: data.connectorType,
+        connectorType,
         identifier: this.crypto.encrypt(data.identifier)!,
         identifierHash: this.crypto.hmac(data.identifier),
         status: data.status || 'connected',
-        schedule: this.connectors.getSyncConfig(data.connectorType).defaultSchedule,
+        schedule: this.connectors.getSyncConfig(connectorType).defaultSchedule,
         authContext: this.crypto.encrypt(data.authContext || null),
         tunnelMode: data.tunnelMode ?? true,
         itemsSynced: 0,
@@ -61,7 +63,7 @@ export class AccountsService {
     this.analytics.capture(
       'account_created',
       {
-        connector_type: data.connectorType,
+        connector_type: connectorType,
       },
       data.userId,
     );

@@ -21,6 +21,8 @@ import {
   settings,
   users,
 } from '../db/schema';
+import { SYSTEM_SETTINGS_USER_ID } from '../settings/settings.service';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 import { parseNlq } from './nlq-parser';
 import {
   MIN_SCORE,
@@ -807,7 +809,8 @@ export class MemoryService {
     if (
       mediaExtraction &&
       typeof mediaExtraction === 'object' &&
-      typeof (mediaExtraction as Record<string, unknown>).extractedText === 'string'
+      (typeof (mediaExtraction as Record<string, unknown>).extractedText === 'string' ||
+        (mediaExtraction as Record<string, unknown>).status === 'extracted')
     ) {
       return 'attachment_ocr';
     }
@@ -2375,12 +2378,13 @@ export class MemoryService {
   }) {
     const id = randomUUID();
     const now = new Date();
+    const connectorType = canonicalConnectorType(data.connectorType);
 
     await this.dbService.withCurrentUser((db) =>
       db.insert(memories).values({
         id,
         accountId: data.accountId || null,
-        connectorType: data.connectorType,
+        connectorType,
         sourceType: data.sourceType,
         sourceId: `manual-${id}`,
         text: data.text,
@@ -2396,7 +2400,7 @@ export class MemoryService {
       id,
       text: data.text,
       sourceType: data.sourceType,
-      connectorType: data.connectorType,
+      connectorType,
       eventTime: now,
       createdAt: now,
     };
@@ -2598,9 +2602,9 @@ export class MemoryService {
         .select({ value: settings.value })
         .from(settings)
         .where(
-          inArray(
-            settings.key,
-            userId ? [`selfContactId:${userId}`, `selfPersonId:${userId}`] : ['selfContactId'],
+          and(
+            eq(settings.userId, userId ?? SYSTEM_SETTINGS_USER_ID),
+            inArray(settings.key, userId ? ['selfContactId', 'selfPersonId'] : ['selfContactId']),
           ),
         )
         .limit(1),
@@ -3384,7 +3388,6 @@ export class MemoryService {
           .set({
             text: encrypted.text,
             metadata: encrypted.metadata,
-            searchTokens: sql`to_tsvector('english', ${text})`,
           })
           .where(eq(memories.id, mem.id)),
       );

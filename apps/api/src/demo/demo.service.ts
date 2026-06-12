@@ -13,6 +13,7 @@ import {
   scanForPII,
   DEMO_SEARCH_EXAMPLES,
 } from './fake-data';
+import { canonicalConnectorType } from '../connectors/canonical-connector-type';
 
 @Injectable()
 export class DemoService {
@@ -38,7 +39,7 @@ export class DemoService {
     const now = new Date();
 
     // 1. Create demo accounts
-    const connectorTypes = ['gmail', 'slack', 'whatsapp', 'imessage', 'photos-immich'];
+    const connectorTypes = ['gmail', 'slack', 'whatsapp', 'apple', 'photos'];
     const accountIds: Record<string, string> = {};
 
     for (const type of connectorTypes) {
@@ -48,7 +49,7 @@ export class DemoService {
         db.insert(schema.accounts).values({
           id,
           userId,
-          connectorType: type,
+          connectorType: canonicalConnectorType(type),
           identifier: `demo-${type}`,
           status: 'connected',
           schedule: 'manual',
@@ -99,7 +100,7 @@ export class DemoService {
       gmail: 8,
       slack: 6,
       whatsapp: 6,
-      imessage: 5,
+      apple: 5,
       photos: 5,
     });
 
@@ -120,7 +121,8 @@ export class DemoService {
     const dim = this.config.embedDimension;
 
     for (const mem of fakeMemories) {
-      const accountId = accountIds[mem.connectorType];
+      const connectorType = canonicalConnectorType(mem.connectorType);
+      const accountId = accountIds[connectorType];
       const encrypted = {
         text: mem.text,
         entities: JSON.stringify(mem.entities),
@@ -135,7 +137,7 @@ export class DemoService {
             id: mem.id,
             accountId,
             memoryBankId,
-            connectorType: mem.connectorType,
+            connectorType,
             sourceType: mem.sourceType,
             sourceId: mem.sourceId,
             text: encrypted.text,

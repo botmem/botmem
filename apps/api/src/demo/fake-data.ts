@@ -984,7 +984,7 @@ function generateIMessageMemory(contacts: FakeContact[]): FakeMemory {
 
   return {
     id,
-    connectorType: 'imessage',
+    connectorType: 'apple',
     sourceType: 'message',
     sourceId: `demo-apple-msg-${id}`,
     text,
@@ -1026,7 +1026,7 @@ function generatePhotoMemory(contacts: FakeContact[]): FakeMemory {
 
   return {
     id,
-    connectorType: 'photos-immich',
+    connectorType: 'photos',
     sourceType: 'photo',
     sourceId: `demo-photo-${id}`,
     text,
@@ -1060,7 +1060,7 @@ function generatePhotoMemory(contacts: FakeContact[]): FakeMemory {
 
 export function generateMemories(
   contacts: FakeContact[],
-  counts: { gmail: number; slack: number; whatsapp: number; imessage: number; photos: number },
+  counts: { gmail: number; slack: number; whatsapp: number; apple: number; photos: number },
 ): FakeMemory[] {
   // Start with deterministic hero memories (searchable by the tour)
   const heroes = generateHeroMemories(contacts);
@@ -1076,8 +1076,8 @@ export function generateMemories(
     ['gmail', counts.gmail, generateGmailMemory],
     ['slack', counts.slack, generateSlackMemory],
     ['whatsapp', counts.whatsapp, generateWhatsAppMemory],
-    ['imessage', counts.imessage, generateIMessageMemory],
-    ['photos-immich', counts.photos, generatePhotoMemory],
+    ['apple', counts.apple, generateIMessageMemory],
+    ['photos', counts.photos, generatePhotoMemory],
   ];
 
   for (const [type, count, generator] of generators) {
@@ -1119,7 +1119,7 @@ export const DEMO_SEARCH_EXAMPLES: DemoSearchExample[] = [
   {
     query: 'Burj Khalifa group photo',
     description: 'Group photo at the observation deck',
-    connectorType: 'photos-immich',
+    connectorType: 'photos',
   },
   {
     query: 'deployed production',
@@ -1129,7 +1129,7 @@ export const DEMO_SEARCH_EXAMPLES: DemoSearchExample[] = [
   {
     query: 'Mediclinic appointment',
     description: 'iMessage about a doctor appointment',
-    connectorType: 'imessage',
+    connectorType: 'apple',
   },
 ];
 
@@ -1225,7 +1225,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
   // Hero 4: iMessage — Mediclinic appointment
   heroes.push({
     id: randomUUID(),
-    connectorType: 'imessage',
+    connectorType: 'apple',
     sourceType: 'message',
     sourceId: `demo-apple-msg-hero-1`,
     text: `${person0.displayName}: Don't forget about the appointment at Mediclinic tomorrow at 3pm. Dr. Fatima Al Zaabi, Building 27, City Walk. Bring your Emirates ID and insurance card.`,
@@ -1251,7 +1251,7 @@ export function generateHeroMemories(contacts: FakeContact[]): FakeMemory[] {
   // Hero 5: Photo — Burj Khalifa group photo
   heroes.push({
     id: randomUUID(),
-    connectorType: 'photos-immich',
+    connectorType: 'photos',
     sourceType: 'photo',
     sourceId: `demo-photo-hero-1`,
     text: `Group photo at Burj Khalifa observation deck, Downtown Dubai. Beautiful sunset over the Gulf with ${person0.displayName}, ${person1.displayName}, and ${person2.displayName}. Golden hour, clear skies. Amazing view of the skyline!`,

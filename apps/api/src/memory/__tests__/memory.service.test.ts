@@ -174,6 +174,22 @@ describe('MemoryService', () => {
       expect(result).toHaveProperty('items');
     });
 
+    it('infers OCR text source from old and compact media metadata', () => {
+      const inferTextSource = (
+        service as unknown as {
+          inferTextSource(metadata: unknown): 'body' | 'attachment_ocr' | 'metadata';
+        }
+      ).inferTextSource.bind(service);
+
+      expect(
+        inferTextSource({ mediaExtraction: { status: 'extracted', source: 'vision_ocr' } }),
+      ).toBe('attachment_ocr');
+      expect(
+        inferTextSource({ mediaExtraction: { extractedText: 'legacy extracted text' } }),
+      ).toBe('attachment_ocr');
+      expect(inferTextSource({ mediaExtraction: { status: 'failed' } })).toBe('body');
+    });
+
     it('strips request filler words from lexical search queries', async () => {
       await service.search('what are the death certificate details');
 

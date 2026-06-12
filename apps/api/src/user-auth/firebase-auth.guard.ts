@@ -12,6 +12,7 @@ import { IS_PUBLIC_KEY } from './decorators/public.decorator';
 import { REQUIRES_JWT_KEY } from './decorators/requires-jwt.decorator';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
@@ -20,6 +21,7 @@ export class FirebaseAuthGuard implements CanActivate {
     private firebaseAuthService: FirebaseAuthService,
     @Inject(forwardRef(() => ApiKeysService))
     private apiKeysService: ApiKeysService,
+    private jwtGuard: JwtAuthGuard,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -68,7 +70,12 @@ export class FirebaseAuthGuard implements CanActivate {
       return true;
     }
 
-    // Verify Firebase ID token
+    try {
+      return await this.jwtGuard.canActivate(context);
+    } catch {
+      // ponytail: Passport is the app-JWT verifier; Firebase remains the fallback.
+    }
+
     const decoded = await this.firebaseAuthService.verifyIdToken(token);
     const result = await this.firebaseAuthService.findOrCreateUser(decoded);
     if (!result.user) throw new UnauthorizedException('User sync failed');

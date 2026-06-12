@@ -154,6 +154,7 @@ private final class NativeAppleTunnel: NSObject, URLSessionWebSocketDelegate {
         "token": config.token,
         "publicKey": privateKey.publicKey.rawRepresentation.base64EncodedString(),
         "sources": config.sources,
+        "protocolVersion": 2,
       ],
     ]
     sendText(jsonString(auth))
@@ -366,7 +367,7 @@ private final class NativeMessagesDatabase {
   func messagesHistory(chatId: Int, start: String?, end: String?, limit: Int?) throws -> [[String: Any]] {
     let meta = try chatMeta(chatId)
     var sql = """
-      SELECT m.ROWID, m.guid, m.text, m.date, m.is_from_me, h.id, m.associated_message_guid
+      SELECT m.ROWID, m.guid, m.text, m.attributedBody, m.date, m.is_from_me, h.id, m.associated_message_guid
       FROM message m
       JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
       LEFT JOIN handle h ON h.ROWID = m.handle_id
@@ -401,27 +402,79 @@ private final class NativeMessagesDatabase {
       }
     }
     let participants = try chatParticipants(chatId)
-    var rows: [[String: Any]] = []
+    var messages: [(id: Int, guid: String, sender: String, isFromMe: Bool, text: String, date: Double, replyToGuid: String)] = []
     while sqlite3_step(statement) == SQLITE_ROW {
       let messageId = Int(sqlite3_column_int64(statement, 0))
-      rows.append([
-        "id": messageId,
+      let text = columnString(statement, 2)
+      messages.append((
+        id: messageId,
+        guid: columnString(statement, 1).isEmpty ? "apple-msg-local-\(messageId)" : columnString(statement, 1),
+        sender: columnString(statement, 6),
+        isFromMe: sqlite3_column_int(statement, 5) == 1,
+        text: text.isEmpty ? extractAttributedBodyText(columnBlob(statement, 3)) : text,
+        date: sqlite3_column_double(statement, 4),
+        replyToGuid: columnString(statement, 7)
+      ))
+    }
+    let attachmentsByMessageId = try attachmentsForMessages(messages.map { $0.id })
+    return messages.map { message in
+      [
+        "id": message.id,
         "chat_id": chatId,
-        "guid": columnString(statement, 1).isEmpty ? "apple-msg-local-\(messageId)" : columnString(statement, 1),
-        "sender": columnString(statement, 5),
-        "is_from_me": sqlite3_column_int(statement, 4) == 1,
-        "text": columnString(statement, 2),
-        "created_at": coreDataToISO(sqlite3_column_double(statement, 3)),
-        "attachments": [],
+        "guid": message.guid,
+        "sender": message.sender,
+        "is_from_me": message.isFromMe,
+        "text": message.text,
+        "created_at": coreDataToISO(message.date),
+        "attachments": attachmentsByMessageId[message.id] ?? [],
         "reactions": [],
         "chat_identifier": meta.identifier,
         "chat_name": meta.name,
         "participants": participants,
         "is_group": participants.count > 1,
-        "reply_to_guid": columnString(statement, 6),
-      ])
+        "reply_to_guid": message.replyToGuid,
+      ]
     }
-    return rows
+  }
+
+  private func attachmentsForMessages(_ messageIds: [Int]) throws -> [Int: [[String: Any]]] {
+    guard !messageIds.isEmpty else { return [:] }
+
+    // ponytail: metadata only; add a file fetch RPC if ingestion needs attachment bytes.
+    var byMessageId: [Int: [[String: Any]]] = [:]
+    let chunkSize = 900
+    for start in stride(from: 0, to: messageIds.count, by: chunkSize) {
+      let chunk = Array(messageIds[start..<min(start + chunkSize, messageIds.count)])
+      let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+      let sql = """
+        SELECT maj.message_id, a.filename, a.mime_type, a.transfer_name, a.total_bytes, a.uti
+        FROM message_attachment_join maj
+        JOIN attachment a ON a.ROWID = maj.attachment_id
+        WHERE maj.message_id IN (\(placeholders))
+      """
+      do {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw NativeError(sqliteError()) }
+        for (index, messageId) in chunk.enumerated() {
+          sqlite3_bind_int64(statement, Int32(index + 1), sqlite3_int64(messageId))
+        }
+        while sqlite3_step(statement) == SQLITE_ROW {
+          let messageId = Int(sqlite3_column_int64(statement, 0))
+          var attachment: [String: Any] = [
+            "filename": columnString(statement, 1),
+            "mime_type": columnString(statement, 2),
+            "transfer_name": columnString(statement, 3),
+            "uti": columnString(statement, 5),
+          ]
+          if sqlite3_column_type(statement, 4) != SQLITE_NULL {
+            attachment["total_bytes"] = Int(sqlite3_column_int64(statement, 4))
+          }
+          byMessageId[messageId, default: []].append(attachment)
+        }
+      }
+    }
+    return byMessageId
   }
 
   private func chatParticipants(_ chatId: Int) throws -> [String] {
@@ -497,6 +550,88 @@ private func nativeContactsList() -> [[String: Any]] {
 private func columnString(_ statement: OpaquePointer?, _ index: Int32) -> String {
   guard let raw = sqlite3_column_text(statement, index) else { return "" }
   return String(cString: raw)
+}
+
+private func columnBlob(_ statement: OpaquePointer?, _ index: Int32) -> Data? {
+  guard let raw = sqlite3_column_blob(statement, index) else { return nil }
+  let count = Int(sqlite3_column_bytes(statement, index))
+  guard count > 0 else { return nil }
+  return Data(bytes: raw, count: count)
+}
+
+private func extractAttributedBodyText(_ body: Data?) -> String {
+  guard let body, !body.isEmpty else { return "" }
+
+  let nsString = Data("NSString".utf8)
+  let marker = Data([0x95, 0x84, 0x01, 0x2b])
+  var searchFrom = body.startIndex
+
+  while searchFrom < body.endIndex {
+    guard let stringRange = body.range(of: nsString, options: [], in: searchFrom..<body.endIndex) else {
+      return ""
+    }
+    guard let markerRange = body.range(of: marker, options: [], in: stringRange.upperBound..<body.endIndex) else {
+      return ""
+    }
+
+    let lengthAt = markerRange.upperBound
+    guard let parsed = readArchivedStringLength(body, offset: lengthAt) else {
+      searchFrom = stringRange.upperBound
+      continue
+    }
+
+    let start = lengthAt + parsed.offset
+    let end = start + parsed.length
+    if parsed.length <= 0 || end > body.endIndex {
+      searchFrom = stringRange.upperBound
+      continue
+    }
+
+    let text = (String(data: body[start..<end], encoding: .utf8) ?? "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if isLikelyMessageText(text) { return text }
+
+    searchFrom = stringRange.upperBound
+  }
+
+  return ""
+}
+
+private func readArchivedStringLength(_ body: Data, offset: Int) -> (length: Int, offset: Int)? {
+  guard offset < body.endIndex else { return nil }
+  let first = body[offset]
+  if first < 0x80 { return (Int(first), 1) }
+
+  let byteCount = Int(first & 0x7f)
+  guard byteCount > 0, byteCount <= 4, offset + byteCount < body.endIndex else { return nil }
+
+  var length = 0
+  for i in 1...byteCount {
+    length = (length << 8) + Int(body[offset + i])
+  }
+
+  return (length, 1 + byteCount)
+}
+
+private func isLikelyMessageText(_ text: String) -> Bool {
+  guard !text.isEmpty, !text.contains("\u{0000}") else { return false }
+
+  let blocked: Set<String> = [
+    "NSString",
+    "NSMutableString",
+    "NSAttributedString",
+    "NSMutableAttributedString",
+    "NSObject",
+    "NSDictionary",
+    "NSNumber",
+    "NSValue",
+    "NSData",
+    "NSMutableData",
+    "NSKeyedArchiver",
+  ]
+  if blocked.contains(text) || text.hasPrefix("__kIM") { return false }
+
+  return text.rangeOfCharacter(from: .alphanumerics) != nil
 }
 
 private func coreDataToISO(_ value: Double) -> String {

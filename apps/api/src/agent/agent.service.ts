@@ -125,41 +125,6 @@ export class AgentService {
   }> {
     const limit = options?.limit ?? 20;
 
-    // Try conversation-powered search first
-    try {
-      if (options?.filters?.fromMe !== undefined) {
-        throw new Error('fromMe requires decrypted metadata filtering');
-      }
-      if (options?.filters?.contactId || options?.filters?.contactIds?.length) {
-        throw new Error('contact filters require memory search attribution semantics');
-      }
-      const vector = await this.ai.embed(query);
-      const filter = options?.filters ? this.buildSearchFilter(options.filters) : undefined;
-      const result = await this.searchIndex.conversationSearch(
-        query,
-        vector,
-        limit,
-        'botmem-chat',
-        options?.conversationId,
-        filter,
-      );
-
-      if (result.conversation?.answer) {
-        const enriched = await Promise.all(
-          result.results.map((r) => this.enrichMemory(r.id, r.score, options?.userId)),
-        );
-        const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
-        return {
-          results: grouped,
-          query,
-          answer: result.conversation.answer,
-          conversationId: result.conversation.conversationId,
-        };
-      }
-    } catch (err) {
-      this.logger.debug(`Conversation search failed, falling back to regular search: ${err}`);
-    }
-
     const broadWindow = inferBroadQueryWindow(query);
     if (broadWindow && !options?.filters?.contactId) {
       const digest = await this.answerBroadTimelineQuery(query, {
@@ -659,31 +624,6 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
       })),
       ...(score !== undefined ? { score } : {}),
     };
-  }
-
-  private buildSearchFilter(filters: {
-    sourceType?: string;
-    connectorType?: string;
-    contactId?: string;
-    from?: string;
-    to?: string;
-    fromMe?: boolean;
-  }): Record<string, unknown> {
-    const must: Array<Record<string, unknown>> = [];
-    if (filters.sourceType) {
-      must.push({ key: 'source_type', match: { value: filters.sourceType } });
-    }
-    if (filters.connectorType) {
-      must.push({ key: 'connector_type', match: { value: filters.connectorType } });
-    }
-    if (filters.from || filters.to) {
-      const range: Record<string, string> = {};
-      if (filters.from) range.gte = filters.from;
-      if (filters.to) range.lte = filters.to;
-      must.push({ key: 'event_time', range });
-    }
-    // contactId filtering not supported at vector level — handled post-search
-    return must.length ? { must } : {};
   }
 
   private groupByThread(results: EnrichedMemory[]): EnrichedMemory[] {

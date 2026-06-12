@@ -31,6 +31,7 @@ const TAPBACK_PREFIXES = [
 
 const PROGRESS_INTERVAL = 50; // emit progress every N messages
 const BRIDGE_PREFLIGHT_TIMEOUT_MS = 3000;
+const MESSAGE_PAGE_LIMIT = 500;
 
 export interface AppleSelectedSources {
   contacts: boolean;
@@ -65,6 +66,17 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+export function parseSyncCursor(cursor: string | null): string | undefined {
+  if (!cursor) return undefined;
+  const time = Date.parse(cursor);
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
+function nextCursorStart(cursor: string): string {
+  // ponytail: timestamp cursor can skip same-ms bursts above page size; use rowid cursor if that appears.
+  return new Date(Date.parse(cursor) + 1).toISOString();
 }
 
 export class AppleConnector extends BaseConnector {
@@ -274,68 +286,65 @@ export class AppleConnector extends BaseConnector {
       chats.sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''));
       ctx.logger.info(`Found ${chats.length} chats`);
 
-      const startCursor = ctx.cursor || undefined;
+      const startCursor = parseSyncCursor(ctx.cursor);
+      if (ctx.cursor && !startCursor) {
+        ctx.logger.warn('Ignoring invalid Apple sync cursor; full sync required');
+      }
       let latestTimestamp: string | null = null;
       let processed = 0;
       let filteredCount = 0;
+      let completedAllChats = true;
 
       for (const chat of chats) {
-        if (ctx.signal.aborted) break;
+        if (ctx.signal.aborted) {
+          completedAllChats = false;
+          break;
+        }
 
-        const messages = await client.messagesHistory(chat.id, {
-          start: startCursor
-            ? new Date(new Date(startCursor).getTime() + 1).toISOString()
-            : undefined,
-        });
+        let pageStart = startCursor ? nextCursorStart(startCursor) : undefined;
+        while (!ctx.signal.aborted) {
+          const messages = await client.messagesHistory(chat.id, {
+            limit: MESSAGE_PAGE_LIMIT,
+            start: pageStart,
+          });
 
-        // Process newest messages first
-        messages.reverse();
+          if (messages.length === 0) break;
 
-        for (const msg of messages) {
-          if (ctx.signal.aborted) break;
+          for (const msg of messages) {
+            if (ctx.signal.aborted) {
+              completedAllChats = false;
+              break;
+            }
 
-          const text = msg.text || '';
-          const hasAttachments = msg.attachments && msg.attachments.length > 0;
+            const text = msg.text || '';
+            const hasAttachments = msg.attachments && msg.attachments.length > 0;
 
-          // Skip null/empty text messages without attachments (delivery/read receipts)
-          if (!text && !hasAttachments) {
-            filteredCount++;
-            continue;
-          }
+            // Skip null/empty text messages without attachments (delivery/read receipts)
+            if (!text && !hasAttachments) {
+              filteredCount++;
+              continue;
+            }
 
-          // Skip tapback reactions (e.g. 'Loved "hey"', 'Liked "ok"')
-          if (text && TAPBACK_PREFIXES.some((prefix) => text.startsWith(prefix))) {
-            filteredCount++;
-            ctx.logger.debug(`Noise filtered (tapback): ${text.slice(0, 60)}`);
-            continue;
-          }
+            // Skip tapback reactions (e.g. 'Loved "hey"', 'Liked "ok"')
+            if (text && TAPBACK_PREFIXES.some((prefix) => text.startsWith(prefix))) {
+              filteredCount++;
+              ctx.logger.debug('Noise filtered (tapback)');
+              continue;
+            }
 
-          // Apply shared noise filter on message text
-          if (text && isNoise(text, {})) {
-            filteredCount++;
-            continue;
-          }
+            // Apply shared noise filter on message text
+            if (text && isNoise(text, {})) {
+              filteredCount++;
+              continue;
+            }
 
-          this.emitData({
-            sourceType: 'message',
-            sourceId: msg.guid || `apple-msg-${msg.id}`,
-            timestamp: msg.created_at,
-            content: {
-              text,
-              participants: msg.participants || [msg.sender],
-              attachments: hasAttachments
-                ? msg.attachments.map((attachment) => ({
-                    uri: attachment.filename || attachment.transfer_name || '',
-                    mimeType: attachment.mime_type || 'application/octet-stream',
-                    filename: attachment.transfer_name || attachment.filename,
-                  }))
-                : undefined,
-              metadata: {
-                chatId: msg.chat_id,
-                chatName: msg.chat_name,
-                service: 'iMessage',
-                isFromMe: msg.is_from_me,
-                isGroup: msg.is_group,
+            this.emitData({
+              sourceType: 'message',
+              sourceId: msg.guid || `apple-msg-${msg.id}`,
+              timestamp: msg.created_at,
+              content: {
+                text,
+                participants: msg.participants || [msg.sender],
                 attachments: hasAttachments
                   ? msg.attachments.map((attachment) => ({
                       uri: attachment.filename || attachment.transfer_name || '',
@@ -343,19 +352,38 @@ export class AppleConnector extends BaseConnector {
                       filename: attachment.transfer_name || attachment.filename,
                     }))
                   : undefined,
+                metadata: {
+                  chatId: msg.chat_id,
+                  chatName: msg.chat_name,
+                  service: 'iMessage',
+                  isFromMe: msg.is_from_me,
+                  isGroup: msg.is_group,
+                  attachments: hasAttachments
+                    ? msg.attachments.map((attachment) => ({
+                        uri: attachment.filename || attachment.transfer_name || '',
+                        mimeType: attachment.mime_type || 'application/octet-stream',
+                        filename: attachment.transfer_name || attachment.filename,
+                      }))
+                    : undefined,
+                },
               },
-            },
-          });
+            });
 
-          if (!latestTimestamp || msg.created_at > latestTimestamp) {
-            latestTimestamp = msg.created_at;
+            if (!latestTimestamp || msg.created_at > latestTimestamp) {
+              latestTimestamp = msg.created_at;
+            }
+
+            processed++;
+
+            if (processed % PROGRESS_INTERVAL === 0) {
+              this.emitProgress({ processed });
+            }
           }
 
-          processed++;
-
-          if (processed % PROGRESS_INTERVAL === 0) {
-            this.emitProgress({ processed });
-          }
+          if (ctx.signal.aborted) break;
+          const pageLatest = messages[messages.length - 1]?.created_at;
+          if (!pageLatest || messages.length < MESSAGE_PAGE_LIMIT) break;
+          pageStart = nextCursorStart(pageLatest);
         }
       }
 
@@ -365,7 +393,7 @@ export class AppleConnector extends BaseConnector {
       this.emitProgress({ processed });
 
       return {
-        cursor: latestTimestamp || ctx.cursor,
+        cursor: completedAllChats ? latestTimestamp || ctx.cursor : ctx.cursor,
         hasMore: false,
         processed,
       };

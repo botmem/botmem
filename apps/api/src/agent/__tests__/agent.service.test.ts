@@ -69,6 +69,7 @@ describe('AgentService', () => {
     qdrantService = {
       ensureCollection: vi.fn(),
       upsert: vi.fn(),
+      conversationSearch: vi.fn(),
     };
 
     contactsService = {
@@ -107,6 +108,7 @@ describe('AgentService', () => {
       expect(result.results).toEqual([]);
       expect(result.query).toBe('test query');
       expect(memoryService.search).toHaveBeenCalledWith('test query', undefined, 20, undefined);
+      expect(qdrantService.conversationSearch).not.toHaveBeenCalled();
     });
 
     it('returns enriched results when search finds matches', async () => {
@@ -133,6 +135,7 @@ describe('AgentService', () => {
         5,
         undefined,
       );
+      expect(qdrantService.conversationSearch).not.toHaveBeenCalled();
     });
 
     it('falls back to a timeline digest for broad queries when search fails', async () => {

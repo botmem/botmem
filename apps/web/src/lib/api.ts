@@ -515,7 +515,7 @@ export const api = {
   updateSettings: (settings: Record<string, string>) =>
     request<Record<string, string>>('/settings', {
       method: 'PATCH',
-      body: JSON.stringify(settings),
+      body: JSON.stringify({ settings }),
     }),
 
   // API Keys

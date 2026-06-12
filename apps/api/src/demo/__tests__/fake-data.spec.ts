@@ -52,8 +52,10 @@ describe('fake-data', () => {
       expect(types).toContain('gmail');
       expect(types).toContain('slack');
       expect(types).toContain('whatsapp');
-      expect(types).toContain('imessage');
-      expect(types).toContain('photos-immich');
+      expect(types).toContain('apple');
+      expect(types).toContain('photos');
+      expect(types).not.toContain('imessage');
+      expect(types).not.toContain('photos-immich');
     });
 
     it('hero memories have deterministic, known searchable content', () => {
@@ -69,11 +71,11 @@ describe('fake-data', () => {
       expect(waHero?.text).toContain('Zuma');
       expect(waHero?.text).toContain('Friday');
 
-      const appleHero = heroes.find((h) => h.connectorType === 'imessage');
+      const appleHero = heroes.find((h) => h.connectorType === 'apple');
       expect(appleHero?.text).toContain('Mediclinic');
       expect(appleHero?.text).toContain('appointment');
 
-      const photoHero = heroes.find((h) => h.connectorType === 'photos-immich');
+      const photoHero = heroes.find((h) => h.connectorType === 'photos');
       expect(photoHero?.text).toContain('Burj Khalifa');
       expect(photoHero?.text).toContain('Group photo');
     });
@@ -126,7 +128,7 @@ describe('fake-data', () => {
       gmail: 8,
       slack: 6,
       whatsapp: 6,
-      imessage: 5,
+      apple: 5,
       photos: 5,
     });
 
@@ -159,8 +161,10 @@ describe('fake-data', () => {
       expect(counts['gmail']).toBe(8);
       expect(counts['slack']).toBe(6);
       expect(counts['whatsapp']).toBe(6);
-      expect(counts['imessage']).toBe(5);
-      expect(counts['photos-immich']).toBe(5);
+      expect(counts['apple']).toBe(5);
+      expect(counts['photos']).toBe(5);
+      expect(counts['imessage']).toBeUndefined();
+      expect(counts['photos-immich']).toBeUndefined();
     });
   });
 
@@ -181,7 +185,7 @@ describe('fake-data', () => {
         gmail: 8,
         slack: 6,
         whatsapp: 6,
-        imessage: 5,
+        apple: 5,
         photos: 5,
       });
       const result = scanForPII(memories.map((m) => m.text));
