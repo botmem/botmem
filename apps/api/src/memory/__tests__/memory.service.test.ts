@@ -185,6 +185,37 @@ describe('MemoryService', () => {
       );
     });
 
+    it('does not resolve zero-memory name-only contacts as people', async () => {
+      (service as unknown as { contactsCache: Map<string, unknown> }).contactsCache.set(
+        '__none__',
+        {
+          expires: Date.now() + 60_000,
+          data: [
+            {
+              id: 'ghost',
+              displayName: 'North Station',
+              entityType: 'person',
+              memoryCount: 0,
+            },
+          ],
+        },
+      );
+
+      const result = await (
+        service as unknown as {
+          resolveEntities: (words: string[]) => Promise<{
+            contacts: { id: string; displayName: string }[];
+            topicWords: string[];
+            contactIds: string[];
+          }>;
+        }
+      ).resolveEntities(['north', 'station']);
+
+      expect(result.contacts).toEqual([]);
+      expect(result.contactIds).toEqual([]);
+      expect(result.topicWords).toEqual(['north', 'station']);
+    });
+
     it('does not run lexical exact search for person plus generic conversation words', async () => {
       (service as unknown as { contactsCache: Map<string, unknown> }).contactsCache.set(
         '__none__',
@@ -241,7 +272,14 @@ describe('MemoryService', () => {
         '__none__',
         {
           expires: Date.now() + 60_000,
-          data: [{ id: 'person-1', displayName: 'Acme Booking', entityType: 'person' }],
+          data: [
+            {
+              id: 'person-1',
+              displayName: 'Acme Booking',
+              entityType: 'person',
+              memoryCount: 1,
+            },
+          ],
         },
       );
       searchIndexService.hybridSearch
@@ -284,7 +322,14 @@ describe('MemoryService', () => {
         '__none__',
         {
           expires: Date.now() + 60_000,
-          data: [{ id: 'person-1', displayName: 'Acme', entityType: 'person' }],
+          data: [
+            {
+              id: 'person-1',
+              displayName: 'Acme',
+              entityType: 'person',
+              memoryCount: 1,
+            },
+          ],
         },
       );
       searchIndexService.hybridSearch
@@ -332,6 +377,71 @@ describe('MemoryService', () => {
       expect(result.fallback).toBe(true);
       expect(result.diagnostics?.entityResolutionFallback).toBe('reran_without_entities');
       expect(result.items[0].text).toContain('Acme itinerary');
+    });
+
+    it('keeps boosted sort scores distinct above 1.0', async () => {
+      searchIndexService.hybridSearch.mockResolvedValueOnce({
+        results: [
+          { id: 'lower', score: 0.98 },
+          { id: 'higher', score: 1.0 },
+        ],
+        facetCounts: [],
+        found: 2,
+      });
+      searchIndexService.textSearch.mockResolvedValueOnce([
+        { id: 'lower', score: 0.98 },
+        { id: 'higher', score: 1.0 },
+      ]);
+      vi.spyOn(
+        service as unknown as { fetchMemoryRowsBatch: (ids: string[]) => unknown },
+        'fetchMemoryRowsBatch',
+      ).mockResolvedValueOnce(
+        new Map([
+          [
+            'lower',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                id: 'lower',
+                text: 'alpha beta lower result with enough body text to include a length signal',
+                eventTime: new Date(),
+              },
+              accountIdentifier: null,
+            },
+          ],
+          [
+            'higher',
+            {
+              memory: {
+                ...fakeMemoryRow,
+                id: 'higher',
+                text: 'alpha beta higher result with enough body text to include a length signal',
+                eventTime: new Date(),
+              },
+              accountIdentifier: null,
+            },
+          ],
+        ]),
+      );
+
+      const result = await service.search(
+        'alpha beta',
+        undefined,
+        2,
+        undefined,
+        undefined,
+        undefined,
+        0,
+        { debug: true, noEntityResolution: true },
+      );
+
+      expect(result.items.map((item) => item.id)).toEqual(['higher', 'lower']);
+      expect(result.items[0].score).toBeGreaterThan(1);
+      expect(result.items[0].score).toBeGreaterThan(result.items[1].score);
+      expect(result.diagnostics?.topScoreComponents.map((item) => item.score)).toEqual([
+        result.items[0].score,
+        result.items[1].score,
+      ]);
     });
 
     it('ranks fallback candidates by dynamic query token coverage', async () => {
