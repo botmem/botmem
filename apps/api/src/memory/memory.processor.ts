@@ -23,6 +23,7 @@ import { AnalyticsService } from '../analytics/analytics.service';
 import { ConfigService } from '../config/config.service';
 import { GeoService } from '../geo/geo.service';
 import { QuotaService } from '../billing/quota.service';
+import { BlobStoreService } from '../blob/blob-store.service';
 import { validateUrlForFetch } from '../utils/ssrf-guard';
 import {
   rawEvents,
@@ -84,7 +85,7 @@ interface PrimaryMedia {
   kind: MediaKind;
   mimeType: string;
   fileName?: string;
-  hasInlineContent: boolean;
+  hasStoredContent: boolean;
   hasFetchableUrl: boolean;
   connectorUri?: string;
 }
@@ -206,6 +207,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     private quotaService: QuotaService,
     private traceContext: TraceContext,
     private rawEventClassifier: RawEventPipelineClassifier,
+    private blobStore: BlobStoreService,
     @InjectQueue('memory') private memoryQueue: Queue,
   ) {
     super();
@@ -723,7 +725,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     // 3. Media/file processing — extract searchable text where possible
     const primaryMedia = this.resolvePrimaryMedia(mergedMetadata, event.sourceType);
     const hasFile = !!(
-      primaryMedia?.hasInlineContent ||
+      primaryMedia?.hasStoredContent ||
       primaryMedia?.hasFetchableUrl ||
       primaryMedia?.connectorUri
     );
@@ -1496,14 +1498,17 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
         '',
     ).trim();
     const kind = mediaKindFromMime(mimeType, metadata.messageType, sourceType);
-    const hasInlineContent = typeof metadata.fileBase64 === 'string' && metadata.fileBase64 !== '';
+    const hasStoredContent =
+      (typeof metadata.fileBase64 === 'string' && metadata.fileBase64 !== '') ||
+      (typeof metadata.blobRef === 'string' && metadata.blobRef !== '') ||
+      (typeof firstAttachment?.blobRef === 'string' && firstAttachment.blobRef !== '');
     const hasFetchableUrl = typeof metadata.fileUrl === 'string' && metadata.fileUrl !== '';
     const connectorUri = String(firstAttachment?.uri || metadata.fileUri || '').trim();
     if (
       !mimeType &&
       !fileName &&
       kind === 'unknown' &&
-      !hasInlineContent &&
+      !hasStoredContent &&
       !hasFetchableUrl &&
       !connectorUri
     ) {
@@ -1513,7 +1518,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       kind,
       mimeType,
       fileName: fileName || undefined,
-      hasInlineContent,
+      hasStoredContent,
       hasFetchableUrl,
       connectorUri: connectorUri || undefined,
     };
@@ -1712,7 +1717,22 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     rawEvent: { accountId: string; connectorType: string; sourceId: string },
   ): Promise<Buffer> {
     const fileBase64 = (metadata.fileBase64 as string) || '';
+    // ponytail: legacy fallback — remove once old inline-base64 raw_events are migrated/pruned.
     if (fileBase64) return Buffer.from(fileBase64, 'base64');
+
+    const blobRef = (metadata.blobRef as string) || '';
+    if (blobRef && this.blobStore) {
+      const buffer = await this.blobStore.get(blobRef);
+      if (buffer) return buffer;
+      throw new Error(`Blob not found: ${blobRef}`);
+    }
+
+    const attachmentBlobRef = this.resolveAttachmentBlobRef(metadata);
+    if (attachmentBlobRef && this.blobStore) {
+      const buffer = await this.blobStore.get(attachmentBlobRef);
+      if (buffer) return buffer;
+      throw new Error(`Blob not found: ${attachmentBlobRef}`);
+    }
 
     const connectorUri = this.resolveConnectorAttachmentUri(metadata);
     if (connectorUri) {
@@ -1735,6 +1755,17 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       throw new Error(`File download failed: ${res.status} ${res.statusText}`);
     }
     return Buffer.from(await res.arrayBuffer());
+  }
+
+  private resolveAttachmentBlobRef(metadata: Record<string, unknown>): string | null {
+    const attachment = arrayFromUnknown(metadata.attachments).find(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        typeof (item as Record<string, unknown>).blobRef === 'string',
+    ) as Record<string, unknown> | undefined;
+    const ref = String(attachment?.blobRef || '').trim();
+    return ref || null;
   }
 
   private resolveConnectorAttachmentUri(metadata: Record<string, unknown>): string {

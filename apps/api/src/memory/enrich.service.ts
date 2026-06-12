@@ -92,7 +92,7 @@ export class EnrichService {
       try {
         const parsed = JSON.parse(metadata);
         if (parsed.attachments?.length > 0) return false;
-        if (parsed.fileUrl || parsed.fileBase64) return false;
+        if (parsed.fileUrl || parsed.fileBase64 || parsed.blobRef) return false;
       } catch {
         // ignore parse errors
       }

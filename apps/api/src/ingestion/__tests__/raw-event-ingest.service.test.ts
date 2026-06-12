@@ -3,6 +3,11 @@ import { RawEventIngestService } from '../raw-event-ingest.service';
 import type { DbService } from '../../db/db.service';
 import type { CryptoService } from '../../crypto/crypto.service';
 import type { Queue } from 'bullmq';
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { BlobStoreService } from '../../blob/blob-store.service';
+import type { ConfigService } from '../../config/config.service';
 
 function insertChain(returning: Array<{ id: string }>) {
   return {
@@ -25,7 +30,8 @@ describe('RawEventIngestService', () => {
       encrypt: vi.fn((value: string) => `enc:${value}`),
     } as unknown as CryptoService;
     const queue = { add: vi.fn().mockResolvedValue(undefined) } as unknown as Queue;
-    const service = new RawEventIngestService(dbService, crypto, queue);
+    const blobStore = { put: vi.fn() } as unknown as BlobStoreService;
+    const service = new RawEventIngestService(dbService, crypto, queue, blobStore);
 
     const result = await service.ingest({
       accountId: 'acc-1',
@@ -61,7 +67,8 @@ describe('RawEventIngestService', () => {
       encrypt: vi.fn((value: string) => `enc:${value}`),
     } as unknown as CryptoService;
     const queue = { add: vi.fn().mockResolvedValue(undefined) } as unknown as Queue;
-    const service = new RawEventIngestService(dbService, crypto, queue);
+    const blobStore = { put: vi.fn() } as unknown as BlobStoreService;
+    const service = new RawEventIngestService(dbService, crypto, queue, blobStore);
 
     const result = await service.ingest({
       accountId: 'acc-1',
@@ -76,5 +83,53 @@ describe('RawEventIngestService', () => {
 
     expect(result.inserted).toBe(false);
     expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('offloads fileBase64 before encrypting raw events', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'botmem-ingest-blobs-'));
+    try {
+      const chain = insertChain([{ id: 'raw-1' }]);
+      const dbService = {
+        db: { insert: vi.fn().mockReturnValue(chain) },
+      } as unknown as DbService;
+      const encrypt = vi.fn((value: string) => `enc:${value}`);
+      const crypto = { encrypt } as unknown as CryptoService;
+      const queue = { add: vi.fn().mockResolvedValue(undefined) } as unknown as Queue;
+      const blobStore = new BlobStoreService({ blobDir: dir } as ConfigService);
+      const service = new RawEventIngestService(dbService, crypto, queue, blobStore);
+
+      await service.ingest({
+        accountId: 'acc-1',
+        connectorType: 'whatsapp',
+        event: {
+          sourceType: 'message',
+          sourceId: 'wa-1',
+          timestamp: '2026-05-04T08:00:00.000Z',
+          content: {
+            text: 'photo',
+            metadata: {
+              fileBase64: Buffer.from('image bytes').toString('base64'),
+              mimetype: 'image/jpeg',
+              fileName: 'photo.jpg',
+            },
+          },
+        },
+      });
+
+      const encryptedPayload = encrypt.mock.calls[0][0];
+      const storedEvent = JSON.parse(encryptedPayload);
+      const metadata = storedEvent.content.metadata;
+
+      expect(metadata.fileBase64).toBeUndefined();
+      expect(metadata).toMatchObject({
+        blobRef: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        mime: 'image/jpeg',
+        fileName: 'photo.jpg',
+        size: 11,
+      });
+      expect((await blobStore.get(metadata.blobRef))?.toString()).toBe('image bytes');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
