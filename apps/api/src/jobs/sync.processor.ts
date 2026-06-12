@@ -11,6 +11,7 @@ import { LogsService } from '../logs/logs.service';
 import { EventsService } from '../events/events.service';
 import { DbService } from '../db/db.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { BlobStoreService } from '../blob/blob-store.service';
 import { accounts, people, personIdentifiers } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { ConfigService } from '../config/config.service';
@@ -68,10 +69,17 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
     private moduleRef: ModuleRef,
     @Optional() rawEventIngest?: RawEventIngestService,
     @Optional() syncPolicy?: ConnectorSyncPolicyService,
+    @Optional() blobStore?: BlobStoreService,
   ) {
     super();
     this.rawEventIngest =
-      rawEventIngest ?? new RawEventIngestService(this.dbService, this.crypto, this.memoryQueue);
+      rawEventIngest ??
+      new RawEventIngestService(
+        this.dbService,
+        this.crypto,
+        this.memoryQueue,
+        blobStore ?? new BlobStoreService(this.configService),
+      );
     this.syncPolicy = syncPolicy ?? new ConnectorSyncPolicyService();
   }
 

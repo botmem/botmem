@@ -74,6 +74,14 @@ export class ConfigService implements OnModuleInit {
     return process.env.PLUGINS_DIR || './plugins';
   }
 
+  get dataDir(): string {
+    return process.env.DATA_DIR || './data';
+  }
+
+  get blobDir(): string {
+    return process.env.BLOB_DIR || `${this.dataDir}/blobs`;
+  }
+
   get frontendUrl(): string {
     return process.env.FRONTEND_URL || 'http://localhost:12412';
   }

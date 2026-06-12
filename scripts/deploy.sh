@@ -32,7 +32,10 @@ COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 show_disk_usage() {
   df -h / || true
-  docker system df || true
+  # ponytail: `docker system df` can wedge in futex_wait on a near-full disk and
+  # hang the whole deploy in post-success cleanup (it ignores SIGTERM mid-call).
+  # Cap it so a cosmetic disk-stat read can never block the deploy.
+  timeout 30 docker system df || echo "==> (docker system df skipped: timed out)"
 }
 
 wait_with_heartbeat() {
