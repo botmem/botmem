@@ -17,6 +17,19 @@ import { WorkerModule } from './worker.module';
 
 const logger = new Logger('WorkerBootstrap');
 
+function formatProcessError(err: unknown): string {
+  if (err instanceof Error) return err.stack ?? err.message;
+  return String(err);
+}
+
+process.on('unhandledRejection', (reason) => {
+  logger.error(`[unhandledRejection] ${formatProcessError(reason)}`);
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error(`[uncaughtException] ${formatProcessError(err)}`);
+});
+
 async function bootstrap() {
   process.env.BOTMEM_PROCESS_ROLE = process.env.BOTMEM_PROCESS_ROLE || 'worker';
 
