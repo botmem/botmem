@@ -25,6 +25,23 @@ describe('AiCacheService', () => {
   let service: AiCacheService;
   let dbService: DbService;
   let cryptoService: CryptoService;
+  const computeId = (
+    svc: AiCacheService,
+    backend: string,
+    operation: string,
+    model: string,
+    input: string,
+  ) =>
+    (
+      svc as unknown as {
+        computeId: (
+          backend: string,
+          operation: string,
+          model: string,
+          input: string,
+        ) => string;
+      }
+    ).computeId(backend, operation, model, input);
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -151,45 +168,50 @@ describe('AiCacheService', () => {
   });
 
   describe('computeId determinism', () => {
-    it('generates the same ID for the same model+input', async () => {
-      const calls: unknown[][] = [];
-      (dbService.db.execute as ReturnType<typeof vi.fn>).mockImplementation(
-        (...args: unknown[]) => {
-          calls.push(args);
-          return Promise.resolve({ rows: [] });
-        },
-      );
+    it('generates the same ID for the same backend+operation+model+input', () => {
+      const id1 = computeId(service, 'ollama', 'embed', 'model-x', 'same input');
+      const id2 = computeId(service, 'ollama', 'embed', 'model-x', 'same input');
 
-      await service.get('model-x', 'same input', 'embed');
-      await service.get('model-x', 'same input', 'embed');
-
-      // Both calls should produce the same query (same id)
-      expect(calls.length).toBe(2);
+      expect(id1).toBe(id2);
     });
 
     it('generates different IDs for different models', () => {
-      // Test the computeId logic directly
-      const computeId = (model: string, input: string) => {
-        const inputHash = createHash('sha256').update(input).digest('hex');
-        return createHash('sha256').update(`${model}:${inputHash}`).digest('hex');
-      };
-
-      const id1 = computeId('model-a', 'same input');
-      const id2 = computeId('model-b', 'same input');
+      const id1 = computeId(service, 'ollama', 'embed', 'model-a', 'same input');
+      const id2 = computeId(service, 'ollama', 'embed', 'model-b', 'same input');
 
       expect(id1).not.toBe(id2);
     });
 
     it('generates different IDs for different inputs', () => {
-      const computeId = (model: string, input: string) => {
-        const inputHash = createHash('sha256').update(input).digest('hex');
-        return createHash('sha256').update(`${model}:${inputHash}`).digest('hex');
-      };
-
-      const id1 = computeId('model-a', 'input 1');
-      const id2 = computeId('model-a', 'input 2');
+      const id1 = computeId(service, 'ollama', 'embed', 'model-a', 'input 1');
+      const id2 = computeId(service, 'ollama', 'embed', 'model-a', 'input 2');
 
       expect(id1).not.toBe(id2);
+    });
+
+    it('generates different IDs for different operations with the same backend+model+input', () => {
+      const id1 = computeId(service, 'ollama', 'embed', 'same-model', 'same input');
+      const id2 = computeId(service, 'ollama', 'generate', 'same-model', 'same input');
+
+      expect(id1).not.toBe(id2);
+    });
+
+    it('generates different IDs for different backends with the same operation+model+input', () => {
+      const id1 = computeId(service, 'ollama', 'embed', 'same-model', 'same input');
+      const id2 = computeId(service, 'gemini', 'embed', 'same-model', 'same input');
+
+      expect(id1).not.toBe(id2);
+    });
+
+    it('hashes backend:operation:model:inputHash', () => {
+      const inputHash = createHash('sha256').update('hello world').digest('hex');
+      const expected = createHash('sha256')
+        .update(`gemini:embed_multimodal:model-x:${inputHash}`)
+        .digest('hex');
+
+      expect(computeId(service, 'gemini', 'embed_multimodal', 'model-x', 'hello world')).toBe(
+        expected,
+      );
     });
   });
 

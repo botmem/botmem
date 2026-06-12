@@ -1204,7 +1204,7 @@ export class PeopleService {
         .from(people)
         .where(where),
     );
-    const total = countResult[0].count;
+    const total = Number(countResult[0]?.count) || 0;
 
     // Get selfPersonId to pin it first. Self identity is scoped per user.
     let selfPersonId = '';

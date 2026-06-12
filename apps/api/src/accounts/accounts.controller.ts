@@ -39,6 +39,12 @@ function normalizeAccountError(
   return error;
 }
 
+function toIsoTimestamp(value: Date | string | null): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
 function toApiAccount(
   row: {
     id: string;
@@ -82,7 +88,7 @@ function toApiAccount(
     identifier: row.identifier,
     status,
     schedule: row.schedule as ConnectorAccount['schedule'],
-    lastSync: row.lastSyncAt ? String(row.lastSyncAt) : null,
+    lastSync: toIsoTimestamp(row.lastSyncAt),
     memoriesIngested: memoryCount ?? row.itemsSynced ?? 0,
     contactsCount: contactsCount ?? 0,
     groupsCount: groupsCount ?? 0,

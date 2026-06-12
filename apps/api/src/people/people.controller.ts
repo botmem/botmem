@@ -9,6 +9,7 @@ import {
   Body,
   Res,
   HttpStatus,
+  HttpCode,
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -242,6 +243,7 @@ export class PeopleController {
 
   @ReadOnly()
   @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @HttpCode(200)
   @Post('search')
   async search(@CurrentUser() user: { id: string }, @Body() dto: SearchPeopleDto) {
     return this.peopleService.search(dto.query, user.id, dto.entityType, dto.limit);

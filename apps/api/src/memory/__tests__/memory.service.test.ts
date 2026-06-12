@@ -671,6 +671,29 @@ describe('MemoryService', () => {
       const result = await service.getStats('user-1');
       expect(result).toEqual({ total: 0, bySource: {}, byConnector: {}, byFactuality: {} });
     });
+
+    it('returns factuality counts from plaintext labels', async () => {
+      mockDb.where.mockReturnValue(mockDb);
+      mockDb.then = vi.fn().mockImplementationOnce((fn: (rows: unknown[]) => unknown) =>
+        fn([{ count: '3' }]),
+      );
+      mockDb.groupBy
+        .mockResolvedValueOnce([{ key: 'email', count: '3' }])
+        .mockResolvedValueOnce([{ key: 'gmail', count: '3' }])
+        .mockResolvedValueOnce([
+          { label: 'FACT', count: '1' },
+          { label: 'UNVERIFIED', count: '2' },
+        ]);
+
+      const result = await service.getStats('user-1');
+
+      expect(result).toEqual({
+        total: 3,
+        bySource: { email: 3 },
+        byConnector: { gmail: 3 },
+        byFactuality: { FACT: 1, UNVERIFIED: 2 },
+      });
+    });
   });
 
   describe('needsRecoveryKey', () => {

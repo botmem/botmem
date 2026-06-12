@@ -2420,15 +2420,16 @@ export class MemoryService {
     const byConnector: Record<string, number> = {};
     for (const r of connectorRows) byConnector[r.key] = Number(r.count) || 0;
 
+    const factConditions: SQLWrapper[] = [eq(memories.pipelineComplete, true)];
+    if (userId) factConditions.push(eq(accounts.userId, userId));
+    if (memoryBankIds?.length) factConditions.push(inArray(memories.memoryBankId, memoryBankIds));
     const factRows = await this.dbService.withCurrentUser((db) =>
       db
-        .select({
-          label: sql<string>`${memorySearchIndex.factualityLabel}`,
-          count: sql<number>`COUNT(*)`,
-        })
-        .from(memorySearchIndex)
-        .where(statsFilter)
-        .groupBy(memorySearchIndex.factualityLabel),
+        .select({ label: memories.factualityLabel, count: sql<number>`COUNT(*)` })
+        .from(memories)
+        .leftJoin(accounts, eq(memories.accountId, accounts.id))
+        .where(and(...factConditions))
+        .groupBy(memories.factualityLabel),
     );
     const byFactuality: Record<string, number> = {};
     for (const r of factRows) {

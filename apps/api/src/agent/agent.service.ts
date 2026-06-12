@@ -613,7 +613,7 @@ Answer based ONLY on the memories above. If the information isn't in the memorie
         bySource: memStats.bySource,
       },
       contacts: {
-        total: contactCount[0]?.count || 0,
+        total: Number(contactCount[0]?.count) || 0,
       },
       embedding: {
         backend: this.config.aiBackend,

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Query,
+  Body,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { JobsService } from './jobs.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -108,13 +118,13 @@ export class JobsController {
   @Get(':id')
   async get(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     const row = await this.jobsService.getById(id);
-    if (!row) return { error: 'not found' };
+    if (!row) throw new NotFoundException('Job not found');
     // IDOR fix: verify job belongs to user's account
     const userAccounts = await this.dbService.userDb(user.id, (db) =>
       db.select({ id: accounts.id }).from(accounts).where(eq(accounts.userId, user.id)),
     );
     const userAccountIds = new Set(userAccounts.map((a) => a.id));
-    if (!userAccountIds.has(row.accountId)) return { error: 'not found' };
+    if (!userAccountIds.has(row.accountId)) throw new NotFoundException('Job not found');
     return toApiJob(row);
   }
 
