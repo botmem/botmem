@@ -192,10 +192,37 @@ exec "$NODE" "$DIR/dist/cli.js" "$@"
   { mode: 0o755 },
 );
 
-const identity = process.env.BOTMEM_CODESIGN_IDENTITY || '-';
-if (identity === '-') {
-  console.warn('BOTMEM_CODESIGN_IDENTITY is not set; ad-hoc signing botmem.');
+// macOS keys TCC permissions (Full Disk Access, Contacts) to the app's code-signing
+// designated requirement. Ad-hoc signing ('-') derives that from the cdhash, which
+// changes on every rebuild — so the user must re-grant Full Disk Access each time.
+// Signing with a stable identity (Developer ID or Apple Development) keeps the grant
+// across rebuilds. Prefer an explicit identity, else auto-detect a stable one.
+function resolveCodesignIdentity() {
+  if (process.env.BOTMEM_CODESIGN_IDENTITY) return process.env.BOTMEM_CODESIGN_IDENTITY;
+  try {
+    const out = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+      encoding: 'utf8',
+    });
+    const lines = out.split('\n');
+    const pick = (re) => lines.find((l) => re.test(l))?.match(/"([^"]+)"/)?.[1];
+    // Developer ID is distributable + notarizable; Apple Development is stable for local use.
+    const found = pick(/Developer ID Application/) || pick(/Apple Development|Mac Developer/);
+    if (found) {
+      console.log(`Signing botmem with stable identity: ${found}`);
+      return found;
+    }
+  } catch {
+    /* `security` unavailable — fall through to ad-hoc */
+  }
+  console.warn(
+    'No stable signing identity found (BOTMEM_CODESIGN_IDENTITY unset); ad-hoc signing botmem.\n' +
+      '  Full Disk Access will need re-granting on every rebuild. Install a "Developer ID\n' +
+      '  Application" (preferred) or "Apple Development" certificate, or set\n' +
+      '  BOTMEM_CODESIGN_IDENTITY, to make the grant persist.',
+  );
+  return '-';
 }
+const identity = resolveCodesignIdentity();
 run('codesign', [
   '--force',
   '--deep',
