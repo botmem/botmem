@@ -24,10 +24,25 @@ function actionLabel(account: ConnectorAccount, authType?: string): string {
     ((account.type === 'apple' || account.type === 'imessage') &&
       (account.status === 'disconnected' || account.status === 'reconnect_required'))
   ) {
-    return 'BRIDGE HELP';
+    return 'RECONNECT BRIDGE';
   }
   if (action === 'reconnect') return 'RECONNECT';
   return 'EDIT';
+}
+
+const APPLE_BRIDGE_REMEDIATION =
+  'Start the Botmem Apple bridge from connector setup, then run `botmem sync';
+
+function appleBridgeError(account: ConnectorAccount) {
+  if (
+    !(account.type === 'apple' || account.type === 'imessage') ||
+    account.status !== 'failed' ||
+    !account.lastError
+  ) {
+    return account.lastError;
+  }
+  const idx = account.lastError.indexOf(APPLE_BRIDGE_REMEDIATION);
+  return idx === -1 ? account.lastError : account.lastError.slice(0, idx).trim();
 }
 
 interface ConnectorAccountRowProps {
@@ -268,7 +283,7 @@ export function ConnectorAccountRow({
             )}
           >
             <span className="font-bold uppercase">{errorPrefix}</span>
-            {account.lastError}
+            {appleBridgeError(account)}
             {(account.type === 'apple' || account.type === 'imessage') &&
               account.status === 'failed' && (
                 <span className="block mt-1 text-nb-muted">
