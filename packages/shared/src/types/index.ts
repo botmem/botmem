@@ -158,6 +158,7 @@ export interface GraphNode {
   eventTime?: string;
   metadata?: Record<string, unknown>;
   avatarUrl?: string;
+  hasAvatar?: boolean;
   thumbnailDataUrl?: string;
 }
 

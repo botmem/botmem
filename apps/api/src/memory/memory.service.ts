@@ -2750,6 +2750,7 @@ export class MemoryService {
             : ('contact' as const);
 
       const avatars = (c.avatars as Array<{ url: string; source: string }>) || [];
+      const hasAvatar = avatars.length > 0;
       const preferredIdx = c.preferredAvatarIndex ?? 0;
       const preferred = avatars[preferredIdx] ?? avatars[0];
       // Use data URI directly if available, fall back to proxy for legacy URL-based avatars
@@ -2771,6 +2772,7 @@ export class MemoryService {
         connectors,
         entityType,
         avatarUrl,
+        hasAvatar,
       };
     });
 
@@ -3088,6 +3090,7 @@ export class MemoryService {
       for (const c of contactRows) {
         const connectors = [...new Set(identByContact.get(c.id) || [])];
         const entityType = c.entityType || 'person';
+        const avatars = (c.avatars as Array<{ url: string; source: string }>) || [];
         const nodeType =
           entityType === 'group'
             ? ('group' as const)
@@ -3105,6 +3108,7 @@ export class MemoryService {
           nodeType,
           connectors,
           entityType,
+          hasAvatar: avatars.length > 0,
         });
       }
     }
