@@ -91,6 +91,7 @@ export function Avatar({
       src={imgSrc}
       alt={altText}
       className={cn('border-3 border-nb-border object-cover', sizeClass, className)}
+      loading="lazy"
       fallback={fallbackNode}
     />
   );

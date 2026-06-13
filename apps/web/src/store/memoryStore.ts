@@ -188,6 +188,7 @@ function apiNodeToGraphNode(n: ApiGraphNode): GraphNode {
     eventTime: n.eventTime || '',
     metadata: n.metadata || {},
     avatarUrl: n.avatarUrl,
+    hasAvatar: n.hasAvatar,
     thumbnailDataUrl: n.thumbnailDataUrl,
   };
 }
@@ -793,6 +794,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
             eventTime: '',
             metadata: {},
             avatarUrl: contact.avatarUrl,
+            hasAvatar: contact.hasAvatar,
           });
           existingNodeIds.add(contact.id);
         }
@@ -872,6 +874,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
               eventTime: '',
               metadata: {},
               avatarUrl: contact.avatarUrl,
+              hasAvatar: contact.hasAvatar,
             });
             existingNodeIds.add(contact.id);
           }
