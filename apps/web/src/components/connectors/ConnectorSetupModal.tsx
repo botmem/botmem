@@ -960,7 +960,7 @@ function FormView({
       });
 
       if (result.type === 'redirect' && result.url) {
-        window.location.href = result.url;
+        window.open(result.url, '_blank', 'noopener,noreferrer');
         return;
       }
 

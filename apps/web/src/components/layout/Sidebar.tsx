@@ -352,6 +352,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               cn(
                 'flex items-center font-display text-sm font-bold uppercase tracking-wider text-nb-text',
                 'border-3 border-transparent hover:border-nb-border hover:shadow-nb-sm hover:bg-nb-lime hover:text-black transition-all',
+                'focus-visible:outline-3 focus-visible:outline-nb-pink focus-visible:outline-offset-2',
                 isActive && 'border-nb-border bg-nb-lime text-black shadow-nb-sm',
                 collapsed ? 'md:justify-center md:px-0 gap-3 px-3 py-3' : 'gap-3 px-3 py-3',
               )
