@@ -8,8 +8,8 @@ import { useAuth } from '../../hooks/useAuth';
 const pageTitles: Record<string, string> = {
   '/dashboard': 'DASHBOARD',
   '/connectors': 'CONNECTORS',
-  '/people': 'PEOPLE',
-  '/contacts': 'PEOPLE',
+  '/people': 'CONTACTS',
+  '/contacts': 'CONTACTS',
   '/settings': 'SETTINGS',
 };
 

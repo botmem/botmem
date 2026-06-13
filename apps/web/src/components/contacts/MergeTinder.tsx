@@ -41,6 +41,18 @@ interface MergeTinderProps {
 
 type SwipeDir = 'left' | 'right' | 'up' | null;
 
+function cleanEvidenceText(value: string): string {
+  return value
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'");
+}
+
+function shouldShowEvidence(value: string): boolean {
+  const surname = cleanEvidenceText(value).match(/^shared surname "([^"]+)"$/i)?.[1]?.trim();
+  return !surname || surname.length >= 3;
+}
+
 export function MergeTinder({
   suggestions,
   onMerge,
@@ -266,7 +278,7 @@ export function MergeTinder({
           {/* Reason */}
           <div className="mt-3 border-2 border-nb-border bg-nb-surface-muted p-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="font-mono text-xs text-nb-text">{current.reason}</p>
+              <p className="font-mono text-xs text-nb-text">{cleanEvidenceText(current.reason)}</p>
               {current.confidence !== undefined && (
                 <Badge color="var(--color-nb-lime)" className="text-[10px] shrink-0">
                   {Math.round(current.confidence * 100)}%
@@ -304,7 +316,7 @@ export function MergeTinder({
                 {s.contact2.displayName}
               </span>
               <span className="font-mono text-[9px] text-nb-muted shrink-0 max-w-32 truncate">
-                {s.reason.split(':')[0]}
+                {cleanEvidenceText(s.reason).split(':')[0]}
               </span>
             </div>
           ))}
@@ -401,12 +413,13 @@ export function MergeTinder({
 }
 
 function EvidenceList({ title, items }: { title: string; items: string[] }) {
+  const visibleItems = items.filter(shouldShowEvidence).map(cleanEvidenceText);
   return (
     <div>
       <p className="font-display text-[10px] font-bold uppercase text-nb-muted">{title}</p>
-      {items.length ? (
+      {visibleItems.length ? (
         <ul className="mt-1 space-y-1">
-          {items.slice(0, 4).map((item) => (
+          {visibleItems.slice(0, 4).map((item) => (
             <li key={item} className="font-mono text-[11px] text-nb-text">
               {item}
             </li>

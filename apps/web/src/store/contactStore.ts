@@ -9,6 +9,7 @@ interface Contact {
   entityType: string;
   avatars: Array<{ url: string; source: string }>;
   identifiers: Array<{ id: string; type: string; value: string; isPrimary: boolean }>;
+  groupMembers: Array<{ id?: string; displayName: string; type?: string; value?: string }>;
   connectorSources: string[];
   memoryCount: number;
   createdAt: string;
@@ -67,6 +68,46 @@ function parseAvatars(rawAvatars: ApiContact['avatars']): Array<{ url: string; s
   }
 }
 
+function parseGroupMembers(raw: ApiContact): Contact['groupMembers'] {
+  const metadata = raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
+  // ponytail: first member array wins; use a dedicated API field when relationships are exposed.
+  const arrays = [
+    raw.members,
+    raw.participants,
+    raw.groupMembers,
+    (metadata as Record<string, unknown>).members,
+    (metadata as Record<string, unknown>).participants,
+    (metadata as Record<string, unknown>).memberPhones,
+    (metadata as Record<string, unknown>).memberJids,
+    (metadata as Record<string, unknown>).memberLids,
+  ];
+  const rawMembers = arrays.find(Array.isArray) as unknown[] | undefined;
+  if (!rawMembers) return [];
+
+  const seen = new Set<string>();
+  return rawMembers.flatMap((member) => {
+    const data =
+      member && typeof member === 'object' ? (member as Record<string, unknown>) : undefined;
+    const value = String(
+      data?.displayName ||
+        data?.name ||
+        data?.value ||
+        data?.identifierValue ||
+        data?.phone ||
+        data?.jid ||
+        data?.id ||
+        member ||
+        '',
+    ).trim();
+    if (!value) return [];
+    const type = String(data?.identifierType || data?.type || '').trim();
+    const key = `${type.toLowerCase()}::${value.toLowerCase()}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ id: data?.id ? String(data.id) : undefined, displayName: value, type, value }];
+  });
+}
+
 function parseContact(raw: ApiContact): Contact {
   const identifiers = (raw.identifiers || []).map((i) => ({
     id: i.id,
@@ -84,6 +125,7 @@ function parseContact(raw: ApiContact): Contact {
     entityType: raw.entityType || 'person',
     avatars: parseAvatars(raw.avatars),
     identifiers,
+    groupMembers: parseGroupMembers(raw),
     connectorSources,
     memoryCount: raw.memoryCount || 0,
     createdAt: raw.createdAt || '',

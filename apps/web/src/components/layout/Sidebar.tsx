@@ -68,7 +68,7 @@ const navItems: { to: string; label: string; icon: ReactNode }[] = [
   },
   {
     to: '/people',
-    label: 'PEOPLE',
+    label: 'CONTACTS',
     icon: (
       <svg
         width={s}

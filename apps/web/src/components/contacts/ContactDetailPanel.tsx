@@ -36,6 +36,7 @@ interface ContactDetailPanelProps {
     displayName: string;
     avatars: Array<{ url: string; source: string }>;
     identifiers: Array<{ id: string; type: string; value: string; isPrimary: boolean }>;
+    groupMembers?: Array<{ id?: string; displayName: string; type?: string; value?: string }>;
     connectorSources: string[];
     entityType?: string;
   };
@@ -68,6 +69,7 @@ export function ContactDetailPanel({
   const [mergeSearch, setMergeSearch] = useState('');
   const [mergeResults, setMergeResults] = useState<Array<{ id: string; displayName: string }>>([]);
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
+  const [copiedIdentifierId, setCopiedIdentifierId] = useState<string | null>(null);
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
@@ -77,6 +79,19 @@ export function ContactDetailPanel({
     contacts: allContacts,
   } = useContactStore();
   const groupLike = isGroupLikeContact(contact);
+  const visibleIdentifiers = contact.identifiers.filter(
+    (ident, index, all) =>
+      all.findIndex((other) => other.type === ident.type && other.value === ident.value) === index,
+  );
+  const groupMembers = (contact.groupMembers || []).filter(
+    (member, index, all) =>
+      all.findIndex(
+        (other) =>
+          (other.type || '').toLowerCase() === (member.type || '').toLowerCase() &&
+          (other.value || other.displayName).toLowerCase() ===
+            (member.value || member.displayName).toLowerCase(),
+      ) === index,
+  );
 
   useEffect(() => {
     setEditName(contact.displayName);
@@ -131,6 +146,16 @@ export function ContactDetailPanel({
     await mergeContacts(contact.id, sourceId);
     setShowMergeSearch(false);
     setMergeSearch('');
+  };
+
+  const copyIdentifier = async (id: string, value: string) => {
+    try {
+      await navigator.clipboard?.writeText(value);
+      setCopiedIdentifierId(id);
+      setTimeout(() => setCopiedIdentifierId(null), 1200);
+    } catch {
+      setCopiedIdentifierId(null);
+    }
   };
 
   return (
@@ -200,7 +225,7 @@ export function ContactDetailPanel({
             Identifiers
           </h4>
           <div className="flex flex-col gap-1.5">
-            {contact.identifiers.map((ident) => (
+            {visibleIdentifiers.map((ident) => (
               <div key={ident.id} className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -219,9 +244,18 @@ export function ContactDetailPanel({
                 <Badge color={IDENTIFIER_COLORS[ident.type]} className="text-[11px] py-0 shrink-0">
                   {ident.type}
                 </Badge>
-                <span className="font-mono text-xs text-nb-text truncate flex-1">
+                <span className="font-mono text-xs text-nb-text truncate flex-1" title={ident.value}>
                   {ident.value}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => copyIdentifier(ident.id, ident.value)}
+                  className="border border-nb-border h-5 px-1.5 flex items-center justify-center text-[10px] font-bold hover:bg-nb-lime hover:text-black cursor-pointer text-nb-muted shrink-0"
+                  title={`Copy ${ident.value}`}
+                  aria-label={`Copy ${ident.type} identifier`}
+                >
+                  {copiedIdentifierId === ident.id ? 'OK' : 'CP'}
+                </button>
                 <button
                   onClick={() => removeIdentifier(contact.id, ident.id)}
                   disabled={contact.identifiers.length <= 1}
@@ -244,6 +278,34 @@ export function ContactDetailPanel({
             )}
           </div>
         </div>
+
+        {groupLike && (
+          <div>
+            <h4 className="font-display text-xs font-bold uppercase mb-2 text-nb-text">
+              Members ({formatIntegerNumber(groupMembers.length)})
+            </h4>
+            {groupMembers.length ? (
+              <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                {groupMembers.map((member) => (
+                  <div
+                    key={`${member.type || 'member'}-${member.value || member.displayName}`}
+                    className="border border-nb-border bg-nb-surface-muted px-2 py-1.5"
+                    title={member.value || member.displayName}
+                  >
+                    <p className="font-mono text-xs text-nb-text truncate">{member.displayName}</p>
+                    {member.type && (
+                      <p className="font-mono text-[10px] text-nb-muted uppercase truncate">
+                        {member.type}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="font-mono text-xs text-nb-muted">No member list available</p>
+            )}
+          </div>
+        )}
 
         {/* Merge another person into this one */}
         {!groupLike && (

@@ -25,7 +25,7 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
     .map((w) => w[0])
     .join('')
     .slice(0, 2)
-    .toUpperCase();
+    .toUpperCase() || '?';
 
   const maxBadges = compact ? 2 : 3;
   const shownIds = contact.identifiers.slice(0, maxBadges);
