@@ -243,7 +243,7 @@ You'll see `Using default dev secrets (OK for local/self-hosted dev)` in the API
 
 ### Upgrading
 
-Docker images are tagged with version numbers (for example, `ghcr.io/botmem/botmem-api:v1.2.3` and `ghcr.io/botmem/botmem-app:v1.2.3`). To pin a version, change the `image:` lines in `docker-compose.yml`.
+Docker images are tagged with version numbers (for example, `ghcr.io/botmem/botmem:api-v1.2.3` and `ghcr.io/botmem/botmem:app-v1.2.3`). To pin a version, change the `image:` lines in `docker-compose.yml`.
 
 For most upgrades, pull the latest image and restart:
 
