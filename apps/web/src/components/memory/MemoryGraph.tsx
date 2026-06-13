@@ -42,6 +42,7 @@ export function MemoryGraph({
 }: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphInstance | null>(null);
+  const labelBoxesRef = useRef<Array<{ x: number; y: number; w: number; h: number }>>([]);
   const fallbackSearchInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = externalSearchInputRef || fallbackSearchInputRef;
   const lastNodeClickRef = useRef<{ id: string; at: number } | null>(null);
@@ -307,9 +308,11 @@ export function MemoryGraph({
   }, []);
 
   const nodeCanvasObject = useCallback(
-    (node: SimulationNode, ctx: CanvasRenderingContext2D, globalScale: number) =>
-      renderNode(node, ctx, globalScale, renderCtx),
-    [renderCtx],
+    (node: SimulationNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      if (node.id === filteredData.nodes[0]?.id) labelBoxesRef.current = [];
+      renderNode(node, ctx, globalScale, { ...renderCtx, labelBoxes: labelBoxesRef.current });
+    },
+    [filteredData.nodes, renderCtx],
   );
 
   const nodePointerArea = useCallback(
@@ -433,6 +436,8 @@ export function MemoryGraph({
               node.fy = undefined;
             }}
             onBackgroundClick={() => dispatchUI({ type: 'clearFocus' })}
+            // ponytail: regular wheel keeps page scroll; ctrl/cmd+wheel is explicit graph zoom.
+            enableZoomInteraction={(event: WheelEvent) => event.ctrlKey || event.metaKey}
             d3VelocityDecay={0.4}
             cooldownTicks={adaptiveConfig.cooldownTicks}
             onEngineStop={() => {

@@ -2,6 +2,7 @@ import { CONNECTOR_COLORS, formatDate, formatTime } from '@botmem/shared';
 import { cn } from '@/lib/utils';
 import { Badge } from '../ui/Badge';
 import { AuthedImage } from '../ui/AuthedImage';
+import { MemoryScoreBreakdown } from './memoryScores';
 
 interface MemoryMetadata {
   senderName?: string;
@@ -28,13 +29,23 @@ interface MemoryMetadata {
   activity?: string[];
   fileName?: string;
   fileUrl?: string;
+  thumbnailUrl?: string;
+  imageUrl?: string;
+  photoUrl?: string;
+  thumbnailDataUrl?: string;
   width?: number;
   height?: number;
   [key: string]: unknown;
 }
 
-function hasThumbnail(source: string, metadata?: MemoryMetadata): boolean {
-  return (source === 'file' || source === 'photo') && !!metadata?.fileUrl;
+function getThumbnailSrc(id: string, source: string, metadata?: MemoryMetadata): string | null {
+  if (source !== 'file' && source !== 'photo') return null;
+  if (metadata?.thumbnailDataUrl) return metadata.thumbnailDataUrl;
+  if (metadata?.thumbnailUrl) return metadata.thumbnailUrl;
+  if (metadata?.imageUrl) return metadata.imageUrl;
+  if (metadata?.photoUrl) return metadata.photoUrl;
+  if (metadata?.fileUrl || metadata?.hasThumbnailBase64) return `/api/memories/${id}/thumbnail`;
+  return null;
 }
 
 function ContextRow({
@@ -201,14 +212,7 @@ export function MemoryDetailCore({
   showClaims,
   onThumbnailClick,
 }: MemoryDetailCoreProps) {
-  const filteredWeights = weights
-    ? Object.entries(weights).filter(
-        ([key, val]) => !(key === 'semantic' && val === 0) && !(key === 'final' && val === 0),
-      )
-    : [];
-
-  const barH = compact ? 'h-3' : 'h-4';
-  const barBorder = compact ? 'border' : 'border-2';
+  const thumbnailSrc = getThumbnailSrc(id, source, metadata);
 
   return (
     <div className="flex flex-col gap-3">
@@ -234,7 +238,7 @@ export function MemoryDetailCore({
       {metadata && <MemoryContext metadata={metadata} people={people} />}
 
       {/* Thumbnail */}
-      {hasThumbnail(source, metadata) && (
+      {thumbnailSrc && (
         <div
           role="button"
           tabIndex={0}
@@ -243,14 +247,14 @@ export function MemoryDetailCore({
             compact ? 'max-h-56' : 'max-h-80',
             onThumbnailClick && 'cursor-zoom-in',
           )}
-          onClick={() => onThumbnailClick?.(`/api/memories/${id}/thumbnail`)}
+          onClick={() => onThumbnailClick?.(thumbnailSrc)}
           onKeyDown={(e) => {
             if ((e.key === 'Enter' || e.key === ' ') && onThumbnailClick)
-              onThumbnailClick(`/api/memories/${id}/thumbnail`);
+              onThumbnailClick(thumbnailSrc);
           }}
         >
           <AuthedImage
-            src={`/api/memories/${id}/thumbnail`}
+            src={thumbnailSrc}
             className="w-full object-cover"
             style={
               metadata?.width && metadata?.height
@@ -327,40 +331,7 @@ export function MemoryDetailCore({
       )}
 
       {/* Weight breakdown */}
-      {filteredWeights.length > 0 && (
-        <div>
-          <span className="font-display text-xs font-bold uppercase mb-1 block text-nb-text">
-            Weight Breakdown
-          </span>
-          <div className="flex flex-col gap-1">
-            {filteredWeights.map(([key, val]) => (
-              <div key={key} className="flex items-center gap-1.5">
-                <span
-                  className={cn(
-                    'font-mono text-[11px] uppercase text-nb-muted',
-                    compact ? 'w-16' : 'w-20',
-                  )}
-                >
-                  {key}
-                </span>
-                <div className={`flex-1 ${barH} ${barBorder} border-nb-border bg-nb-surface-muted`}>
-                  <div
-                    className="h-full transition-all"
-                    style={{
-                      width: `${(typeof val === 'number' ? val : 0) * 100}%`,
-                      backgroundColor:
-                        key === 'final' ? 'var(--color-nb-lime)' : 'var(--color-nb-purple)',
-                    }}
-                  />
-                </div>
-                <span className="font-mono text-[11px] w-8 text-right text-nb-text">
-                  {(typeof val === 'number' ? val * 100 : 0).toFixed(0)}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <MemoryScoreBreakdown weights={weights} compact={compact} />
 
       {/* Entities */}
       {entities && entities.length > 0 && (

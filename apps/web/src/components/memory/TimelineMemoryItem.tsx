@@ -1,5 +1,6 @@
 import { CONNECTOR_COLORS, formatTime } from '@botmem/shared';
 import type { Memory } from '@botmem/shared';
+import { MemoryScoreBadge } from './memoryScores';
 
 const FACTUALITY_COLORS: Record<string, string> = {
   FACT: 'var(--color-nb-green)',
@@ -15,7 +16,6 @@ interface TimelineMemoryItemProps {
 
 export function TimelineMemoryItem({ memory, selected, onClick }: TimelineMemoryItemProps) {
   const connColor = CONNECTOR_COLORS[memory.sourceConnector] || '#888';
-  const score = memory.weights?.final || 0;
 
   return (
     <button
@@ -33,12 +33,7 @@ export function TimelineMemoryItem({ memory, selected, onClick }: TimelineMemory
           {memory.sourceConnector}
         </span>
         <span className="text-nb-muted text-[11px] ml-auto">{formatTime(memory.time)}</span>
-        <span
-          className="font-bold text-[11px] px-1 border border-nb-border"
-          style={{ color: score > 0.7 ? 'var(--color-nb-lime)' : 'var(--color-nb-muted)' }}
-        >
-          {(Math.min(score, 1) * 100).toFixed(0)}%
-        </span>
+        <MemoryScoreBadge weights={memory.weights} />
       </div>
       <p className="text-nb-text line-clamp-2 text-[11px] mb-1">{memory.text}</p>
       <div className="flex gap-1 flex-wrap">

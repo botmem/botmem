@@ -34,6 +34,7 @@ export function NodeDetailPanel({
   const contactDetail = contactInfo?.detail ?? null;
   const contactMemories = contactInfo?.memories ?? [];
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const hasAvatar = Array.isArray(contactDetail?.avatars) && contactDetail.avatars.length > 0;
 
   return (
     <div className="absolute top-2 right-2 w-72 z-10">
@@ -78,7 +79,7 @@ export function NodeDetailPanel({
               </div>
 
               <Avatar
-                contactId={contactDetail.id}
+                contactId={hasAvatar ? contactDetail.id : undefined}
                 fallbackInitials={contactDetail.displayName?.slice(0, 2).toUpperCase() || '?'}
                 isSelf={isSelf}
                 size="md"

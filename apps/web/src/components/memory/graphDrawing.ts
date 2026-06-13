@@ -263,6 +263,68 @@ export interface NodeRenderCtx {
   scoreMap: Map<string, number> | null;
   authToken: string | null;
   selectedNodeId: string | null;
+  labelBoxes?: Array<{ x: number; y: number; w: number; h: number }>;
+}
+
+function initials(label: string) {
+  return (
+    label
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() || '')
+      .join('') || '?'
+  );
+}
+
+function hasTextMetadata(node: SimulationNode, keys: string[]) {
+  return keys.some((key) => typeof node.metadata?.[key] === 'string' && node.metadata[key]);
+}
+
+function photoImageUrl(node: SimulationNode) {
+  if (node.thumbnailDataUrl) return node.thumbnailDataUrl;
+  if (hasTextMetadata(node, ['thumbnailUrl', 'imageUrl', 'photoUrl'])) {
+    return String(node.metadata?.thumbnailUrl || node.metadata?.imageUrl || node.metadata?.photoUrl);
+  }
+  if (node.metadata?.fileUrl || node.metadata?.hasThumbnailBase64) {
+    return `/api/memories/${node.id}/thumbnail`;
+  }
+  return null;
+}
+
+function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  globalScale: number,
+  rc: NodeRenderCtx,
+  force = false,
+) {
+  const fontSize = 10 / globalScale;
+  const padding = 4 / globalScale;
+  const label = truncate(text, 20);
+  ctx.font = `bold ${fontSize}px IBM Plex Mono`;
+  const w = ctx.measureText(label).width + padding * 2;
+  const h = 15 / globalScale;
+  const box = { x: x - w / 2, y: y - h * 0.75, w, h };
+  // ponytail: per-frame AABB scan; bucket labels if graph labels ever become the bottleneck.
+  const overlaps = rc.labelBoxes?.some(
+    (b) => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y,
+  );
+  if (overlaps && !force) return;
+  rc.labelBoxes?.push(box);
+
+  ctx.fillStyle = _tc.bg;
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.strokeStyle = _tc.border;
+  ctx.lineWidth = 1 / globalScale;
+  ctx.strokeRect(box.x, box.y, box.w, box.h);
+  ctx.fillStyle = force ? HIGHLIGHT_COLOR : _tc.text;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, box.y + h / 2);
+  ctx.textBaseline = 'alphabetic';
 }
 
 export function renderNode(
@@ -283,6 +345,7 @@ export function renderNode(
   const isDirectMatch = rc.searchMatchIds?.has(node.id);
   const isFocusActive = rc.focusVisibleIds !== null;
   const isFocusVisible = rc.focusVisibleIds?.has(node.id);
+  const isSelected = rc.selectedNodeId === node.id;
 
   const rankScore = isDirectMatch ? (rc.scoreMap?.get(node.id) ?? 0.5) : -1;
   const isTopResult = rankScore === 1;
@@ -320,12 +383,8 @@ export function renderNode(
     ctx.textBaseline = 'middle';
     ctx.fillText(node.label.toUpperCase().slice(0, 6), x, y);
     ctx.textBaseline = 'alphabetic';
-    if (globalScale > 0.8 || isDirectMatch) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : color;
-      ctx.textAlign = 'center';
-      ctx.fillText(node.label, x, y + h / 2 + 12 / globalScale);
-    }
+    if (isSelected || isTopResult || isDirectMatch || globalScale > 1.4)
+      drawLabel(ctx, node.label, x, y + h / 2 + 12 / globalScale, globalScale, rc, isSelected);
   } else if (isFile) {
     const size = 7;
     drawDiamond(ctx, x + 1.5, y + 1.5, size);
@@ -401,12 +460,11 @@ export function renderNode(
     const isSelf = rc.selfNodeId === node.id;
     const contactColor = isSelf ? SELF_COLOR : CONTACT_COLOR;
     const radius = isSelf ? 10 : 8;
-    // Use data URI from node directly, fall back to authed proxy for all contacts
-    const avatarImg = node.avatarUrl?.startsWith('data:')
-      ? getAvatarImage(node.avatarUrl)
-      : node.id
-        ? getAuthedImage(`/api/people/${node.id.replace('contact-', '')}/avatar`, rc.authToken)
-        : null;
+    const avatarImg = node.avatarUrl
+      ? node.avatarUrl.startsWith('data:')
+        ? getAvatarImage(node.avatarUrl)
+        : getAuthedImage(node.avatarUrl, rc.authToken)
+      : null;
 
     // Shadow
     ctx.beginPath();
@@ -423,7 +481,7 @@ export function renderNode(
       ctx.drawImage(avatarImg, x - radius, y - radius, radius * 2, radius * 2);
       ctx.restore();
     } else {
-      // Fallback: solid circle with person glyph
+      // Fallback: solid circle with initials badge
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, 2 * Math.PI);
       ctx.fillStyle = contactColor;
@@ -456,30 +514,35 @@ export function renderNode(
         ctx.textBaseline = 'alphabetic';
       } else {
         ctx.fillStyle = _tc.surface;
-        ctx.beginPath();
-        ctx.arc(x, y - 2, 3, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(x, y + 5, 5, Math.PI, 0);
-        ctx.fill();
+        ctx.font = `bold ${Math.max(7, radius * 0.8)}px IBM Plex Mono`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(initials(node.label), x, y + 0.5);
+        ctx.textBaseline = 'alphabetic';
       }
     }
 
-    if (globalScale > 1.2 || isDirectMatch || isSelf) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : contactColor;
-      ctx.textAlign = 'center';
-      ctx.fillText(isSelf ? 'ME' : truncate(node.label, 20), x, y + radius + 12 / globalScale);
-    }
+    if (isSelected || isTopResult || isDirectMatch || isSelf || globalScale > 1.7)
+      drawLabel(
+        ctx,
+        isSelf ? 'ME' : node.label,
+        x,
+        y + radius + 12 / globalScale,
+        globalScale,
+        rc,
+        isSelected || isSelf,
+      );
   } else if (isPhoto) {
     const baseSize = 8 + (node.importance || 0.5) * 10;
     const rankSize = rankScore >= 0 ? baseSize * (0.5 + rankScore * 0.8) : baseSize;
     const size = isTopResult ? rankSize * 1.3 : rankSize;
     const r = 3;
-    // Prefer inline data URL (no HTTP request), fall back to authed thumbnail endpoint
-    const thumbImg = node.thumbnailDataUrl
-      ? getAvatarImage(node.thumbnailDataUrl)
-      : getAuthedImage(`/api/memories/${node.id}/thumbnail`, rc.authToken);
+    const thumbUrl = photoImageUrl(node);
+    const thumbImg = thumbUrl
+      ? thumbUrl.startsWith('data:')
+        ? getAvatarImage(thumbUrl)
+        : getAuthedImage(thumbUrl, rc.authToken)
+      : null;
 
     if (isTopResult) {
       ctx.shadowColor = HIGHLIGHT_COLOR;
