@@ -50,6 +50,7 @@ export function DashboardPage() {
   // Connect WebSocket for notifications
   useEffect(() => {
     useJobStore.getState().connectWs();
+    void useJobStore.getState().fetchJobs();
   }, []);
 
   // Demo data banner
