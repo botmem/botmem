@@ -424,7 +424,7 @@ const FEATURES: { icon: ReactNode; title: string; desc: string }[] = [
       </svg>
     ),
     title: 'FULLY LOCAL',
-    desc: 'PostgreSQL + Postgres search + Ollama. Your data never leaves your hardware.',
+    desc: 'PostgreSQL search index + Ollama. Your data never leaves your hardware.',
   },
   {
     icon: (
@@ -845,7 +845,7 @@ function HowItWorks() {
 }
 
 function TechStrip() {
-  const techs = ['NestJS', 'PostgreSQL', 'Postgres search', 'Ollama', 'React', 'BullMQ'];
+  const techs = ['NestJS', 'PostgreSQL', 'Search index', 'Ollama', 'React', 'BullMQ'];
   return (
     <div className="border-y-4 border-nb-border py-5 overflow-hidden">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-wrap justify-center gap-x-6 gap-y-2 font-mono text-sm text-nb-muted tracking-wide">
@@ -877,7 +877,7 @@ const FREE_FEATURES = [
 const PRO_FEATURES = [
   'Everything in Free',
   'Cloud-hosted infrastructure',
-  'Managed PostgreSQL, Postgres search + Redis',
+  'Managed PostgreSQL search index + Redis',
   'Priority enrichment pipeline',
   'Full API access',
   'Email support',

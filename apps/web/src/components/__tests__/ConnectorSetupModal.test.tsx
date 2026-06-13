@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConnectorSetupModal } from '../connectors/ConnectorSetupModal';
 import { useConnectorStore } from '../../store/connectorStore';
 
@@ -66,6 +66,10 @@ describe('ConnectorSetupModal', () => {
         },
       ],
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders nothing when not open', () => {
@@ -273,6 +277,63 @@ describe('ConnectorSetupModal', () => {
       expect(screen.getByText(/--sources=contacts,imessages/)).toBeInTheDocument();
     });
     expect(screen.getByText(/Full Disk Access is only required/)).toBeInTheDocument();
+  });
+
+  it('treats offline Apple bridge status as normal slow polling', async () => {
+    vi.useFakeTimers();
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    mockApi.getBridgeStatus.mockRejectedValue(new Error('API 503: bridge offline'));
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('Bridge offline. Start the app to connect.')).toBeInTheDocument();
+    expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999);
+    });
+    expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(2);
   });
 
   it('copies Apple bridge pairing command with feedback', async () => {

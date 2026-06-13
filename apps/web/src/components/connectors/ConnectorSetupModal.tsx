@@ -22,6 +22,8 @@ const APPLE_BRIDGE_GITHUB_RELEASE_URL =
   (import.meta.env.VITE_APPLE_BRIDGE_GITHUB_RELEASE_URL as string | undefined) ||
   'https://github.com/botmem/botmem/releases/latest';
 const AUTH_TIMEOUT_MS = 120_000;
+// ponytail: fixed cadence; switch to exponential backoff if bridge setup load becomes material.
+const BRIDGE_STATUS_POLL_MS = 10_000;
 
 interface ConnectorSetupModalProps {
   open: boolean;
@@ -507,6 +509,7 @@ function BridgeAuthView({
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [bridgeConnected, setBridgeConnected] = useState(false);
+  const [bridgeOffline, setBridgeOffline] = useState(false);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copiedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -553,19 +556,24 @@ npx @botmem/apple-bridge service start`;
         setBridgeDeepLink(deepLink.toString());
         setStep('command');
 
-        // Start polling for bridge connection
-        pollRef.current = setInterval(async () => {
+        const pollBridgeStatus = async () => {
           try {
             const data = await api.getBridgeStatus(acctId);
             if (data.connected) {
               setBridgeConnected(true);
+              setBridgeOffline(false);
               setStep('connected');
               if (pollRef.current) clearInterval(pollRef.current);
+            } else {
+              setBridgeOffline(Boolean(data.lastError));
             }
           } catch {
-            /* ignore poll errors */
+            setBridgeOffline(true);
           }
-        }, 2000);
+        };
+
+        pollBridgeStatus();
+        pollRef.current = setInterval(pollBridgeStatus, BRIDGE_STATUS_POLL_MS);
       } else {
         setError('Unexpected response from server');
       }
@@ -722,9 +730,16 @@ npx @botmem/apple-bridge service start`;
               </>
             ) : (
               <>
-                <div className="size-3 bg-nb-muted animate-pulse" />
+                <div
+                  className={cn(
+                    'size-3',
+                    bridgeOffline ? 'bg-nb-yellow' : 'bg-nb-muted animate-pulse',
+                  )}
+                />
                 <p className="font-mono text-xs text-nb-muted uppercase">
-                  Waiting for bridge connection...
+                  {bridgeOffline
+                    ? 'Bridge offline. Start the app to connect.'
+                    : 'Waiting for bridge connection...'}
                 </p>
               </>
             )}

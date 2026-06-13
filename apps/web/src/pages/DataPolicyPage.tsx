@@ -158,7 +158,7 @@ export function DataPolicyPage() {
               />
               <PipelineStep
                 label="EMBEDDING"
-                description="Text content is vectorized into a high-dimensional embedding and stored in Postgres search for semantic search."
+                description="Text content is vectorized into a high-dimensional embedding and stored in the search index for semantic search."
               />
               <PipelineStep
                 label="ENRICHMENT"
@@ -251,8 +251,8 @@ export function DataPolicyPage() {
             <p>When you self-host Botmem, your data never leaves your hardware:</p>
             <ul className="list-none flex flex-col gap-2 mt-2">
               <li>
-                <strong className="text-nb-text">All data stays local.</strong> PostgreSQL, Postgres
-                search, and Redis run on your infrastructure.
+                <strong className="text-nb-text">All data stays local.</strong> PostgreSQL, the
+                search index, and Redis run on your infrastructure.
               </li>
               <li>
                 <strong className="text-nb-text">AI processing via local Ollama.</strong> Embedding
@@ -347,7 +347,7 @@ export function DataPolicyPage() {
             </p>
             <ul className="list-none flex flex-col gap-1.5 mt-2">
               <li>PostgreSQL records (memories, contacts, raw events, jobs, accounts)</li>
-              <li>Postgres search vector embeddings</li>
+              <li>Search index vector embeddings</li>
               <li>Redis cache (sessions, encryption key cache)</li>
               <li>All raw event payloads</li>
             </ul>
