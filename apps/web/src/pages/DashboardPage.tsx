@@ -53,6 +53,7 @@ export function DashboardPage() {
   // Connect WebSocket for notifications
   useEffect(() => {
     useJobStore.getState().connectWs();
+    void useJobStore.getState().fetchJobs();
   }, []);
 
   // Demo data banner
@@ -146,13 +147,9 @@ export function DashboardPage() {
   }, [loadGraph]);
 
   const totalMemories = memoryStats?.total ?? 0;
-  const activeConnectors = accounts.filter(
-    (a) => a.status === 'connected' || a.status === 'syncing',
-  ).length;
-
   const stats = [
     { label: 'TOTAL MEMORIES', value: totalMemories, color: 'var(--color-nb-lime)' },
-    { label: 'CONNECTORS', value: activeConnectors, color: 'var(--color-nb-blue)' },
+    { label: 'CONNECTORS', value: accounts.length, color: 'var(--color-nb-blue)' },
   ];
 
   return (

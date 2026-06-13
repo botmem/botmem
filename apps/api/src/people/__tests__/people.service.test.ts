@@ -221,6 +221,7 @@ describe('PeopleService runtime behavior', () => {
     const listed = await service.list({ userId: 'user-1', limit: 10 });
     expect(listed.total).toBe(1);
     expect(listed.items[0].displayName).toBe('Amr Essam');
+    expect(listed.items[0].hasAvatar).toBe(false);
     expect(listed.items[0].identifiers[0].identifierValue).toBe('amr@example.com');
 
     const searched = await service.search('amr', 'user-1');

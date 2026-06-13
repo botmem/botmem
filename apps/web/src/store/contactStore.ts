@@ -9,6 +9,8 @@ interface Contact {
   displayName: string;
   entityType: string;
   avatars: Array<{ url: string; source: string }>;
+  avatarUrl?: string;
+  hasAvatar: boolean;
   identifiers: Array<{ id: string; type: string; value: string; isPrimary: boolean }>;
   connectorSources: string[];
   members?: Array<{
@@ -75,6 +77,7 @@ function parseAvatars(rawAvatars: ApiContact['avatars']): Array<{ url: string; s
 }
 
 function parseContact(raw: ApiContact): Contact {
+  const avatars = parseAvatars(raw.avatars);
   const identifiers = dedupeIdentifiers(
     (raw.identifiers || []).map((i) => ({
       id: i.id,
@@ -91,7 +94,9 @@ function parseContact(raw: ApiContact): Contact {
     id: raw.id,
     displayName: raw.displayName || '',
     entityType: raw.entityType || 'person',
-    avatars: parseAvatars(raw.avatars),
+    avatars,
+    avatarUrl: raw.avatarUrl,
+    hasAvatar: raw.hasAvatar ?? avatars.length > 0,
     identifiers,
     connectorSources,
     members: Array.isArray(raw.members)

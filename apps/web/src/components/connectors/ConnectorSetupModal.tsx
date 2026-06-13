@@ -507,12 +507,12 @@ function BridgeAuthView({
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [bridgeConnected, setBridgeConnected] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
     };
   }, []);
 
@@ -550,19 +550,24 @@ npx @botmem/apple-bridge service start`;
         setBridgeDeepLink(deepLink.toString());
         setStep('command');
 
-        // Start polling for bridge connection
-        pollRef.current = setInterval(async () => {
+        let delayMs = 2000;
+        const pollBridgeStatus = async () => {
           try {
             const data = await api.getBridgeStatus(acctId);
             if (data.connected) {
               setBridgeConnected(true);
               setStep('connected');
-              if (pollRef.current) clearInterval(pollRef.current);
+              if (pollRef.current) clearTimeout(pollRef.current);
+              pollRef.current = null;
+              return;
             }
           } catch {
-            /* ignore poll errors */
+            // Offline bridges are shown as waiting; the next poll backs off.
           }
-        }, 2000);
+          delayMs = Math.min(delayMs * 2, 15000);
+          pollRef.current = setTimeout(pollBridgeStatus, delayMs);
+        };
+        pollRef.current = setTimeout(pollBridgeStatus, delayMs);
       } else {
         setError('Unexpected response from server');
       }

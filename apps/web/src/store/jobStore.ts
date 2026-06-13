@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import type { Job, LogEntry } from '@botmem/shared';
+import { api } from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from './authStore';
 import { formatCompactNumber } from '../lib/formatNumber';
@@ -12,8 +14,13 @@ export interface Notification {
 }
 
 interface JobState {
+  jobs: Job[];
+  logsByAccount: Record<string, LogEntry[]>;
   notifications: Notification[];
   connectWs: () => void;
+  fetchJobs: (accountId?: string) => Promise<void>;
+  fetchLogs: (accountId: string, jobId?: string) => Promise<void>;
+  upsertJob: (job: Job) => void;
   addNotification: (msg: string, level: 'info' | 'warn' | 'error' | 'success') => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
@@ -30,7 +37,36 @@ function quotaWarningMessage(data: { used?: number; limit?: number; connectorTyp
 }
 
 export const useJobStore = create<JobState>((set, get) => ({
+  jobs: [],
+  logsByAccount: {},
   notifications: [],
+
+  fetchJobs: async (accountId?) => {
+    try {
+      const { jobs } = await api.listJobs(accountId);
+      set((state) => ({
+        jobs: accountId
+          ? [...jobs, ...state.jobs.filter((job) => job.accountId !== accountId)]
+          : jobs,
+      }));
+    } catch {
+      // Keep the last known job state when the API is temporarily unavailable.
+    }
+  },
+
+  fetchLogs: async (accountId, jobId) => {
+    try {
+      const { logs } = await api.listLogs({ accountId, jobId, limit: 50 });
+      set((state) => ({ logsByAccount: { ...state.logsByAccount, [accountId]: logs } }));
+    } catch {
+      // Keep the last known logs.
+    }
+  },
+
+  upsertJob: (job) =>
+    set((state) => ({
+      jobs: [job, ...state.jobs.filter((existing) => existing.id !== job.id)],
+    })),
 
   addNotification: (msg, level) =>
     set((state) => ({
@@ -76,6 +112,10 @@ export const useJobStore = create<JobState>((set, get) => ({
     sharedWs.onMessage((msg) => {
       if (msg.event === 'job:complete') {
         get().addNotification('Sync job completed', 'success');
+        void get().fetchJobs();
+      }
+      if (msg.event === 'job:progress' || msg.event === 'dashboard:jobs') {
+        void get().fetchJobs();
       }
       if (msg.event === 'connector:warning') {
         get().addNotification(msg.data?.message || 'Connector warning', 'warn');

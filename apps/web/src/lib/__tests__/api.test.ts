@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { api, subscribeToChannel, unsubscribeFromChannel } from '../api';
+import { __resetApiCacheForTests, api, subscribeToChannel, unsubscribeFromChannel } from '../api';
 import { useAuthStore } from '../../store/authStore';
 
 const mockFetch = vi.fn();
@@ -7,6 +7,7 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
+  __resetApiCacheForTests();
   useAuthStore.setState({ user: null, accessToken: null, error: null, isLoading: false });
 });
 
@@ -130,6 +131,17 @@ describe('api', () => {
       mockOk({ jobs: [] });
       await api.listJobs('a1');
       expect(mockFetch).toHaveBeenCalledWith('/api/jobs?accountId=a1', expect.any(Object));
+    });
+  });
+
+  describe('listLogs', () => {
+    it('passes account and job filters', async () => {
+      mockOk({ logs: [], total: 0 });
+      await api.listLogs({ accountId: 'a1', jobId: 'j1', limit: 10 });
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/logs?accountId=a1&jobId=j1&limit=10',
+        expect.any(Object),
+      );
     });
   });
 
@@ -420,6 +432,68 @@ describe('api', () => {
       mockOk({ total: 50 });
       await api.getMemoryStats({ memoryBankId: 'b1' });
       expect(mockFetch.mock.calls[0][0]).toContain('memoryBankId=b1');
+    });
+
+    it('dedupes concurrent stats requests', async () => {
+      mockOk({ total: 100 });
+      const [a, b] = await Promise.all([api.getMemoryStats(), api.getMemoryStats()]);
+      expect(a.total).toBe(100);
+      expect(b.total).toBe(100);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('serves a cached stats result within TTL without refetching', async () => {
+      mockOk({ total: 7 });
+      const first = await api.getMemoryStats();
+      const second = await api.getMemoryStats();
+      expect(first.total).toBe(7);
+      expect(second.total).toBe(7);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cache when the GET ultimately fails', async () => {
+      mockError(500, 'boom');
+      await expect(api.getMemoryStats()).rejects.toThrow();
+      mockOk({ total: 9 });
+      const result = await api.getMemoryStats();
+      expect(result.total).toBe(9);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('serves a stale stats value and revalidates after the TTL expires', async () => {
+      vi.useFakeTimers();
+      try {
+        mockOk({ total: 1 });
+        const first = await api.getMemoryStats();
+        expect(first.total).toBe(1);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(11_000); // expire the 10s TTL
+
+        mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ total: 2 }) });
+        const stale = await api.getMemoryStats();
+        expect(stale.total).toBe(1); // stale-while-revalidate returns prior value
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('retries a GET once after a 503', async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch
+          .mockResolvedValueOnce({ ok: false, status: 503, text: () => Promise.resolve('busy') })
+          .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ total: 100 }) });
+
+        const promise = api.getMemoryStats();
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(250);
+        await expect(promise).resolves.toMatchObject({ total: 100 });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

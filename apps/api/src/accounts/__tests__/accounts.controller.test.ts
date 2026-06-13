@@ -111,6 +111,27 @@ describe('AccountsController', () => {
     expect(result.syncHealth?.recoveryReason).toContain('botmem sync apple-msg-1');
   });
 
+  it('returns offline bridge status when the tunnel status check fails', async () => {
+    vi.mocked(service.getById).mockResolvedValue({
+      ...fakeRow,
+      id: 'apple-1',
+      connectorType: 'apple',
+      userId: 'user-1',
+    });
+    controller = new AccountsController(
+      service as unknown as AccountsService,
+      mockDbService() as unknown as DbService,
+      { getBridgeStatus: vi.fn().mockRejectedValue(new Error('unavailable')) } as never,
+    );
+
+    await expect(controller.bridgeStatus({ id: 'user-1' }, 'apple-1')).resolves.toMatchObject({
+      accountId: 'apple-1',
+      connected: false,
+      sources: null,
+      lastSeenAt: null,
+    });
+  });
+
   it('create calls service and maps result', async () => {
     vi.mocked(service.create).mockResolvedValue(fakeRow);
     const result = await controller.create(

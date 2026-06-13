@@ -32,22 +32,12 @@ function flush() {
 
 export async function initPostHog() {
   if (!apiKey) return;
-  try {
-    // Verify proxy is reachable before loading the 180KB SDK
-    const probe = await fetch(`${apiHost}/decide?v=3`, { method: 'HEAD', mode: 'no-cors' }).catch(
-      () => null,
-    );
-    if (!probe) {
-      console.debug('[posthog] Proxy unreachable, skipping analytics init');
-      return;
-    }
-  } catch {
-    return;
-  }
   const { default: posthog } = await import('posthog-js');
-  posthog.init(apiKey, {
+  const config = {
     api_host: apiHost,
     capture_pageview: false,
+    advanced_disable_feature_flags: true,
+    advanced_disable_feature_flags_on_first_load: true,
 
     session_recording: {
       maskAllInputs: true,
@@ -92,7 +82,8 @@ export async function initPostHog() {
     enable_heatmaps: true,
     capture_exceptions: true,
     capture_pageleave: true,
-  });
+  } as Parameters<typeof posthog.init>[1];
+  posthog.init(apiKey, config);
 
   _posthog = posthog;
   flush();

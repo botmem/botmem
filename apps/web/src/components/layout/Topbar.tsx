@@ -66,6 +66,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
               className="size-10 border-2 border-nb-border bg-nb-surface flex items-center justify-center font-display text-xs font-bold uppercase text-nb-text"
               title={user.name || user.email}
               aria-label={`Logged in as ${user.name || user.email}`}
+              role="img"
             >
               {(user.name || user.email || '?')[0].toUpperCase()}
             </div>

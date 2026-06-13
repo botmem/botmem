@@ -143,6 +143,8 @@ export interface PersonWithIdentifiers {
   displayName: string;
   entityType?: string | null;
   avatars: unknown;
+  avatarUrl?: string;
+  hasAvatar?: boolean;
   metadata: unknown;
   createdAt: Date;
   updatedAt: Date;
@@ -175,6 +177,11 @@ type MergeSuggestion = {
   sourceConnectors: string[];
   sampleMemoryIds: string[];
 };
+
+function avatarSummary(avatars: unknown): { avatarUrl?: string; hasAvatar: boolean } {
+  const list = Array.isArray(avatars) ? (avatars as Array<{ url?: string }>) : [];
+  return { avatarUrl: list[0]?.url, hasAvatar: list.length > 0 };
+}
 
 /** Generic short names that should never trigger merge suggestions */
 export const GENERIC_NAMES = new Set([
@@ -1136,10 +1143,12 @@ export class PeopleService {
     );
     const members = await this.getGroupMembers(id);
 
+    const avatars = this.decryptJsonb(rows[0].avatars);
     return {
       ...rows[0],
       displayName: this.crypto.decrypt(rows[0].displayName) ?? rows[0].displayName,
-      avatars: this.decryptJsonb(rows[0].avatars),
+      avatars,
+      ...avatarSummary(avatars),
       metadata: this.decryptJsonb(rows[0].metadata),
       identifiers: idents.map((i) => ({
         id: i.id,
@@ -1240,10 +1249,12 @@ export class PeopleService {
     );
     const members = await this.getGroupMembers(id);
 
+    const avatars = this.decryptJsonb(rows[0].avatars);
     return {
       ...rows[0],
       displayName: this.crypto.decrypt(rows[0].displayName) ?? rows[0].displayName,
-      avatars: this.decryptJsonb(rows[0].avatars),
+      avatars,
+      ...avatarSummary(avatars),
       metadata: this.decryptJsonb(rows[0].metadata),
       identifiers: idents.map((i) => ({
         id: i.id,
@@ -1399,10 +1410,12 @@ export class PeopleService {
 
     const items: PersonWithIdentifiers[] = filteredPaged.map((c) => {
       const idents = identsByContact.get(c.id) || [];
+      const avatars = this.decryptJsonb(c.avatars);
       return {
         ...c,
         displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
-        avatars: this.decryptJsonb(c.avatars),
+        avatars,
+        ...avatarSummary(avatars),
         metadata: this.decryptJsonb(c.metadata),
         identifiers: idents.map((i) => ({
           id: i.id,
@@ -1534,10 +1547,12 @@ export class PeopleService {
       const c = contactById.get(id);
       if (!c) continue;
       const idents = identsByContact.get(c.id) || [];
+      const avatars = this.decryptJsonb(c.avatars);
       results.push({
         ...c,
         displayName: this.crypto.decrypt(c.displayName) ?? c.displayName,
-        avatars: this.decryptJsonb(c.avatars),
+        avatars,
+        ...avatarSummary(avatars),
         metadata: this.decryptJsonb(c.metadata),
         identifiers: idents.map((i) => ({
           id: i.id,

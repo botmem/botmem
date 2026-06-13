@@ -85,6 +85,34 @@ describe('RawEventIngestService', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid pre-1970 event timestamps before storing raw events', async () => {
+    const dbService = {
+      db: { insert: vi.fn() },
+    } as unknown as DbService;
+    const crypto = {
+      encrypt: vi.fn((value: string) => `enc:${value}`),
+    } as unknown as CryptoService;
+    const queue = { add: vi.fn().mockResolvedValue(undefined) } as unknown as Queue;
+    const blobStore = { put: vi.fn() } as unknown as BlobStoreService;
+    const service = new RawEventIngestService(dbService, crypto, queue, blobStore);
+
+    await expect(
+      service.ingest({
+        accountId: 'acc-1',
+        connectorType: 'gmail',
+        event: {
+          sourceType: 'email',
+          sourceId: 'msg-ancient',
+          timestamp: '1600-01-01T00:00:00.000Z',
+          content: { text: 'bad date', metadata: {} },
+        },
+      }),
+    ).rejects.toThrow('Invalid event timestamp');
+
+    expect(dbService.db.insert).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
   it('stores canonical connector types', async () => {
     const chain = insertChain([{ id: 'raw-1' }]);
     const dbService = {

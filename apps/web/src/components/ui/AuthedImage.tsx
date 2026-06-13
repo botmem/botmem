@@ -14,6 +14,37 @@ interface AuthedImageProps {
 
 type BlobState = { url: string | null; failed: boolean };
 const EMPTY: BlobState = { url: null, failed: false };
+const MAX_IMAGE_FETCHES = 4;
+let activeImageFetches = 0;
+const imageQueue: Array<() => void> = [];
+
+function runQueuedImageFetch<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      activeImageFetches++;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeImageFetches--;
+          imageQueue.shift()?.();
+        });
+    };
+    if (activeImageFetches < MAX_IMAGE_FETCHES) run();
+    else imageQueue.push(run);
+  });
+}
+
+function retryDelay(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+async function fetchImage(src: string, init: RequestInit): Promise<Response> {
+  let res = await fetch(src, init);
+  if (res.status !== 503) return res;
+  await retryDelay(250);
+  res = await fetch(src, init);
+  return res;
+}
 
 function createBlobStore() {
   let state: BlobState = EMPTY;
@@ -44,11 +75,14 @@ function createBlobStore() {
       notify();
 
       abortCtrl = new AbortController();
+      const controller = abortCtrl;
       const token = useAuthStore.getState().accessToken;
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      fetch(src, { headers, credentials: 'include', signal: abortCtrl.signal })
+      runQueuedImageFetch(() =>
+        fetchImage(src, { headers, credentials: 'include', signal: controller.signal }),
+      )
         .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const blob = await res.blob();
