@@ -15,6 +15,11 @@ interface UseGraphKeyboardArgs {
   dispatchUI: React.Dispatch<UIAction>;
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  const el = target as HTMLElement | null;
+  return !!el?.closest('input, textarea, select, [contenteditable="true"]');
+}
+
 export function useGraphKeyboard({
   isFullscreen,
   selectedNode,
@@ -29,6 +34,7 @@ export function useGraphKeyboard({
   useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return;
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -36,7 +42,6 @@ export function useGraphKeyboard({
         setTimeout(() => dispatchUI({ type: 'setSearchFocused', value: false }), 600);
         return;
       }
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
       if (e.key === 'Escape') {
         if (focusedNodeId) {
           dispatchUI({ type: 'clearFocus' });

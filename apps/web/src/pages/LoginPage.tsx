@@ -5,6 +5,7 @@ import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { consumeAuthReturnTo, safeAuthReturnTo } from '../store/authStore';
 
 export function LoginPage() {
   usePageMeta({
@@ -16,14 +17,17 @@ export function LoginPage() {
 
   const { user, isLoading } = useAuth();
   const [searchParams] = useSearchParams();
-  const requestedRedirect = searchParams.get('redirect') || '';
-  const redirectTo =
-    requestedRedirect.startsWith('/') && !requestedRedirect.startsWith('//')
-      ? requestedRedirect
-      : '';
+  const redirectTo = safeAuthReturnTo(searchParams.get('redirect'));
 
   if (isLoading) return <LoadingScreen />;
-  if (user) return <Navigate to={redirectTo || (user.onboarded ? '/me' : '/onboarding')} replace />;
+  if (user) {
+    return (
+      <Navigate
+        to={user.onboarded ? redirectTo || consumeAuthReturnTo() || '/dashboard' : '/onboarding'}
+        replace
+      />
+    );
+  }
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row">

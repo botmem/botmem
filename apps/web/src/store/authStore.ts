@@ -21,7 +21,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   completeOnboarding: () => void;
   clearError: () => void;
-  loginWithFirebase: (provider: 'google' | 'github') => Promise<void>;
+  loginWithFirebase: (provider: 'google' | 'github', returnTo?: string) => Promise<void>;
 }
 
 // Shared auth-provider state (avoids circular imports with firebase.ts)
@@ -30,6 +30,7 @@ export { isFirebaseMode, detectAuthProvider };
 
 const API_BASE = `${ROOT_API_BASE}/user-auth`;
 const PENDING_RECOVERY_KEY_STORAGE_KEY = 'botmem.pendingRecoveryKey';
+const AUTH_RETURN_TO_STORAGE_KEY = 'botmem.authReturnTo';
 
 // Mutex: only one refresh call at a time to prevent token rotation race
 let activeRefresh: Promise<boolean> | null = null;
@@ -64,6 +65,33 @@ function clearPendingRecoveryKey() {
     } catch {
       // Nothing else to clear.
     }
+  }
+}
+
+export function safeAuthReturnTo(value?: string | null) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '';
+  return value.startsWith('/login') || value.startsWith('/signup') ? '' : value;
+}
+
+export function consumeAuthReturnTo() {
+  if (typeof window === 'undefined') return '';
+  try {
+    const value = safeAuthReturnTo(window.sessionStorage.getItem(AUTH_RETURN_TO_STORAGE_KEY));
+    window.sessionStorage.removeItem(AUTH_RETURN_TO_STORAGE_KEY);
+    return value;
+  } catch {
+    return '';
+  }
+}
+
+function storeAuthReturnTo(returnTo?: string) {
+  const safe = safeAuthReturnTo(returnTo);
+  if (!safe || typeof window === 'undefined') return;
+  // ponytail: one tab-scoped redirect target is enough; promote to OAuth state if multi-tab login matters.
+  try {
+    window.sessionStorage.setItem(AUTH_RETURN_TO_STORAGE_KEY, safe);
+  } catch {
+    // Login still works; it just falls back to the default route.
   }
 }
 
@@ -436,12 +464,13 @@ export const useAuthStore = create<AuthState>()(
 
       clearError: () => set({ error: null }),
 
-      loginWithFirebase: async (provider: 'google' | 'github') => {
+      loginWithFirebase: async (provider: 'google' | 'github', returnTo?: string) => {
         set({ error: null, isLoading: true });
         try {
           if (!firebaseAuth) throw new Error('Firebase is not configured');
           const { signInWithRedirect } = await getFirebaseAuthFns();
           const authProvider = provider === 'google' ? googleProvider! : githubProvider!;
+          storeAuthReturnTo(returnTo);
           // Redirect navigates away — onAuthStateChanged in initialize() handles the return
           await signInWithRedirect(firebaseAuth, authProvider);
         } catch (err: unknown) {

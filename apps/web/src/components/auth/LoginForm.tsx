@@ -23,7 +23,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     try {
       await login(email, password);
       const user = useAuthStore.getState().user;
-      navigate(redirectTo || (user?.onboarded ? '/me' : '/onboarding'));
+      navigate(redirectTo || (user?.onboarded ? '/dashboard' : '/onboarding'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -34,7 +34,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const handleFirebaseLogin = async (provider: 'google' | 'github') => {
     setFbLoading(provider);
     try {
-      await loginWithFirebase(provider);
+      await loginWithFirebase(provider, redirectTo);
     } catch {
       // error already set in store
     } finally {

@@ -1,7 +1,7 @@
 import { useEffect, lazy, Suspense, type ReactNode } from 'react';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { LoadingScreen } from './components/ui/LoadingScreen';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { Shell } from './components/layout/Shell';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { useAuth } from './hooks/useAuth';
@@ -122,8 +122,31 @@ function LandingOrApp() {
   return (
     <>
       <PostHogIdentifier />
-      <Navigate to="/me" replace />
+      <Navigate to="/dashboard" replace />
     </>
+  );
+}
+
+function NotFoundPage() {
+  const home = isLandingSurface ? '/' : '/dashboard';
+  return (
+    <main className="min-h-screen bg-nb-bg text-nb-text flex items-center justify-center px-6">
+      <div className="border-4 border-nb-border bg-nb-surface p-6 shadow-nb max-w-lg w-full">
+        <p className="font-mono text-xs font-bold uppercase text-nb-lime mb-3">404</p>
+        <h1 className="font-display text-4xl font-bold uppercase text-nb-text mb-3">
+          Not Found
+        </h1>
+        <p className="font-mono text-sm text-nb-muted mb-6">
+          This route does not exist.
+        </p>
+        <Link
+          to={home}
+          className="inline-flex border-3 border-nb-border bg-nb-lime px-4 py-2 font-display text-sm font-bold uppercase text-black shadow-nb-sm hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
+        >
+          Go Home
+        </Link>
+      </div>
+    </main>
   );
 }
 
@@ -164,7 +187,7 @@ export function AppRoutes() {
               <Route path="/people" element={appRedirect('/people')} />
               <Route path="/contacts" element={appRedirect('/people')} />
               <Route path="/settings" element={appRedirect('/settings')} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>
@@ -226,7 +249,7 @@ export function AppRoutes() {
             <Route path="/app/people" element={<Navigate to="/people" replace />} />
             <Route path="/app/contacts" element={<Navigate to="/people" replace />} />
             <Route path="/app/settings" element={<Navigate to="/settings" replace />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

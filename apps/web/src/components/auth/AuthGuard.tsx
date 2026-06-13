@@ -1,5 +1,6 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { safeAuthReturnTo } from '../../store/authStore';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -8,6 +9,7 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, requireOnboarded }: AuthGuardProps) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -17,7 +19,15 @@ export function AuthGuard({ children, requireOnboarded }: AuthGuardProps) {
     );
   }
 
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const returnTo = safeAuthReturnTo(`${location.pathname}${location.search}${location.hash}`);
+    return (
+      <Navigate
+        to={returnTo ? `/login?redirect=${encodeURIComponent(returnTo)}` : '/login'}
+        replace
+      />
+    );
+  }
 
   if (requireOnboarded && !user.onboarded) {
     return <Navigate to="/onboarding" replace />;

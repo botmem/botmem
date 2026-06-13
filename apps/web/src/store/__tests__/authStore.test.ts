@@ -24,7 +24,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 // Import store AFTER stubbing globals
-const { useAuthStore } = await import('../authStore');
+const { consumeAuthReturnTo, safeAuthReturnTo, useAuthStore } = await import('../authStore');
 
 const mockUser = { id: 'u1', email: 'test@test.com', name: 'Test User', onboarded: false };
 const mockAccessToken = 'token-abc';
@@ -289,6 +289,21 @@ describe('authStore', () => {
       useAuthStore.setState({ error: 'some error' });
       useAuthStore.getState().clearError();
       expect(useAuthStore.getState().error).toBeNull();
+    });
+  });
+
+  describe('auth return target', () => {
+    it('accepts only app-relative destinations', () => {
+      expect(safeAuthReturnTo('/dashboard?x=1')).toBe('/dashboard?x=1');
+      expect(safeAuthReturnTo('https://evil.test')).toBe('');
+      expect(safeAuthReturnTo('//evil.test')).toBe('');
+      expect(safeAuthReturnTo('/login?redirect=/dashboard')).toBe('');
+    });
+
+    it('consumes the stored OAuth destination once', () => {
+      sessionStorage.setItem('botmem.authReturnTo', '/connectors');
+      expect(consumeAuthReturnTo()).toBe('/connectors');
+      expect(consumeAuthReturnTo()).toBe('');
     });
   });
 });
