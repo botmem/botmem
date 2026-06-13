@@ -2237,7 +2237,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             id: randomUUID(),
             srcMemoryId: sib.id,
             dstMemoryId: memoryId,
-            linkType: 'related',
+            linkType: 'thread',
             strength: 0.8,
             createdAt: now,
           })
@@ -2340,15 +2340,16 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       (latest, message) => (message.eventTime > latest ? message.eventTime : latest),
       messages[0].eventTime,
     );
+    const sourceMemoryIds = [input.currentMemoryId, ...threadRows.map((row) => row.id)].filter(
+      (id, index, all) => id !== aggregateId && all.indexOf(id) === index,
+    );
     const metadata = {
       threadAggregate: true,
       threadId: input.threadId,
       emailThreadKey: input.threadId,
       subject: input.subject || undefined,
       messageCount: messages.length,
-      sourceMemoryIds: [input.currentMemoryId, ...threadRows.map((row) => row.id)].filter(
-        (id, index, all) => all.indexOf(id) === index,
-      ),
+      sourceMemoryIds,
     };
     if (!input.ownerUserKey) return;
     const encrypted = this.crypto.encryptMemoryFieldsWithKey(
@@ -2420,6 +2421,42 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       transaction_tokens:
         aggregateText.match(/[a-z0-9]+(?:[._-][a-z0-9]+)*|\d+(?:[.,]\d+)?/gi) ?? [],
     });
+    await this.linkEmailThreadAggregate(aggregateId, sourceMemoryIds);
+  }
+
+  private async linkEmailThreadAggregate(aggregateId: string, sourceMemoryIds: string[]) {
+    if (!sourceMemoryIds.length) return;
+    const existingLinks = await this.dbService.db
+      .select({ srcMemoryId: memoryLinks.srcMemoryId, dstMemoryId: memoryLinks.dstMemoryId })
+      .from(memoryLinks)
+      .where(
+        sql`(${memoryLinks.srcMemoryId} = ${aggregateId} AND ${memoryLinks.dstMemoryId} IN (${sql.join(
+          sourceMemoryIds.map((id) => sql`${id}`),
+          sql`, `,
+        )}))
+         OR (${memoryLinks.dstMemoryId} = ${aggregateId} AND ${memoryLinks.srcMemoryId} IN (${sql.join(
+           sourceMemoryIds.map((id) => sql`${id}`),
+           sql`, `,
+         )}))`,
+      );
+    const linkedPairs = new Set(
+      existingLinks.flatMap((link) => [
+        `${link.srcMemoryId}::${link.dstMemoryId}`,
+        `${link.dstMemoryId}::${link.srcMemoryId}`,
+      ]),
+    );
+    const now = new Date();
+    for (const sourceMemoryId of sourceMemoryIds) {
+      if (linkedPairs.has(`${aggregateId}::${sourceMemoryId}`)) continue;
+      await this.dbService.db.insert(memoryLinks).values({
+        id: randomUUID(),
+        srcMemoryId: aggregateId,
+        dstMemoryId: sourceMemoryId,
+        linkType: 'thread',
+        strength: 1,
+        createdAt: now,
+      });
+    }
   }
 
   private async createLinks(memoryId: string): Promise<void> {
