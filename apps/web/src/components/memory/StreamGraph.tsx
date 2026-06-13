@@ -7,6 +7,13 @@ function getThemeColor(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
+export function axisLabel(day: string, previous?: string): string {
+  const [, month, date] = day.split('-');
+  const year = day.slice(0, 4);
+  if (!previous || previous.slice(0, 4) !== year) return `${month}-${date}-${year}`;
+  return `${month}-${date}`;
+}
+
 interface StreamGraphProps {
   memories: Memory[];
   className?: string;
@@ -17,7 +24,7 @@ export function StreamGraph({ memories, className }: StreamGraphProps) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || memories.length === 0) return;
+    if (!canvas) return;
 
     const rect = canvas.parentElement?.getBoundingClientRect();
     if (!rect) return;
@@ -36,6 +43,7 @@ export function StreamGraph({ memories, className }: StreamGraphProps) {
     const plotW = W - PAD.l - PAD.r,
       plotH = H - PAD.t - PAD.b;
     ctx.clearRect(0, 0, W, H);
+    if (memories.length === 0) return;
 
     // Bin by day and connector
     const bins = new Map<string, Record<string, number>>();
@@ -49,6 +57,13 @@ export function StreamGraph({ memories, className }: StreamGraphProps) {
 
     const days = [...bins.keys()].sort();
     if (days.length === 0) return;
+    if (days.length < 3) {
+      ctx.fillStyle = getThemeColor('--color-nb-muted', '#A0A0A0');
+      ctx.font = '11px IBM Plex Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText('Not enough date buckets for a trend', W / 2, H / 2);
+      return;
+    }
 
     const connTypes = [...new Set(memories.map((m) => m.sourceConnector))];
     const maxTotal = Math.max(
@@ -97,7 +112,7 @@ export function StreamGraph({ memories, className }: StreamGraphProps) {
     const step = Math.max(1, Math.floor(days.length / 5));
     for (let i = 0; i < days.length; i += step) {
       const x = PAD.l + i * xStep;
-      ctx.fillText(days[i].slice(5), x, H - 4); // MM-DD
+      ctx.fillText(axisLabel(days[i], days[i - step]), x, H - 4);
     }
 
     // Y-axis

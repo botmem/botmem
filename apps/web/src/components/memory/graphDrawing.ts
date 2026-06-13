@@ -320,9 +320,10 @@ export function renderNode(
     ctx.textBaseline = 'middle';
     ctx.fillText(node.label.toUpperCase().slice(0, 6), x, y);
     ctx.textBaseline = 'alphabetic';
-    if (globalScale > 0.8 || isDirectMatch) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : color;
+    // ponytail: hover/search-only labels; add collision layout if always-on labels become required.
+    if (isDirectMatch || rc.selectedNodeId === node.id) {
+      ctx.font = `bold ${12 / globalScale}px IBM Plex Mono`;
+      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : _tc.text;
       ctx.textAlign = 'center';
       ctx.fillText(node.label, x, y + h / 2 + 12 / globalScale);
     }
@@ -465,9 +466,10 @@ export function renderNode(
       }
     }
 
-    if (globalScale > 1.2 || isDirectMatch || isSelf) {
-      ctx.font = `bold ${10 / globalScale}px IBM Plex Mono`;
-      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : contactColor;
+    // ponytail: hover/search-only labels; add collision layout if always-on labels become required.
+    if (isDirectMatch || isSelf || rc.selectedNodeId === node.id) {
+      ctx.font = `bold ${12 / globalScale}px IBM Plex Mono`;
+      ctx.fillStyle = isTopResult ? HIGHLIGHT_COLOR : _tc.text;
       ctx.textAlign = 'center';
       ctx.fillText(isSelf ? 'ME' : truncate(node.label, 20), x, y + radius + 12 / globalScale);
     }

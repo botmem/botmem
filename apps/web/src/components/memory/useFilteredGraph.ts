@@ -228,6 +228,15 @@ export function useFilteredGraph({
     adaptiveConfig,
   ]);
 
+  const zoomToFitClamped = useCallback(() => {
+    const graph = graphRef.current;
+    if (!graph || filteredData.nodes.length < 3) return;
+    graph.zoomToFit(400, 80);
+    setTimeout(() => {
+      if (graph.zoom() > 4) graph.zoom(4, 0);
+    }, 450);
+  }, [filteredData.nodes.length, graphRef]);
+
   // No data-tracking or camera-restore effects needed — node identity preservation
   // keeps positions stable across updates.
 
@@ -270,10 +279,10 @@ export function useFilteredGraph({
   useEffect(() => {
     if (!graphRef.current || !searchMatchIds || searchMatchIds.size === 0) return;
     const timer = setTimeout(() => {
-      if (graphRef.current) graphRef.current.zoomToFit(400, 80);
+      zoomToFitClamped();
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchMatchIds]);
+  }, [searchMatchIds, zoomToFitClamped]);
 
   const linkColor = useCallback(
     (link: GraphEdge) => {
@@ -317,5 +326,6 @@ export function useFilteredGraph({
     adjacency,
     linkColor,
     linkWidth,
+    zoomToFitClamped,
   };
 }

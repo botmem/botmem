@@ -193,7 +193,9 @@ export const useContactStore = create<ContactState>((set, get) => ({
 
   setEntityFilter: (filter) => {
     set({ entityFilter: filter, selectedId: null });
-    get().loadContacts(filter);
+    const query = get().searchQuery.trim();
+    if (query.length >= 3) get().searchContacts(query);
+    else get().loadContacts(filter);
   },
 
   setSearchQuery: (query) => {
