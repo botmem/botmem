@@ -64,4 +64,24 @@ describe('MemoryDetailCore', () => {
     );
     expect(screen.getByText(/Sarah Ahmed/)).toBeDefined();
   });
+
+  it('shows the semantic score row even when it is zero', () => {
+    render(
+      <MemoryDetailCore
+        {...baseProps}
+        weights={{ semantic: 0, recency: 0.2, importance: 0.3, trust: 0.4, final: 0.5 }}
+      />,
+    );
+
+    expect(screen.getByText('semantic')).toBeDefined();
+    expect(screen.getByText('final')).toBeDefined();
+  });
+
+  it('renders a thumbnail surface for photo memories without trusting upstream fileUrl metadata', () => {
+    render(
+      <MemoryDetailCore {...baseProps} source="photo" metadata={{ width: 640, height: 480 }} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Open memory thumbnail' })).toBeInTheDocument();
+  });
 });

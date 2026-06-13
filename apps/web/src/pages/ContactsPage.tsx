@@ -63,7 +63,7 @@ export function ContactsPage() {
   return (
     <PageContainer>
       <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-nb-text mb-4">
-        CONTACTS
+        PEOPLE
       </h1>
 
       {/* Entity type tabs */}

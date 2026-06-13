@@ -95,6 +95,49 @@ describe('contactStore', () => {
     expect(useContactStore.getState().loading).toBe(false);
   });
 
+  it('dedupes identical identifier chips from API contacts', async () => {
+    vi.mocked(api.listContacts).mockResolvedValue({
+      items: [
+        {
+          ...rawAlice,
+          identifiers: [
+            rawAlice.identifiers[0],
+            { ...rawAlice.identifiers[0], id: 'i1-duplicate' },
+          ],
+        },
+      ],
+      total: 1,
+    } as never);
+
+    await useContactStore.getState().loadContacts();
+
+    expect(useContactStore.getState().contacts[0].identifiers).toHaveLength(1);
+  });
+
+  it('dedupes WhatsApp group JID variants', async () => {
+    vi.mocked(api.listContacts).mockResolvedValue({
+      items: [
+        {
+          ...rawAlice,
+          entityType: 'group',
+          identifiers: [
+            {
+              id: 'jid',
+              identifierType: 'whatsapp_group_jid',
+              identifierValue: '120363123456789@g.us',
+            },
+            { id: 'phone', identifierType: 'phone', identifierValue: '+120363123456789' },
+          ],
+        },
+      ],
+      total: 1,
+    } as never);
+
+    await useContactStore.getState().loadContacts('group');
+
+    expect(useContactStore.getState().contacts[0].identifiers).toHaveLength(1);
+  });
+
   it('appends more contacts and skips while searching', async () => {
     useContactStore.setState({ contacts: [rawAlice as any], total: 2, hasMore: true });
     vi.mocked(api.listContacts).mockResolvedValue({ items: [rawBob], total: 2 } as never);
@@ -141,6 +184,18 @@ describe('contactStore', () => {
 
     expect(api.listContacts).toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it('reapplies the current query when switching to groups', async () => {
+    useContactStore.setState({ searchQuery: 'team' });
+    vi.mocked(api.searchContacts).mockResolvedValue([
+      { ...rawAlice, id: 'g1', displayName: 'Team Chat', entityType: 'group' },
+    ] as never);
+
+    useContactStore.getState().setEntityFilter('group');
+
+    expect(api.searchContacts).toHaveBeenCalledWith('team', 'group');
+    expect(api.listContacts).not.toHaveBeenCalled();
   });
 
   it('loads merge suggestions and refreshes visible contacts', async () => {

@@ -13,9 +13,26 @@ interface TimelineMemoryItemProps {
   onClick: () => void;
 }
 
+export function timelineSnippet(memory: Memory): string {
+  const meta = memory.metadata || {};
+  const fileName = String(meta.fileName || meta.filename || '').trim();
+  const subject = String(meta.subject || '').trim();
+  if ((memory.source === 'file' || fileName) && fileName) {
+    return subject ? `${fileName} - from ${subject}` : fileName;
+  }
+  return memory.text
+    .replace(/\b(rawEvent|payload|metadata|connectorType|accountIdentifier)\b[:=][^\n]+/gi, '')
+    .replace(/@\d+:[A-Za-z0-9._-]+/g, '')
+    .replace(/\b\d{10,}@lid\b/gi, '')
+    .replace(/@lid\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function TimelineMemoryItem({ memory, selected, onClick }: TimelineMemoryItemProps) {
   const connColor = CONNECTOR_COLORS[memory.sourceConnector] || '#888';
   const score = memory.weights?.final || 0;
+  const snippet = timelineSnippet(memory);
 
   return (
     <button
@@ -40,7 +57,7 @@ export function TimelineMemoryItem({ memory, selected, onClick }: TimelineMemory
           {(Math.min(score, 1) * 100).toFixed(0)}%
         </span>
       </div>
-      <p className="text-nb-text line-clamp-2 text-[11px] mb-1">{memory.text}</p>
+      <p className="text-nb-text line-clamp-2 text-[11px] mb-1">{snippet}</p>
       <div className="flex gap-1 flex-wrap">
         {memory.people?.slice(0, 3).map((p) => (
           <span key={p.personId} className="border border-nb-border px-1 text-[9px] text-nb-muted">

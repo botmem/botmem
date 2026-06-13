@@ -163,6 +163,31 @@ describe('useSearch', () => {
     expect(result.current.pending).toBe(false);
   });
 
+  it('filters weak non-fallback results and marks them low confidence', async () => {
+    vi.mocked(api.searchMemories).mockResolvedValue({
+      ...mockSearchResult,
+      items: [
+        { id: 'weak-1', text: 'Weak result', score: 0.48 },
+        { id: 'weak-2', text: 'Weak result 2', weights: { final: 0.45 } },
+      ],
+      fallback: false,
+    } as never);
+
+    const { result } = renderHook(() => useSearch({ debounceMs: 100 }));
+
+    act(() => {
+      result.current.setTerm('nonsense query');
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.results?.items).toEqual([]);
+    expect(result.current.results?.lowConfidence).toBe(true);
+  });
+
   it('does not let a stale slower response overwrite a newer one', async () => {
     let resolveSlow: (value: typeof mockSearchResult) => void = () => {};
     vi.mocked(api.searchMemories)

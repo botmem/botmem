@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import type { ConnectorAccount, ConnectorManifest, SyncSchedule } from '@botmem/shared';
 import { cn, formatRelative, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
 import { useConnectorStore } from '../../store/connectorStore';
+import { useJobStore } from '../../store/jobStore';
+import { accountStatusView } from '../../lib/accountStatus';
 
 const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
   { value: 'hourly', label: 'HOURLY' },
@@ -13,27 +16,33 @@ const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
   { value: 'manual', label: 'MANUAL' },
 ];
 
-const statusColors: Record<string, string> = {
-  connected: 'var(--color-nb-green)',
-  syncing: 'var(--color-nb-blue)',
-  queued: 'var(--color-nb-yellow)',
-  degraded: 'var(--color-nb-yellow)',
-  reconnect_required: 'var(--color-nb-orange)',
-  failed: 'var(--color-nb-red)',
-  error: 'var(--color-nb-red)',
-  disconnected: 'var(--color-nb-orange)',
-};
-
-function statusLabel(status: string): string {
-  return status.replace(/_/g, ' ');
-}
-
 function actionLabel(account: ConnectorAccount, authType?: string): string {
   const action = account.syncHealth?.recoveryAction;
   if (action === 'rescan_qr' || authType === 'qr-code') return 'RE-SCAN QR';
-  if (action === 'start_bridge') return 'BRIDGE HELP';
+  if (
+    action === 'start_bridge' ||
+    ((account.type === 'apple' || account.type === 'imessage') &&
+      (account.status === 'disconnected' || account.status === 'reconnect_required'))
+  ) {
+    return 'RECONNECT BRIDGE';
+  }
   if (action === 'reconnect') return 'RECONNECT';
   return 'EDIT';
+}
+
+const APPLE_BRIDGE_REMEDIATION =
+  'Start the Botmem Apple bridge from connector setup, then run `botmem sync';
+
+function appleBridgeError(account: ConnectorAccount) {
+  if (
+    !(account.type === 'apple' || account.type === 'imessage') ||
+    account.status !== 'failed' ||
+    !account.lastError
+  ) {
+    return account.lastError;
+  }
+  const idx = account.lastError.indexOf(APPLE_BRIDGE_REMEDIATION);
+  return idx === -1 ? account.lastError : account.lastError.slice(0, idx).trim();
 }
 
 interface ConnectorAccountRowProps {
@@ -54,9 +63,27 @@ export function ConnectorAccountRow({
   syncConfig,
 }: ConnectorAccountRowProps) {
   const { memoryBanks, activeMemoryBankId } = useMemoryBankStore();
+  const jobs = useJobStore(useShallow((s) => s.jobs.filter((job) => job.accountId === account.id)));
+  const logs = useJobStore(useShallow((s) => s.logsByAccount[account.id] || []));
+  const fetchLogs = useJobStore((s) => s.fetchLogs);
   const defaultBankId = activeMemoryBankId || memoryBanks.find((b) => b.isDefault)?.id;
   const [selectedBankId, setSelectedBankId] = useState(defaultBankId);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const status = accountStatusView(account, jobs);
+  const latestJob = jobs[0];
+  const reconnectIssue =
+    status.status === 'bridge_offline' ||
+    account.status === 'disconnected' ||
+    account.status === 'reconnect_required';
+  const errorPrefix =
+    status.status === 'sync_failed'
+      ? 'Sync failed: '
+      : status.status === 'bridge_offline'
+        ? 'Bridge offline: '
+        : reconnectIssue
+          ? 'Reconnect required: '
+          : 'Warning: ';
   const showBankSelector = memoryBanks.length > 1;
   const scheduleConfig = {
     defaultSchedule: syncConfig?.defaultSchedule ?? 'daily',
@@ -91,15 +118,22 @@ export function ConnectorAccountRow({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge color={statusColors[account.status]}>{statusLabel(account.status)}</Badge>
-          {(account.status === 'syncing' || account.status === 'queued') && account.syncHealth && (
+          <Badge color={status.color}>{status.label}</Badge>
+          {status.progressText && (
             <span className="font-mono text-xs uppercase text-nb-muted">
-              {account.syncHealth.phase || statusLabel(account.status)}
-              {account.syncHealth.total && account.syncHealth.total > 0
-                ? ` ${account.syncHealth.progress ?? 0}/${account.syncHealth.total}`
-                : ''}
+              {status.progressText}
             </span>
           )}
+          {!status.progressText &&
+            (account.status === 'syncing' || account.status === 'queued') &&
+            account.syncHealth && (
+              <span className="font-mono text-xs uppercase text-nb-muted">
+                {account.syncHealth.phase || status.label}
+                {account.syncHealth.total && account.syncHealth.total > 0
+                  ? ` ${account.syncHealth.progress ?? 0}/${account.syncHealth.total}`
+                  : ''}
+              </span>
+            )}
           {showBankSelector && (
             <select
               id="sync-memory-bank"
@@ -123,7 +157,11 @@ export function ConnectorAccountRow({
             onEdit && (
               <Button
                 size="sm"
-                variant={account.status === 'reconnect_required' ? 'primary' : 'danger'}
+                variant={
+                  status.status === 'bridge_offline' || account.status === 'reconnect_required'
+                    ? 'primary'
+                    : 'danger'
+                }
                 onClick={() => onEdit(account.id)}
               >
                 {actionLabel(account, authType)}
@@ -183,13 +221,53 @@ export function ConnectorAccountRow({
           )}
         </div>
       </div>
+      {jobs.length > 0 && (
+        <div className="border-t-3 border-nb-border px-3 py-2 bg-nb-surface-muted">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="font-mono text-xs uppercase text-nb-muted">
+              LAST JOB {latestJob?.status}
+              {latestJob?.total ? ` ${latestJob.progress}/${latestJob.total}` : ''}
+              {latestJob?.error ? ` - ${latestJob.error}` : ''}
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                const next = !showLogs;
+                setShowLogs(next);
+                if (next) void fetchLogs(account.id, latestJob?.id);
+              }}
+            >
+              {showLogs ? 'HIDE LOGS' : 'VIEW LOGS'}
+            </Button>
+          </div>
+          {showLogs && (
+            <div className="mt-2 border-2 border-nb-border bg-nb-bg max-h-48 overflow-auto">
+              {logs.length > 0 ? (
+                logs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="border-b border-nb-border/50 px-2 py-1 font-mono text-[11px] text-nb-text last:border-b-0"
+                  >
+                    <span className="uppercase text-nb-muted">{log.level}</span> {log.message}
+                  </div>
+                ))
+              ) : (
+                <div className="px-2 py-1 font-mono text-[11px] uppercase text-nb-muted">
+                  NO LOGS
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {account.lastError && (
         <div
           className={cn(
             'border-t-3 border-nb-border px-3 py-2',
-            account.status === 'error' || account.status === 'failed'
+            status.status === 'sync_failed'
               ? 'bg-red-950/30'
-              : account.status === 'disconnected' || account.status === 'reconnect_required'
+              : reconnectIssue
                 ? 'bg-orange-950/30'
                 : 'bg-yellow-950/30',
           )}
@@ -197,21 +275,15 @@ export function ConnectorAccountRow({
           <p
             className={cn(
               'font-mono text-xs',
-              account.status === 'error' || account.status === 'failed'
+              status.status === 'sync_failed'
                 ? 'text-nb-red'
-                : account.status === 'disconnected' || account.status === 'reconnect_required'
+                : reconnectIssue
                   ? 'text-orange-400'
                   : 'text-yellow-400',
             )}
           >
-            <span className="font-bold uppercase">
-              {account.status === 'error' || account.status === 'failed'
-                ? 'Error: '
-                : account.status === 'disconnected' || account.status === 'reconnect_required'
-                  ? 'Reconnect required: '
-                  : 'Warning: '}
-            </span>
-            {account.lastError}
+            <span className="font-bold uppercase">{errorPrefix}</span>
+            {appleBridgeError(account)}
             {(account.type === 'apple' || account.type === 'imessage') &&
               account.status === 'failed' && (
                 <span className="block mt-1 text-nb-muted">

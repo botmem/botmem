@@ -43,6 +43,7 @@ export function Avatar({
   const textSize = TEXT_SIZE_MAP[size];
   const border = borderColor || (isSelf ? SELF_COLOR : undefined);
   const borderStyle = border ? { borderColor: border } : undefined;
+  const initials = fallbackInitials.trim() || '?';
 
   const fallbackNode = (
     <div
@@ -57,7 +58,7 @@ export function Avatar({
       }}
     >
       <span className={cn('font-display font-bold text-black', textSize)}>
-        {isSelf ? '\u2605' : fallbackInitials}
+        {isSelf ? '\u2605' : initials}
       </span>
     </div>
   );
@@ -91,6 +92,7 @@ export function Avatar({
       src={imgSrc}
       alt={altText}
       className={cn('border-3 border-nb-border object-cover', sizeClass, className)}
+      loading="lazy"
       fallback={fallbackNode}
     />
   );

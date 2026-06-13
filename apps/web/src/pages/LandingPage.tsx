@@ -424,7 +424,7 @@ const FEATURES: { icon: ReactNode; title: string; desc: string }[] = [
       </svg>
     ),
     title: 'FULLY LOCAL',
-    desc: 'PostgreSQL + Postgres search + Ollama. Your data never leaves your hardware.',
+    desc: 'PostgreSQL (hybrid BM25 + vector) + Ollama. Your data never leaves your hardware.',
   },
   {
     icon: (
@@ -839,27 +839,13 @@ function HowItWorks() {
           </div>
         </div>
 
-        {/* Step indicators below */}
-        <div className="mt-6 flex justify-center gap-2">
-          {HOW_IT_WORKS_TABS.map((t, i) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(i)}
-              className={cn(
-                'size-2 border border-nb-border transition-all duration-200 cursor-pointer p-3',
-                activeTab === i ? 'bg-nb-lime scale-125' : 'bg-nb-surface hover:bg-nb-muted',
-              )}
-              aria-label={`Show ${t.label}`}
-            />
-          ))}
-        </div>
       </div>
     </section>
   );
 }
 
 function TechStrip() {
-  const techs = ['NestJS', 'PostgreSQL', 'Postgres search', 'Ollama', 'React', 'BullMQ'];
+  const techs = ['NestJS', 'PostgreSQL (hybrid BM25 + vector)', 'Ollama', 'React', 'BullMQ'];
   return (
     <div className="border-y-4 border-nb-border py-5 overflow-hidden">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-wrap justify-center gap-x-6 gap-y-2 font-mono text-sm text-nb-muted tracking-wide">
@@ -891,7 +877,7 @@ const FREE_FEATURES = [
 const PRO_FEATURES = [
   'Everything in Free',
   'Cloud-hosted infrastructure',
-  'Managed PostgreSQL, Postgres search + Redis',
+  'Managed PostgreSQL, hybrid BM25 + vector search + Redis',
   'Priority enrichment pipeline',
   'Full API access',
   'Email support',
@@ -1181,7 +1167,7 @@ export function LandingPage() {
       <SkipToContent />
       <Navbar />
       <main id="main-content">
-        <div className="landing-fade-in">
+        <div className="landing-visible">
           <Hero />
         </div>
         <div className="landing-fade-in">

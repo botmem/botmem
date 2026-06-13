@@ -2,6 +2,7 @@ import { cn, CONNECTOR_COLORS } from '@botmem/shared';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { IDENTIFIER_COLORS } from './constants';
+import { visibleIdentifierBadges } from './identifiers';
 
 const SELF_COLOR = 'var(--color-nb-lime)';
 
@@ -28,8 +29,7 @@ export function ContactCard({ contact, selected, isSelf, onClick, compact }: Con
     .toUpperCase();
 
   const maxBadges = compact ? 2 : 3;
-  const shownIds = contact.identifiers.slice(0, maxBadges);
-  const extraCount = contact.identifiers.length - maxBadges;
+  const { shown: shownIds, extraCount } = visibleIdentifierBadges(contact.identifiers, maxBadges);
 
   return (
     <div
