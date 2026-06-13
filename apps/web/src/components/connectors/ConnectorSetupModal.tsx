@@ -29,6 +29,7 @@ interface ConnectorSetupModalProps {
   connectorType: ConnectorType;
   onConnect: (identifier: string) => void;
   editAccountId?: string;
+  editIdentifier?: string;
 }
 
 const fallbackFields: Record<
@@ -493,31 +494,82 @@ function BridgeAuthView({
   connectorType,
   onClose,
   onConnect,
+  editAccountId,
+  editIdentifier,
 }: {
   connectorType: ConnectorType;
   onClose: () => void;
   onConnect: (id: string) => void;
+  editAccountId?: string;
+  editIdentifier?: string;
 }) {
   const fetchAccounts = useConnectorStore((s) => s.fetchAccounts);
-  const [step, setStep] = useState<BridgeStep>('email');
-  const [myIdentifier, setMyIdentifier] = useState('');
+  const isReconnect = !!editAccountId;
+  const [step, setStep] = useState<BridgeStep>(isReconnect ? 'command' : 'email');
+  const [myIdentifier, setMyIdentifier] = useState(editIdentifier || '');
   const [bridgeCommand, setBridgeCommand] = useState('');
   const [bridgeDeepLink, setBridgeDeepLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(editAccountId || null);
   const [bridgeConnected, setBridgeConnected] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [bridgeLaunchPending, setBridgeLaunchPending] = useState(false);
+  const [bridgeLaunchTimedOut, setBridgeLaunchTimedOut] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const launchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
+      if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
     };
   }, []);
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const applyBridgeAccount = (acct: Record<string, string>) => {
+    const acctId = acct.id || editAccountId || '';
+    setAccountId(acctId);
+
+    const token = acct.bridgeToken || '';
+    const serverUrl = wsUrl('/apple-tunnel');
+    const sourceList = 'contacts,imessages';
+    const cmd = `npx @botmem/apple-bridge configure --token=${token} --server=${serverUrl} --account-id=${acctId} --sources=${sourceList}
+npx @botmem/apple-bridge preflight
+npx @botmem/apple-bridge service start`;
+    const deepLink = new URL('botmem-apple-bridge://connect');
+    deepLink.searchParams.set('server', serverUrl);
+    deepLink.searchParams.set('token', token);
+    deepLink.searchParams.set('accountId', acctId);
+    deepLink.searchParams.set('sources', sourceList);
+    setBridgeCommand(cmd);
+    setBridgeDeepLink(deepLink.toString());
+    setStep('command');
+    setBridgeLaunchPending(false);
+
+    if (pollRef.current) clearTimeout(pollRef.current);
+    let delayMs = 2000;
+    const pollBridgeStatus = async () => {
+      try {
+        const data = await api.getBridgeStatus(acctId);
+        if (data.connected) {
+          setBridgeConnected(true);
+          setBridgeLaunchPending(false);
+          setStep('connected');
+          if (pollRef.current) clearTimeout(pollRef.current);
+          pollRef.current = null;
+          return;
+        }
+      } catch {
+        // Offline bridges are shown as waiting; the next poll backs off.
+      }
+      delayMs = Math.min(delayMs * 2, 15000);
+      pollRef.current = setTimeout(pollBridgeStatus, delayMs);
+    };
+    pollRef.current = setTimeout(pollBridgeStatus, delayMs);
+  };
+
+  const setupBridge = async () => {
     setLoading(true);
     setError(null);
 
@@ -530,39 +582,7 @@ function BridgeAuthView({
       });
 
       if (result.type === 'complete' && result.account) {
-        const acct = result.account as Record<string, string>;
-        const acctId = acct.id || '';
-        setAccountId(acctId);
-
-        // Get the bridge token from the auth context
-        const token = acct.bridgeToken || '';
-        const serverUrl = wsUrl('/apple-tunnel');
-        const sourceList = 'contacts,imessages';
-        const cmd = `npx @botmem/apple-bridge configure --token=${token} --server=${serverUrl} --account-id=${acctId} --sources=${sourceList}
-npx @botmem/apple-bridge preflight
-npx @botmem/apple-bridge service start`;
-        const deepLink = new URL('botmem-apple-bridge://connect');
-        deepLink.searchParams.set('server', serverUrl);
-        deepLink.searchParams.set('token', token);
-        deepLink.searchParams.set('accountId', acctId);
-        deepLink.searchParams.set('sources', sourceList);
-        setBridgeCommand(cmd);
-        setBridgeDeepLink(deepLink.toString());
-        setStep('command');
-
-        // Start polling for bridge connection
-        pollRef.current = setInterval(async () => {
-          try {
-            const data = await api.getBridgeStatus(acctId);
-            if (data.connected) {
-              setBridgeConnected(true);
-              setStep('connected');
-              if (pollRef.current) clearInterval(pollRef.current);
-            }
-          } catch {
-            /* ignore poll errors */
-          }
-        }, 2000);
+        applyBridgeAccount(result.account as Record<string, string>);
       } else {
         setError('Unexpected response from server');
       }
@@ -572,6 +592,11 @@ npx @botmem/apple-bridge service start`;
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await setupBridge();
   };
 
   const handleStartSync = async () => {
@@ -591,12 +616,15 @@ npx @botmem/apple-bridge service start`;
 
   const copyCommand = () => {
     navigator.clipboard.writeText(bridgeCommand);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const openBridgeApp = () => {
-    if (bridgeDeepLink) {
-      window.location.href = bridgeDeepLink;
-    }
+    setBridgeLaunchPending(true);
+    setBridgeLaunchTimedOut(false);
+    if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
+    launchTimerRef.current = setTimeout(() => setBridgeLaunchTimedOut(true), 8000);
   };
 
   const stepNumber = step === 'email' ? 1 : step === 'command' ? 2 : 3;
@@ -635,6 +663,12 @@ npx @botmem/apple-bridge service start`;
       {/* Step 2: Show command */}
       {step === 'command' && (
         <div className="flex flex-col gap-4">
+          {isReconnect && !bridgeCommand && (
+            <div className="border-3 border-nb-yellow bg-nb-yellow/10 p-3 font-mono text-xs text-nb-text uppercase">
+              Reconnecting can rotate the bridge token if this account has no saved token. The old
+              bridge config may stop working.
+            </div>
+          )}
           <p className="font-mono text-xs text-nb-muted uppercase">
             Install and open Botmem Apple Bridge on the Mac with your Apple data. The app and CLI
             use the same local config, source choices, permission checks, and background service.
@@ -660,55 +694,90 @@ npx @botmem/apple-bridge service start`;
             </ol>
           </div>
 
-          <Button type="button" onClick={openBridgeApp} disabled={!bridgeDeepLink}>
-            CONNECT BRIDGE APP
-          </Button>
-
-          <p className="font-display text-xs font-bold uppercase text-nb-muted">
-            Advanced CLI Setup
-          </p>
-          <div className="relative">
-            <pre className="bg-black border-3 border-nb-border p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
-              {bridgeCommand}
-            </pre>
-            <button
-              type="button"
-              onClick={copyCommand}
-              className="absolute top-2 right-2 px-2 py-1 bg-nb-surface border-2 border-nb-border font-mono text-[10px] text-nb-muted uppercase hover:text-nb-text hover:border-nb-lime transition-colors cursor-pointer"
+          {isReconnect && !bridgeCommand ? (
+            <Button type="button" onClick={setupBridge} disabled={loading || !myIdentifier}>
+              {loading ? 'RECONNECTING...' : 'RECONNECT BRIDGE'}
+            </Button>
+          ) : (
+            <a
+              href={bridgeDeepLink || undefined}
+              onClick={openBridgeApp}
+              aria-disabled={!bridgeDeepLink}
+              className={cn(
+                'font-display font-bold uppercase tracking-wider border-3 border-nb-border shadow-nb px-5 py-2.5 text-sm bg-nb-lime text-black text-center transition-all duration-100',
+                bridgeDeepLink
+                  ? 'cursor-pointer hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm active:translate-x-[4px] active:translate-y-[4px] active:shadow-none'
+                  : 'opacity-50 pointer-events-none',
+              )}
             >
-              COPY
-            </button>
-          </div>
+              CONNECT BRIDGE APP
+            </a>
+          )}
 
-          <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
-            <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">
-              CLI Requirements
-            </p>
-            <ul className="font-mono text-xs text-nb-muted space-y-1">
-              <li>• macOS with iMessage signed in</li>
-              <li>• Node.js 20+ installed</li>
-              <li>• Use the same --sources list you would choose in the app</li>
-              <li>• Full Disk Access is only required when syncing iMessage history</li>
-            </ul>
-          </div>
+          {bridgeLaunchPending && (
+            <div className="border-3 border-nb-border bg-nb-surface/50 p-3 font-mono text-xs text-nb-muted uppercase">
+              {bridgeLaunchTimedOut ? 'Still waiting for bridge app. ' : 'Waiting for bridge app... '}
+              Not installed?{' '}
+              <a
+                href={APPLE_BRIDGE_GITHUB_RELEASE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-nb-lime underline underline-offset-2"
+              >
+                Download
+              </a>
+            </div>
+          )}
 
-          <div className="flex items-center gap-3 py-2">
-            {bridgeConnected ? (
-              <>
-                <div className="size-3 bg-nb-lime" />
-                <p className="font-mono text-sm text-nb-lime uppercase font-bold">
-                  Bridge Connected
+          {bridgeCommand && (
+            <>
+              <p className="font-display text-xs font-bold uppercase text-nb-muted">
+                Advanced CLI Setup
+              </p>
+              <div className="flex flex-col gap-2">
+                <pre className="bg-black border-3 border-nb-border p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
+                  {bridgeCommand}
+                </pre>
+                <button
+                  type="button"
+                  onClick={copyCommand}
+                  className="self-end px-2 py-1 bg-nb-surface border-2 border-nb-border font-mono text-[10px] text-nb-muted uppercase hover:text-nb-text hover:border-nb-lime transition-colors cursor-pointer"
+                >
+                  {copied ? 'COPIED' : 'COPY'}
+                </button>
+              </div>
+
+              <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
+                <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">
+                  CLI Requirements
                 </p>
-              </>
-            ) : (
-              <>
-                <div className="size-3 bg-nb-muted animate-pulse" />
-                <p className="font-mono text-xs text-nb-muted uppercase">
-                  Waiting for bridge connection...
-                </p>
-              </>
-            )}
-          </div>
+                <ul className="font-mono text-xs text-nb-muted space-y-1">
+                  <li>• macOS with iMessage signed in</li>
+                  <li>• Node.js 20+ installed</li>
+                  <li>• Use the same --sources list you would choose in the app</li>
+                  <li>• Full Disk Access is only required when syncing iMessage history</li>
+                </ul>
+              </div>
+
+              <div className="flex items-center gap-3 py-2">
+                {bridgeConnected ? (
+                  <>
+                    <div className="size-3 bg-nb-lime" />
+                    <p className="font-mono text-sm text-nb-lime uppercase font-bold">
+                      Bridge Connected
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="size-3 bg-nb-muted animate-pulse" />
+                    <p className="font-mono text-xs text-nb-muted uppercase">
+                      Waiting for bridge connection...
+                    </p>
+                  </>
+                )}
+              </div>
+            </>
+          )}
 
           {bridgeConnected && (
             <Button onClick={handleStartSync} disabled={loading}>
@@ -862,6 +931,7 @@ function FormView({
   onConnect,
   onClose,
   editAccountId,
+  authType,
 }: {
   state: ModalState;
   dispatch: React.Dispatch<ModalAction>;
@@ -869,6 +939,7 @@ function FormView({
   onConnect: (id: string) => void;
   onClose: () => void;
   editAccountId?: string;
+  authType?: string;
 }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -916,6 +987,9 @@ function FormView({
   const visibleFields = (
     activeMethod ? state.fields.filter((f) => activeMethod.fields.includes(f.name)) : state.fields
   ).filter((f) => !(isFirebaseMode && FIREBASE_HIDDEN_FIELDS.has(f.name)));
+  const showOAuthPreflight = authType === 'oauth2' && !editAccountId && visibleFields.length === 0;
+  // ponytail: generic scope preview; render exact provider scopes when manifests expose them.
+  const oauthProvider = connectorType === 'gmail' ? 'Google' : 'the authorization provider';
 
   return (
     <Modal open onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
@@ -946,6 +1020,17 @@ function FormView({
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {showOAuthPreflight && (
+          <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
+            <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">
+              Authorization Preview
+            </p>
+            <p className="font-mono text-xs text-nb-muted uppercase">
+              You will continue to {oauthProvider} to review and approve this connector's requested
+              scopes. You can cancel there before granting access.
+            </p>
+          </div>
+        )}
         {visibleFields.map((field) =>
           field.readOnly ? (
             <p key={field.name} className="font-mono text-xs text-nb-muted">
@@ -973,7 +1058,11 @@ function FormView({
               : 'CONNECTING...'
             : editAccountId
               ? 'SAVE CHANGES'
-              : 'CONNECT'}
+              : showOAuthPreflight
+                ? connectorType === 'gmail'
+                  ? 'CONTINUE TO GOOGLE'
+                  : 'CONTINUE TO AUTHORIZATION'
+                : 'CONNECT'}
         </Button>
       </form>
     </Modal>
@@ -988,6 +1077,7 @@ export function ConnectorSetupModal({
   connectorType,
   onConnect,
   editAccountId,
+  editIdentifier,
 }: ConnectorSetupModalProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const wsRef = useRef<WebSocket | null>(null);
@@ -1066,26 +1156,7 @@ export function ConnectorSetupModal({
     if (manifest?.authType === 'oauth2') {
       api
         .hasCredentials(connectorType)
-        .then(({ hasSavedCredentials }) => {
-          if (hasSavedCredentials) {
-            dispatch({ type: 'SET_LOADING', loading: true });
-            api
-              .initiateAuth(connectorType, { returnTo: window.location.pathname })
-              .then((result) => {
-                if (result.type === 'redirect' && result.url) window.location.href = result.url;
-              })
-              .catch((err) => {
-                dispatch({
-                  type: 'SET_ERROR',
-                  error: authErrorMessage(err, 'Authorization failed'),
-                });
-                dispatch({ type: 'CREDENTIALS_CHECKED' });
-                dispatch({ type: 'SET_LOADING', loading: false });
-              });
-          } else {
-            dispatch({ type: 'CREDENTIALS_CHECKED' });
-          }
-        })
+        .then(() => dispatch({ type: 'CREDENTIALS_CHECKED' }))
         .catch(() => dispatch({ type: 'CREDENTIALS_CHECKED' }));
     } else {
       dispatch({ type: 'CREDENTIALS_CHECKED' });
@@ -1128,7 +1199,15 @@ export function ConnectorSetupModal({
   if (!open) return null;
 
   if (isBridgeAuth) {
-    return <BridgeAuthView connectorType={connectorType} onClose={onClose} onConnect={onConnect} />;
+    return (
+      <BridgeAuthView
+        connectorType={connectorType}
+        onClose={onClose}
+        onConnect={onConnect}
+        editAccountId={editAccountId}
+        editIdentifier={editIdentifier}
+      />
+    );
   }
 
   if (isPhoneCodeAuth) {
@@ -1183,6 +1262,7 @@ export function ConnectorSetupModal({
       onConnect={onConnect}
       onClose={onClose}
       editAccountId={editAccountId}
+      authType={authType}
     />
   );
 }

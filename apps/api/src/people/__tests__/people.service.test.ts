@@ -7,6 +7,8 @@ import {
   GENERIC_NAMES,
   scoreNameOnlyMerge,
   normalizeNameForMerge,
+  displayNameFromIdentifiers,
+  inferEntityType,
   isMergeSuggestionEligibleEntity,
   looksLikeGroupName,
   isExactIdentifierAutoMergeEligible,
@@ -135,6 +137,32 @@ describe('normalizePhone', () => {
   });
 });
 
+describe('people normalization helpers', () => {
+  it('keeps no-reply mailboxes and SMS sender IDs out of person defaults', () => {
+    expect(
+      inferEntityType(undefined, [{ type: 'email', value: 'no-reply@example.com' }]),
+    ).toBe('organization');
+    expect(inferEntityType(undefined, [{ type: 'imessage_handle', value: 'BANK123' }])).toBe(
+      'organization',
+    );
+  });
+
+  it('prefers email local-part over short extracted name fragments', () => {
+    expect(
+      displayNameFromIdentifiers([
+        { type: 'name', value: 'abc' },
+        { type: 'email', value: 'human.name@example.com' },
+      ]),
+    ).toBe('human.name');
+  });
+
+  it('does not cite one-character shared surnames as merge evidence', () => {
+    expect(scoreNameOnlyMerge('Ali A', 'Omar A').positiveEvidence).not.toContain(
+      'shared surname "a"',
+    );
+  });
+});
+
 describe('PeopleService runtime behavior', () => {
   it('serves merge suggestions from cache within the TTL', async () => {
     const { service, dbService } = makeDb([[]]);
@@ -193,6 +221,7 @@ describe('PeopleService runtime behavior', () => {
     const listed = await service.list({ userId: 'user-1', limit: 10 });
     expect(listed.total).toBe(1);
     expect(listed.items[0].displayName).toBe('Amr Essam');
+    expect(listed.items[0].hasAvatar).toBe(false);
     expect(listed.items[0].identifiers[0].identifierValue).toBe('amr@example.com');
 
     const searched = await service.search('amr', 'user-1');
@@ -235,6 +264,7 @@ describe('PeopleService runtime behavior', () => {
       [], // avatar update
       [], // link insert
       [], // cached count update
+      [{ count: '1' }],
       [
         {
           memory: {

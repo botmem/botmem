@@ -405,7 +405,7 @@ export function renderNode(
     // Use data URI from node directly, fall back to authed proxy for all contacts
     const avatarImg = node.avatarUrl?.startsWith('data:')
       ? getAvatarImage(node.avatarUrl)
-      : node.id
+      : node.hasAvatar !== false && node.id
         ? getAuthedImage(`/api/people/${node.id.replace('contact-', '')}/avatar`, rc.authToken)
         : null;
 

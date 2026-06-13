@@ -35,7 +35,7 @@ interface MemoryMetadata {
 }
 
 function hasThumbnail(source: string, metadata?: MemoryMetadata): boolean {
-  return (source === 'file' || source === 'photo') && !!metadata?.fileUrl;
+  return source === 'photo' || ((source === 'file' || source === 'photo') && !!metadata?.fileUrl);
 }
 
 function ContextRow({
@@ -230,6 +230,7 @@ export function MemoryDetailCore({
         <div
           role="button"
           tabIndex={0}
+          aria-label="Open memory thumbnail"
           className={cn(
             'border-3 border-nb-border overflow-hidden',
             compact ? 'max-h-56' : 'max-h-80',

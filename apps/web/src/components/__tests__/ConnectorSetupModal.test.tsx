@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConnectorSetupModal } from '../connectors/ConnectorSetupModal';
 import { useConnectorStore } from '../../store/connectorStore';
 
@@ -31,7 +31,9 @@ vi.mock('../../store/authStore', async () => {
 
 describe('ConnectorSetupModal', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
+    mockIsFirebaseMode = false;
     mockApi.getConnectorSchema.mockRejectedValue(new Error('not available'));
     mockApi.initiateAuth.mockResolvedValue({ type: 'complete' });
     mockApi.hasCredentials.mockResolvedValue({ hasSavedCredentials: false });
@@ -77,15 +79,19 @@ describe('ConnectorSetupModal', () => {
   });
 
   it('renders modal with title when open', () => {
+    const onClose = vi.fn();
     render(
       <ConnectorSetupModal
         open={true}
-        onClose={vi.fn()}
+        onClose={onClose}
         connectorType="gmail"
         onConnect={vi.fn()}
       />,
     );
     expect(screen.getByText('Connect GMAIL')).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('renders form fields from manifest schema', async () => {
@@ -283,6 +289,67 @@ describe('ConnectorSetupModal', () => {
     expect(screen.getByText(/Use the same --sources list/)).toBeInTheDocument();
   });
 
+  it('backs off Apple bridge status polling while waiting', async () => {
+    vi.useFakeTimers();
+    try {
+      mockApi.initiateAuth.mockResolvedValue({
+        type: 'complete',
+        account: { id: 'acct-1', bridgeToken: 'token-1' },
+      });
+      useConnectorStore.setState({
+        manifests: [
+          {
+            id: 'apple',
+            name: 'Apple',
+            description: 'Import Apple data',
+            color: '#4ECDC4',
+            icon: 'smartphone',
+            authType: 'local-tool',
+            configSchema: { type: 'object', properties: {}, required: [] },
+            entities: ['person', 'message'],
+            pipeline: { clean: false, embed: true, enrich: false },
+            trustScore: 0.8,
+          },
+        ],
+      });
+
+      render(
+        <ConnectorSetupModal
+          open={true}
+          onClose={vi.fn()}
+          connectorType="apple"
+          onConnect={vi.fn()}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+        target: { value: 'you@icloud.com' },
+      });
+      fireEvent.click(screen.getByText('PAIR BRIDGE'));
+
+      await act(async () => {});
+      expect(screen.getByText('App Setup')).toBeInTheDocument();
+      expect(mockApi.getBridgeStatus).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe('Firebase mode field hiding', () => {
     beforeEach(() => {
       mockIsFirebaseMode = true;
@@ -302,7 +369,7 @@ describe('ConnectorSetupModal', () => {
         />,
       );
       // Should still render the connect button
-      expect(await screen.findByText('CONNECT')).toBeInTheDocument();
+      expect(await screen.findByText('CONTINUE TO GOOGLE')).toBeInTheDocument();
       // But should NOT show the OAuth fields
       expect(screen.queryByText('Client ID')).not.toBeInTheDocument();
       expect(screen.queryByText('Client Secret')).not.toBeInTheDocument();
@@ -319,6 +386,173 @@ describe('ConnectorSetupModal', () => {
       );
       expect(screen.getByText('Connect GMAIL')).toBeInTheDocument();
     });
+  });
+
+  it('shows an OAuth preflight instead of redirecting on open', async () => {
+    mockIsFirebaseMode = true;
+    mockApi.hasCredentials.mockResolvedValue({ hasSavedCredentials: true });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Authorization Preview')).toBeInTheDocument();
+    expect(screen.getByText('CONTINUE TO GOOGLE')).toBeInTheDocument();
+    expect(mockApi.initiateAuth).not.toHaveBeenCalled();
+    mockIsFirebaseMode = false;
+  });
+
+  it('opens existing Apple accounts on reconnect instructions with the identifier prefilled', async () => {
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        editAccountId="acct-1"
+        editIdentifier="you@icloud.com"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Reconnecting can rotate the bridge token/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('RECONNECT BRIDGE'));
+    await waitFor(() => {
+      expect(mockApi.initiateAuth).toHaveBeenCalledWith(
+        'apple',
+        expect.objectContaining({ myIdentifier: 'you@icloud.com' }),
+      );
+    });
+    expect(await screen.findByText(/--account-id=acct-1/)).toBeInTheDocument();
+  });
+
+  it('moves Apple copy out of the token text and shows copied feedback', async () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+
+    await screen.findByText(/--token=token-1/);
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('COPY'));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('--token=token-1'));
+    expect(screen.getByText('COPIED')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(screen.getByText('COPY')).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('shows bridge-app waiting state with download fallback', async () => {
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+    await screen.findByText(/--token=token-1/);
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('CONNECT BRIDGE APP'));
+    expect(screen.getByText(/Waiting for bridge app/)).toBeInTheDocument();
+    expect(screen.getByText('Download')).toHaveAttribute(
+      'href',
+      'https://github.com/botmem/botmem/releases/latest',
+    );
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(screen.getByText(/Still waiting for bridge app/)).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   describe('Local mode field visibility', () => {

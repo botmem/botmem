@@ -1,4 +1,4 @@
-import type { ConnectorManifest, ConnectorAccount, Job } from '@botmem/shared';
+import type { ConnectorManifest, ConnectorAccount, Job, LogEntry } from '@botmem/shared';
 import { useAuthStore } from '../store/authStore';
 import { API_BASE, wsUrl } from './urls';
 
@@ -54,6 +54,8 @@ export interface ApiContact {
   displayName: string;
   entityType?: string;
   avatars?: string | Array<{ url: string; source: string }>;
+  avatarUrl?: string;
+  hasAvatar?: boolean;
   identifiers?: Array<{
     id: string;
     identifierType?: string;
@@ -62,6 +64,17 @@ export interface ApiContact {
     value?: string;
     isPrimary?: boolean;
     connectorType?: string;
+  }>;
+  members?: Array<{
+    id: string;
+    displayName: string;
+    avatars?: string | Array<{ url: string; source: string }>;
+    identifiers?: Array<{
+      identifierType?: string;
+      type?: string;
+      identifierValue?: string;
+      value?: string;
+    }>;
   }>;
   memoryCount?: number;
   createdAt?: string;
@@ -76,6 +89,11 @@ export interface ApiContactMemory {
   connectorType?: string;
   text?: string;
   [key: string]: unknown;
+}
+
+export interface ApiContactMemoryPage {
+  items: ApiContactMemory[];
+  total: number;
 }
 
 export interface ApiGraphNode {
@@ -94,6 +112,7 @@ export interface ApiGraphNode {
   eventTime?: string;
   metadata?: Record<string, unknown>;
   avatarUrl?: string;
+  hasAvatar?: boolean;
   thumbnailDataUrl?: string;
   [key: string]: unknown;
 }
@@ -174,6 +193,27 @@ export interface ApiMemoryStats {
 // --- Request helper ---
 
 const REQUEST_TIMEOUT_MS = 30_000;
+const CACHE_TTL_MS = 10_000;
+const RETRYABLE_STATUS = 503;
+
+type CacheEntry<T> = { time: number; value?: T; promise?: Promise<T> };
+const getCache = new Map<string, CacheEntry<unknown>>();
+
+export function __resetApiCacheForTests() {
+  getCache.clear();
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, retry: boolean): Promise<Response> {
+  let res = await fetch(url, init);
+  if (!retry || res.status !== RETRYABLE_STATUS) return res;
+  await delay(250);
+  res = await fetch(url, init);
+  return res;
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const state = useAuthStore.getState();
@@ -195,12 +235,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-      signal: controller.signal,
-    });
+    const method = (options?.method || 'GET').toUpperCase();
+    res = await fetchWithRetry(
+      `${API_BASE}${path}`,
+      {
+        ...options,
+        headers,
+        credentials: 'include',
+        signal: controller.signal,
+      },
+      method === 'GET',
+    );
   } catch (err) {
     clearTimeout(timeout);
     if (controller.signal.aborted) {
@@ -228,11 +273,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         retryHeaders['Authorization'] = `Bearer ${newState.accessToken}`;
       }
 
-      const retryRes = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers: retryHeaders,
-        credentials: 'include',
-      });
+      const retryRes = await fetchWithRetry(
+        `${API_BASE}${path}`,
+        {
+          ...options,
+          headers: retryHeaders,
+          credentials: 'include',
+        },
+        (options?.method || 'GET').toUpperCase() === 'GET',
+      );
 
       if (!retryRes.ok) {
         const body = await retryRes.text();
@@ -251,6 +300,30 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(`API ${res.status}: ${body}`);
   }
   return res.json();
+}
+
+function cachedGet<T>(path: string): Promise<T> {
+  const token = useAuthStore.getState().accessToken || '';
+  const key = `${token}:${path}`;
+  const now = Date.now();
+  const cached = getCache.get(key) as CacheEntry<T> | undefined;
+  if (cached?.value && now - cached.time < CACHE_TTL_MS) return Promise.resolve(cached.value);
+  if (cached?.promise) return cached.value ? Promise.resolve(cached.value) : cached.promise;
+
+  // ponytail: per-process SWR cache; replace with a query library if views need invalidation policy.
+  const promise = request<T>(path)
+    .then((value) => {
+      getCache.set(key, { time: Date.now(), value });
+      return value;
+    })
+    .catch((err) => {
+      if (!cached?.value) getCache.delete(key);
+      else getCache.set(key, { time: cached.time, value: cached.value });
+      if (cached?.value) return cached.value;
+      throw err;
+    });
+  getCache.set(key, { time: cached?.time || 0, value: cached?.value, promise });
+  return cached?.value ? Promise.resolve(cached.value) : promise;
 }
 
 export const api = {
@@ -316,6 +389,14 @@ export const api = {
   // Jobs
   listJobs: (accountId?: string) =>
     request<{ jobs: Job[] }>(`/jobs${accountId ? `?accountId=${accountId}` : ''}`),
+  listLogs: (params: { accountId?: string; jobId?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.accountId) query.set('accountId', params.accountId);
+    if (params.jobId) query.set('jobId', params.jobId);
+    if (params.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return request<{ logs: LogEntry[]; total: number }>(`/logs${qs ? `?${qs}` : ''}`);
+  },
   triggerSync: (accountId: string, memoryBankId?: string) =>
     request<{ job: Job }>(`/jobs/sync/${accountId}`, {
       method: 'POST',
@@ -392,7 +473,7 @@ export const api = {
     const query = new URLSearchParams();
     if (params?.memoryBankId) query.set('memoryBankId', params.memoryBankId);
     const qs = query.toString();
-    return request<ApiMemoryStats>(`/memories/stats${qs ? `?${qs}` : ''}`);
+    return cachedGet<ApiMemoryStats>(`/memories/stats${qs ? `?${qs}` : ''}`);
   },
   getGraphData: (params?: {
     memoryLimit?: number;
@@ -431,10 +512,15 @@ export const api = {
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.entityType) query.set('entityType', params.entityType);
-    return request<{ items: T[]; total: number }>(`/people?${query}`);
+    return cachedGet<{ items: T[]; total: number }>(`/people?${query}`);
   },
   getContact: <T = ApiContact>(id: string) => request<T>(`/people/${id}`),
-  getContactMemories: (id: string) => request<ApiContactMemory[]>(`/people/${id}/memories`),
+  getContactMemories: (id: string, params?: { limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    return request<ApiContactMemoryPage>(`/people/${id}/memories?${query}`);
+  },
   searchContacts: <T = ApiContact>(query: string, entityType?: string, limit = 25) =>
     request<T[]>('/people/search', {
       method: 'POST',

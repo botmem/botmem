@@ -708,6 +708,37 @@ describe('MemoryService', () => {
     });
   });
 
+  describe('getGraphData', () => {
+    it('marks contact nodes without avatars so clients skip avatar fetches', async () => {
+      mockDb.where
+        .mockResolvedValueOnce([{ id: 'acc-1' }])
+        .mockReturnValueOnce(mockDb)
+        .mockReturnValueOnce(mockDb)
+        .mockResolvedValueOnce([{ memoryId: 'mem-1', personId: 'person-1', role: 'sender' }])
+        .mockReturnValueOnce(mockDb)
+        .mockResolvedValueOnce([
+          {
+            id: 'person-1',
+            displayName: 'No Avatar',
+            entityType: 'person',
+            avatars: [],
+            preferredAvatarIndex: 0,
+          },
+        ])
+        .mockResolvedValueOnce([]);
+      mockDb.limit
+        .mockResolvedValueOnce([fakeMemoryRow])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.getGraphData(10, 10, 'user-1');
+      const contact = result.nodes.find((node) => node.id === 'contact-person-1');
+
+      expect(contact).toMatchObject({ hasAvatar: false });
+      expect(contact?.avatarUrl).toBeUndefined();
+    });
+  });
+
   describe('timeline', () => {
     it('returns metadata as a parsed object and supports fromMe filtering', async () => {
       vi.spyOn(service, 'getPeopleForMemories').mockResolvedValueOnce(new Map());

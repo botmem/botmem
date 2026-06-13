@@ -113,6 +113,17 @@ export function TimelineView({
           </aside>
         )}
       </div>
+
+      {selectedMemory && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Memory detail"
+          className="fixed inset-0 z-50 bg-nb-surface lg:hidden"
+        >
+          <MemoryDetailSidebar memory={selectedMemory} onClose={() => setSelectedId(null)} />
+        </div>
+      )}
     </div>
   );
 }
