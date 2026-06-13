@@ -134,6 +134,17 @@ describe('api', () => {
     });
   });
 
+  describe('listLogs', () => {
+    it('passes account and job filters', async () => {
+      mockOk({ logs: [], total: 0 });
+      await api.listLogs({ accountId: 'a1', jobId: 'j1', limit: 10 });
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/logs?accountId=a1&jobId=j1&limit=10',
+        expect.any(Object),
+      );
+    });
+  });
+
   describe('triggerSync', () => {
     it('triggers sync via POST', async () => {
       mockOk({ job: { id: 'j1' } });
