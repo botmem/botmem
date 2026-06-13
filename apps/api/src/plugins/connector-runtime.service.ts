@@ -20,6 +20,7 @@ interface RuntimeSession {
   abortController: AbortController;
   handle: ConnectorRealtimeHandle | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  failures: number;
 }
 
 function isRealtimeStartTimeout(message: string): boolean {
@@ -93,7 +94,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
       .where(
         and(
           inArray(accounts.connectorType, realtimeConnectorTypes),
-          inArray(accounts.status, ['connected', 'degraded', 'reconnect_required']),
+          inArray(accounts.status, ['connected', 'degraded']),
           ne(accounts.schedule, 'manual'),
         ),
       );
@@ -173,6 +174,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     userId: string | undefined,
     auth: AuthContext,
     sessionKey: string,
+    failures = 0,
   ) {
     const session: RuntimeSession = {
       accountId,
@@ -181,6 +183,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
       abortController: new AbortController(),
       handle: null,
       reconnectTimer: null,
+      failures,
     };
     this.sessions.set(accountId, session);
 
@@ -197,6 +200,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
         },
         emitData: (event) => this.persistRealtimeEvent(accountId, connectorType, userId, event),
         onConnected: async () => {
+          session.failures = 0;
           this.logger.log(`Realtime connected: ${connectorType} account ${accountId}`);
           await this.dbService.db
             .update(accounts)
@@ -210,6 +214,15 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
         },
         onDisconnect: async ({ reason, reconnectable }) => {
           if (reconnectable) {
+            session.failures++;
+            if (session.failures >= 5) {
+              await this.dbService.db
+                .update(accounts)
+                .set({ status: 'reconnect_required', lastError: reason, updatedAt: new Date() })
+                .where(eq(accounts.id, accountId));
+              await this.stopSession(session);
+              return;
+            }
             await this.dbService.db
               .update(accounts)
               .set({ status: 'degraded', lastError: reason, updatedAt: new Date() })
@@ -241,6 +254,14 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
       const message = err instanceof Error ? err.message : String(err);
 
       if (isRealtimeStartTimeout(message)) {
+        session.failures++;
+        if (session.failures >= 5) {
+          await this.dbService.db
+            .update(accounts)
+            .set({ status: 'reconnect_required', lastError: message, updatedAt: new Date() })
+            .where(eq(accounts.id, accountId));
+          return;
+        }
         await this.dbService.db
           .update(accounts)
           .set({ status: 'degraded', lastError: message, updatedAt: new Date() })
@@ -296,6 +317,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
     auth: AuthContext,
   ) {
     if (session.reconnectTimer) return;
+    const delay = Math.min(60_000 * 2 ** Math.max(0, session.failures - 1), 5 * 60_000);
     session.reconnectTimer = setTimeout(async () => {
       session.reconnectTimer = null;
       const shouldReconnect = await this.shouldReconnectSession(session);
@@ -311,8 +333,9 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
         userId,
         auth,
         session.sessionKey,
+        session.failures,
       );
-    }, 60_000);
+    }, delay);
   }
 
   private async shouldReconnectSession(session: RuntimeSession): Promise<boolean> {
@@ -324,7 +347,7 @@ export class ConnectorRuntimeService implements OnApplicationBootstrap, OnApplic
       .where(
         and(
           eq(accounts.id, session.accountId),
-          inArray(accounts.status, ['connected', 'degraded', 'reconnect_required']),
+          inArray(accounts.status, ['connected', 'degraded']),
           ne(accounts.schedule, 'manual'),
         ),
       )

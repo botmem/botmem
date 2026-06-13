@@ -83,7 +83,6 @@ export class WhatsAppConnector extends BaseConnector {
         count,
       });
     });
-    this._warm();
   }
 
   /** Pop the socket that was created during QR auth for this session dir */
