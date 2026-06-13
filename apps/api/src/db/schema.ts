@@ -165,7 +165,7 @@ export const memoryLinks = pgTable('memory_links', {
   dstMemoryId: text('dst_memory_id')
     .notNull()
     .references(() => memories.id),
-  linkType: text('link_type').notNull().default('related'), // related | supports | contradicts
+  linkType: text('link_type').notNull().default('related'), // related | thread | supports | contradicts
   strength: doublePrecision('strength').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });

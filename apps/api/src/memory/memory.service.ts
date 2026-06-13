@@ -558,6 +558,58 @@ export class MemoryService {
     return false;
   }
 
+  private emailThreadKeyForItem(item: {
+    connectorType?: string | null;
+    sourceType?: string | null;
+    sourceId?: string | null;
+    metadata?: unknown;
+    threadIds?: unknown;
+  }): string | null {
+    if (item.connectorType !== 'gmail') return null;
+    const metadata = this.metadataObject(item.metadata);
+    const metadataKey = [metadata.emailThreadKey, metadata.threadId].find(
+      (value): value is string => typeof value === 'string' && value.length > 0,
+    );
+    if (metadataKey) return metadataKey;
+    if (item.sourceType === 'email_thread' && item.sourceId?.startsWith('email-thread:')) {
+      return item.sourceId.slice('email-thread:'.length);
+    }
+    const threadIds = Array.isArray(item.threadIds)
+      ? item.threadIds.map((value) => String(value)).filter(Boolean)
+      : [];
+    return threadIds[0] ?? null;
+  }
+
+  private collapseEmailThreadItems<
+    T extends {
+      connectorType?: string | null;
+      sourceType?: string | null;
+      sourceId?: string | null;
+      metadata?: unknown;
+      threadIds?: unknown;
+    },
+  >(items: T[]): T[] {
+    // ponytail: result-page collapse keeps this migration-free; use a SQL
+    // representative query if exact totals/page fill matter.
+    const representativeKeys = new Set(
+      items
+        .filter((item) => item.connectorType === 'gmail' && item.sourceType === 'email_thread')
+        .map((item) => this.emailThreadKeyForItem(item))
+        .filter((key): key is string => !!key),
+    );
+    if (!representativeKeys.size) return items;
+
+    const seenRepresentatives = new Set<string>();
+    return items.filter((item) => {
+      const key = this.emailThreadKeyForItem(item);
+      if (!key || !representativeKeys.has(key)) return true;
+      if (item.sourceType !== 'email_thread') return false;
+      if (seenRepresentatives.has(key)) return false;
+      seenRepresentatives.add(key);
+      return true;
+    });
+  }
+
   private matchesActivityFilter(item: {
     sourceType?: string | null;
     connectorType?: string | null;
@@ -1396,6 +1448,7 @@ export class MemoryService {
         }
         return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
       });
+      const collapsedItems = this.collapseEmailThreadItems(filteredItems);
 
       if (
         filteredItems.length === 0 &&
@@ -1437,7 +1490,7 @@ export class MemoryService {
       }
 
       return {
-        items: filteredItems,
+        items: collapsedItems,
         fallback: false,
         resolvedEntities: { contacts: resolvedContacts, topicWords, topicMatchCount },
         parsed: {
@@ -1502,14 +1555,15 @@ export class MemoryService {
         resultCount: sorted.length,
         topScore: sorted[0]?.score,
       });
+      const filteredItems = sorted.filter((item) => {
+        if (item.text.startsWith('[Encrypted')) {
+          diagnostics?.skippedUndecryptableResultIds.push(item.id);
+          return false;
+        }
+        return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
+      });
       return {
-        items: sorted.filter((item) => {
-          if (item.text.startsWith('[Encrypted')) {
-            diagnostics?.skippedUndecryptableResultIds.push(item.id);
-            return false;
-          }
-          return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
-        }),
+        items: this.collapseEmailThreadItems(filteredItems),
         fallback: false,
         resolvedEntities: { contacts: resolvedContacts, topicWords, topicMatchCount },
         parsed: {
@@ -1754,6 +1808,7 @@ export class MemoryService {
         }
         return this.matchesFromMeFilter(item.metadata, effectiveFilters.fromMe);
       });
+    const collapsedReturnItems = this.collapseEmailThreadItems(returnItems);
     if (diagnostics) {
       for (const [, lanes] of candidateLanes) {
         for (const lane of lanes) {
@@ -1816,8 +1871,8 @@ export class MemoryService {
     // Fire afterSearch hook (fire-and-forget)
     void this.pluginRegistry.fireHook('afterSearch', {
       query,
-      resultCount: returnItems.length,
-      topScore: returnItems[0]?.score,
+      resultCount: collapsedReturnItems.length,
+      topScore: collapsedReturnItems[0]?.score,
     });
 
     // Map Postgres search facet_counts to our structure
@@ -1835,7 +1890,7 @@ export class MemoryService {
     }
 
     return {
-      items: returnItems,
+      items: collapsedReturnItems,
       fallback: false,
       resolvedEntities: hasContacts
         ? { contacts: resolvedContacts, topicWords, topicMatchCount }
@@ -2258,6 +2313,7 @@ export class MemoryService {
               accountIdentifier: accounts.identifier,
               connectorType: memorySearchIndex.connectorType,
               sourceType: memorySearchIndex.sourceType,
+              threadIds: memorySearchIndex.threadIds,
               text: memorySearchIndex.text,
               eventTime: memorySearchIndex.eventTime,
               factualityLabel: memorySearchIndex.factualityLabel,
@@ -2275,8 +2331,9 @@ export class MemoryService {
       ]);
 
       const peopleMap = await this.getPeopleForMemories(rows.map((r) => r.id));
+      const collapsedRows = this.collapseEmailThreadItems(rows);
       return {
-        items: rows.map((r) => ({
+        items: collapsedRows.map((r) => ({
           id: r.id,
           accountId: r.accountId,
           accountIdentifier: this.safeDecryptAppField(r.accountIdentifier),
@@ -2366,7 +2423,7 @@ export class MemoryService {
       .filter((item) => !this.isLockedMemory(item))
       .filter((item) => this.matchesFromMeFilter(item.metadata, params.fromMe));
 
-    return { items, total };
+    return { items: this.collapseEmailThreadItems(items), total };
   }
 
   async insert(data: {
@@ -3303,7 +3360,7 @@ export class MemoryService {
       })
       .filter((item) => !this.isLockedMemory(item))
       .filter((item) => this.matchesFromMeFilter(item.metadata, params.fromMe));
-    return { items, total };
+    return { items: this.collapseEmailThreadItems(items), total };
   }
 
   async activity(params: {
