@@ -253,7 +253,7 @@ export function ConnectorsPage() {
                         typeAccounts.length === 0 && <ConnectorStatusDot type={cfg.type} />}
                     </div>
                     <p className="font-mono text-xs text-nb-muted">
-                      {typeAccounts.length} accounts
+                      {typeAccounts.length} {typeAccounts.length === 1 ? 'account' : 'accounts'}
                       {lastSync ? ` • last sync ${formatRelative(lastSync)}` : ''}
                     </p>
                   </div>
