@@ -97,15 +97,14 @@ input, textarea, select, button {
   50% { opacity: 0.7; }
 }
 
-/* Landing page scroll-reveal */
+/* ponytail: CSS-only reveal keeps content readable if JS/observer never runs. */
 .landing-fade-in {
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  opacity: 1;
+  transform: translateY(8px);
+  transition: transform 160ms ease-out;
 }
 
 .landing-visible {
-  opacity: 1;
   transform: translateY(0);
 }
 

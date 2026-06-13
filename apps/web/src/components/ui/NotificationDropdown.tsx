@@ -62,6 +62,8 @@ export function NotificationDropdown({
       {/* Bell button */}
       <button
         onClick={() => setOpen((prev) => !prev)}
+        aria-label={open ? 'Close notifications' : 'Open notifications'}
+        aria-expanded={open}
         className={cn(
           'relative border-3 border-nb-border bg-nb-surface shadow-nb p-2',
           'hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm',

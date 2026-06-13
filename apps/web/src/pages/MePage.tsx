@@ -32,6 +32,14 @@ function formatDate(iso: string | null): string {
   });
 }
 
+export function formatMemoryStatDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  // ponytail: dates before 1990 are almost always epoch/default bugs; loosen if imports support archival media.
+  if (!Number.isFinite(date.getTime()) || date.getFullYear() < 1990) return null;
+  return formatDate(iso);
+}
+
 /* ---------- types ---------- */
 
 interface MeData {
@@ -245,6 +253,7 @@ function IdentityHeader({
 }
 
 function StatsGrid({ stats }: { stats: MeData['stats'] }) {
+  const oldestMemory = formatMemoryStatDate(stats.oldestMemory);
   const statCards = [
     {
       label: 'TOTAL MEMORIES',
@@ -260,11 +269,15 @@ function StatsGrid({ stats }: { stats: MeData['stats'] }) {
       color: 'var(--color-nb-blue)',
       animated: true,
     },
-    {
-      label: 'OLDEST MEMORY',
-      value: formatDate(stats.oldestMemory),
-      color: 'var(--color-nb-pink)',
-    },
+    ...(oldestMemory
+      ? [
+          {
+            label: 'OLDEST MEMORY',
+            value: oldestMemory,
+            color: 'var(--color-nb-pink)',
+          },
+        ]
+      : []),
     {
       label: 'NEWEST MEMORY',
       value: formatDate(stats.newestMemory),

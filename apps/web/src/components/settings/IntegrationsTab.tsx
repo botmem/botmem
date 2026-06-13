@@ -114,17 +114,17 @@ export function IntegrationsTab() {
         <p className="font-mono text-xs text-nb-muted mb-3">
           Copy the config for your agent and paste it into the appropriate file:
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {agents.map((agent) => (
             <button
               key={agent.key}
               onClick={() => copy(mcpConfig(), agent.key)}
-              className="border-2 border-nb-border bg-nb-surface p-3 text-left hover:border-nb-lime cursor-pointer transition-colors"
+              className="min-w-0 border-2 border-nb-border bg-nb-surface p-3 text-left hover:border-nb-lime cursor-pointer transition-colors"
             >
               <span className="font-display text-sm font-bold uppercase text-nb-text block mb-0.5">
                 {copied === agent.key ? 'Copied!' : agent.label}
               </span>
-              <span className="font-mono text-[11px] text-nb-muted leading-tight block">
+              <span className="font-mono text-[11px] text-nb-muted leading-tight block break-all">
                 {agent.description}
               </span>
             </button>

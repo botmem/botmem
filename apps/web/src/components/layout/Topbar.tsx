@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { NotificationDropdown } from '../ui/NotificationDropdown';
 import { useJobStore } from '../../store/jobStore';
@@ -62,13 +62,14 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
         </div>
         <div className="flex items-center gap-3">
           {user && (
-            <div
+            <Link
+              to="/me"
               className="size-10 border-2 border-nb-border bg-nb-surface flex items-center justify-center font-display text-xs font-bold uppercase text-nb-text"
               title={user.name || user.email}
-              aria-label={`Logged in as ${user.name || user.email}`}
+              aria-label={`Open profile for ${user.name || user.email}`}
             >
               {(user.name || user.email || '?')[0].toUpperCase()}
-            </div>
+            </Link>
           )}
           <ThemeToggle />
           <NotificationDropdown

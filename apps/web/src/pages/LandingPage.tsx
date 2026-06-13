@@ -839,20 +839,6 @@ function HowItWorks() {
           </div>
         </div>
 
-        {/* Step indicators below */}
-        <div className="mt-6 flex justify-center gap-2">
-          {HOW_IT_WORKS_TABS.map((t, i) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(i)}
-              className={cn(
-                'size-2 border border-nb-border transition-all duration-200 cursor-pointer p-3',
-                activeTab === i ? 'bg-nb-lime scale-125' : 'bg-nb-surface hover:bg-nb-muted',
-              )}
-              aria-label={`Show ${t.label}`}
-            />
-          ))}
-        </div>
       </div>
     </section>
   );
