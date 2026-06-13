@@ -434,7 +434,8 @@ export const api = {
     return request<{ items: T[]; total: number }>(`/people?${query}`);
   },
   getContact: <T = ApiContact>(id: string) => request<T>(`/people/${id}`),
-  getContactMemories: (id: string) => request<ApiContactMemory[]>(`/people/${id}/memories`),
+  getContactMemories: (id: string, limit?: number) =>
+    request<ApiContactMemory[]>(`/people/${id}/memories${limit != null ? `?limit=${limit}` : ''}`),
   searchContacts: <T = ApiContact>(query: string, entityType?: string, limit = 25) =>
     request<T[]>('/people/search', {
       method: 'POST',

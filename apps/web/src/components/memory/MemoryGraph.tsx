@@ -236,8 +236,8 @@ export function MemoryGraph({
 
   const handleNodeDoubleClick = useCallback(
     async (node: GraphNode) => {
-      await expandNode(node.id);
       dispatchUI({ type: 'doubleClickNode', node });
+      await expandNode(node.id);
     },
     [expandNode],
   );
@@ -267,6 +267,35 @@ export function MemoryGraph({
       void expandNode(nodeId);
     },
     [expandNode],
+  );
+
+  const handleSelectLinkedMemory = useCallback(
+    (memory: { id: string; connectorType?: string; text?: string; eventTime?: string }) => {
+      const node =
+        data.nodes.find((n) => n.id === memory.id) ??
+        ({
+          id: memory.id,
+          label: memory.text?.slice(0, 40) || 'Memory',
+          source: 'message',
+          sourceConnector: memory.connectorType || 'gmail',
+          importance: 0.5,
+          factuality: 'UNVERIFIED',
+          cluster: 0,
+          nodeType: 'memory',
+          text: memory.text || '',
+          eventTime: memory.eventTime || '',
+          weights: {},
+          entities: [],
+          metadata: {},
+        } as GraphNode);
+      dispatchUI({ type: 'selectNode', node });
+      dispatchUI({ type: 'focusNode', nodeId: memory.id });
+      const simNode = filteredData.nodes.find((n) => n.id === memory.id) as SimulationNode;
+      if (graphRef.current && simNode?.x !== undefined) {
+        graphRef.current.centerAt(simNode.x, simNode.y || 0, 300);
+      }
+    },
+    [data.nodes, filteredData.nodes],
   );
 
   const authToken = useAuthStore((s) => s.accessToken);
@@ -503,6 +532,8 @@ export function MemoryGraph({
             connectionCounts={connectionCounts}
             onClose={() => dispatchUI({ type: 'selectNode', node: null })}
             onExpand={onExpandNode ? handleExpandSelectedNode : undefined}
+            expandingNodeId={expandingNodeId}
+            onSelectMemory={handleSelectLinkedMemory}
             onRemoveIdentifier={handleRemoveIdentifier}
           />
         )}

@@ -1670,14 +1670,14 @@ export class PeopleService {
       );
     }
 
-    const mems = await this.dbService.withCurrentUser((db) =>
-      db
+    const mems = await this.dbService.withCurrentUser((db) => {
+      const query = db
         .select({ memory: memories })
         .from(memoryPeople)
         .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
-        .where(and(...conditions))
-        .limit(limit),
-    );
+        .where(and(...conditions));
+      return limit > 0 ? query.limit(limit) : query;
+    });
 
     let userKey: Buffer | null = null;
     if (userId) {

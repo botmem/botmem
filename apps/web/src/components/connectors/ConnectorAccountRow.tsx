@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
 import { useConnectorStore } from '../../store/connectorStore';
+import { formatIntegerNumber } from '../../lib/formatNumber';
 
 const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
   { value: 'hourly', label: 'HOURLY' },
@@ -78,13 +79,14 @@ export function ConnectorAccountRow({
             </p>
             <p className="font-mono text-xs text-nb-muted">
               {account.lastSync ? `Synced ${formatRelative(account.lastSync)}` : 'Never synced'} •{' '}
-              {account.memoriesIngested} memories
+              {formatIntegerNumber(account.memoriesIngested)} memories
               {(account.contactsCount > 0 || account.groupsCount > 0) && (
                 <>
                   {' '}
-                  • {account.contactsCount > 0 && `${account.contactsCount} people`}
+                  •{' '}
+                  {account.contactsCount > 0 && `${formatIntegerNumber(account.contactsCount)} people`}
                   {account.contactsCount > 0 && account.groupsCount > 0 && ', '}
-                  {account.groupsCount > 0 && `${account.groupsCount} groups`}
+                  {account.groupsCount > 0 && `${formatIntegerNumber(account.groupsCount)} groups`}
                 </>
               )}
             </p>
@@ -96,7 +98,7 @@ export function ConnectorAccountRow({
             <span className="font-mono text-xs uppercase text-nb-muted">
               {account.syncHealth.phase || statusLabel(account.status)}
               {account.syncHealth.total && account.syncHealth.total > 0
-                ? ` ${account.syncHealth.progress ?? 0}/${account.syncHealth.total}`
+                ? ` ${formatIntegerNumber(account.syncHealth.progress ?? 0)}/${formatIntegerNumber(account.syncHealth.total)}`
                 : ''}
             </span>
           )}

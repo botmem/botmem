@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMemoryBankStore, type MemoryBank } from '../../store/memoryBankStore';
 import { Button } from '../ui/Button';
+import { formatIntegerNumber } from '../../lib/formatNumber';
 
 export function MemoryBanksTab() {
   const {
@@ -166,7 +167,8 @@ export function MemoryBanksTab() {
                     </div>
                     <div className="flex gap-4 mt-1">
                       <span className="font-mono text-xs text-nb-muted">
-                        {bank.memoryCount} {bank.memoryCount === 1 ? 'memory' : 'memories'}
+                        {formatIntegerNumber(bank.memoryCount)}{' '}
+                        {bank.memoryCount === 1 ? 'memory' : 'memories'}
                       </span>
                       <span className="font-mono text-xs text-nb-muted">
                         Created {new Date(bank.createdAt).toLocaleDateString()}

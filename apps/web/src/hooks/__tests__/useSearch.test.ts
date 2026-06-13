@@ -202,4 +202,27 @@ describe('useSearch', () => {
 
     expect(result.current.results?.items[0].id).toBe('mem-new');
   });
+
+  it('clears stale results as soon as a valid new query starts waiting', async () => {
+    vi.mocked(api.searchMemories).mockResolvedValue(mockSearchResult as never);
+
+    const { result } = renderHook(() => useSearch({ debounceMs: 100 }));
+
+    act(() => {
+      result.current.setTerm('old query');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.results?.items).toHaveLength(2);
+
+    act(() => {
+      result.current.setTerm('new query');
+    });
+
+    expect(result.current.pending).toBe(true);
+    expect(result.current.results).toBeNull();
+  });
 });

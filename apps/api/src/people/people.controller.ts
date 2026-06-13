@@ -192,8 +192,12 @@ export class PeopleController {
   }
 
   @Get(':id/memories')
-  async getMemories(@CurrentUser() user: { id: string }, @Param('id') id: string) {
-    return this.peopleService.getMemories(id, undefined, user.id);
+  async getMemories(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.peopleService.getMemories(id, limit ? parseInt(limit, 10) : undefined, user.id);
   }
 
   @RequiresJwt()

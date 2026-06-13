@@ -9,6 +9,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { InfiniteScrollList } from '../components/ui/InfiniteScrollList';
 import { api } from '../lib/api';
+import { formatIntegerNumber } from '../lib/formatNumber';
 
 export function ContactsPage() {
   const {
@@ -115,7 +116,9 @@ export function ContactsPage() {
       )}
 
       <p className="font-mono text-xs text-nb-muted uppercase mb-3">
-        {loading ? 'LOADING...' : `${total} ${entityFilter === 'group' ? 'groups' : 'people'}`}
+        {loading
+          ? 'LOADING...'
+          : `${formatIntegerNumber(total)} ${entityFilter === 'group' ? 'groups' : 'people'}`}
       </p>
 
       <div className="flex flex-col md:flex-row gap-4" data-tour="people-grid">

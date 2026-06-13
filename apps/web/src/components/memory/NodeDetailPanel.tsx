@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { GraphNode } from '@botmem/shared';
 import { CONNECTOR_COLORS, formatDate, getConnectorColor } from '@botmem/shared';
 import { Card } from '../ui/Card';
@@ -8,6 +8,7 @@ import { ImageLightbox } from '../ui/ImageLightbox';
 import { MemoryDetailCore } from './MemoryDetailCore';
 import { IDENTIFIER_COLORS } from '../contacts/constants';
 import type { ApiContact, ApiContactMemory } from '../../lib/api';
+import { formatIntegerNumber } from '../../lib/formatNumber';
 
 const SELF_COLOR = 'var(--color-nb-lime)';
 
@@ -18,6 +19,8 @@ interface NodeDetailPanelProps {
   connectionCounts: Map<string, number>;
   onClose: () => void;
   onExpand?: (nodeId: string) => void;
+  expandingNodeId?: string | null;
+  onSelectMemory?: (memory: ApiContactMemory) => void;
   onRemoveIdentifier: (contactId: string, identId: string) => void;
 }
 
@@ -28,6 +31,8 @@ export function NodeDetailPanel({
   connectionCounts,
   onClose,
   onExpand,
+  expandingNodeId,
+  onSelectMemory,
   onRemoveIdentifier,
 }: NodeDetailPanelProps) {
   const isSelf = selfNodeId === selectedNode.id;
@@ -35,6 +40,16 @@ export function NodeDetailPanel({
   const contactMemories = contactInfo?.memories ?? [];
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const hasAvatar = Array.isArray(contactDetail?.avatars) && contactDetail.avatars.length > 0;
+  const orderedContactMemories = useMemo(
+    () =>
+      [...contactMemories].sort(
+        (a, b) =>
+          new Date(b.eventTime || b.createdAt || 0).getTime() -
+          new Date(a.eventTime || a.createdAt || 0).getTime(),
+      ),
+    [contactMemories],
+  );
+  const isExpanding = expandingNodeId === selectedNode.id;
 
   return (
     <div className="absolute top-2 right-2 w-72 z-10">
@@ -144,14 +159,19 @@ export function NodeDetailPanel({
 
               <div>
                 <span className="font-display text-[11px] font-bold uppercase tracking-wider text-nb-muted block mb-1">
-                  Linked Memories ({contactMemories.length})
+                  Linked Memories ({formatIntegerNumber(contactMemories.length)})
                 </span>
                 <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
                   {contactMemories.length === 0 && (
                     <p className="font-mono text-[11px] text-nb-muted">No linked memories</p>
                   )}
-                  {contactMemories.map((m) => (
-                    <div key={m.id} className="border-2 border-nb-border p-1.5 bg-nb-surface-muted">
+                  {orderedContactMemories.map((m) => (
+                    <button
+                      type="button"
+                      key={m.id}
+                      onClick={() => onSelectMemory?.(m)}
+                      className="text-left border-2 border-nb-border p-1.5 bg-nb-surface-muted hover:bg-nb-lime hover:text-black cursor-pointer transition-colors"
+                    >
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="font-mono text-[11px] text-nb-muted">
                           {formatDate(m.eventTime || m.createdAt || '')}
@@ -164,7 +184,7 @@ export function NodeDetailPanel({
                         </Badge>
                       </div>
                       <p className="font-mono text-[11px] text-nb-text line-clamp-2">{m.text}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -172,9 +192,11 @@ export function NodeDetailPanel({
               {onExpand && (
                 <button
                   onClick={() => onExpand(selectedNode.id)}
-                  className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors"
+                  disabled={isExpanding}
+                  aria-busy={isExpanding}
+                  className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait"
                 >
-                  EXPAND
+                  {isExpanding ? 'EXPANDING...' : 'EXPAND'}
                 </button>
               )}
 
@@ -236,9 +258,11 @@ export function NodeDetailPanel({
             {onExpand && (
               <button
                 onClick={() => onExpand(selectedNode.id)}
-                className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors"
+                disabled={isExpanding}
+                aria-busy={isExpanding}
+                className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait"
               >
-                EXPAND
+                {isExpanding ? 'EXPANDING...' : 'EXPAND'}
               </button>
             )}
             {selectedNode.metadata?.factuality &&

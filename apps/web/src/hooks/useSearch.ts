@@ -164,15 +164,19 @@ export function useSearch(opts: UseSearchOptions = {}): UseSearchReturn {
     }
     if (trimmed.length < minLength) {
       requestSeq.current++;
+      setPending(false);
+      setResults(null);
+      setHasMore(false);
       return;
     }
 
     const seq = ++requestSeq.current;
+    setPending(true);
+    setHasMore(false);
+    setError(null);
+    setResults(null);
+    currentLimit.current = pageSize;
     const timer = setTimeout(async () => {
-      setPending(true);
-      setHasMore(false);
-      setError(null);
-      currentLimit.current = pageSize;
       try {
         const bankId = useMemoryBankStore.getState().activeMemoryBankId;
         const res = await api.searchMemories(trimmed, undefined, pageSize, bankId || undefined);

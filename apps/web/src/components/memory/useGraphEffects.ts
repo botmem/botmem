@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import type { GraphNode } from '@botmem/shared';
 import type { UIAction, SearchState } from './graphReducers';
 import type { ForceGraphInstance, SimulationNode } from './graphTypes';
@@ -23,6 +23,8 @@ export function useGraphEffects({
   graphRef,
   dispatchUI,
 }: UseGraphEffectsArgs) {
+  const lastAutoSelectedResults = useRef<SearchState['results'] | null>(null);
+
   // Fetch contact details when a contact/group/device node is selected
   useEffect(() => {
     if (!selectedNode || !['contact', 'group', 'device'].includes(selectedNode.nodeType || '')) {
@@ -61,6 +63,7 @@ export function useGraphEffects({
   // Auto-select top search result (highest score)
   useEffect(() => {
     if (!search.results || !search.results.scoreMap) return;
+    if (lastAutoSelectedResults.current === search.results) return;
     let topId: string | null = null;
     let topScore = -1;
     for (const [id, score] of search.results.scoreMap) {
@@ -72,6 +75,7 @@ export function useGraphEffects({
     if (topId) {
       const node = filteredNodes.find((n) => n.id === topId) as SimulationNode | undefined;
       if (node) {
+        lastAutoSelectedResults.current = search.results;
         dispatchUI({ type: 'selectNode', node });
         if (graphRef.current && node.x !== undefined) {
           graphRef.current.centerAt(node.x, node.y || 0, 400);

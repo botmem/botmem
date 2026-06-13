@@ -7,6 +7,7 @@ import { Avatar } from '../ui/Avatar';
 import { api } from '../../lib/api';
 import { IDENTIFIER_COLORS } from './constants';
 import { useContactStore } from '../../store/contactStore';
+import { formatIntegerNumber } from '../../lib/formatNumber';
 
 const SELF_COLOR = 'var(--color-nb-lime)';
 
@@ -66,6 +67,7 @@ export function ContactDetailPanel({
   const [showMergeSearch, setShowMergeSearch] = useState(false);
   const [mergeSearch, setMergeSearch] = useState('');
   const [mergeResults, setMergeResults] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
@@ -82,8 +84,9 @@ export function ContactDetailPanel({
     setSplitIds(new Set());
     setShowMergeSearch(false);
     setMergeSearch('');
+    setSelectedMemoryId(null);
     api
-      .getContactMemories(contact.id)
+      .getContactMemories(contact.id, 0)
       .then(setMemories)
       .catch(() => setMemories([]));
   }, [contact.id]);
@@ -316,28 +319,43 @@ export function ContactDetailPanel({
         {/* Linked memories */}
         <div>
           <h4 className="font-display text-xs font-bold uppercase mb-2 text-nb-text">
-            Linked Memories ({memories.length})
+            Linked Memories ({formatIntegerNumber(memories.length)})
           </h4>
           <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
             {memories.length === 0 && (
               <p className="font-mono text-xs text-nb-muted">No linked memories</p>
             )}
-            {memories.map((m) => (
-              <div key={m.id} className="border-2 border-nb-border p-2 bg-nb-surface-muted">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-mono text-[11px] text-nb-muted">
-                    {formatDate(m.eventTime || m.createdAt || '')}
-                  </span>
-                  <Badge
-                    color={getConnectorColor(m.connectorType, undefined)}
-                    className="text-[11px] py-0"
-                  >
-                    {m.connectorType}
-                  </Badge>
-                </div>
-                <p className="font-mono text-xs text-nb-text line-clamp-2">{m.text}</p>
-              </div>
-            ))}
+            {[...memories]
+              .sort(
+                (a, b) =>
+                  new Date(b.eventTime || b.createdAt || 0).getTime() -
+                  new Date(a.eventTime || a.createdAt || 0).getTime(),
+              )
+              .map((m) => (
+                <button
+                  type="button"
+                  key={m.id}
+                  onClick={() => setSelectedMemoryId(m.id)}
+                  className={`text-left border-2 p-2 cursor-pointer transition-colors ${
+                    selectedMemoryId === m.id
+                      ? 'border-nb-lime bg-nb-surface-hover'
+                      : 'border-nb-border bg-nb-surface-muted hover:bg-nb-lime hover:text-black'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-mono text-[11px] text-nb-muted">
+                      {formatDate(m.eventTime || m.createdAt || '')}
+                    </span>
+                    <Badge
+                      color={getConnectorColor(m.connectorType, undefined)}
+                      className="text-[11px] py-0"
+                    >
+                      {m.connectorType}
+                    </Badge>
+                  </div>
+                  <p className="font-mono text-xs text-nb-text line-clamp-2">{m.text}</p>
+                </button>
+              ))}
           </div>
         </div>
 
