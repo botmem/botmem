@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDate, getConnectorColor } from '@botmem/shared';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -7,8 +8,50 @@ import { Avatar } from '../ui/Avatar';
 import { api } from '../../lib/api';
 import { IDENTIFIER_COLORS } from './constants';
 import { useContactStore } from '../../store/contactStore';
+import { dedupeIdentifiers } from './identifiers';
 
 const SELF_COLOR = 'var(--color-nb-lime)';
+type DetailMember = {
+  id: string;
+  displayName: string;
+  avatars: Array<{ url: string; source: string }>;
+  identifiers?: Array<{ type: string; value: string }>;
+};
+
+function parseAvatars(raw: unknown): Array<{ url: string; source: string }> {
+  if (Array.isArray(raw)) return raw as Array<{ url: string; source: string }>;
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeMembers(
+  members: Array<{
+    id: string;
+    displayName: string;
+    avatars?: unknown;
+    identifiers?: Array<{
+      identifierType?: string;
+      type?: string;
+      identifierValue?: string;
+      value?: string;
+    }>;
+  }> = [],
+): DetailMember[] {
+  return members.map((member) => ({
+    id: member.id,
+    displayName: member.displayName,
+    avatars: parseAvatars(member.avatars),
+    identifiers: (member.identifiers || []).map((ident) => ({
+      type: ident.identifierType || ident.type || '',
+      value: ident.identifierValue || ident.value || '',
+    })),
+  }));
+}
 
 function isGroupLikeContact(contact: ContactDetailPanelProps['contact']): boolean {
   if (contact.entityType === 'group') return true;
@@ -37,6 +80,7 @@ interface ContactDetailPanelProps {
     identifiers: Array<{ id: string; type: string; value: string; isPrimary: boolean }>;
     connectorSources: string[];
     entityType?: string;
+    members?: DetailMember[];
   };
   isSelf?: boolean;
   onClose: () => void;
@@ -61,6 +105,10 @@ export function ContactDetailPanel({
       text?: string;
     }>
   >([]);
+  const [memoryTotal, setMemoryTotal] = useState(0);
+  const [memoryPage, setMemoryPage] = useState(0);
+  const [members, setMembers] = useState<DetailMember[]>(contact.members || []);
+  const [copiedIdentId, setCopiedIdentId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [splitIds, setSplitIds] = useState<Set<string>>(new Set());
   const [showMergeSearch, setShowMergeSearch] = useState(false);
@@ -75,6 +123,8 @@ export function ContactDetailPanel({
     contacts: allContacts,
   } = useContactStore();
   const groupLike = isGroupLikeContact(contact);
+  const pageSize = 10;
+  const identifiers = dedupeIdentifiers(contact.identifiers);
 
   useEffect(() => {
     setEditName(contact.displayName);
@@ -82,11 +132,28 @@ export function ContactDetailPanel({
     setSplitIds(new Set());
     setShowMergeSearch(false);
     setMergeSearch('');
-    api
-      .getContactMemories(contact.id)
-      .then(setMemories)
-      .catch(() => setMemories([]));
+    setMemoryPage(0);
+    setMembers(contact.members || []);
+    if (isGroupLikeContact(contact)) {
+      api
+        .getContact(contact.id)
+        .then((detail) => setMembers(normalizeMembers(detail.members)))
+        .catch(() => setMembers(contact.members || []));
+    }
   }, [contact.id]);
+
+  useEffect(() => {
+    api
+      .getContactMemories(contact.id, { limit: pageSize, offset: memoryPage * pageSize })
+      .then((page) => {
+        setMemories(page.items);
+        setMemoryTotal(page.total);
+      })
+      .catch(() => {
+        setMemories([]);
+        setMemoryTotal(0);
+      });
+  }, [contact.id, memoryPage]);
 
   // Debounced search for merge target
   useEffect(() => {
@@ -128,6 +195,27 @@ export function ContactDetailPanel({
     await mergeContacts(contact.id, sourceId);
     setShowMergeSearch(false);
     setMergeSearch('');
+  };
+
+  const lidNames = new Map<string, string>();
+  for (const person of [...allContacts, ...members]) {
+    const contactIdentifiers = person.identifiers || [];
+    for (const ident of contactIdentifiers) {
+      if (ident.type === 'whatsapp_lid') {
+        lidNames.set(ident.value.replace(/@lid$/, ''), person.displayName);
+      }
+    }
+  }
+  const previewText = (text = '') =>
+    text.replace(/@([a-z0-9._-]+)(?:@lid)?\b/gi, (match, lid) => {
+      if (!/^\d{6,}$/.test(lid)) return match;
+      return lidNames.has(lid) ? `@${lidNames.get(lid)}` : '@someone';
+    });
+
+  const copyIdentifier = async (ident: { id: string; value: string }) => {
+    await navigator.clipboard?.writeText(ident.value);
+    setCopiedIdentId(ident.id);
+    setTimeout(() => setCopiedIdentId(null), 1200);
   };
 
   return (
@@ -197,7 +285,7 @@ export function ContactDetailPanel({
             Identifiers
           </h4>
           <div className="flex flex-col gap-1.5">
-            {contact.identifiers.map((ident) => (
+            {identifiers.map((ident) => (
               <div key={ident.id} className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -216,19 +304,27 @@ export function ContactDetailPanel({
                 <Badge color={IDENTIFIER_COLORS[ident.type]} className="text-[11px] py-0 shrink-0">
                   {ident.type}
                 </Badge>
-                <span className="font-mono text-xs text-nb-text truncate flex-1">
+                <button
+                  type="button"
+                  onClick={() => copyIdentifier(ident)}
+                  title={ident.value}
+                  className="font-mono text-xs text-nb-text truncate flex-1 text-left hover:underline"
+                >
                   {ident.value}
-                </span>
+                </button>
+                {copiedIdentId === ident.id && (
+                  <span className="font-mono text-[10px] uppercase text-nb-lime">Copied</span>
+                )}
                 <button
                   onClick={() => removeIdentifier(contact.id, ident.id)}
-                  disabled={contact.identifiers.length <= 1}
+                  disabled={identifiers.length <= 1}
                   className="border border-nb-border size-5 flex items-center justify-center text-[11px] font-bold hover:bg-nb-red hover:text-white cursor-pointer text-nb-muted disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                 >
                   X
                 </button>
               </div>
             ))}
-            {splitIds.size > 0 && splitIds.size < contact.identifiers.length && (
+            {splitIds.size > 0 && splitIds.size < identifiers.length && (
               <button
                 onClick={async () => {
                   await splitContact(contact.id, Array.from(splitIds));
@@ -313,17 +409,49 @@ export function ContactDetailPanel({
           </div>
         )}
 
+        {groupLike && (
+          <div>
+            <h4 className="font-display text-xs font-bold uppercase mb-2 text-nb-text">
+              Members ({members.length})
+            </h4>
+            <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+              {members.length === 0 && (
+                <p className="font-mono text-xs text-nb-muted">No resolved members</p>
+              )}
+              {members.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex items-center gap-2 border border-nb-border bg-nb-surface-muted p-1.5"
+                >
+                  <Avatar
+                    contactId={member.avatars?.length > 0 ? member.id : undefined}
+                    fallbackInitials={member.displayName.slice(0, 2).toUpperCase()}
+                    size="sm"
+                  />
+                  <span className="font-mono text-xs text-nb-text truncate">
+                    {member.displayName}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Linked memories */}
         <div>
           <h4 className="font-display text-xs font-bold uppercase mb-2 text-nb-text">
-            Linked Memories ({memories.length})
+            Linked Memories ({memoryTotal})
           </h4>
           <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
             {memories.length === 0 && (
               <p className="font-mono text-xs text-nb-muted">No linked memories</p>
             )}
             {memories.map((m) => (
-              <div key={m.id} className="border-2 border-nb-border p-2 bg-nb-surface-muted">
+              <Link
+                key={m.id}
+                to={`/dashboard?memoryId=${encodeURIComponent(m.id)}`}
+                className="border-2 border-nb-border p-2 bg-nb-surface-muted hover:bg-nb-surface-hover focus-visible:outline-2 focus-visible:outline-nb-lime"
+              >
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="font-mono text-[11px] text-nb-muted">
                     {formatDate(m.eventTime || m.createdAt || '')}
@@ -335,10 +463,36 @@ export function ContactDetailPanel({
                     {m.connectorType}
                   </Badge>
                 </div>
-                <p className="font-mono text-xs text-nb-text line-clamp-2">{m.text}</p>
-              </div>
+                <p className="font-mono text-xs text-nb-text line-clamp-2">
+                  {previewText(m.text)}
+                </p>
+              </Link>
             ))}
           </div>
+          {memoryTotal > pageSize && (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setMemoryPage((page) => Math.max(0, page - 1))}
+                disabled={memoryPage === 0}
+                className="border-2 border-nb-border px-2 py-1 font-mono text-[11px] font-bold uppercase text-nb-text disabled:opacity-30"
+              >
+                Prev
+              </button>
+              <span className="font-mono text-[11px] text-nb-muted">
+                {memoryPage * pageSize + 1}-{Math.min(memoryTotal, (memoryPage + 1) * pageSize)} /{' '}
+                {memoryTotal}
+              </span>
+              <button
+                type="button"
+                onClick={() => setMemoryPage((page) => page + 1)}
+                disabled={(memoryPage + 1) * pageSize >= memoryTotal}
+                className="border-2 border-nb-border px-2 py-1 font-mono text-[11px] font-bold uppercase text-nb-text disabled:opacity-30"
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Delete */}

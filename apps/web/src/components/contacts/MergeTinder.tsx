@@ -105,34 +105,6 @@ export function MergeTinder({
     setTimeout(() => setSwipeDir(null), 100);
   }, [onUndismiss, onReinsertSuggestion]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
-
-      switch (e.key) {
-        case 'ArrowRight':
-          e.preventDefault();
-          doMerge();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          doSkip();
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          doUndo();
-          break;
-        case 'Escape':
-          setIsOpen(false);
-          break;
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, doMerge, doSkip, doUndo]);
-
   const hasAutoOpened = useRef(false);
   useEffect(() => {
     if (suggestions.length > 0 && !hasAutoOpened.current) {
@@ -330,9 +302,6 @@ export function MergeTinder({
             <line x1="12" y1="2" x2="2" y2="12" />
           </svg>
           Skip
-          <kbd className="ml-1 border border-current px-1 py-0 text-[9px] opacity-60">
-            {'\u2190'}
-          </kbd>
         </button>
 
         {/* Undo */}
@@ -354,9 +323,6 @@ export function MergeTinder({
             <path d="M1,4 H9 A4,4 0 0 1 9,12 H5" />
           </svg>
           Undo
-          <kbd className="ml-0.5 border border-nb-border px-1 py-0 text-[9px] opacity-60">
-            {'\u2191'}
-          </kbd>
         </button>
 
         {/* Merge button */}
@@ -375,29 +341,14 @@ export function MergeTinder({
           >
             <polyline points="2,7 6,11 12,3" />
           </svg>
-          <kbd className="ml-1 border border-black/30 px-1 py-0 text-[9px] opacity-60">
-            {'\u2192'}
-          </kbd>
         </button>
-      </div>
-
-      {/* Keyboard hint */}
-      <div className="border-t border-nb-border px-4 py-1.5 bg-nb-surface-muted flex items-center justify-center gap-4 font-mono text-[11px] text-nb-muted">
-        <span>
-          <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2190'}</kbd> Skip
-        </span>
-        <span>
-          <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2192'}</kbd> Merge
-        </span>
-        <span>
-          <kbd className="border border-nb-border px-1 py-0 text-[9px]">{'\u2191'}</kbd> Undo
-        </span>
-        <span>
-          <kbd className="border border-nb-border px-1 py-0 text-[9px]">Esc</kbd> Close
-        </span>
       </div>
     </Card>
   );
+}
+
+function isolateBidi(value: string): string {
+  return `\u2066${value}\u2069`;
 }
 
 function EvidenceList({ title, items }: { title: string; items: string[] }) {
@@ -406,11 +357,14 @@ function EvidenceList({ title, items }: { title: string; items: string[] }) {
       <p className="font-display text-[10px] font-bold uppercase text-nb-muted">{title}</p>
       {items.length ? (
         <ul className="mt-1 space-y-1">
-          {items.slice(0, 4).map((item) => (
-            <li key={item} className="font-mono text-[11px] text-nb-text">
-              {item}
-            </li>
-          ))}
+          {items
+            .filter((item) => !/^shared surname "\p{L}"$/u.test(item))
+            .slice(0, 4)
+            .map((item) => (
+              <li key={item} className="font-mono text-[11px] text-nb-text">
+                {isolateBidi(item)}
+              </li>
+            ))}
         </ul>
       ) : (
         <p className="mt-1 font-mono text-[11px] text-nb-muted">None</p>

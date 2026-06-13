@@ -192,8 +192,20 @@ export class PeopleController {
   }
 
   @Get(':id/memories')
-  async getMemories(@CurrentUser() user: { id: string }, @Param('id') id: string) {
-    return this.peopleService.getMemories(id, undefined, user.id);
+  async getMemories(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 10;
+    const parsedOffset = offset ? parseInt(offset, 10) : 0;
+    return this.peopleService.getMemoriesPage(
+      id,
+      Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 50)) : 10,
+      Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0,
+      user.id,
+    );
   }
 
   @RequiresJwt()

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useMemo, useState, lazy, Suspense } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
 import { AnimatedNumber } from '../components/ui/AnimatedNumber';
@@ -46,6 +47,8 @@ export function DashboardPage() {
   const loadMemories = useMemoryStore((s) => s.loadMemories);
   const loadMoreMemories = useMemoryStore((s) => s.loadMoreMemories);
   const [activeTab, setActiveTab] = useState('overview');
+  const [searchParams] = useSearchParams();
+  const focusedMemoryId = searchParams.get('memoryId');
 
   // Connect WebSocket for notifications
   useEffect(() => {
@@ -112,11 +115,18 @@ export function DashboardPage() {
   // Load graph once when stats become available (initial mount)
   const initialGraphLoaded = useRef(false);
   useEffect(() => {
+    if (focusedMemoryId) return;
     if (memoryStats != null && !initialGraphLoaded.current) {
       initialGraphLoaded.current = true;
       loadGraph();
     }
-  }, [memoryStats, loadGraph]);
+  }, [memoryStats, loadGraph, focusedMemoryId]);
+
+  useEffect(() => {
+    if (!focusedMemoryId) return;
+    setActiveTab('overview');
+    loadGraphForIds([focusedMemoryId]);
+  }, [focusedMemoryId, loadGraphForIds]);
 
   // Load memories when timeline tab is activated (only if store is empty)
   useEffect(() => {
