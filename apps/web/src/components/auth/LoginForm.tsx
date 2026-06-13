@@ -35,6 +35,8 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     setFbLoading(provider);
     try {
       await loginWithFirebase(provider);
+      const user = useAuthStore.getState().user;
+      navigate(redirectTo || (user?.onboarded ? '/me' : '/onboarding'));
     } catch {
       // error already set in store
     } finally {

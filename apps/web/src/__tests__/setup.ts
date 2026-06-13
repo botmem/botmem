@@ -33,6 +33,23 @@ Object.defineProperty(globalThis, 'sessionStorage', {
   configurable: true,
 });
 
+// jsdom has no matchMedia; components reading system theme call it at render.
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
 // Suppress Node's `--localstorage-file` warning emitted by jsdom environment
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {

@@ -10,7 +10,13 @@ function doInit(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const { initializeApp, getApps } = await import('firebase/app');
-      const { getAuth, GoogleAuthProvider, GithubAuthProvider } = await import('firebase/auth');
+      const {
+        getAuth,
+        setPersistence,
+        browserLocalPersistence,
+        GoogleAuthProvider,
+        GithubAuthProvider,
+      } = await import('firebase/auth');
 
       const firebaseConfig = {
         apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -24,6 +30,7 @@ function doInit(): Promise<void> {
       const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
       _auth = getAuth(app);
+      await setPersistence(_auth, browserLocalPersistence);
       _googleProvider = new GoogleAuthProvider();
       _githubProvider = new GithubAuthProvider();
     })();

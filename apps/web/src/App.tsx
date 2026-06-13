@@ -53,6 +53,9 @@ const DataPolicyPage = lazy(() =>
 );
 const OAuthConsentPage = lazy(() => import('./pages/OAuthConsentPage'));
 const CliLoginPage = lazy(() => import('./pages/CliLoginPage'));
+const NotFoundPage = lazy(() =>
+  import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
+);
 
 function AuthInitializer() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -164,7 +167,7 @@ export function AppRoutes() {
               <Route path="/people" element={appRedirect('/people')} />
               <Route path="/contacts" element={appRedirect('/people')} />
               <Route path="/settings" element={appRedirect('/settings')} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>
@@ -226,7 +229,7 @@ export function AppRoutes() {
             <Route path="/app/people" element={<Navigate to="/people" replace />} />
             <Route path="/app/contacts" element={<Navigate to="/people" replace />} />
             <Route path="/app/settings" element={<Navigate to="/settings" replace />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

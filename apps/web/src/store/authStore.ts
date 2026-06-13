@@ -84,14 +84,14 @@ async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
 async function getFirebaseAuthFns() {
   await ensureFirebase();
   const {
-    signInWithRedirect,
+    signInWithPopup,
     signOut,
     getIdToken,
     createUserWithEmailAndPassword,
     sendEmailVerification,
   } = await import('firebase/auth');
   return {
-    signInWithRedirect,
+    signInWithPopup,
     signOut,
     getIdToken,
     createUserWithEmailAndPassword,
@@ -367,7 +367,7 @@ export const useAuthStore = create<AuthState>()(
                     name: merged.name ?? undefined,
                   });
                 }
-                trackEvent('login', { method: 'firebase_redirect' });
+                trackEvent('login', { method: 'firebase' });
                 set({
                   user: merged,
                   accessToken: idToken,
@@ -379,7 +379,7 @@ export const useAuthStore = create<AuthState>()(
               return false;
             };
 
-            // Check for redirect result first (signInWithRedirect flow)
+            // Check for legacy redirect results before the current popup flow.
             try {
               const redirectResult = await getRedirectResult(firebaseAuth!);
               if (redirectResult?.user) {
@@ -439,11 +439,36 @@ export const useAuthStore = create<AuthState>()(
       loginWithFirebase: async (provider: 'google' | 'github') => {
         set({ error: null, isLoading: true });
         try {
+          await ensureFirebase();
           if (!firebaseAuth) throw new Error('Firebase is not configured');
-          const { signInWithRedirect } = await getFirebaseAuthFns();
+          const { signInWithPopup, getIdToken } = await getFirebaseAuthFns();
           const authProvider = provider === 'google' ? googleProvider! : githubProvider!;
-          // Redirect navigates away — onAuthStateChanged in initialize() handles the return
-          await signInWithRedirect(firebaseAuth, authProvider);
+          const cred = await signInWithPopup(firebaseAuth, authProvider);
+          const idToken = await getIdToken(cred.user);
+          const res = await fetch(`${ROOT_API_BASE}/firebase-auth/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({ message: 'Login sync failed' }));
+            throw new Error(body.message || 'Login sync failed');
+          }
+          const data = await res.json();
+          if (data.user?.email) {
+            identifyUser(data.user.id, {
+              email: data.user.email,
+              name: data.user.name ?? undefined,
+            });
+          }
+          trackEvent('login', { method: `firebase_${provider}` });
+          set({
+            user: data.user,
+            accessToken: idToken,
+            recoveryKey: keepRecoveryKey(data.recoveryKey),
+            needsRecoveryKey: !!data.needsRecoveryKey,
+            isLoading: false,
+          });
         } catch (err: unknown) {
           trackEvent('login_failed', {
             method: `firebase_${provider}`,
