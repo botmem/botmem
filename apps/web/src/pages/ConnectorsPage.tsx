@@ -14,8 +14,30 @@ import { api } from '../lib/api';
 import { sharedWs } from '../lib/ws';
 import { useAuthStore } from '../store/authStore';
 import { EmptyState } from '../components/ui/EmptyState';
+import { formatAccountCount, getWorstAccountStatus } from '../components/connectors/accountDisplay';
 
 const MAX_STATUS_POLLS = 60; // 5 minutes at 5s intervals
+const CONNECTOR_ACCORDION_STORAGE_KEY = 'botmem.connectorAccordion';
+
+function readExpandedConnectors() {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const value: unknown = JSON.parse(
+      window.sessionStorage.getItem(CONNECTOR_ACCORDION_STORAGE_KEY) || '[]',
+    );
+    return new Set<string>(Array.isArray(value) ? value.filter((v) => typeof v === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeExpandedConnectors(expanded: Set<string>) {
+  try {
+    window.sessionStorage.setItem(CONNECTOR_ACCORDION_STORAGE_KEY, JSON.stringify([...expanded]));
+  } catch {
+    // Storage can be unavailable in privacy modes; in-memory state still works for this visit.
+  }
+}
 
 function ConnectorStatusDot({ type }: { type: string }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -112,7 +134,7 @@ export function ConnectorsPage() {
       sharedWs.offMessage(handler);
     };
   }, [fetchAccounts, accessToken]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(readExpandedConnectors);
   const [modalType, setModalType] = useState<ConnectorType | null>(null);
   const [editModal, setEditModal] = useState<{ type: ConnectorType; accountId: string } | null>(
     null,
@@ -133,6 +155,8 @@ export function ConnectorsPage() {
     const next = new Set(expanded);
     if (next.has(type)) next.delete(type);
     else next.add(type);
+    // ponytail: per-tab state is enough; move to user prefs if accordion state must roam devices.
+    writeExpandedConnectors(next);
     setExpanded(next);
   };
 
@@ -173,6 +197,7 @@ export function ConnectorsPage() {
         {displayConfigs.map((cfg) => {
           const typeAccounts = accounts.filter((a) => a.type === cfg.type);
           const isExpanded = expanded.has(cfg.type);
+          const status = getWorstAccountStatus(typeAccounts);
           return (
             <Card key={cfg.type} className="p-0 overflow-hidden">
               <button
@@ -199,8 +224,20 @@ export function ConnectorsPage() {
                       {manifests.find((m) => m.id === cfg.type)?.authType === 'qr-code' &&
                         typeAccounts.length === 0 && <ConnectorStatusDot type={cfg.type} />}
                     </div>
-                    <p className="font-mono text-xs text-nb-muted">
-                      {typeAccounts.length} accounts
+                    <p className="font-mono text-xs text-nb-muted flex items-center gap-2">
+                      <span>{formatAccountCount(typeAccounts.length)}</span>
+                      {status && (
+                        <span className="inline-flex items-center gap-1" title={status.label}>
+                          <span
+                            className={cn(
+                              'size-2 border border-nb-border',
+                              status.pulse && 'animate-pulse',
+                            )}
+                            style={{ backgroundColor: status.color }}
+                          />
+                          <span className="uppercase">{status.label}</span>
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

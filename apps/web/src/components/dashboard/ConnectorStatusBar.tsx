@@ -2,16 +2,10 @@ import type { ConnectorAccount } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, cn } from '@botmem/shared';
 import { useConnectorStore } from '../../store/connectorStore';
 import { formatCompactNumber, formatIntegerNumber } from '../../lib/formatNumber';
-
-const statusConfig: Record<string, { label: string; color: string; pulse?: boolean }> = {
-  syncing: { label: 'SYNCING', color: 'var(--color-nb-lime)', pulse: true },
-  connected: { label: 'IDLE', color: 'var(--color-nb-muted)' },
-  error: { label: 'ERROR', color: 'var(--color-nb-red)' },
-  disconnected: { label: 'DISCONNECTED', color: 'var(--color-nb-orange)' },
-};
+import { getAccountStatusMeta } from '../connectors/accountDisplay';
 
 function ConnectorRow({ account }: { account: ConnectorAccount }) {
-  const status = statusConfig[account.status] ?? statusConfig.connected;
+  const status = getAccountStatusMeta(account.status);
   const connectorColor = CONNECTOR_COLORS[account.type] ?? 'var(--color-nb-muted)';
 
   return (

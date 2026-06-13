@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
 import { useConnectorStore } from '../../store/connectorStore';
 import { formatIntegerNumber } from '../../lib/formatNumber';
+import { appleBridgeRemediation, getAccountStatusMeta } from './accountDisplay';
 
 const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
   { value: 'hourly', label: 'HOURLY' },
@@ -13,21 +14,6 @@ const SCHEDULE_OPTIONS: Array<{ value: SyncSchedule; label: string }> = [
   { value: 'daily', label: 'DAILY' },
   { value: 'manual', label: 'MANUAL' },
 ];
-
-const statusColors: Record<string, string> = {
-  connected: 'var(--color-nb-green)',
-  syncing: 'var(--color-nb-blue)',
-  queued: 'var(--color-nb-yellow)',
-  degraded: 'var(--color-nb-yellow)',
-  reconnect_required: 'var(--color-nb-orange)',
-  failed: 'var(--color-nb-red)',
-  error: 'var(--color-nb-red)',
-  disconnected: 'var(--color-nb-orange)',
-};
-
-function statusLabel(status: string): string {
-  return status.replace(/_/g, ' ');
-}
 
 function actionLabel(account: ConnectorAccount, authType?: string): string {
   const action = account.syncHealth?.recoveryAction;
@@ -59,6 +45,8 @@ export function ConnectorAccountRow({
   const [selectedBankId, setSelectedBankId] = useState(defaultBankId);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const showBankSelector = memoryBanks.length > 1;
+  const status = getAccountStatusMeta(account.status);
+  const bridgeRecovery = appleBridgeRemediation(account.id);
   const scheduleConfig = {
     defaultSchedule: syncConfig?.defaultSchedule ?? 'daily',
     configurable: syncConfig?.configurable ?? true,
@@ -84,7 +72,8 @@ export function ConnectorAccountRow({
                 <>
                   {' '}
                   •{' '}
-                  {account.contactsCount > 0 && `${formatIntegerNumber(account.contactsCount)} people`}
+                  {account.contactsCount > 0 &&
+                    `${formatIntegerNumber(account.contactsCount)} people`}
                   {account.contactsCount > 0 && account.groupsCount > 0 && ', '}
                   {account.groupsCount > 0 && `${formatIntegerNumber(account.groupsCount)} groups`}
                 </>
@@ -93,10 +82,10 @@ export function ConnectorAccountRow({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge color={statusColors[account.status]}>{statusLabel(account.status)}</Badge>
+          <Badge color={status.color}>{status.label}</Badge>
           {(account.status === 'syncing' || account.status === 'queued') && account.syncHealth && (
             <span className="font-mono text-xs uppercase text-nb-muted">
-              {account.syncHealth.phase || statusLabel(account.status)}
+              {account.syncHealth.phase || status.label}
               {account.syncHealth.total && account.syncHealth.total > 0
                 ? ` ${formatIntegerNumber(account.syncHealth.progress ?? 0)}/${formatIntegerNumber(account.syncHealth.total)}`
                 : ''}
@@ -215,11 +204,9 @@ export function ConnectorAccountRow({
             </span>
             {account.lastError}
             {(account.type === 'apple' || account.type === 'imessage') &&
-              account.status === 'failed' && (
-                <span className="block mt-1 text-nb-muted">
-                  Start the Botmem Apple bridge from connector setup, then run `botmem sync{' '}
-                  {account.id}`.
-                </span>
+              account.status === 'failed' &&
+              !account.lastError.includes(bridgeRecovery) && (
+                <span className="block mt-1 text-nb-muted">{bridgeRecovery}</span>
               )}
           </p>
         </div>

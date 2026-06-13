@@ -507,12 +507,15 @@ function BridgeAuthView({
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [bridgeConnected, setBridgeConnected] = useState(false);
+  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const copiedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (copiedRef.current) clearTimeout(copiedRef.current);
     };
   }, []);
 
@@ -589,14 +592,11 @@ npx @botmem/apple-bridge service start`;
     }
   };
 
-  const copyCommand = () => {
-    navigator.clipboard.writeText(bridgeCommand);
-  };
-
-  const openBridgeApp = () => {
-    if (bridgeDeepLink) {
-      window.location.href = bridgeDeepLink;
-    }
+  const copyCommand = async () => {
+    await navigator.clipboard.writeText(bridgeCommand);
+    setCopied(true);
+    if (copiedRef.current) clearTimeout(copiedRef.current);
+    copiedRef.current = setTimeout(() => setCopied(false), 1600);
   };
 
   const stepNumber = step === 'email' ? 1 : step === 'command' ? 2 : 3;
@@ -660,24 +660,44 @@ npx @botmem/apple-bridge service start`;
             </ol>
           </div>
 
-          <Button type="button" onClick={openBridgeApp} disabled={!bridgeDeepLink}>
-            CONNECT BRIDGE APP
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <a
+              href={APPLE_BRIDGE_GITHUB_RELEASE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center border-3 border-nb-border bg-nb-lime px-3 py-2 font-display text-sm font-bold uppercase text-black shadow-nb hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
+            >
+              DOWNLOAD BRIDGE APP
+            </a>
+            {bridgeDeepLink && (
+              <a
+                href={bridgeDeepLink}
+                className="inline-flex items-center justify-center border-3 border-nb-border bg-nb-surface px-3 py-2 font-display text-sm font-bold uppercase text-nb-text shadow-nb hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
+              >
+                OPEN INSTALLED APP
+              </a>
+            )}
+          </div>
 
           <p className="font-display text-xs font-bold uppercase text-nb-muted">
             Advanced CLI Setup
           </p>
-          <div className="relative">
-            <pre className="bg-black border-3 border-nb-border p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
+          <div className="bg-black border-3 border-nb-border">
+            <div className="flex items-center justify-between gap-3 border-b-3 border-nb-border bg-nb-surface p-2">
+              <span className="font-mono text-[10px] uppercase text-nb-muted">
+                {copied ? 'Copied' : 'Pairing command'}
+              </span>
+              <button
+                type="button"
+                onClick={() => void copyCommand()}
+                className="px-2 py-1 bg-nb-surface border-2 border-nb-border font-mono text-[10px] text-nb-muted uppercase hover:text-nb-text hover:border-nb-lime transition-colors cursor-pointer"
+              >
+                {copied ? 'COPIED' : 'COPY'}
+              </button>
+            </div>
+            <pre className="p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
               {bridgeCommand}
             </pre>
-            <button
-              type="button"
-              onClick={copyCommand}
-              className="absolute top-2 right-2 px-2 py-1 bg-nb-surface border-2 border-nb-border font-mono text-[10px] text-nb-muted uppercase hover:text-nb-text hover:border-nb-lime transition-colors cursor-pointer"
-            >
-              COPY
-            </button>
           </div>
 
           <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
@@ -862,6 +882,7 @@ function FormView({
   onConnect,
   onClose,
   editAccountId,
+  hasSavedCredentials,
 }: {
   state: ModalState;
   dispatch: React.Dispatch<ModalAction>;
@@ -869,6 +890,7 @@ function FormView({
   onConnect: (id: string) => void;
   onClose: () => void;
   editAccountId?: string;
+  hasSavedCredentials?: boolean;
 }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -913,9 +935,13 @@ function FormView({
   };
 
   const activeMethod = state.authMethods.find((m) => m.id === state.selectedMethod);
-  const visibleFields = (
-    activeMethod ? state.fields.filter((f) => activeMethod.fields.includes(f.name)) : state.fields
-  ).filter((f) => !(isFirebaseMode && FIREBASE_HIDDEN_FIELDS.has(f.name)));
+  const useSavedCredentials = hasSavedCredentials && !editAccountId;
+  const visibleFields = useSavedCredentials
+    ? []
+    : (activeMethod
+        ? state.fields.filter((f) => activeMethod.fields.includes(f.name))
+        : state.fields
+      ).filter((f) => !(isFirebaseMode && FIREBASE_HIDDEN_FIELDS.has(f.name)));
 
   return (
     <Modal open onClose={onClose} title={`Connect ${connectorType.toUpperCase()}`}>
@@ -946,6 +972,12 @@ function FormView({
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {useSavedCredentials && (
+          <p className="border-3 border-nb-border bg-nb-surface/50 p-3 font-mono text-xs uppercase text-nb-muted">
+            Saved OAuth credentials are configured. Continue when you are ready to authorize in the
+            browser.
+          </p>
+        )}
         {visibleFields.map((field) =>
           field.readOnly ? (
             <p key={field.name} className="font-mono text-xs text-nb-muted">
@@ -971,9 +1003,11 @@ function FormView({
             ? editAccountId
               ? 'SAVING...'
               : 'CONNECTING...'
-            : editAccountId
-              ? 'SAVE CHANGES'
-              : 'CONNECT'}
+            : useSavedCredentials
+              ? 'AUTHORIZE'
+              : editAccountId
+                ? 'SAVE CHANGES'
+                : 'CONNECT'}
         </Button>
       </form>
     </Modal>
@@ -990,6 +1024,7 @@ export function ConnectorSetupModal({
   editAccountId,
 }: ConnectorSetupModalProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [hasSavedCredentials, setHasSavedCredentials] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const manifests = useConnectorStore((s) => s.manifests);
 
@@ -1058,33 +1093,19 @@ export function ConnectorSetupModal({
   // Check saved credentials (OAuth only)
   useEffect(() => {
     if (isQrAuth || isPhoneCodeAuth) {
+      setHasSavedCredentials(false);
       dispatch({ type: 'CREDENTIALS_CHECKED' });
       return;
     }
 
     const manifest = manifests.find((m) => m.id === connectorType);
+    setHasSavedCredentials(false);
     if (manifest?.authType === 'oauth2') {
       api
         .hasCredentials(connectorType)
         .then(({ hasSavedCredentials }) => {
-          if (hasSavedCredentials) {
-            dispatch({ type: 'SET_LOADING', loading: true });
-            api
-              .initiateAuth(connectorType, { returnTo: window.location.pathname })
-              .then((result) => {
-                if (result.type === 'redirect' && result.url) window.location.href = result.url;
-              })
-              .catch((err) => {
-                dispatch({
-                  type: 'SET_ERROR',
-                  error: authErrorMessage(err, 'Authorization failed'),
-                });
-                dispatch({ type: 'CREDENTIALS_CHECKED' });
-                dispatch({ type: 'SET_LOADING', loading: false });
-              });
-          } else {
-            dispatch({ type: 'CREDENTIALS_CHECKED' });
-          }
+          setHasSavedCredentials(hasSavedCredentials);
+          dispatch({ type: 'CREDENTIALS_CHECKED' });
         })
         .catch(() => dispatch({ type: 'CREDENTIALS_CHECKED' }));
     } else {
@@ -1183,6 +1204,7 @@ export function ConnectorSetupModal({
       onConnect={onConnect}
       onClose={onClose}
       editAccountId={editAccountId}
+      hasSavedCredentials={hasSavedCredentials}
     />
   );
 }

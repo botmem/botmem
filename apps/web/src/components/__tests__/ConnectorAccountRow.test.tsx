@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { ConnectorAccount } from '@botmem/shared';
 import { ConnectorAccountRow } from '../connectors/ConnectorAccountRow';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
+import { appleBridgeRemediation } from '../connectors/accountDisplay';
 
 const baseAccount: ConnectorAccount = {
   id: 'a1',
@@ -107,5 +108,25 @@ describe('ConnectorAccountRow', () => {
     );
 
     expect(screen.getByText(/botmem sync/)).toHaveTextContent('botmem sync apple-msg-1');
+  });
+
+  it('does not duplicate Apple bridge remediation already present in the error', () => {
+    const remediation = appleBridgeRemediation('apple-msg-1');
+    render(
+      <ConnectorAccountRow
+        account={{
+          ...baseAccount,
+          id: 'apple-msg-1',
+          type: 'imessage',
+          status: 'failed',
+          lastError: remediation,
+        }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText(/Start the Botmem Apple bridge/)).toHaveLength(1);
   });
 });

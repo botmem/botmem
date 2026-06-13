@@ -39,6 +39,10 @@ describe('ConnectorSetupModal', () => {
     mockApi.listAccounts.mockResolvedValue({ accounts: [] });
     mockApi.getBridgeStatus.mockResolvedValue({ connected: false });
     mockApi.triggerSync.mockResolvedValue({ job: { id: 'j1' } });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
     useConnectorStore.setState({
       manifests: [
         {
@@ -112,6 +116,28 @@ describe('ConnectorSetupModal', () => {
       />,
     );
     expect(await screen.findByText('CONNECT')).toBeInTheDocument();
+  });
+
+  it('shows an OAuth authorization step instead of redirecting immediately', async () => {
+    mockApi.hasCredentials.mockResolvedValue({ hasSavedCredentials: true });
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="gmail"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/Saved OAuth credentials are configured/)).toBeInTheDocument();
+    expect(mockApi.initiateAuth).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('AUTHORIZE'));
+    await waitFor(() =>
+      expect(mockApi.initiateAuth).toHaveBeenCalledWith('gmail', {
+        returnTo: '/',
+      }),
+    );
   });
 
   it('shows an error when auth completes without a backend account', async () => {
@@ -234,10 +260,64 @@ describe('ConnectorSetupModal', () => {
       'href',
       'https://github.com/botmem/botmem/releases/latest',
     );
+    expect(screen.getByText('DOWNLOAD BRIDGE APP')).toHaveAttribute(
+      'href',
+      'https://github.com/botmem/botmem/releases/latest',
+    );
+    expect(screen.getByText('OPEN INSTALLED APP')).toHaveAttribute(
+      'href',
+      expect.stringContaining('botmem-apple-bridge://connect'),
+    );
+    expect(screen.queryByText('CONNECT BRIDGE APP')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText(/--sources=contacts,imessages/)).toBeInTheDocument();
     });
     expect(screen.getByText(/Full Disk Access is only required/)).toBeInTheDocument();
+  });
+
+  it('copies Apple bridge pairing command with feedback', async () => {
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({
+      manifests: [
+        {
+          id: 'apple',
+          name: 'Apple',
+          description: 'Import Apple data',
+          color: '#4ECDC4',
+          icon: 'smartphone',
+          authType: 'local-tool',
+          configSchema: { type: 'object', properties: {}, required: [] },
+          entities: ['person', 'message'],
+          pipeline: { clean: false, embed: true, enrich: false },
+          trustScore: 0.8,
+        },
+      ],
+    });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+    fireEvent.click(await screen.findByText('COPY'));
+
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect.stringContaining('--token=token-1'),
+      ),
+    );
+    expect(screen.getByText('COPIED')).toBeInTheDocument();
   });
 
   it('tells users source choices live in the bridge app or CLI', async () => {
