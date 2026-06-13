@@ -1,17 +1,12 @@
-import type { ConnectorAccount } from '@botmem/shared';
+import type { ConnectorAccount, Job } from '@botmem/shared';
 import { formatRelative, CONNECTOR_COLORS, cn } from '@botmem/shared';
 import { useConnectorStore } from '../../store/connectorStore';
+import { useJobStore } from '../../store/jobStore';
+import { accountStatusView } from '../../lib/accountStatus';
 import { formatCompactNumber, formatIntegerNumber } from '../../lib/formatNumber';
 
-const statusConfig: Record<string, { label: string; color: string; pulse?: boolean }> = {
-  syncing: { label: 'SYNCING', color: 'var(--color-nb-lime)', pulse: true },
-  connected: { label: 'IDLE', color: 'var(--color-nb-muted)' },
-  error: { label: 'ERROR', color: 'var(--color-nb-red)' },
-  disconnected: { label: 'DISCONNECTED', color: 'var(--color-nb-orange)' },
-};
-
-function ConnectorRow({ account }: { account: ConnectorAccount }) {
-  const status = statusConfig[account.status] ?? statusConfig.connected;
+function ConnectorRow({ account, jobs }: { account: ConnectorAccount; jobs: Job[] }) {
+  const status = accountStatusView(account, jobs);
   const connectorColor = CONNECTOR_COLORS[account.type] ?? 'var(--color-nb-muted)';
 
   return (
@@ -84,6 +79,7 @@ function ConnectorRow({ account }: { account: ConnectorAccount }) {
 
 export function ConnectorStatusBar() {
   const accounts = useConnectorStore((s) => s.accounts);
+  const jobs = useJobStore((s) => s.jobs);
 
   if (accounts.length === 0) return null;
 
@@ -94,7 +90,11 @@ export function ConnectorStatusBar() {
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {accounts.map((account) => (
-          <ConnectorRow key={account.id} account={account} />
+          <ConnectorRow
+            key={account.id}
+            account={account}
+            jobs={jobs.filter((job) => job.accountId === account.id)}
+          />
         ))}
       </div>
     </section>

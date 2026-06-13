@@ -69,8 +69,10 @@ export function IntegrationsTab() {
         >
           API Endpoint
         </label>
-        <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3">
-          <code className="font-mono text-base text-nb-lime flex-1 select-all">{API_URL}</code>
+        <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3 min-w-0">
+          <code className="font-mono text-base text-nb-lime flex-1 select-all break-all">
+            {API_URL}
+          </code>
           <button
             onClick={() => copy(API_URL, 'url')}
             className="px-3 py-1 border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-muted hover:text-nb-text cursor-pointer shrink-0"
@@ -88,8 +90,10 @@ export function IntegrationsTab() {
         >
           MCP Endpoint
         </label>
-        <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3">
-          <code className="font-mono text-base text-nb-lime flex-1 select-all">{MCP_URL}</code>
+        <div className="flex items-center gap-3 border-3 border-nb-lime bg-nb-bg p-3 min-w-0">
+          <code className="font-mono text-base text-nb-lime flex-1 select-all break-all">
+            {MCP_URL}
+          </code>
           <button
             onClick={() => copy(MCP_URL, 'mcp-url')}
             className="px-3 py-1 border-2 border-nb-border bg-nb-surface font-mono text-xs uppercase text-nb-muted hover:text-nb-text cursor-pointer shrink-0"
@@ -114,17 +118,17 @@ export function IntegrationsTab() {
         <p className="font-mono text-xs text-nb-muted mb-3">
           Copy the config for your agent and paste it into the appropriate file:
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {agents.map((agent) => (
             <button
               key={agent.key}
               onClick={() => copy(mcpConfig(), agent.key)}
-              className="border-2 border-nb-border bg-nb-surface p-3 text-left hover:border-nb-lime cursor-pointer transition-colors"
+              className="border-2 border-nb-border bg-nb-surface p-3 text-left hover:border-nb-lime cursor-pointer transition-colors min-w-0"
             >
               <span className="font-display text-sm font-bold uppercase text-nb-text block mb-0.5">
                 {copied === agent.key ? 'Copied!' : agent.label}
               </span>
-              <span className="font-mono text-[11px] text-nb-muted leading-tight block">
+              <span className="font-mono text-[11px] text-nb-muted leading-tight block break-all">
                 {agent.description}
               </span>
             </button>
@@ -140,8 +144,8 @@ export function IntegrationsTab() {
         >
           CLI
         </label>
-        <div className="flex items-center gap-2">
-          <code className="font-mono text-xs text-nb-text bg-nb-bg border-2 border-nb-border px-3 py-2 flex-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <code className="font-mono text-xs text-nb-text bg-nb-bg border-2 border-nb-border px-3 py-2 flex-1 break-all">
             npm i -g @botmem/cli
           </code>
           <button

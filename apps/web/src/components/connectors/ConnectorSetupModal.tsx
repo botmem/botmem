@@ -516,13 +516,13 @@ function BridgeAuthView({
   const [copied, setCopied] = useState(false);
   const [bridgeLaunchPending, setBridgeLaunchPending] = useState(false);
   const [bridgeLaunchTimedOut, setBridgeLaunchTimedOut] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const launchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
       if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
     };
   }, []);
@@ -547,20 +547,26 @@ npx @botmem/apple-bridge service start`;
     setStep('command');
     setBridgeLaunchPending(false);
 
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
+    if (pollRef.current) clearTimeout(pollRef.current);
+    let delayMs = 2000;
+    const pollBridgeStatus = async () => {
       try {
         const data = await api.getBridgeStatus(acctId);
         if (data.connected) {
           setBridgeConnected(true);
           setBridgeLaunchPending(false);
           setStep('connected');
-          if (pollRef.current) clearInterval(pollRef.current);
+          if (pollRef.current) clearTimeout(pollRef.current);
+          pollRef.current = null;
+          return;
         }
       } catch {
-        /* ignore poll errors */
+        // Offline bridges are shown as waiting; the next poll backs off.
       }
-    }, 2000);
+      delayMs = Math.min(delayMs * 2, 15000);
+      pollRef.current = setTimeout(pollBridgeStatus, delayMs);
+    };
+    pollRef.current = setTimeout(pollBridgeStatus, delayMs);
   };
 
   const setupBridge = async () => {

@@ -2,14 +2,23 @@ import { create } from 'zustand';
 import { api } from '../lib/api';
 import { trackEvent } from '../lib/posthog';
 import type { ApiContact } from '../lib/api';
+import { dedupeIdentifiers } from '../components/contacts/identifiers';
 
 interface Contact {
   id: string;
   displayName: string;
   entityType: string;
   avatars: Array<{ url: string; source: string }>;
+  avatarUrl?: string;
+  hasAvatar: boolean;
   identifiers: Array<{ id: string; type: string; value: string; isPrimary: boolean }>;
   connectorSources: string[];
+  members?: Array<{
+    id: string;
+    displayName: string;
+    avatars: Array<{ url: string; source: string }>;
+    identifiers?: Array<{ type: string; value: string }>;
+  }>;
   memoryCount: number;
   createdAt: string;
   updatedAt: string;
@@ -68,12 +77,15 @@ function parseAvatars(rawAvatars: ApiContact['avatars']): Array<{ url: string; s
 }
 
 function parseContact(raw: ApiContact): Contact {
-  const identifiers = (raw.identifiers || []).map((i) => ({
-    id: i.id,
-    type: i.identifierType || i.type || '',
-    value: i.identifierValue || i.value || '',
-    isPrimary: i.isPrimary || false,
-  }));
+  const avatars = parseAvatars(raw.avatars);
+  const identifiers = dedupeIdentifiers(
+    (raw.identifiers || []).map((i) => ({
+      id: i.id,
+      type: i.identifierType || i.type || '',
+      value: i.identifierValue || i.value || '',
+      isPrimary: i.isPrimary || false,
+    })),
+  );
   const connectorSources = [
     ...new Set((raw.identifiers || []).map((i) => i.connectorType).filter(Boolean)),
   ] as string[];
@@ -82,9 +94,22 @@ function parseContact(raw: ApiContact): Contact {
     id: raw.id,
     displayName: raw.displayName || '',
     entityType: raw.entityType || 'person',
-    avatars: parseAvatars(raw.avatars),
+    avatars,
+    avatarUrl: raw.avatarUrl,
+    hasAvatar: raw.hasAvatar ?? avatars.length > 0,
     identifiers,
     connectorSources,
+    members: Array.isArray(raw.members)
+      ? raw.members.map((member) => ({
+          id: member.id,
+          displayName: member.displayName,
+          avatars: parseAvatars(member.avatars),
+          identifiers: (member.identifiers || []).map((ident) => ({
+            type: ident.identifierType || ident.type || '',
+            value: ident.identifierValue || ident.value || '',
+          })),
+        }))
+      : undefined,
     memoryCount: raw.memoryCount || 0,
     createdAt: raw.createdAt || '',
     updatedAt: raw.updatedAt || '',

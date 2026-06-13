@@ -289,6 +289,67 @@ describe('ConnectorSetupModal', () => {
     expect(screen.getByText(/Use the same --sources list/)).toBeInTheDocument();
   });
 
+  it('backs off Apple bridge status polling while waiting', async () => {
+    vi.useFakeTimers();
+    try {
+      mockApi.initiateAuth.mockResolvedValue({
+        type: 'complete',
+        account: { id: 'acct-1', bridgeToken: 'token-1' },
+      });
+      useConnectorStore.setState({
+        manifests: [
+          {
+            id: 'apple',
+            name: 'Apple',
+            description: 'Import Apple data',
+            color: '#4ECDC4',
+            icon: 'smartphone',
+            authType: 'local-tool',
+            configSchema: { type: 'object', properties: {}, required: [] },
+            entities: ['person', 'message'],
+            pipeline: { clean: false, embed: true, enrich: false },
+            trustScore: 0.8,
+          },
+        ],
+      });
+
+      render(
+        <ConnectorSetupModal
+          open={true}
+          onClose={vi.fn()}
+          connectorType="apple"
+          onConnect={vi.fn()}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+        target: { value: 'you@icloud.com' },
+      });
+      fireEvent.click(screen.getByText('PAIR BRIDGE'));
+
+      await act(async () => {});
+      expect(screen.getByText('App Setup')).toBeInTheDocument();
+      expect(mockApi.getBridgeStatus).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mockApi.getBridgeStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe('Firebase mode field hiding', () => {
     beforeEach(() => {
       mockIsFirebaseMode = true;

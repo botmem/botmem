@@ -7,6 +7,7 @@ import type {
 } from '@botmem/shared';
 import { api } from '../lib/api';
 import { trackEvent } from '../lib/posthog';
+import { useJobStore } from './jobStore';
 
 interface ConnectorState {
   accounts: ConnectorAccount[];
@@ -101,6 +102,8 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
     }));
     try {
       const { job } = await api.triggerSync(id, memoryBankId);
+      useJobStore.getState().upsertJob(job);
+      void useJobStore.getState().fetchJobs(id);
       set((state) => ({
         accounts: state.accounts.map((a) =>
           a.id === id
@@ -156,8 +159,14 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
     }));
 
     await Promise.allSettled(
-      syncable.map((a) => api.triggerSync(a.id, memoryBankId).catch(() => {})),
+      syncable.map((a) =>
+        api
+          .triggerSync(a.id, memoryBankId)
+          .then(({ job }) => useJobStore.getState().upsertJob(job))
+          .catch(() => {}),
+      ),
     );
+    void useJobStore.getState().fetchJobs();
     await _get().fetchAccounts();
     set({ syncingAll: false });
   },
