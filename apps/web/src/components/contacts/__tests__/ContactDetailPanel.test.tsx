@@ -5,7 +5,8 @@ import { useContactStore } from '../../../store/contactStore';
 
 vi.mock('../../../lib/api', () => ({
   api: {
-    getContactMemories: vi.fn(async () => []),
+    getContact: vi.fn(async () => ({ members: [] })),
+    getContactMemories: vi.fn(async () => ({ items: [], total: 0 })),
   },
 }));
 
@@ -89,5 +90,28 @@ describe('ContactDetailPanel', () => {
 
     expect(screen.getByText('Group Detail')).toBeInTheDocument();
     expect(screen.queryByText('Merge another person into this one')).not.toBeInTheDocument();
+  });
+
+  it('shows full identifier values through title and click-to-copy', () => {
+    render(
+      <ContactDetailPanel
+        contact={{
+          ...baseContact,
+          identifiers: [
+            {
+              id: 'long-id',
+              type: 'email',
+              value: 'very.long.local.part@example.com',
+              isPrimary: true,
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTitle('very.long.local.part@example.com')).toBeInTheDocument();
   });
 });

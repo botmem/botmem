@@ -105,21 +105,62 @@ export function normalizeIdentifier(ident: IdentifierInput): IdentifierInput | n
   return { ...ident, type, value };
 }
 
+export function isNoReplyEmail(value: string): boolean {
+  const local = value.toLowerCase().split('@')[0] || '';
+  return /^(no[-_.]?reply|do[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|noreply|notification|notifications|alert|alerts)$/.test(
+    local,
+  );
+}
+
+export function looksLikeSmsSenderId(ident: IdentifierInput): boolean {
+  if (ident.type === 'email' || ident.type === 'phone' || ident.type === 'name') return false;
+  return /^[A-Z0-9][A-Z0-9_-]{1,14}$/.test(ident.value) && /[A-Z]/.test(ident.value);
+}
+
+export function displayNameFromIdentifiers(identifiers: IdentifierInput[]): string {
+  const email = identifiers.find((i) => i.type === 'email')?.value;
+  const name = identifiers.find((i) => i.type === 'name')?.value;
+  if (email && (!name || normalizeNameForMerge(name).join('').length < 4)) {
+    return email.split('@')[0] || email;
+  }
+  return name || identifiers[0]?.value || 'Unknown';
+}
+
+export function inferEntityType(
+  entityType: 'person' | 'group' | 'organization' | 'device' | undefined,
+  identifiers: IdentifierInput[],
+): 'person' | 'group' | 'organization' | 'device' | undefined {
+  if (entityType) return entityType;
+  if (identifiers.some((ident) => ident.type === 'email' && isNoReplyEmail(ident.value))) {
+    return 'organization';
+  }
+  if (identifiers.some(looksLikeSmsSenderId)) return 'organization';
+  return undefined;
+}
+
 export interface PersonWithIdentifiers {
   id: string;
   displayName: string;
+  entityType?: string | null;
   avatars: unknown;
   avatarUrl?: string;
   hasAvatar?: boolean;
   metadata: unknown;
   createdAt: Date;
   updatedAt: Date;
+  memoryCount?: number | null;
   identifiers: Array<{
     id: string;
     identifierType: string;
     identifierValue: string;
     connectorType: string | null;
     confidence: number;
+  }>;
+  members?: Array<{
+    id: string;
+    displayName: string;
+    avatars: unknown;
+    identifiers?: Array<{ identifierType: string; identifierValue: string }>;
   }>;
 }
 
@@ -406,7 +447,7 @@ export function scoreNameOnlyMerge(nameA: string, nameB: string): MergeEvidence 
       `embedded full-name fragment with different first name: ${shorterTokens.join(' ')}`,
     );
   }
-  if (lastA === lastB && a.length > 1 && b.length > 1) {
+  if (lastA === lastB && lastA.length > 1 && a.length > 1 && b.length > 1) {
     score += 0.28;
     positiveEvidence.push(`shared surname "${lastA}"`);
   } else if (a.length > 1 && b.length > 1 && !isMultiTokenSubset) {
@@ -726,6 +767,7 @@ export class PeopleService {
       seen.add(key);
       identifiers.push(norm);
     }
+    entityType = inferEntityType(entityType, [...identifiers, ...rawIdentifiers]);
     const nameAliases = identifiers.filter((i) => i.type === 'name');
     const identityIdentifiers = identifiers.filter((i) => i.type !== 'name');
 
@@ -814,8 +856,7 @@ export class PeopleService {
       // Create new contact
       personId = randomUUID();
       const now = new Date();
-      const nameIdent = nameAliases[0];
-      const displayName = nameIdent?.value || identifiers[0]?.value || 'Unknown';
+      const displayName = displayNameFromIdentifiers(identifiers);
 
       await this.dbService.withCurrentUser((db) =>
         db.insert(people).values({
@@ -1100,6 +1141,7 @@ export class PeopleService {
     const idents = await this.dbService.withCurrentUser((db) =>
       db.select().from(personIdentifiers).where(eq(personIdentifiers.personId, id)),
     );
+    const members = await this.getGroupMembers(id);
 
     const avatars = this.decryptJsonb(rows[0].avatars);
     return {
@@ -1115,7 +1157,63 @@ export class PeopleService {
         connectorType: i.connectorType,
         confidence: i.confidence,
       })),
+      members,
     };
+  }
+
+  private async getGroupMembers(groupId: string): Promise<PersonWithIdentifiers['members']> {
+    const rows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({
+          id: people.id,
+          displayName: people.displayName,
+          avatars: people.avatars,
+        })
+        .from(personRelationships)
+        .innerJoin(people, eq(people.id, personRelationships.sourcePersonId))
+        .where(
+          and(
+            eq(personRelationships.targetPersonId, groupId),
+            eq(personRelationships.relationshipType, 'member_of'),
+          ),
+        ),
+    );
+    const memberIds = [...new Set(rows.map((row) => row.id))];
+    const idents = memberIds.length
+      ? await this.dbService.withCurrentUser((db) =>
+          db
+            .select({
+              personId: personIdentifiers.personId,
+              identifierType: personIdentifiers.identifierType,
+              identifierValue: personIdentifiers.identifierValue,
+            })
+            .from(personIdentifiers)
+            .where(inArray(personIdentifiers.personId, memberIds)),
+        )
+      : [];
+    const identsByMember = new Map<string, typeof idents>();
+    for (const ident of idents) {
+      const list = identsByMember.get(ident.personId) || [];
+      list.push(ident);
+      identsByMember.set(ident.personId, list);
+    }
+
+    const seen = new Set<string>();
+    const members: NonNullable<PersonWithIdentifiers['members']> = [];
+    for (const row of rows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      members.push({
+        id: row.id,
+        displayName: this.crypto.decrypt(row.displayName) ?? row.displayName,
+        avatars: this.decryptJsonb(row.avatars),
+        identifiers: (identsByMember.get(row.id) || []).map((ident) => ({
+          identifierType: ident.identifierType,
+          identifierValue: this.crypto.decrypt(ident.identifierValue) ?? ident.identifierValue,
+        })),
+      });
+    }
+    return members;
   }
 
   /**
@@ -1149,6 +1247,7 @@ export class PeopleService {
         .innerJoin(people, eq(people.id, personIdentifiers.personId))
         .where(and(eq(personIdentifiers.personId, id), eq(people.userId, userId))),
     );
+    const members = await this.getGroupMembers(id);
 
     const avatars = this.decryptJsonb(rows[0].avatars);
     return {
@@ -1164,6 +1263,7 @@ export class PeopleService {
         connectorType: i.connectorType,
         confidence: i.confidence,
       })),
+      members,
     };
   }
 
@@ -1677,6 +1777,16 @@ export class PeopleService {
     limit = 50,
     userId?: string,
   ): Promise<Record<string, unknown>[]> {
+    const result = await this.getMemoriesPage(personId, limit, 0, userId);
+    return result.items;
+  }
+
+  async getMemoriesPage(
+    personId: string,
+    limit = 50,
+    offset = 0,
+    userId?: string,
+  ): Promise<{ items: Record<string, unknown>[]; total: number }> {
     const conditions = [eq(memoryPeople.personId, personId)];
     if (userId) {
       // Filter memories to only those belonging to user's accounts
@@ -1684,21 +1794,35 @@ export class PeopleService {
         sql`${memories.accountId} IN (SELECT id FROM accounts WHERE user_id = ${userId})`,
       );
     }
+    const where = and(...conditions);
 
-    const mems = await this.dbService.withCurrentUser((db) =>
+    const countRows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(memoryPeople)
+        .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
+        .where(where),
+    );
+
+    const page = await this.dbService.withCurrentUser((db) =>
       db
         .select({ memory: memories })
         .from(memoryPeople)
         .innerJoin(memories, eq(memoryPeople.memoryId, memories.id))
-        .where(and(...conditions))
-        .limit(limit),
+        .where(where)
+        .orderBy(sql`${memories.eventTime} DESC NULLS LAST`, sql`${memories.createdAt} DESC`)
+        .limit(limit)
+        .offset(offset),
     );
 
     let userKey: Buffer | null = null;
     if (userId) {
       userKey = await this.userKeyService.getDek(userId);
     }
-    return mems.map((r) => this.decryptMemory(r.memory, userId, userKey));
+    return {
+      items: page.map((r) => this.decryptMemory(r.memory, userId, userKey)),
+      total: Number(countRows[0]?.count) || 0,
+    };
   }
 
   private decryptMemory<

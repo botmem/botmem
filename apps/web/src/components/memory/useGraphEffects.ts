@@ -32,9 +32,9 @@ export function useGraphEffects({
     const contactId = selectedNode.id.replace(/^contact-/, '');
     Promise.all([
       api.getContact(contactId).catch(() => null),
-      api.getContactMemories(contactId).catch(() => []),
+      api.getContactMemories(contactId).catch(() => ({ items: [], total: 0 })),
     ]).then(([detail, memories]) =>
-      dispatchUI({ type: 'setContactInfo', info: { detail, memories } }),
+      dispatchUI({ type: 'setContactInfo', info: { detail, memories: memories.items } }),
     );
   }, [selectedNode?.id, selectedNode?.nodeType]);
 
@@ -84,9 +84,12 @@ export function useGraphEffects({
     await api.removeIdentifier(contactId, identId);
     const [detail, memories] = await Promise.all([
       api.getContact(contactId).catch(() => null),
-      api.getContactMemories(contactId).catch(() => []),
+      api.getContactMemories(contactId).catch(() => ({ items: [], total: 0 })),
     ]);
-    dispatchUI({ type: 'setContactInfo', info: detail ? { detail, memories } : null });
+    dispatchUI({
+      type: 'setContactInfo',
+      info: detail ? { detail, memories: memories.items } : null,
+    });
   }, []);
 
   return { handleRemoveIdentifier };
