@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useEffect } from 'react';
 
 interface ModalProps {
   open: boolean;
@@ -8,12 +8,19 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+  useEffect(() => {
+    if (!open) return;
+    const originalOverflow = document.body.style.overflow;
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
-    },
-    [onClose],
-  );
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -22,8 +29,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-center justify-center animate-[fadeIn_150ms_ease-out]"
-      onKeyDown={handleKeyDown}
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 animate-[fadeIn_150ms_ease-out]"
     >
       <button
         type="button"
@@ -32,8 +38,8 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         aria-label="Close dialog"
         tabIndex={-1}
       />
-      <div className="relative border-4 border-nb-border bg-nb-surface shadow-nb-lg p-4 sm:p-6 w-full max-w-lg mx-2 sm:mx-4 animate-[slideUp_150ms_ease-out]">
-        <div className="flex items-center justify-between mb-4">
+      <div className="relative border-4 border-nb-border bg-nb-surface shadow-nb-lg w-full max-w-lg max-h-[90vh] overflow-y-auto animate-[slideUp_150ms_ease-out]">
+        <div className="sticky top-0 z-10 flex items-center justify-between p-4 sm:p-6 pb-3 bg-nb-surface border-b-3 border-nb-border">
           <h2 className="font-display text-xl font-bold uppercase text-nb-text">{title}</h2>
           <button
             onClick={onClose}
@@ -43,7 +49,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
             X
           </button>
         </div>
-        {children}
+        <div className="p-4 sm:p-6">{children}</div>
       </div>
     </div>
   );
