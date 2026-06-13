@@ -16,6 +16,7 @@ import {
 } from '../db/schema';
 import { normalizeEmail, normalizePhone } from '../people/people.service';
 import { SYSTEM_SETTINGS_USER_ID } from '../settings/settings.service';
+import { MIN_EVENT_TIME } from '../ingestion/raw-event-ingest.service';
 
 const SELF_CONTACT_ID_KEY = 'selfContactId';
 
@@ -438,6 +439,7 @@ export class MeService {
     const userAccountIds = userAccounts.map((a) => a.id);
     const doneConditions: SQLWrapper[] = [];
     if (userId) doneConditions.push(eq(memorySearchIndex.userId, userId));
+    doneConditions.push(sql`${memorySearchIndex.eventTime} >= ${MIN_EVENT_TIME}`);
     const doneFilter =
       userAccountIds.length === 0 && userId
         ? sql`1=0` // User has no accounts — zero results
@@ -460,7 +462,12 @@ export class MeService {
         ? db
             .select({ accountId: memorySearchIndex.accountId, count: sql<number>`count(*)::int` })
             .from(memorySearchIndex)
-            .where(inArray(memorySearchIndex.accountId, userAccountIds))
+            .where(
+              and(
+                inArray(memorySearchIndex.accountId, userAccountIds),
+                sql`${memorySearchIndex.eventTime} >= ${MIN_EVENT_TIME}`,
+              ),
+            )
             .groupBy(memorySearchIndex.accountId)
         : Promise.resolve([]),
       db
@@ -510,7 +517,12 @@ export class MeService {
             })
             .from(memoryPeople)
             .innerJoin(memorySearchIndex, eq(memoryPeople.memoryId, memorySearchIndex.memoryId))
-            .where(eq(memoryPeople.personId, selfContactId))
+            .where(
+              and(
+                eq(memoryPeople.personId, selfContactId),
+                sql`${memorySearchIndex.eventTime} >= ${MIN_EVENT_TIME}`,
+              ),
+            )
             .orderBy(desc(memorySearchIndex.eventTime))
             .limit(20)
         : Promise.resolve([]),

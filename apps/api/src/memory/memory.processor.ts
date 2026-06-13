@@ -25,6 +25,7 @@ import { GeoService } from '../geo/geo.service';
 import { QuotaService } from '../billing/quota.service';
 import { BlobStoreService } from '../blob/blob-store.service';
 import { validateUrlForFetch } from '../utils/ssrf-guard';
+import { MIN_EVENT_TIME } from '../ingestion/raw-event-ingest.service';
 import {
   rawEvents,
   memories,
@@ -350,6 +351,10 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       this.crypto.decrypt(rawEvent.payload) || rawEvent.payload,
     );
     event.sourceId = rawEvent.sourceId;
+    const eventTime = new Date(event.timestamp);
+    if (!Number.isFinite(eventTime.getTime()) || eventTime < MIN_EVENT_TIME) {
+      throw new UnrecoverableError('Invalid event timestamp');
+    }
     const connector = this.connectors.get(rawEvent.connectorType);
     const metadata = (event.content?.metadata || {}) as Record<string, unknown>;
     const pipelineKind = this.rawEventClassifier.classify(rawEvent, event);
@@ -1155,7 +1160,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
     enrichFactuality = this.guardMediaFactuality(enrichFactuality, mergedMetadata);
 
     // Compute weights
-    const ageDays = (Date.now() - new Date(event.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+    const ageDays = (Date.now() - eventTime.getTime()) / (1000 * 60 * 60 * 24);
     const recency = Math.exp(-0.015 * ageDays);
     const importance = 0.5 + Math.min(enrichEntities.length * 0.1, 0.4);
     const trust = this.getTrustScore(rawEvent.connectorType);
@@ -1217,7 +1222,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
             sourceType: memorySourceType,
             sourceId: event.sourceId,
             text: insertText,
-            eventTime: new Date(event.timestamp),
+            eventTime,
             ingestTime: now,
             metadata: insertMetadata,
             entities: enrichEntities.length ? JSON.stringify(enrichEntities) : '[]',
@@ -1245,7 +1250,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           sourceType: memorySourceType,
           sourceId: event.sourceId,
           text: insertText,
-          eventTime: new Date(event.timestamp),
+          eventTime,
           ingestTime: now,
           metadata: insertMetadata,
           entities: enrichEntities.length ? JSON.stringify(enrichEntities) : '[]',
@@ -1386,7 +1391,7 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
           subject: normalizeEmailThreadSubject(mergedMetadata.subject),
           currentMemoryId: persistedMemoryId,
           currentText,
-          currentEventTime: new Date(event.timestamp),
+          currentEventTime: eventTime,
           currentPeopleNames: peopleNames,
           currentPersonIds: resolvedContacts.map((c) => c.contactId),
         });
@@ -1410,14 +1415,14 @@ export class MemoryProcessor extends WorkerHost implements OnModuleInit {
       text: embedText,
       sourceType: memorySourceType,
       connectorType: rawEvent.connectorType,
-      eventTime: new Date(event.timestamp),
+      eventTime,
     });
     void this.pluginRegistry.fireHook('afterEmbed', {
       id: persistedMemoryId,
       text: embedText,
       sourceType: memorySourceType,
       connectorType: rawEvent.connectorType,
-      eventTime: new Date(event.timestamp),
+      eventTime,
     });
 
     // Emit memory updated event
