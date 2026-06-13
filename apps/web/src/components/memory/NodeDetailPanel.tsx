@@ -18,6 +18,7 @@ interface NodeDetailPanelProps {
   connectionCounts: Map<string, number>;
   onClose: () => void;
   onExpand?: (nodeId: string) => void;
+  expanding?: boolean;
   onRemoveIdentifier: (contactId: string, identId: string) => void;
 }
 
@@ -28,6 +29,7 @@ export function NodeDetailPanel({
   connectionCounts,
   onClose,
   onExpand,
+  expanding,
   onRemoveIdentifier,
 }: NodeDetailPanelProps) {
   const isSelf = selfNodeId === selectedNode.id;
@@ -171,9 +173,10 @@ export function NodeDetailPanel({
               {onExpand && (
                 <button
                   onClick={() => onExpand(selectedNode.id)}
-                  className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors"
+                  disabled={expanding}
+                  className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait"
                 >
-                  EXPAND
+                  {expanding ? 'EXPANDING...' : 'EXPAND'}
                 </button>
               )}
 
@@ -235,9 +238,10 @@ export function NodeDetailPanel({
             {onExpand && (
               <button
                 onClick={() => onExpand(selectedNode.id)}
-                className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors"
+                disabled={expanding}
+                className="w-full mt-2 py-1.5 border-2 border-nb-blue font-mono text-xs font-bold uppercase text-nb-blue hover:bg-nb-blue hover:text-black cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait"
               >
-                EXPAND
+                {expanding ? 'EXPANDING...' : 'EXPAND'}
               </button>
             )}
             {selectedNode.metadata?.factuality &&

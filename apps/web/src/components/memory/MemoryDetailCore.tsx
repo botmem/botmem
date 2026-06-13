@@ -2,6 +2,7 @@ import { CONNECTOR_COLORS, formatDate, formatTime } from '@botmem/shared';
 import { cn } from '@/lib/utils';
 import { Badge } from '../ui/Badge';
 import { AuthedImage } from '../ui/AuthedImage';
+import { ScoreBreakdown } from './ScoreBreakdown';
 
 interface MemoryMetadata {
   senderName?: string;
@@ -201,15 +202,6 @@ export function MemoryDetailCore({
   showClaims,
   onThumbnailClick,
 }: MemoryDetailCoreProps) {
-  const filteredWeights = weights
-    ? Object.entries(weights).filter(
-        ([key, val]) => !(key === 'semantic' && val === 0) && !(key === 'final' && val === 0),
-      )
-    : [];
-
-  const barH = compact ? 'h-3' : 'h-4';
-  const barBorder = compact ? 'border' : 'border-2';
-
   return (
     <div className="flex flex-col gap-3">
       {/* Source badges */}
@@ -328,40 +320,7 @@ export function MemoryDetailCore({
       )}
 
       {/* Weight breakdown */}
-      {filteredWeights.length > 0 && (
-        <div>
-          <span className="font-display text-xs font-bold uppercase mb-1 block text-nb-text">
-            Weight Breakdown
-          </span>
-          <div className="flex flex-col gap-1">
-            {filteredWeights.map(([key, val]) => (
-              <div key={key} className="flex items-center gap-1.5">
-                <span
-                  className={cn(
-                    'font-mono text-[11px] uppercase text-nb-muted',
-                    compact ? 'w-16' : 'w-20',
-                  )}
-                >
-                  {key}
-                </span>
-                <div className={`flex-1 ${barH} ${barBorder} border-nb-border bg-nb-surface-muted`}>
-                  <div
-                    className="h-full transition-all"
-                    style={{
-                      width: `${(typeof val === 'number' ? val : 0) * 100}%`,
-                      backgroundColor:
-                        key === 'final' ? 'var(--color-nb-lime)' : 'var(--color-nb-purple)',
-                    }}
-                  />
-                </div>
-                <span className="font-mono text-[11px] w-8 text-right text-nb-text">
-                  {(typeof val === 'number' ? val * 100 : 0).toFixed(0)}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ScoreBreakdown weights={weights} compact={compact} />
 
       {/* Entities */}
       {entities && entities.length > 0 && (
