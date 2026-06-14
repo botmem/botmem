@@ -12,7 +12,10 @@
     "build": "tsc",
     "build:mac-app": "node scripts/build-macos-app.mjs",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
@@ -23,7 +26,9 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^25.9.2",
     "@types/ws": "^8.5.13",
-    "typescript": "^5.7.0"
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "^5.7.0",
+    "vitest": "catalog:"
   },
   "optionalDependencies": {
     "appdmg": "^0.6.6"

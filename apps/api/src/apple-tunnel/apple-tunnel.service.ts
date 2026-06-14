@@ -25,6 +25,31 @@ import { ConfigService } from '../config/config.service';
 import { LogsService } from '../logs/logs.service';
 // accounts schema import removed — using raw SQL to bypass RLS
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Normalize a bridge `lastIndexedAt` value to an ISO string (or null).
+ * The bridge sends epoch milliseconds (number); older/string values that are
+ * already ISO are passed through. Numeric-looking strings are treated as epoch ms.
+ */
+function normalizeLastIndexedAt(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const ms = Number(trimmed);
+      return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+    }
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+  }
+  return null;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface PendingRpc {
@@ -500,6 +525,136 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
 
   getSession(sessionId: string): AppleTunnelSession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  // ── Live Bridge Search ────────────────────────────────────────────────────
+
+  /**
+   * Return the accountId of a currently-connected (live WebSocket, not in grace)
+   * session belonging to this user, or null if none. Picks the most recently
+   * connected session when a user has multiple bridge accounts.
+   */
+  getOnlineAccountIdForUser(userId: string): string | null {
+    if (!userId) return null;
+    let best: AppleTunnelSession | null = null;
+    for (const session of this.sessions.values()) {
+      if (session.userId !== userId) continue;
+      if (!session.bridgeWs || session.bridgeWs.readyState !== WebSocket.OPEN) continue;
+      if (Date.now() - session.lastSeenAt > HEARTBEAT_STALE_MS) continue;
+      if (!best || session.connectedAt > best.connectedAt) best = session;
+    }
+    return best?.accountId ?? null;
+  }
+
+  /** True if this user has a live (non-grace) bridge connection. */
+  isBridgeOnlineForUser(userId: string): boolean {
+    return this.getOnlineAccountIdForUser(userId) !== null;
+  }
+
+  /**
+   * Route a memory search to the user's connected bridge via the `search.query` RPC.
+   * Returns the bridge result ({ items }) or null if the user has no online bridge
+   * or the RPC fails/times out. Never logs query text or user content.
+   */
+  async searchViaBridge(
+    userId: string,
+    params: { query: string; filters?: Record<string, unknown>; limit?: number },
+  ): Promise<{ items: unknown[] } | null> {
+    const accountId = this.getOnlineAccountIdForUser(userId);
+    if (!accountId) return null;
+
+    const timeoutMs = this.config?.bridgeSearchTimeoutMs ?? 8000;
+    const method = 'search.query';
+    try {
+      const result = await this.withTimeout(
+        this.sendLocalRpcRequest(accountId, method, {
+          query: params.query,
+          filters: params.filters,
+          limit: params.limit,
+        }),
+        timeoutMs,
+        method,
+      );
+      const items =
+        result && typeof result === 'object' && Array.isArray((result as { items?: unknown }).items)
+          ? ((result as { items: unknown[] }).items as unknown[])
+          : [];
+      return { items };
+    } catch (err) {
+      // No user content in logs — method + presence + error message only.
+      this.logger.warn(
+        `Live bridge ${method} failed (account present=${Boolean(accountId)}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Fetch live source/index status from the user's connected bridge via the
+   * `bridge.status` RPC. Returns null if offline or on RPC error.
+   * Expected result shape: { sources: Array<{ source, count, lastIndexedAt }> }.
+   */
+  async bridgeStatusForUser(
+    userId: string,
+  ): Promise<{
+    sources: Array<{ source: string; count: number; lastIndexedAt: string | null }>;
+  } | null> {
+    const accountId = this.getOnlineAccountIdForUser(userId);
+    if (!accountId) return null;
+
+    const timeoutMs = this.config?.bridgeSearchTimeoutMs ?? 8000;
+    const method = 'bridge.status';
+    try {
+      const result = await this.withTimeout(
+        this.sendLocalRpcRequest(accountId, method),
+        timeoutMs,
+        method,
+      );
+      const rawSources =
+        result &&
+        typeof result === 'object' &&
+        Array.isArray((result as { sources?: unknown }).sources)
+          ? ((result as { sources: unknown[] }).sources as unknown[])
+          : [];
+      const sources = rawSources.map((s) => {
+        const o = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
+        return {
+          source: typeof o.source === 'string' ? o.source : String(o.source ?? ''),
+          count: typeof o.count === 'number' ? o.count : Number(o.count) || 0,
+          lastIndexedAt: normalizeLastIndexedAt(o.lastIndexedAt),
+        };
+      });
+      return { sources };
+    } catch (err) {
+      this.logger.warn(
+        `Live bridge ${method} failed (account present=${Boolean(accountId)}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /** Reject a promise after timeoutMs (clears the timer when the inner promise settles). */
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, method: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Bridge RPC ${method} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      timer.unref?.();
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        },
+      );
+    });
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
