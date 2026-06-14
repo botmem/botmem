@@ -12,6 +12,7 @@ import { runPreflight, DEFAULT_DB_PATH, detectRunnerName } from './preflight.js'
 import { AppleMessagesDatabase } from './db.js';
 import { RpcHandler } from './rpc-handler.js';
 import { TunnelClient } from './tunnel.js';
+import { LocalIndex } from './local-index/local-index.js';
 import {
   defaultConfigPath,
   formatSources,
@@ -112,17 +113,43 @@ program
         db ??= new AppleMessagesDatabase(opts.db);
         return db;
       };
-      const rpcHandler = new RpcHandler(getDb);
+
+      // ── Build local search index ──────────────────────────────────────────
+      // Bridge-owned FTS index over Contacts + iMessage + (if present) WhatsApp.
+      // Logs are privacy-safe (counts/durations/source names only).
+      const localIndex = new LocalIndex({ log: (msg) => log(msg) });
+      log('Building local search index...');
+      localIndex
+        .refresh()
+        .then(() => log('Local search index ready'))
+        .catch((err) => error(`Index build failed: ${err instanceof Error ? err.message : err}`));
+
+      // Periodic refresh keeps the index reasonably fresh while the bridge runs.
+      const INDEX_REFRESH_MS = 6 * 60 * 60 * 1000; // every 6 hours
+      const refreshTimer = setInterval(() => {
+        localIndex
+          .refresh()
+          .catch((err) =>
+            error(`Index refresh failed: ${err instanceof Error ? err.message : err}`),
+          );
+      }, INDEX_REFRESH_MS);
+      refreshTimer.unref?.();
+
+      const rpcHandler = new RpcHandler(getDb, localIndex);
 
       // ── Connect tunnel ────────────────────────────────────────────────────
       console.log('');
       log(`Connecting to ${server}...`);
 
+      // Advertise the new local-search capability alongside the existing sources
+      // string without breaking the legacy contacts/imessages list.
+      const advertisedSources = sourceList ? `${sourceList},search` : 'search';
+
       const tunnel = new TunnelClient({
         serverUrl: server,
         token,
         rpcHandler,
-        sources: sourceList,
+        sources: advertisedSources,
       });
 
       tunnel.on('status', (status: string) => {
@@ -145,6 +172,8 @@ program
         console.error('');
         error(`FATAL: ${msg}`);
         console.error('');
+        clearInterval(refreshTimer);
+        localIndex.close();
         db?.close();
         process.exit(1);
       });
@@ -156,6 +185,8 @@ program
         console.log('');
         log('Shutting down...');
         tunnel.destroy();
+        clearInterval(refreshTimer);
+        localIndex.close();
         db?.close();
         process.exit(0);
       };

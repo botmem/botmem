@@ -37,6 +37,7 @@ import { WriteScopeGuard } from './user-auth/write-scope.guard';
 import { TracingModule } from './tracing/tracing.module';
 import { GeoModule } from './geo/geo.module';
 import { AppleTunnelModule } from './apple-tunnel/apple-tunnel.module';
+import { BridgeModule } from './bridge/bridge.module';
 import { StartupTasksService } from './startup/startup-tasks.service';
 import { ConnectorRuntimeModule } from './plugins/connector-runtime.module';
 
@@ -80,6 +81,7 @@ const enableApiWorkers = process.env.BOTMEM_ENABLE_API_WORKERS === 'true';
     DemoModule,
     GeoModule,
     AppleTunnelModule,
+    BridgeModule,
     ...(enableApiWorkers ? [JobsWorkerModule, MemoryWorkerModule, ConnectorRuntimeModule] : []),
   ],
   providers: [

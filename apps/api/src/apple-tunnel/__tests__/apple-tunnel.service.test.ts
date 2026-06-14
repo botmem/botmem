@@ -248,4 +248,210 @@ describe('AppleTunnelService', () => {
       vi.useRealTimers();
     }
   });
+
+  // ── Live bridge search helpers ──────────────────────────────────────────────
+
+  function makeService(config?: { bridgeSearchTimeoutMs?: number }) {
+    return new AppleTunnelService(
+      {
+        queryRaw: vi.fn().mockResolvedValue([]),
+        connectionPool: makeMockConnectionPool(async () => ({ rows: [] })),
+      } as never,
+      { decrypt: vi.fn(), encrypt: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      config ? ({ ...config } as never) : undefined,
+    );
+  }
+
+  /** Insert a fake session directly into the private maps. */
+  function injectSession(
+    service: AppleTunnelService,
+    opts: {
+      sessionId: string;
+      userId: string;
+      accountId: string;
+      open?: boolean;
+      lastSeenAt?: number;
+      connectedAt?: number;
+    },
+  ) {
+    const ws = {
+      readyState: opts.open === false ? 3 /* CLOSED */ : 1 /* OPEN */,
+      send: vi.fn(),
+    } as unknown as WebSocket;
+    const session = {
+      sessionId: opts.sessionId,
+      userId: opts.userId,
+      accountId: opts.accountId,
+      bridgeWs: opts.open === false ? null : ws,
+      sessionKey: Buffer.alloc(32),
+      connectedAt: opts.connectedAt ?? Date.now(),
+      lastSeenAt: opts.lastSeenAt ?? Date.now(),
+      pendingRpc: new Map(),
+      nextRpcId: 1,
+      disconnectedAt: null,
+      graceTimer: null,
+      heartbeatTimer: null,
+      sources: { contacts: true, imessages: true },
+    };
+    (service as unknown as { sessions: Map<string, unknown> }).sessions.set(
+      opts.sessionId,
+      session,
+    );
+    (service as unknown as { accountSessions: Map<string, string> }).accountSessions.set(
+      opts.accountId,
+      opts.sessionId,
+    );
+    return session;
+  }
+
+  describe('getOnlineAccountIdForUser / isBridgeOnlineForUser', () => {
+    it('returns the accountId for a live session of the user', () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      expect(service.getOnlineAccountIdForUser('u1')).toBe('a1');
+      expect(service.isBridgeOnlineForUser('u1')).toBe(true);
+    });
+
+    it('returns null when the session ws is closed', () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1', open: false });
+      expect(service.getOnlineAccountIdForUser('u1')).toBeNull();
+      expect(service.isBridgeOnlineForUser('u1')).toBe(false);
+    });
+
+    it('returns null when the session is stale (past heartbeat window)', () => {
+      const service = makeService();
+      injectSession(service, {
+        sessionId: 's1',
+        userId: 'u1',
+        accountId: 'a1',
+        lastSeenAt: Date.now() - 200_000,
+      });
+      expect(service.getOnlineAccountIdForUser('u1')).toBeNull();
+    });
+
+    it('returns null for an unknown user', () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      expect(service.getOnlineAccountIdForUser('other')).toBeNull();
+    });
+
+    it('picks the most recently connected session when user has multiple', () => {
+      const service = makeService();
+      injectSession(service, {
+        sessionId: 's1',
+        userId: 'u1',
+        accountId: 'a1',
+        connectedAt: 1000,
+      });
+      injectSession(service, {
+        sessionId: 's2',
+        userId: 'u1',
+        accountId: 'a2',
+        connectedAt: 2000,
+      });
+      expect(service.getOnlineAccountIdForUser('u1')).toBe('a2');
+    });
+  });
+
+  describe('searchViaBridge', () => {
+    it('returns null when no online account', async () => {
+      const service = makeService();
+      const result = await service.searchViaBridge('u1', { query: 'hi' });
+      expect(result).toBeNull();
+    });
+
+    it('calls search.query and returns items on success', async () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      const spy = vi
+        .spyOn(service as never, 'sendLocalRpcRequest')
+        .mockResolvedValue({ items: [{ id: 'm1' }] } as never);
+
+      const result = await service.searchViaBridge('u1', {
+        query: 'hi',
+        filters: { connectorType: 'apple' },
+        limit: 5,
+      });
+
+      expect(spy).toHaveBeenCalledWith('a1', 'search.query', {
+        query: 'hi',
+        filters: { connectorType: 'apple' },
+        limit: 5,
+      });
+      expect(result).toEqual({ items: [{ id: 'm1' }] });
+    });
+
+    it('returns { items: [] } when result has no items array', async () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      vi.spyOn(service as never, 'sendLocalRpcRequest').mockResolvedValue({} as never);
+      const result = await service.searchViaBridge('u1', { query: 'hi' });
+      expect(result).toEqual({ items: [] });
+    });
+
+    it('returns null on RPC error', async () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      vi.spyOn(service as never, 'sendLocalRpcRequest').mockRejectedValue(
+        new Error('boom') as never,
+      );
+      const result = await service.searchViaBridge('u1', { query: 'hi' });
+      expect(result).toBeNull();
+    });
+
+    it('returns null on timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        const service = makeService({ bridgeSearchTimeoutMs: 1000 });
+        injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+        vi.spyOn(service as never, 'sendLocalRpcRequest').mockImplementation(
+          () => new Promise(() => {}) as never,
+        );
+        const promise = service.searchViaBridge('u1', { query: 'hi' });
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(promise).resolves.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('bridgeStatusForUser', () => {
+    it('returns null when offline', async () => {
+      const service = makeService();
+      expect(await service.bridgeStatusForUser('u1')).toBeNull();
+    });
+
+    it('normalizes sources from bridge.status RPC', async () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      vi.spyOn(service as never, 'sendLocalRpcRequest').mockResolvedValue({
+        sources: [
+          { source: 'imessage', count: 10, lastIndexedAt: '2026-01-01T00:00:00.000Z' },
+          { source: 'contacts', count: '5', lastIndexedAt: null },
+          'junk',
+        ],
+      } as never);
+
+      const result = await service.bridgeStatusForUser('u1');
+      expect(result).toEqual({
+        sources: [
+          { source: 'imessage', count: 10, lastIndexedAt: '2026-01-01T00:00:00.000Z' },
+          { source: 'contacts', count: 5, lastIndexedAt: null },
+          { source: '', count: 0, lastIndexedAt: null },
+        ],
+      });
+    });
+
+    it('returns null on RPC error', async () => {
+      const service = makeService();
+      injectSession(service, { sessionId: 's1', userId: 'u1', accountId: 'a1' });
+      vi.spyOn(service as never, 'sendLocalRpcRequest').mockRejectedValue(
+        new Error('nope') as never,
+      );
+      expect(await service.bridgeStatusForUser('u1')).toBeNull();
+    });
+  });
 });

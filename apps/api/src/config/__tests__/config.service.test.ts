@@ -73,4 +73,30 @@ describe('ConfigService', () => {
       expect(config.gmailClientSecret).toBe('server-csec');
     });
   });
+
+  describe('live bridge search', () => {
+    it('bridgeLiveSearch defaults to false', () => {
+      delete process.env.BRIDGE_LIVE_SEARCH;
+      expect(new ConfigService().bridgeLiveSearch).toBe(false);
+    });
+
+    it('bridgeLiveSearch is true only for exact "true"', () => {
+      process.env.BRIDGE_LIVE_SEARCH = 'true';
+      expect(new ConfigService().bridgeLiveSearch).toBe(true);
+      process.env.BRIDGE_LIVE_SEARCH = '1';
+      expect(new ConfigService().bridgeLiveSearch).toBe(false);
+      process.env.BRIDGE_LIVE_SEARCH = 'TRUE';
+      expect(new ConfigService().bridgeLiveSearch).toBe(false);
+    });
+
+    it('bridgeSearchTimeoutMs defaults to 8000', () => {
+      delete process.env.BRIDGE_SEARCH_TIMEOUT_MS;
+      expect(new ConfigService().bridgeSearchTimeoutMs).toBe(8000);
+    });
+
+    it('bridgeSearchTimeoutMs reads from env', () => {
+      process.env.BRIDGE_SEARCH_TIMEOUT_MS = '2500';
+      expect(new ConfigService().bridgeSearchTimeoutMs).toBe(2500);
+    });
+  });
 });

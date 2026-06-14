@@ -67,6 +67,26 @@ const navItems: { to: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    to: '/bridge',
+    label: 'LIVE BRIDGE',
+    icon: (
+      <svg
+        width={s}
+        height={s}
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="8" cy="8" r="1.5" />
+        <path d="M4.5 4.5a5 5 0 0 0 0 7M11.5 4.5a5 5 0 0 1 0 7" />
+        <path d="M2.5 2.5a8 8 0 0 0 0 11M13.5 2.5a8 8 0 0 1 0 11" />
+      </svg>
+    ),
+  },
+  {
     to: '/people',
     label: 'PEOPLE',
     icon: (

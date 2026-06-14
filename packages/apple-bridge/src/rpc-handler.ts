@@ -5,6 +5,8 @@
 
 import type { AppleMessagesDatabase } from './db.js';
 import { listAppleContacts } from './contacts.js';
+import type { LocalIndex } from './local-index/local-index.js';
+import type { SearchFilters } from './local-index/types.js';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -21,7 +23,10 @@ interface JsonRpcResponse {
 }
 
 export class RpcHandler {
-  constructor(private getDb: AppleMessagesDatabase | (() => AppleMessagesDatabase)) {}
+  constructor(
+    private getDb: AppleMessagesDatabase | (() => AppleMessagesDatabase),
+    private localIndex?: LocalIndex,
+  ) {}
 
   private db(): AppleMessagesDatabase {
     return typeof this.getDb === 'function' ? this.getDb() : this.getDb;
@@ -59,6 +64,36 @@ export class RpcHandler {
         case 'contacts.list': {
           const contacts = await listAppleContacts();
           return { jsonrpc: '2.0', id, result: { contacts } };
+        }
+
+        case 'search.query': {
+          if (!this.localIndex) {
+            return {
+              jsonrpc: '2.0',
+              id,
+              error: { code: -32601, message: 'Local search index not available' },
+            };
+          }
+          const query = params?.query as string | undefined;
+          if (typeof query !== 'string' || query.trim() === '') {
+            return {
+              jsonrpc: '2.0',
+              id,
+              error: { code: -32602, message: 'Missing required param: query' },
+            };
+          }
+          const filters = (params?.filters as SearchFilters | undefined) ?? {};
+          const rawLimit = params?.limit as number | undefined;
+          const limit = typeof rawLimit === 'number' && rawLimit > 0 ? Math.min(rawLimit, 200) : 25;
+          const items = this.localIndex.search(query, filters, limit);
+          return { jsonrpc: '2.0', id, result: { items } };
+        }
+
+        case 'bridge.status': {
+          if (!this.localIndex) {
+            return { jsonrpc: '2.0', id, result: { sources: [] } };
+          }
+          return { jsonrpc: '2.0', id, result: { sources: this.localIndex.status() } };
         }
 
         case 'ping': {

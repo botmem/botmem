@@ -272,7 +272,7 @@ function isoToCoreData(iso: string): number {
   return (unixSeconds - CORE_DATA_EPOCH_OFFSET) * 1_000_000_000;
 }
 
-function extractAttributedBodyText(body?: Buffer | null): string {
+export function extractAttributedBodyText(body?: Buffer | null): string {
   if (!body?.length) return '';
 
   const nsString = Buffer.from('NSString', 'utf8');

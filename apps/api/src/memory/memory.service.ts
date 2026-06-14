@@ -8,6 +8,8 @@ import { ConnectorsService } from '../connectors/connectors.service';
 import { PluginRegistry } from '../plugins/plugin-registry';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserKeyService } from '../crypto/user-key.service';
+import { ConfigService } from '../config/config.service';
+import { AppleTunnelService } from '../apple-tunnel/apple-tunnel.service';
 import { Traced } from '../tracing/traced.decorator';
 import {
   memories,
@@ -468,6 +470,8 @@ export class MemoryService {
     private pluginRegistry: PluginRegistry,
     private crypto: CryptoService,
     private userKeyService: UserKeyService,
+    private config: ConfigService,
+    private appleTunnel: AppleTunnelService,
   ) {}
 
   /**
@@ -1080,6 +1084,20 @@ export class MemoryService {
     options?: { debug?: boolean; noEntityResolution?: boolean },
   ): Promise<SearchResponse> {
     if (!query.trim()) return { items: [], fallback: false };
+
+    // --- Live Bridge routing ---
+    // When the flag is on and the user's local Mac bridge is connected, route
+    // search LIVE to the bridge (bridge-only — nothing from Postgres). On bridge
+    // failure while online, fall through to normal search (resilient).
+    if (this.config.bridgeLiveSearch && userId && this.appleTunnel.isBridgeOnlineForUser(userId)) {
+      const bridged = await this.appleTunnel.searchViaBridge(userId, {
+        query,
+        filters: filters as Record<string, unknown> | undefined,
+        limit,
+      });
+      if (bridged) return this.mapBridgeResults(bridged.items, { limit });
+      // bridge online but failed → fall through to normal search
+    }
 
     // Pre-resolve user decryption key (async 2-tier: memory → Redis)
     const resolvedKey = await this.resolveUserKey(userId);
@@ -1963,6 +1981,72 @@ export class MemoryService {
       }
     }
     return result;
+  }
+
+  /**
+   * Map raw items returned by the live Apple bridge (`search.query` RPC) into a
+   * valid SearchResponse. Defensive: every field may be missing or wrong-typed.
+   * Bridge results are never persisted and carry UNVERIFIED factuality.
+   */
+  private mapBridgeResults(items: unknown[], { limit }: { limit: number }): SearchResponse {
+    const safe = Array.isArray(items) ? items : [];
+    const toDate = (value: unknown): Date => {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+      if (typeof value === 'string' || typeof value === 'number') {
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      return new Date();
+    };
+    const toStr = (value: unknown, fallback = ''): string =>
+      typeof value === 'string' ? value : value == null ? fallback : String(value);
+    const toNum = (value: unknown, fallback = 0): number =>
+      typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+    const mapped: SearchResult[] = safe.slice(0, Math.max(0, limit)).map((raw) => {
+      const item = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const score = toNum(item.score, 0);
+      const eventTime = toDate(item.eventTime);
+      const ingestTime = item.ingestTime !== undefined ? toDate(item.ingestTime) : eventTime;
+      const createdAt = item.createdAt !== undefined ? toDate(item.createdAt) : ingestTime;
+
+      const rawPeople = Array.isArray(item.people) ? item.people : [];
+      const people = rawPeople.map((p) => {
+        const person = (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+        return {
+          role: toStr(person.role, 'sender'),
+          personId: toStr(person.personId, ''),
+          displayName: toStr(person.displayName ?? person.name, ''),
+        };
+      });
+
+      return {
+        id: toStr(item.id),
+        text: toStr(item.text),
+        sourceType: toStr(item.sourceType),
+        connectorType: toStr(item.connectorType, 'apple'),
+        eventTime,
+        ingestTime,
+        createdAt,
+        factuality: { label: 'UNVERIFIED', confidence: 0.5, rationale: 'live bridge' },
+        entities: '',
+        metadata: {},
+        accountIdentifier:
+          typeof item.accountIdentifier === 'string' ? item.accountIdentifier : null,
+        pinned: false,
+        score,
+        weights: {
+          semantic: score,
+          recency: 0,
+          importance: 0,
+          trust: 0,
+          final: score,
+        },
+        people: people.length ? people : undefined,
+      };
+    });
+
+    return { items: mapped, fallback: false, found: mapped.length };
   }
 
   private toSearchResult(

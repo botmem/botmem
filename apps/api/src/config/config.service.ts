@@ -376,6 +376,18 @@ export class ConfigService implements OnModuleInit {
     return 1024;
   }
 
+  // --- Live Bridge Search ---
+
+  /** When true, route memory search live to a connected Apple bridge (bridge-only results). */
+  get bridgeLiveSearch(): boolean {
+    return process.env.BRIDGE_LIVE_SEARCH === 'true';
+  }
+
+  /** Timeout (ms) for a single live bridge search RPC before falling back to normal search. */
+  get bridgeSearchTimeoutMs(): number {
+    return parseInt(process.env.BRIDGE_SEARCH_TIMEOUT_MS || '8000', 10);
+  }
+
   // --- OpenTelemetry ---
 
   get otelEnabled(): boolean {

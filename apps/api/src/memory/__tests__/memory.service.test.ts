@@ -34,6 +34,11 @@ describe('MemoryService', () => {
   };
   let cryptoService: Record<string, ReturnType<typeof vi.fn>>;
   let userKeyService: { getKey: ReturnType<typeof vi.fn>; getDek: ReturnType<typeof vi.fn> };
+  let configService: { bridgeLiveSearch: boolean; bridgeSearchTimeoutMs: number };
+  let appleTunnel: {
+    isBridgeOnlineForUser: ReturnType<typeof vi.fn>;
+    searchViaBridge: ReturnType<typeof vi.fn>;
+  };
   let mockDb: Record<string, ReturnType<typeof vi.fn>>;
 
   const fakeMemoryRow = {
@@ -144,6 +149,12 @@ describe('MemoryService', () => {
       });
     mockDb.then = vi.fn().mockImplementation((fn: (...args: unknown[]) => unknown) => fn([]));
 
+    configService = { bridgeLiveSearch: false, bridgeSearchTimeoutMs: 8000 };
+    appleTunnel = {
+      isBridgeOnlineForUser: vi.fn().mockReturnValue(false),
+      searchViaBridge: vi.fn().mockResolvedValue(null),
+    };
+
     service = new MemoryService(
       makeDbService(mockDb),
       aiService,
@@ -152,6 +163,8 @@ describe('MemoryService', () => {
       pluginRegistry,
       cryptoService,
       userKeyService,
+      configService as never,
+      appleTunnel as never,
     );
   });
 
@@ -184,9 +197,9 @@ describe('MemoryService', () => {
       expect(
         inferTextSource({ mediaExtraction: { status: 'extracted', source: 'vision_ocr' } }),
       ).toBe('attachment_ocr');
-      expect(
-        inferTextSource({ mediaExtraction: { extractedText: 'legacy extracted text' } }),
-      ).toBe('attachment_ocr');
+      expect(inferTextSource({ mediaExtraction: { extractedText: 'legacy extracted text' } })).toBe(
+        'attachment_ocr',
+      );
       expect(inferTextSource({ mediaExtraction: { status: 'failed' } })).toBe('body');
     });
 
@@ -831,9 +844,9 @@ describe('MemoryService', () => {
 
     it('returns factuality counts from plaintext labels', async () => {
       mockDb.where.mockReturnValue(mockDb);
-      mockDb.then = vi.fn().mockImplementationOnce((fn: (rows: unknown[]) => unknown) =>
-        fn([{ count: '3' }]),
-      );
+      mockDb.then = vi
+        .fn()
+        .mockImplementationOnce((fn: (rows: unknown[]) => unknown) => fn([{ count: '3' }]));
       mockDb.groupBy
         .mockResolvedValueOnce([{ key: 'email', count: '3' }])
         .mockResolvedValueOnce([{ key: 'gmail', count: '3' }])
@@ -1065,6 +1078,160 @@ describe('MemoryService', () => {
         'location',
       ]);
       expect(result.total).toBe(3);
+    });
+  });
+
+  describe('live bridge routing', () => {
+    it('does NOT route to bridge when flag is off (even if online)', async () => {
+      configService.bridgeLiveSearch = false;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+
+      const result = await service.search('hello', undefined, 20, 'user-1');
+
+      expect(appleTunnel.searchViaBridge).not.toHaveBeenCalled();
+      // normal (non-bridge) pipeline ran
+      expect(result).toHaveProperty('items');
+    });
+
+    it('does NOT route to bridge when no userId', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+
+      await service.search('hello');
+
+      expect(appleTunnel.searchViaBridge).not.toHaveBeenCalled();
+    });
+
+    it('does NOT route to bridge when offline', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(false);
+
+      const result = await service.search('hello', undefined, 20, 'user-1');
+
+      expect(appleTunnel.searchViaBridge).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('items');
+    });
+
+    it('routes to bridge and returns bridge-only results when flag on + online', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+      appleTunnel.searchViaBridge.mockResolvedValue({
+        items: [
+          {
+            id: 'bridge-1',
+            text: 'live imessage',
+            sourceType: 'imessage',
+            connectorType: 'apple',
+            eventTime: '2026-01-01T00:00:00.000Z',
+            score: 0.9,
+            people: [{ name: 'Alice' }],
+          },
+        ],
+      });
+
+      const result = await service.search('hi', undefined, 20, 'user-1');
+
+      expect(appleTunnel.searchViaBridge).toHaveBeenCalledWith('user-1', {
+        query: 'hi',
+        filters: undefined,
+        limit: 20,
+      });
+      // bridge-only — Postgres pipeline must NOT run
+      expect(searchIndexService.textSearch).not.toHaveBeenCalled();
+      expect(result.fallback).toBe(false);
+      expect(result.found).toBe(1);
+      expect(result.items).toHaveLength(1);
+      const item = result.items[0];
+      expect(item.id).toBe('bridge-1');
+      expect(item.eventTime).toBeInstanceOf(Date);
+      expect(item.factuality).toEqual({
+        label: 'UNVERIFIED',
+        confidence: 0.5,
+        rationale: 'live bridge',
+      });
+      expect(item.weights.final).toBe(0.9);
+      expect(item.weights.semantic).toBe(0.9);
+      expect(item.people).toEqual([{ role: 'sender', personId: '', displayName: 'Alice' }]);
+      expect(item.pinned).toBe(false);
+    });
+
+    it('falls through to normal search when bridge online but RPC fails', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+      appleTunnel.searchViaBridge.mockResolvedValue(null); // failure → null
+
+      const result = await service.search('hi', undefined, 20, 'user-1');
+
+      expect(appleTunnel.searchViaBridge).toHaveBeenCalled();
+      // online but RPC returned null → fell through to the normal (non-bridge) pipeline
+      expect(result).toHaveProperty('items');
+      expect(result.fallback).toBeDefined();
+    });
+  });
+
+  describe('mapBridgeResults', () => {
+    const call = (items: unknown[], limit = 20) =>
+      (
+        service as unknown as {
+          mapBridgeResults(
+            items: unknown[],
+            opts: { limit: number },
+          ): {
+            items: Array<Record<string, unknown>>;
+            fallback: boolean;
+            found: number;
+          };
+        }
+      ).mapBridgeResults(items, { limit });
+
+    it('applies sensible defaults for missing fields', () => {
+      const before = Date.now();
+      const res = call([{}]);
+      const item = res.items[0];
+      expect(item.id).toBe('');
+      expect(item.text).toBe('');
+      expect(item.connectorType).toBe('apple');
+      expect(item.entities).toBe('');
+      expect(item.metadata).toEqual({});
+      expect(item.pinned).toBe(false);
+      expect(item.score).toBe(0);
+      expect((item.weights as Record<string, number>).final).toBe(0);
+      expect(item.people).toBeUndefined();
+      // eventTime falls back to ~now
+      expect((item.eventTime as Date).getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it('parses ISO dates and falls back to now on invalid', () => {
+      const res = call([{ eventTime: '2025-05-05T10:00:00.000Z', ingestTime: 'not-a-date' }]);
+      const item = res.items[0];
+      expect((item.eventTime as Date).toISOString()).toBe('2025-05-05T10:00:00.000Z');
+      expect(item.ingestTime).toBeInstanceOf(Date);
+      // createdAt defaults to ingestTime when absent
+      expect(item.createdAt).toBeInstanceOf(Date);
+    });
+
+    it('maps people from {name} to {role,personId,displayName}', () => {
+      const res = call([
+        { people: [{ name: 'Bob' }, { displayName: 'Carol', role: 'recipient' }] },
+      ]);
+      expect(res.items[0].people).toEqual([
+        { role: 'sender', personId: '', displayName: 'Bob' },
+        { role: 'recipient', personId: '', displayName: 'Carol' },
+      ]);
+    });
+
+    it('truncates to limit', () => {
+      const items = Array.from({ length: 5 }, (_, i) => ({ id: `b-${i}`, score: i }));
+      const res = call(items, 2);
+      expect(res.items).toHaveLength(2);
+      expect(res.found).toBe(2);
+    });
+
+    it('is defensive against non-array and non-object items', () => {
+      const res = call(['junk', 42, null] as unknown[]);
+      expect(res.items).toHaveLength(3);
+      expect(res.items[0].id).toBe('');
+      expect(res.fallback).toBe(false);
     });
   });
 });
