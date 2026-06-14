@@ -800,6 +800,96 @@ describe('MemoryService', () => {
         senderName: 'Linked Sender',
       });
     });
+
+    it('collapses Gmail message rows when a thread representative exists', async () => {
+      vi.spyOn(service, 'getPeopleForMemories').mockResolvedValueOnce(new Map());
+      mockDb.where.mockResolvedValueOnce([{ count: 3 }]);
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          memory: {
+            ...fakeMemoryRow,
+            id: 'email-1',
+            sourceId: 'msg-1',
+            metadata: JSON.stringify({ emailThreadKey: 'gmail:thread-1' }),
+          },
+          accountIdentifier: 'me@example.com',
+        },
+        {
+          memory: {
+            ...fakeMemoryRow,
+            id: 'thread-1',
+            sourceType: 'email_thread',
+            sourceId: 'email-thread:gmail:thread-1',
+            metadata: JSON.stringify({ emailThreadKey: 'gmail:thread-1' }),
+          },
+          accountIdentifier: 'me@example.com',
+        },
+        {
+          memory: {
+            ...fakeMemoryRow,
+            id: 'email-2',
+            sourceId: 'msg-2',
+            metadata: JSON.stringify({ emailThreadKey: 'gmail:thread-1' }),
+          },
+          accountIdentifier: 'me@example.com',
+        },
+      ]);
+
+      const result = await service.timeline({ connectorType: 'gmail' });
+
+      expect(result.items.map((item) => item.id)).toEqual(['thread-1']);
+      expect(result.items[0].sourceType).toBe('email_thread');
+    });
+
+    it('keeps distinct Gmail threads separate', async () => {
+      vi.spyOn(service, 'getPeopleForMemories').mockResolvedValueOnce(new Map());
+      mockDb.where.mockResolvedValueOnce([{ count: 2 }]);
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          memory: {
+            ...fakeMemoryRow,
+            id: 'thread-1',
+            sourceType: 'email_thread',
+            sourceId: 'email-thread:gmail:thread-1',
+            metadata: JSON.stringify({ emailThreadKey: 'gmail:thread-1' }),
+          },
+          accountIdentifier: 'me@example.com',
+        },
+        {
+          memory: {
+            ...fakeMemoryRow,
+            id: 'email-2',
+            sourceId: 'msg-2',
+            metadata: JSON.stringify({ emailThreadKey: 'gmail:thread-2' }),
+          },
+          accountIdentifier: 'me@example.com',
+        },
+      ]);
+
+      const result = await service.timeline({ connectorType: 'gmail' });
+
+      expect(result.items.map((item) => item.id)).toEqual(['thread-1', 'email-2']);
+    });
+
+    it('keeps Gmail emails without a thread key as standalone memories', async () => {
+      vi.spyOn(service, 'getPeopleForMemories').mockResolvedValueOnce(new Map());
+      mockDb.where.mockResolvedValueOnce([{ count: 1 }]);
+      mockDb.limit.mockResolvedValueOnce([
+        {
+          memory: {
+            ...fakeMemoryRow,
+            id: 'email-1',
+            sourceId: 'msg-1',
+            metadata: '{}',
+          },
+          accountIdentifier: 'me@example.com',
+        },
+      ]);
+
+      const result = await service.timeline({ connectorType: 'gmail' });
+
+      expect(result.items.map((item) => item.id)).toEqual(['email-1']);
+    });
   });
 
   describe('insert', () => {

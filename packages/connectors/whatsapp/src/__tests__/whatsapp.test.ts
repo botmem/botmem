@@ -1,7 +1,37 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { WhatsAppConnector } from '../index';
 
+const startQrAuthMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../qr-auth.js', () => ({
+  startQrAuth: startQrAuthMock,
+}));
+
 describe('WhatsAppConnector', () => {
+  beforeEach(() => {
+    startQrAuthMock.mockReset();
+    startQrAuthMock.mockResolvedValue(undefined);
+  });
+
+  it('does not warm a QR socket in the constructor', () => {
+    new WhatsAppConnector();
+
+    expect(startQrAuthMock).not.toHaveBeenCalled();
+  });
+
+  it('starts QR warming lazily from initiateAuth', async () => {
+    startQrAuthMock.mockImplementationOnce(async (_sessionDir, callbacks) => {
+      callbacks.onQrCode('qr-data');
+    });
+    const connector = new WhatsAppConnector();
+
+    await expect(connector.initiateAuth({})).resolves.toMatchObject({
+      type: 'qr-code',
+      qrData: 'qr-data',
+    });
+    expect(startQrAuthMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not treat the self participant as the sender for incoming LID-only DMs', () => {
     const connector = new WhatsAppConnector();
     const result = connector.embed(

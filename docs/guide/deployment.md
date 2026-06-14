@@ -33,10 +33,10 @@ A production Botmem deployment consists of:
 The official split images are published to GHCR for both `amd64` and `arm64`:
 
 ```bash
-docker pull ghcr.io/botmem/botmem-api:latest
-docker pull ghcr.io/botmem/botmem-worker:latest
-docker pull ghcr.io/botmem/botmem-app:latest
-docker pull ghcr.io/botmem/botmem-landing:latest
+docker pull ghcr.io/botmem/botmem:api-latest
+docker pull ghcr.io/botmem/botmem:worker-latest
+docker pull ghcr.io/botmem/botmem:app-latest
+docker pull ghcr.io/botmem/botmem:landing-latest
 ```
 
 Or build locally from the repo:
@@ -52,7 +52,7 @@ The repo includes `docker-compose.prod.yml` ready for production use with Caddy 
 ```yaml
 services:
   api:
-    image: ghcr.io/botmem/botmem-api:latest
+    image: ghcr.io/botmem/botmem:api-latest
     restart: unless-stopped
     env_file: .env.prod
     depends_on:

@@ -390,8 +390,11 @@ export const useAuthStore = create<AuthState>()(
             }
 
             // Then check current auth state (session persistence / already logged in).
-            // A persisted partial user can exist without an access token, so gate on token.
-            if (!get().accessToken) {
+            // Gate on the USER, not the token: onIdTokenChanged (above) can set accessToken
+            // from the persisted Firebase session before this runs, which would otherwise
+            // skip the backend sync that restores the user object — kicking the user to
+            // /login on reload even though their session is valid.
+            if (!get().user) {
               await new Promise<void>((resolve) => {
                 const unsubscribe = firebaseAuth!.onAuthStateChanged(async (firebaseUser) => {
                   unsubscribe();
