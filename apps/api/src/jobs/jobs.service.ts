@@ -110,6 +110,21 @@ export class JobsService implements OnApplicationBootstrap {
     const recoveredFailedAccounts = new Set<string>();
     let requeued = 0;
     for (const job of candidates) {
+      // Apple/iMessage is live-bridge only — never requeue a stale sync. Cancel
+      // any leftover row so the UI isn't stuck on a phantom running job.
+      if (job.connectorType === 'apple' || job.connectorType === 'imessage') {
+        await this.dbService.systemDb((db) =>
+          db
+            .update(jobs)
+            .set({
+              status: 'cancelled',
+              error: 'Apple is live-bridge only; sync not requeued',
+              completedAt: new Date(),
+            })
+            .where(eq(jobs.id, job.id)),
+        );
+        continue;
+      }
       if (
         job.connectorType === 'whatsapp' &&
         (await this.hasCompletedWhatsAppHistory(job.accountId))
@@ -230,6 +245,14 @@ export class JobsService implements OnApplicationBootstrap {
     accountIdentifier?: string,
     memoryBankId?: string,
   ) {
+    // Apple/iMessage is live-bridge only — never create a sync job (search runs
+    // live over the bridge). Guard here so ALL callers are covered, not just the
+    // REST controller.
+    if (connectorType === 'apple' || connectorType === 'imessage') {
+      this.logger.log(`Skipping sync for ${connectorType} account ${accountId} — live-bridge only`);
+      return undefined;
+    }
+
     // Prevent concurrent syncs for the same account — skip if one is already queued/running
     const [existing] = await this.dbService.withCurrentUser((db) =>
       db

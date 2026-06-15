@@ -101,24 +101,6 @@ describe('api', () => {
     });
   });
 
-  describe('getLiveBridgeStatus', () => {
-    it('fetches global live bridge status', async () => {
-      mockOk({
-        online: true,
-        flagEnabled: true,
-        sources: [{ source: 'whatsapp', count: 10, lastIndexedAt: null }],
-      });
-      const result = await api.getLiveBridgeStatus();
-      expect(result.online).toBe(true);
-      expect(result.flagEnabled).toBe(true);
-      expect(result.sources).toHaveLength(1);
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/bridge/status',
-        expect.objectContaining({ headers: expect.any(Object) }),
-      );
-    });
-  });
-
   describe('initiateAuth', () => {
     it('sends POST with config', async () => {
       mockOk({ type: 'redirect', url: 'https://example.com' });
@@ -167,7 +149,13 @@ describe('api', () => {
     it('triggers sync via POST', async () => {
       mockOk({ job: { id: 'j1' } });
       const result = await api.triggerSync('a1');
-      expect(result.job.id).toBe('j1');
+      expect('job' in result && result.job.id).toBe('j1');
+    });
+
+    it('returns the skipped shape for live-bridge connectors', async () => {
+      mockOk({ skipped: true, reason: 'Apple is live-bridge only; no sync needed.' });
+      const result = await api.triggerSync('apple-1');
+      expect('skipped' in result && result.skipped).toBe(true);
     });
   });
 

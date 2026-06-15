@@ -1257,6 +1257,52 @@ describe('MemoryService', () => {
       expect(result).toHaveProperty('items');
       expect(result.fallback).toBeDefined();
     });
+
+    it('does NOT route to bridge when filtered only to non-bridge connectors (gmail)', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+
+      const result = await service.search(
+        'invoice',
+        { connectorTypes: ['gmail'] } as never,
+        20,
+        'user-1',
+      );
+
+      // gmail isn't on the bridge → it must NOT route there (Postgres serves it)
+      expect(appleTunnel.searchViaBridge).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('items');
+    });
+
+    it('does NOT route to bridge when filtered only to non-bridge source types (email)', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+
+      const result = await service.search(
+        'invoice',
+        { sourceTypes: ['email'] } as never,
+        20,
+        'user-1',
+      );
+
+      // email isn't a bridge source type → Postgres serves it
+      expect(appleTunnel.searchViaBridge).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('items');
+    });
+
+    it('routes to bridge when filter includes a bridge connector (whatsapp)', async () => {
+      configService.bridgeLiveSearch = true;
+      appleTunnel.isBridgeOnlineForUser.mockReturnValue(true);
+      appleTunnel.searchViaBridge.mockResolvedValue({ items: [] });
+
+      await service.search('lunch', { connectorTypes: ['whatsapp'] } as never, 20, 'user-1');
+
+      expect(appleTunnel.searchViaBridge).toHaveBeenCalledWith('user-1', {
+        query: 'lunch',
+        filters: { connectorTypes: ['whatsapp'] },
+        limit: 20,
+      });
+    });
   });
 
   describe('mapBridgeResults', () => {

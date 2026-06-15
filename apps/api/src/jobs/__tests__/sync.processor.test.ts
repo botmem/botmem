@@ -1046,7 +1046,7 @@ describe('SyncProcessor', () => {
     expect(setTunnelTransport).toHaveBeenCalledOnce();
   });
 
-  it('resolves Apple contact identities without inserting raw events', async () => {
+  it('is live-bridge only for Apple: skips identity resolution and raw event ingest', async () => {
     const {
       connectors,
       accountsService,
@@ -1068,6 +1068,13 @@ describe('SyncProcessor', () => {
     const resolvePerson = vi.fn().mockResolvedValue({ id: 'person-1' });
     Object.assign(mockConnector, { setTunnelTransport });
     mockConnector.sync.mockImplementation(async () => {
+      // Apple bridge emits both data and identity events; both must be ignored.
+      mockConnector.emit('data', {
+        sourceType: 'message',
+        sourceId: 'apple:msg-1',
+        timestamp: new Date().toISOString(),
+        content: { text: 'hi' },
+      });
       mockConnector.emit('identity', {
         source: 'apple_contacts',
         contact: {
@@ -1116,16 +1123,85 @@ describe('SyncProcessor', () => {
       attemptsMade: 0,
     } as unknown as import('bullmq').Job);
 
-    expect(resolvePerson).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        { type: 'email', value: 'ada@example.com', connectorType: 'apple' },
-        { type: 'phone', value: '+15551234567', connectorType: 'apple' },
-        { type: 'apple_contact_id', value: 'local-contact-1', connectorType: 'apple' },
-        { type: 'name', value: 'Ada Lovelace', connectorType: 'apple' },
-      ]),
-      'person',
-      'user-1',
-    );
+    // No people nodes, no raw events, no memory jobs from Apple sync.
+    expect(resolvePerson).not.toHaveBeenCalled();
     expect(memoryQueue.add).not.toHaveBeenCalled();
+    // Tunnel transport still injected so live search keeps working.
+    expect(setTunnelTransport).toHaveBeenCalledOnce();
+    // Job still completes cleanly even though nothing was emitted to the pipeline.
+    expect(jobsService.updateJob).toHaveBeenCalledWith(
+      'j1',
+      expect.objectContaining({ status: 'done' }),
+    );
+  });
+
+  it('is live-bridge only for iMessage: skips identity resolution and raw event ingest', async () => {
+    const {
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+      mockConnector,
+    } = createMockDeps();
+    const setTunnelTransport = vi.fn();
+    const resolvePerson = vi.fn().mockResolvedValue({ id: 'person-1' });
+    Object.assign(mockConnector, { setTunnelTransport });
+    mockConnector.sync.mockImplementation(async () => {
+      mockConnector.emit('identity', {
+        source: 'apple_contacts',
+        contact: { id: 'c-1', displayName: 'Bob', emails: ['bob@example.com'] },
+      });
+      return { cursor: null, hasMore: false, processed: 0 };
+    });
+    vi.mocked(accountsService.getById).mockResolvedValue({
+      id: 'imsg-1',
+      connectorType: 'imessage',
+      authContext: '{"raw":{"tunnelMode":true}}',
+      lastCursor: null,
+      itemsSynced: 0,
+      tunnelMode: true,
+    } as never);
+    vi.mocked(moduleRef.get).mockImplementation((token: unknown) => {
+      if (token === AppleTunnelService) return { isConnected: vi.fn() } as never;
+      if (token === PeopleService) return { resolvePerson } as never;
+      return null as never;
+    });
+
+    const processor = new SyncProcessor(
+      connectors,
+      accountsService,
+      authService,
+      jobsService,
+      logsService,
+      events,
+      dbService,
+      cryptoService as unknown as import('../../crypto/crypto.service').CryptoService,
+      memoryQueue,
+      settingsService,
+      configService,
+      analytics,
+      traceContext,
+      moduleRef,
+    );
+
+    await processor.process({
+      data: { accountId: 'imsg-1', connectorType: 'imessage', jobId: 'j1' },
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as unknown as import('bullmq').Job);
+
+    expect(resolvePerson).not.toHaveBeenCalled();
+    expect(memoryQueue.add).not.toHaveBeenCalled();
+    expect(setTunnelTransport).toHaveBeenCalledOnce();
   });
 });

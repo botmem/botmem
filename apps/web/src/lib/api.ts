@@ -29,18 +29,6 @@ export interface ApiBridgeStatus {
   lastError: string | null;
 }
 
-export interface LiveBridgeSource {
-  source: string;
-  count: number;
-  lastIndexedAt: string | null;
-}
-
-export interface LiveBridgeStatus {
-  online: boolean;
-  flagEnabled: boolean;
-  sources?: LiveBridgeSource[];
-}
-
 export interface ApiMemoryItem {
   id: string;
   sourceType?: string;
@@ -372,9 +360,6 @@ export const api = {
   deleteAccount: (id: string) => request<{ ok: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
   getBridgeStatus: (id: string) => request<ApiBridgeStatus>(`/accounts/${id}/bridge-status`),
 
-  // Live Bridge (local Mac daemon serving live search)
-  getLiveBridgeStatus: () => request<LiveBridgeStatus>('/bridge/status'),
-
   // Auth
   hasCredentials: (type: string) =>
     request<{ hasSavedCredentials: boolean }>(`/auth/${type}/has-credentials`),
@@ -413,7 +398,8 @@ export const api = {
     return request<{ logs: LogEntry[]; total: number }>(`/logs${qs ? `?${qs}` : ''}`);
   },
   triggerSync: (accountId: string, memoryBankId?: string) =>
-    request<{ job: Job }>(`/jobs/sync/${accountId}`, {
+    // Apple/iMessage are live-bridge only and return { skipped, reason } instead of a job.
+    request<{ job: Job } | { skipped: true; reason: string }>(`/jobs/sync/${accountId}`, {
       method: 'POST',
       body: JSON.stringify({ memoryBankId: memoryBankId || undefined }),
     }),

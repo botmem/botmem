@@ -141,31 +141,53 @@ export class IndexStore {
    * `filters.source` selects an internal source; ordering is by bm25 (best first).
    */
   search(query: string, filters: SearchFilters = {}, limit = 25): SearchItem[] {
-    // Build an AND-of-phrases MATCH; escape embedded double quotes.
-    const match = query
+    // Build an OR-of-phrases MATCH (each term quoted so FTS treats punctuation
+    // literally). OR — not AND — so multi-word queries don't require every term;
+    // bm25 then ranks docs that match more (and rarer) terms higher.
+    const terms = query
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '""')}"`)
-      .join(' ');
-    if (!match) return [];
+      .map((t) => `"${t.replace(/"/g, '""')}"`);
+    if (!terms.length) return [];
+    // Restrict matching to {text sender_name} so a group's thread_title never
+    // floods results with every message in that chat (the old behaviour).
+    const match = `{text sender_name} : (${terms.join(' OR ')})`;
 
-    // Resolve the effective internal source from either source or connectorType.
-    const source =
-      filters.source ??
-      (filters.connectorType ? connectorTypeToSource(filters.connectorType) : undefined);
+    // Resolve the set of internal sources to filter on, from singular `source`/
+    // `connectorType` AND the plural `connectorTypes` the web sends. Unknown/
+    // non-bridge connectors (gmail, slack, …) map to nothing and are dropped.
+    const sourceSet = new Set<string>();
+    if (filters.source) sourceSet.add(filters.source);
+    for (const ct of [
+      ...(filters.connectorType ? [filters.connectorType] : []),
+      ...(filters.connectorTypes ?? []),
+    ]) {
+      const s = connectorTypeToSource(ct);
+      if (s) sourceSet.add(s);
+    }
 
     const conditions: string[] = ['records_fts MATCH ?'];
     const args: unknown[] = [match];
-    if (source) {
-      conditions.push('source = ?');
-      args.push(source);
+    if (sourceSet.size > 0) {
+      conditions.push(`source IN (${[...sourceSet].map(() => '?').join(', ')})`);
+      args.push(...sourceSet);
     }
     // sourceType maps to a source class: 'contact' ↔ contacts, 'message' ↔ the rest.
-    if (filters.sourceType === 'contact') {
-      conditions.push(`source = 'contacts'`);
-    } else if (filters.sourceType === 'message') {
-      conditions.push(`source <> 'contacts'`);
+    // The bridge only serves 'message' and 'contact'. If the request is scoped to
+    // source types the bridge can't serve (email/photo/location), return nothing
+    // rather than silently broadening to all bridge content.
+    const sourceTypeSet = new Set<string>([
+      ...(filters.sourceType ? [filters.sourceType] : []),
+      ...(filters.sourceTypes ?? []),
+    ]);
+    if (sourceTypeSet.size > 0) {
+      const wantsContact = sourceTypeSet.has('contact');
+      const wantsMessage = sourceTypeSet.has('message');
+      if (!wantsContact && !wantsMessage) return [];
+      if (wantsContact && !wantsMessage) conditions.push(`source = 'contacts'`);
+      else if (wantsMessage && !wantsContact) conditions.push(`source <> 'contacts'`);
+      // both requested → no source constraint
     }
     args.push(limit);
 

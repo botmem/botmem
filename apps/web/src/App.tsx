@@ -34,9 +34,6 @@ const ConnectorsPage = lazy(() =>
 const ContactsPage = lazy(() =>
   import('./pages/ContactsPage').then((m) => ({ default: m.ContactsPage })),
 );
-const BridgePage = lazy(() =>
-  import('./pages/BridgePage').then((m) => ({ default: m.BridgePage })),
-);
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
@@ -167,7 +164,7 @@ export function AppRoutes() {
               <Route path="/dashboard" element={appRedirect('/dashboard')} />
               <Route path="/me" element={appRedirect('/me')} />
               <Route path="/connectors" element={appRedirect('/connectors')} />
-              <Route path="/bridge" element={appRedirect('/bridge')} />
+              <Route path="/bridge" element={appRedirect('/connectors')} />
               <Route path="/people" element={appRedirect('/people')} />
               <Route path="/contacts" element={appRedirect('/people')} />
               <Route path="/settings" element={appRedirect('/settings')} />
@@ -220,7 +217,10 @@ export function AppRoutes() {
               <Route path="/me" element={<MePage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/connectors" element={<ConnectorsPage />} />
-              <Route path="/bridge" element={<BridgePage />} />
+              <Route
+                path="/bridge"
+                element={<Navigate to="/connectors?expanded=apple" replace />}
+              />
               <Route path="/memories" element={<Navigate to="/dashboard" replace />} />
               <Route path="/people" element={<ContactsPage />} />
               <Route path="/contacts" element={<Navigate to="/people" replace />} />
@@ -230,7 +230,10 @@ export function AppRoutes() {
             <Route path="/app/me" element={<Navigate to="/me" replace />} />
             <Route path="/app/dashboard" element={<Navigate to="/dashboard" replace />} />
             <Route path="/app/connectors" element={<Navigate to="/connectors" replace />} />
-            <Route path="/app/bridge" element={<Navigate to="/bridge" replace />} />
+            <Route
+              path="/app/bridge"
+              element={<Navigate to="/connectors?expanded=apple" replace />}
+            />
             <Route path="/app/memories" element={<Navigate to="/dashboard" replace />} />
             <Route path="/app/people" element={<Navigate to="/people" replace />} />
             <Route path="/app/contacts" element={<Navigate to="/people" replace />} />

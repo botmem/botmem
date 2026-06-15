@@ -386,10 +386,12 @@ export class BotmemClient {
     return this.request<{ jobs: Job[] }>(`/jobs${qs}`);
   }
 
-  async triggerSync(accountId: string): Promise<{ job: Job }> {
-    return this.request<{ job: Job }>(`/jobs/sync/${encodeURIComponent(accountId)}`, {
-      method: 'POST',
-    });
+  async triggerSync(accountId: string): Promise<{ job: Job } | { skipped: true; reason: string }> {
+    // Live-bridge connectors (Apple/iMessage) return { skipped, reason } instead of a job.
+    return this.request<{ job: Job } | { skipped: true; reason: string }>(
+      `/jobs/sync/${encodeURIComponent(accountId)}`,
+      { method: 'POST' },
+    );
   }
 
   async cancelJob(id: string): Promise<{ ok: boolean }> {

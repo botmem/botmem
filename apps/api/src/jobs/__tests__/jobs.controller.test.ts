@@ -273,6 +273,130 @@ describe('JobsController', () => {
     expect(result.job.id).toBe('j1');
   });
 
+  it('triggerSync skips Apple (live-bridge only) without creating a job', async () => {
+    const {
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    } = createMocks();
+    vi.mocked(accountsService.getById).mockResolvedValue({
+      id: 'a1',
+      connectorType: 'apple',
+      identifier: 'me@icloud.com',
+      userId: 'u1',
+    });
+
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    );
+    const result = await controller.triggerSync({ id: 'u1' }, 'a1');
+
+    expect(jobsService.triggerSync).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      skipped: true,
+      reason: 'Apple is live-bridge only; no sync needed.',
+    });
+  });
+
+  it('triggerSync skips iMessage (live-bridge only) without creating a job', async () => {
+    const {
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    } = createMocks();
+    vi.mocked(accountsService.getById).mockResolvedValue({
+      id: 'a1',
+      connectorType: 'imessage',
+      identifier: 'me@icloud.com',
+      userId: 'u1',
+    });
+
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    );
+    const result = await controller.triggerSync({ id: 'u1' }, 'a1');
+
+    expect(jobsService.triggerSync).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      skipped: true,
+      reason: 'Apple is live-bridge only; no sync needed.',
+    });
+  });
+
+  it('retryFailed skips Apple accounts but retries others', async () => {
+    const {
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    } = createMocks();
+    vi.mocked(jobsService.getAllForUser).mockResolvedValue([
+      { ...fakeJobRow, id: 'j-apple', accountId: 'a-apple', status: 'failed' },
+      { ...fakeJobRow, id: 'j-gmail', accountId: 'a-gmail', status: 'failed' },
+    ]);
+    vi.mocked(accountsService.getById).mockImplementation(async (id: string) =>
+      id === 'a-apple'
+        ? { id: 'a-apple', connectorType: 'apple', identifier: 'me@icloud.com', userId: 'u1' }
+        : { id: 'a-gmail', connectorType: 'gmail', identifier: 'me@gmail.com', userId: 'u1' },
+    );
+    vi.mocked(jobsService.triggerSync).mockResolvedValue(fakeJobRow);
+
+    const controller = new JobsController(
+      jobsService,
+      accountsService,
+      memoryBanksService,
+      dbService,
+      syncQueue,
+      memoryQueue,
+      maintenanceQueue,
+      embedQueue,
+      enrichQueue,
+    );
+    const result = await controller.retryFailed({ id: 'u1' });
+
+    expect(jobsService.triggerSync).toHaveBeenCalledTimes(1);
+    expect(jobsService.triggerSync).toHaveBeenCalledWith(
+      'a-gmail',
+      'gmail',
+      'me@gmail.com',
+      undefined,
+    );
+    expect(result).toEqual({ ok: true, retried: 1 });
+  });
+
   it('cancel calls service and returns ok', async () => {
     const {
       jobsService,

@@ -72,7 +72,8 @@ export class LocalIndex {
       let count = 0;
       try {
         let batch: Parameters<IndexStore['addRecords']>[1] = [];
-        for (const rec of adapter.read(dbPath)) {
+        // `for await` consumes both sync (Contacts/iMessage) and async (WhatsApp) generators.
+        for await (const rec of adapter.read(dbPath)) {
           batch.push(rec);
           if (batch.length >= BATCH_SIZE) {
             this.store.addRecords(adapter.source, batch);

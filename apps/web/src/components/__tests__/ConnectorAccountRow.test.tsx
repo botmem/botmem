@@ -1,9 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { ConnectorAccount } from '@botmem/shared';
 import { ConnectorAccountRow } from '../connectors/ConnectorAccountRow';
 import { useMemoryBankStore } from '../../store/memoryBankStore';
 import { useJobStore } from '../../store/jobStore';
+import { api } from '../../lib/api';
+
+vi.mock('../../lib/api', () => ({
+  api: {
+    getBridgeStatus: vi.fn().mockResolvedValue({
+      connected: false,
+      accountId: 'a1',
+      sources: null,
+      lastSeenAt: null,
+      lastError: null,
+    }),
+  },
+}));
+
+const mockGetBridgeStatus = vi.mocked(api.getBridgeStatus);
 
 const baseAccount: ConnectorAccount = {
   id: 'a1',
@@ -23,6 +38,14 @@ describe('ConnectorAccountRow', () => {
   beforeEach(() => {
     useMemoryBankStore.setState({ memoryBanks: [], activeMemoryBankId: null });
     useJobStore.setState({ ...baseJobState, jobs: [], logsByAccount: {}, notifications: [] });
+    mockGetBridgeStatus.mockReset();
+    mockGetBridgeStatus.mockResolvedValue({
+      connected: false,
+      accountId: 'a1',
+      sources: null,
+      lastSeenAt: null,
+      lastError: null,
+    });
   });
 
   it('shows QR recovery action for reconnect_required WhatsApp accounts', () => {
@@ -212,5 +235,89 @@ describe('ConnectorAccountRow', () => {
       'iMessage bridge not connected',
     );
     expect(screen.getAllByText(/Start the Botmem Apple bridge/)).toHaveLength(1);
+  });
+
+  it('shows SYNC button and schedule selector for non-bridge connectors (gmail)', () => {
+    render(
+      <ConnectorAccountRow
+        account={{ ...baseAccount, id: 'gmail-1', type: 'gmail', schedule: 'daily' }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('SYNC')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select sync schedule')).toBeInTheDocument();
+    // Non-bridge connectors never poll the live bridge status endpoint.
+    expect(mockGetBridgeStatus).not.toHaveBeenCalled();
+  });
+
+  it('hides SYNC button and schedule selector for apple bridge connectors', () => {
+    render(
+      <ConnectorAccountRow
+        account={{ ...baseAccount, id: 'apple-1', type: 'apple', schedule: 'daily' }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('SYNC')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Select sync schedule')).not.toBeInTheDocument();
+    expect(screen.queryByText('REALTIME')).not.toBeInTheDocument();
+    // Delete control stays available.
+    expect(screen.getByText('X')).toBeInTheDocument();
+  });
+
+  it('hides SYNC button and schedule selector for imessage bridge connectors', () => {
+    render(
+      <ConnectorAccountRow
+        account={{ ...baseAccount, id: 'imsg-1', type: 'imessage', schedule: 'daily' }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('SYNC')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Select sync schedule')).not.toBeInTheDocument();
+  });
+
+  it('shows OFFLINE for a disconnected apple bridge account', () => {
+    render(
+      <ConnectorAccountRow
+        account={{ ...baseAccount, id: 'apple-1', type: 'apple', status: 'disconnected' }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('OFFLINE')).toBeInTheDocument();
+    expect(screen.queryByText(/Never synced/)).not.toBeInTheDocument();
+  });
+
+  it('flips the apple bridge row to ONLINE once the live status poll resolves connected', async () => {
+    mockGetBridgeStatus.mockResolvedValue({
+      connected: true,
+      accountId: 'apple-1',
+      sources: { contacts: true, imessages: true },
+      lastSeenAt: '2026-06-12T00:00:00.000Z',
+      lastError: null,
+    });
+
+    render(
+      <ConnectorAccountRow
+        account={{ ...baseAccount, id: 'apple-1', type: 'apple', status: 'connected' }}
+        onRemove={vi.fn()}
+        onSyncNow={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('ONLINE')).toBeInTheDocument());
+    expect(mockGetBridgeStatus).toHaveBeenCalledWith('apple-1');
+    expect(screen.getByText(/iMessages, Contacts/)).toBeInTheDocument();
   });
 });

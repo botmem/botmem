@@ -95,6 +95,22 @@ describe('SchedulerService', () => {
       expect(syncQueue.add).not.toHaveBeenCalled();
     });
 
+    it('does not schedule Apple (live-bridge only) and removes any existing cron', async () => {
+      syncQueue.getRepeatableJobs.mockResolvedValueOnce([
+        { name: 'scheduled:acc-1', key: 'apple-old-key' },
+      ]);
+
+      await service.setSchedule('acc-1', 'apple', 'daily');
+
+      expect(syncQueue.removeRepeatableByKey).toHaveBeenCalledWith('apple-old-key');
+      expect(syncQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('does not schedule iMessage (live-bridge only)', async () => {
+      await service.setSchedule('acc-1', 'imessage', 'daily');
+      expect(syncQueue.add).not.toHaveBeenCalled();
+    });
+
     it('removes existing repeatable job before adding new one', async () => {
       syncQueue.getRepeatableJobs.mockResolvedValueOnce([
         { name: 'scheduled:acc-1', key: 'old-key' },

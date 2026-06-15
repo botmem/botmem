@@ -69,6 +69,10 @@ export interface SearchFilters {
   sourceType?: string;
   /** Wire connector type (apple|whatsapp|contacts); mapped back to source name. */
   connectorType?: string;
+  /** Multi-value connector types (the web sends these); mapped to source names. */
+  connectorTypes?: string[];
+  /** Multi-value source types (message|contact). */
+  sourceTypes?: string[];
 }
 
 /** A read-only source adapter over a local app database. */
@@ -78,6 +82,9 @@ export interface SourceAdapter {
   defaultDbPath(): string;
   /** Cheap presence/readability probe. Never throws. */
   detect(dbPath?: string): boolean;
-  /** Open the DB(s) read-only and yield normalized records. */
-  read(dbPath?: string): Generator<IndexRecord>;
+  /**
+   * Open the DB(s) read-only and yield normalized records. May be a sync
+   * generator (Contacts/iMessage) or async (WhatsApp parses attached PDFs).
+   */
+  read(dbPath?: string): Generator<IndexRecord> | AsyncGenerator<IndexRecord>;
 }

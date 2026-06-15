@@ -456,6 +456,12 @@ importers:
       commander:
         specifier: ^14.0.3
         version: 14.0.3
+      mammoth:
+        specifier: ^1.12.0
+        version: 1.12.0
+      pdf-parse:
+        specifier: ^2.4.5
+        version: 2.4.5
       ws:
         specifier: ^8.21.0
         version: 8.21.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
