@@ -141,14 +141,18 @@ export class IndexStore {
    * `filters.source` selects an internal source; ordering is by bm25 (best first).
    */
   search(query: string, filters: SearchFilters = {}, limit = 25): SearchItem[] {
-    // Build an AND-of-phrases MATCH; escape embedded double quotes.
-    const match = query
+    // Build an OR-of-phrases MATCH (each term quoted so FTS treats punctuation
+    // literally). OR — not AND — so multi-word queries don't require every term;
+    // bm25 then ranks docs that match more (and rarer) terms higher.
+    const terms = query
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '""')}"`)
-      .join(' ');
-    if (!match) return [];
+      .map((t) => `"${t.replace(/"/g, '""')}"`);
+    if (!terms.length) return [];
+    // Restrict matching to {text sender_name} so a group's thread_title never
+    // floods results with every message in that chat (the old behaviour).
+    const match = `{text sender_name} : (${terms.join(' OR ')})`;
 
     // Resolve the effective internal source from either source or connectorType.
     const source =

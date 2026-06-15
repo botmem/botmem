@@ -60,6 +60,10 @@ export class SchedulerService implements OnModuleInit {
       }
     }
 
+    // Apple/iMessage is live-bridge only: never schedule a sync (and clean up any
+    // previously-scheduled cron above). Live search runs over the bridge.
+    if (connectorType === 'apple' || connectorType === 'imessage') return;
+
     if (!this.connectors.getSyncConfig(connectorType).configurable) return;
 
     const cron = SCHEDULE_CRON[schedule];

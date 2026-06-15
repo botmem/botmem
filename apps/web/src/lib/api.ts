@@ -29,18 +29,6 @@ export interface ApiBridgeStatus {
   lastError: string | null;
 }
 
-export interface LiveBridgeSource {
-  source: string;
-  count: number;
-  lastIndexedAt: string | null;
-}
-
-export interface LiveBridgeStatus {
-  online: boolean;
-  flagEnabled: boolean;
-  sources?: LiveBridgeSource[];
-}
-
 export interface ApiMemoryItem {
   id: string;
   sourceType?: string;
@@ -371,9 +359,6 @@ export const api = {
     request<ConnectorAccount>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAccount: (id: string) => request<{ ok: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
   getBridgeStatus: (id: string) => request<ApiBridgeStatus>(`/accounts/${id}/bridge-status`),
-
-  // Live Bridge (local Mac daemon serving live search)
-  getLiveBridgeStatus: () => request<LiveBridgeStatus>('/bridge/status'),
 
   // Auth
   hasCredentials: (type: string) =>

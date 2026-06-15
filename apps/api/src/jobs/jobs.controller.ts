@@ -103,6 +103,8 @@ export class JobsController {
     let retried = 0;
     for (const job of failedJobs) {
       const account = await this.accountsService.getById(job.accountId);
+      // Apple/iMessage is live-bridge only: never re-trigger a Postgres sync.
+      if (account.connectorType === 'apple' || account.connectorType === 'imessage') continue;
       await this.jobsService.triggerSync(
         account.id,
         account.connectorType,
@@ -138,6 +140,11 @@ export class JobsController {
     const account = await this.accountsService.getById(accountId);
     // IDOR fix: verify account belongs to user
     if (account.userId !== user.id) return { error: 'not found' };
+
+    // Apple/iMessage is live-bridge only: no Postgres sync. Live search runs over the bridge.
+    if (account.connectorType === 'apple' || account.connectorType === 'imessage') {
+      return { skipped: true, reason: 'Apple is live-bridge only; no sync needed.' };
+    }
 
     // Validate memoryBankId belongs to the current user if provided
     if (body?.memoryBankId) {

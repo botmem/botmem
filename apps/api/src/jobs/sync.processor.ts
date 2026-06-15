@@ -301,6 +301,10 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       totalEmitted += 1;
       this.events.emitToChannel(`job:${jobId}`, 'connector:data', event);
 
+      // Apple/iMessage is live-bridge only: never persist new data to Postgres.
+      // Live search runs over the bridge (AppleTunnelService.searchViaBridge).
+      if (connectorType === 'apple' || connectorType === 'imessage') return;
+
       const writePromise = this.rawEventIngest
         .ingest({
           accountId,
@@ -338,6 +342,8 @@ export class SyncProcessor extends WorkerHost implements OnModuleInit {
       logger.warn(degradedReason);
     });
     connector.on('identity', (event: AppleContactIdentity) => {
+      // Apple/iMessage is live-bridge only: do not create people nodes from sync.
+      if (connectorType === 'apple' || connectorType === 'imessage') return;
       if (event?.source !== 'apple_contacts') return;
       const peopleService = this.getPeopleService();
       if (!peopleService) {

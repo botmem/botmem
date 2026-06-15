@@ -78,6 +78,9 @@ export interface SourceAdapter {
   defaultDbPath(): string;
   /** Cheap presence/readability probe. Never throws. */
   detect(dbPath?: string): boolean;
-  /** Open the DB(s) read-only and yield normalized records. */
-  read(dbPath?: string): Generator<IndexRecord>;
+  /**
+   * Open the DB(s) read-only and yield normalized records. May be a sync
+   * generator (Contacts/iMessage) or async (WhatsApp parses attached PDFs).
+   */
+  read(dbPath?: string): Generator<IndexRecord> | AsyncGenerator<IndexRecord>;
 }
