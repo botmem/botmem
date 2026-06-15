@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@botmem/connector-sdk": "workspace:*",
-    "googleapis": "^172.0.0"
+    "googleapis": "^173.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
