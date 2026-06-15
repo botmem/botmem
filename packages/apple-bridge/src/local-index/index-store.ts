@@ -174,14 +174,20 @@ export class IndexStore {
       args.push(...sourceSet);
     }
     // sourceType maps to a source class: 'contact' ↔ contacts, 'message' ↔ the rest.
-    // Only constrain when the request is unambiguous (a single type requested).
+    // The bridge only serves 'message' and 'contact'. If the request is scoped to
+    // source types the bridge can't serve (email/photo/location), return nothing
+    // rather than silently broadening to all bridge content.
     const sourceTypeSet = new Set<string>([
       ...(filters.sourceType ? [filters.sourceType] : []),
       ...(filters.sourceTypes ?? []),
     ]);
-    if (sourceTypeSet.size === 1) {
-      if (sourceTypeSet.has('contact')) conditions.push(`source = 'contacts'`);
-      else if (sourceTypeSet.has('message')) conditions.push(`source <> 'contacts'`);
+    if (sourceTypeSet.size > 0) {
+      const wantsContact = sourceTypeSet.has('contact');
+      const wantsMessage = sourceTypeSet.has('message');
+      if (!wantsContact && !wantsMessage) return [];
+      if (wantsContact && !wantsMessage) conditions.push(`source = 'contacts'`);
+      else if (wantsMessage && !wantsContact) conditions.push(`source <> 'contacts'`);
+      // both requested → no source constraint
     }
     args.push(limit);
 

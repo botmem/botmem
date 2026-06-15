@@ -164,6 +164,12 @@ describe('IndexStore add/search/status/reset', () => {
     expect(items).toHaveLength(0);
   });
 
+  it('returns nothing for source types the bridge cannot serve (email/photo)', () => {
+    // 'dinner' matches messages, but an email-only filter must not return them
+    expect(store.search('dinner', { sourceTypes: ['email'] })).toHaveLength(0);
+    expect(store.search('dinner', { sourceType: 'photo' })).toHaveLength(0);
+  });
+
   it('honors the limit', () => {
     const items = store.search('dinner', {}, 1);
     expect(items).toHaveLength(1);
