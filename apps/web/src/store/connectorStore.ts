@@ -95,13 +95,17 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
 
   syncNow: async (id, memoryBankId?) => {
     const account = _get().accounts.find((a) => a.id === id);
+    // Apple/iMessage are live-bridge only — there is no sync to trigger.
+    if (account?.type === 'apple' || account?.type === 'imessage') return;
     trackEvent('sync_triggered', { connector_type: account?.type });
     set((state) => ({
       error: null,
       accounts: state.accounts.map((a) => (a.id === id ? { ...a, status: 'syncing' as const } : a)),
     }));
     try {
-      const { job } = await api.triggerSync(id, memoryBankId);
+      const res = await api.triggerSync(id, memoryBankId);
+      if (!('job' in res)) return;
+      const { job } = res;
       useJobStore.getState().upsertJob(job);
       void useJobStore.getState().fetchJobs(id);
       set((state) => ({
@@ -141,12 +145,15 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
   syncAll: async (memoryBankId?) => {
     const syncable = _get().accounts.filter(
       (a) =>
-        a.status === 'connected' ||
-        a.status === 'degraded' ||
-        a.status === 'failed' ||
-        a.status === 'error' ||
-        a.status === 'disconnected' ||
-        a.status === 'reconnect_required',
+        // Apple/iMessage are live-bridge only — exclude from bulk sync.
+        a.type !== 'apple' &&
+        a.type !== 'imessage' &&
+        (a.status === 'connected' ||
+          a.status === 'degraded' ||
+          a.status === 'failed' ||
+          a.status === 'error' ||
+          a.status === 'disconnected' ||
+          a.status === 'reconnect_required'),
     );
     if (syncable.length === 0) return;
 
@@ -162,7 +169,9 @@ export const useConnectorStore = create<ConnectorState>((set, _get) => ({
       syncable.map((a) =>
         api
           .triggerSync(a.id, memoryBankId)
-          .then(({ job }) => useJobStore.getState().upsertJob(job))
+          .then((res) => {
+            if ('job' in res) useJobStore.getState().upsertJob(res.job);
+          })
           .catch(() => {}),
       ),
     );

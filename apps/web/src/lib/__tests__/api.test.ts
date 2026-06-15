@@ -149,7 +149,13 @@ describe('api', () => {
     it('triggers sync via POST', async () => {
       mockOk({ job: { id: 'j1' } });
       const result = await api.triggerSync('a1');
-      expect(result.job.id).toBe('j1');
+      expect('job' in result && result.job.id).toBe('j1');
+    });
+
+    it('returns the skipped shape for live-bridge connectors', async () => {
+      mockOk({ skipped: true, reason: 'Apple is live-bridge only; no sync needed.' });
+      const result = await api.triggerSync('apple-1');
+      expect('skipped' in result && result.skipped).toBe(true);
     });
   });
 

@@ -117,6 +117,15 @@ describe('JobsService', () => {
       // Should NOT have enqueued a new job
       expect(syncQueue.add).not.toHaveBeenCalled();
     });
+
+    it('never creates a sync job for apple/imessage (live-bridge only)', async () => {
+      for (const ct of ['apple', 'imessage']) {
+        const result = await service.triggerSync('acc-1', ct, 'me@example.com');
+        expect(result).toBeUndefined();
+      }
+      // No dedup query and no enqueue should happen for bridge connectors.
+      expect(syncQueue.add).not.toHaveBeenCalled();
+    });
   });
 
   describe('getAll', () => {

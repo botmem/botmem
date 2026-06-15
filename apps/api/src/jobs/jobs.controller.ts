@@ -157,6 +157,8 @@ export class JobsController {
       account.identifier,
       body?.memoryBankId,
     );
+    // triggerSync returns undefined for connectors that don't sync (e.g. live-bridge).
+    if (!row) return { skipped: true, reason: 'No sync scheduled for this connector.' };
     return { job: toApiJob(row) };
   }
 

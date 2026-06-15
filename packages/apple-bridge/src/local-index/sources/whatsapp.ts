@@ -12,9 +12,10 @@
  * WhatsApp is optional; `detect()` returns false when it isn't installed.
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, dirname, extname } from 'node:path';
+import { join, dirname, extname, resolve, relative, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import type { IndexRecord, SourceAdapter } from '../types.js';
 
@@ -95,19 +96,20 @@ async function extractDocText(absPath: string): Promise<string> {
     if (statSync(absPath).size > MAX_DOC_BYTES) return '';
     const ext = extname(absPath).toLowerCase();
     if (ext === '.pdf') {
-      // pdf-parse v2: new PDFParse({ data }).getText()
+      // pdf-parse v2: new PDFParse({ data }).getText(). Async read avoids blocking
+      // the event loop (and the tunnel heartbeat) while indexing many documents.
       const { PDFParse } = require('pdf-parse');
-      const parser = new PDFParse({ data: new Uint8Array(readFileSync(absPath)) });
+      const parser = new PDFParse({ data: new Uint8Array(await readFile(absPath)) });
       const res = await parser.getText();
       return (res?.text ?? '').slice(0, MAX_DOC_CHARS);
     }
     if (ext === '.docx') {
       const mammoth = require('mammoth');
-      const res = await mammoth.extractRawText({ buffer: readFileSync(absPath) });
+      const res = await mammoth.extractRawText({ buffer: await readFile(absPath) });
       return (res?.value ?? '').slice(0, MAX_DOC_CHARS);
     }
     if (ext === '.txt' || ext === '.csv' || ext === '.md') {
-      return readFileSync(absPath, 'utf8').slice(0, MAX_DOC_CHARS);
+      return (await readFile(absPath, 'utf8')).slice(0, MAX_DOC_CHARS);
     }
   } catch {
     /* unparseable / corrupt — skip silently (no user content in logs) */
@@ -177,11 +179,17 @@ export const whatsapp: SourceAdapter = {
         const media: unknown[] = r.mediaPath ? [{ path: r.mediaPath }] : [];
 
         // Extract text from downloaded document attachments (PDF/DOCX/TXT/CSV).
+        // Confine reads to the WhatsApp container: ZMEDIALOCALPATH is data from
+        // the source DB, so resolve it and reject anything that escapes via '..'.
         if (r.mediaPath) {
-          const abs = join(containerDir, r.mediaPath);
-          const docText = await extractDocText(abs);
-          if (docText) {
-            text = [text, caption, docText].filter(Boolean).join('\n');
+          const abs = resolve(containerDir, r.mediaPath);
+          const rel = relative(containerDir, abs);
+          const contained = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+          if (contained) {
+            const docText = await extractDocText(abs);
+            if (docText) {
+              text = [text, caption, docText].filter(Boolean).join('\n');
+            }
           }
         }
         if (!text && caption) text = caption;

@@ -191,6 +191,28 @@ describe('connectorStore', () => {
       expect(api.triggerSync).toHaveBeenCalledWith('a1', undefined);
     });
 
+    it('does not trigger sync for apple/imessage (live-bridge only)', async () => {
+      useConnectorStore.setState({
+        accounts: [
+          {
+            id: 'apple-1',
+            type: 'apple',
+            identifier: 'me@example.com',
+            status: 'connected',
+            schedule: 'manual',
+            lastSync: null,
+            memoriesIngested: 0,
+            contactsCount: 0,
+            groupsCount: 0,
+            lastError: null,
+          },
+        ],
+      });
+      (api.triggerSync as unknown as ReturnType<typeof vi.fn>).mockClear();
+      await useConnectorStore.getState().syncNow('apple-1');
+      expect(api.triggerSync).not.toHaveBeenCalled();
+    });
+
     it('refetches backend account state on API failure', async () => {
       useConnectorStore.setState({
         accounts: [

@@ -398,7 +398,8 @@ export const api = {
     return request<{ logs: LogEntry[]; total: number }>(`/logs${qs ? `?${qs}` : ''}`);
   },
   triggerSync: (accountId: string, memoryBankId?: string) =>
-    request<{ job: Job }>(`/jobs/sync/${accountId}`, {
+    // Apple/iMessage are live-bridge only and return { skipped, reason } instead of a job.
+    request<{ job: Job } | { skipped: true; reason: string }>(`/jobs/sync/${accountId}`, {
       method: 'POST',
       body: JSON.stringify({ memoryBankId: memoryBankId || undefined }),
     }),
