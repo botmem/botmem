@@ -34,7 +34,7 @@ export class ContentCleaner {
           maxPages: 25,
           numWorkers: 2,
         });
-        const data = await parser.parse(buffer, true);
+        const data = await parser.parse(buffer);
         const text = data.text?.trim();
         if (!text) return '';
         let content = header ? `${header}\n\n${text}` : text;
