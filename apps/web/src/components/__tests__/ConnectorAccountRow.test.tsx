@@ -316,8 +316,10 @@ describe('ConnectorAccountRow', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByText('ONLINE')).toBeInTheDocument());
+    // 'ONLINE' shows immediately from the account.status fallback, so wait on the
+    // poll-driven sources text instead — that only renders after getBridgeStatus resolves.
+    await waitFor(() => expect(screen.getByText(/iMessages, Contacts/)).toBeInTheDocument());
+    expect(screen.getByText('ONLINE')).toBeInTheDocument();
     expect(mockGetBridgeStatus).toHaveBeenCalledWith('apple-1');
-    expect(screen.getByText(/iMessages, Contacts/)).toBeInTheDocument();
   });
 });
