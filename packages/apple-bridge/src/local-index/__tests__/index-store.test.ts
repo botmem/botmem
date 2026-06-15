@@ -147,6 +147,12 @@ describe('IndexStore add/search/status/reset', () => {
     expect(items.map((i) => i.id)).toEqual(['imessage:1']);
   });
 
+  it('filters by plural connectorTypes (web shape) and drops non-bridge connectors', () => {
+    // 'gmail' isn't a bridge source → only whatsapp survives
+    const items = store.search('dinner', { connectorTypes: ['whatsapp', 'gmail'] });
+    expect(items.map((i) => i.id)).toEqual(['whatsapp:10']);
+  });
+
   it('filters by sourceType=contact', () => {
     const items = store.search('Charlie', { sourceType: 'contact' });
     expect(items).toHaveLength(1);

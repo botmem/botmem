@@ -154,22 +154,34 @@ export class IndexStore {
     // floods results with every message in that chat (the old behaviour).
     const match = `{text sender_name} : (${terms.join(' OR ')})`;
 
-    // Resolve the effective internal source from either source or connectorType.
-    const source =
-      filters.source ??
-      (filters.connectorType ? connectorTypeToSource(filters.connectorType) : undefined);
+    // Resolve the set of internal sources to filter on, from singular `source`/
+    // `connectorType` AND the plural `connectorTypes` the web sends. Unknown/
+    // non-bridge connectors (gmail, slack, …) map to nothing and are dropped.
+    const sourceSet = new Set<string>();
+    if (filters.source) sourceSet.add(filters.source);
+    for (const ct of [
+      ...(filters.connectorType ? [filters.connectorType] : []),
+      ...(filters.connectorTypes ?? []),
+    ]) {
+      const s = connectorTypeToSource(ct);
+      if (s) sourceSet.add(s);
+    }
 
     const conditions: string[] = ['records_fts MATCH ?'];
     const args: unknown[] = [match];
-    if (source) {
-      conditions.push('source = ?');
-      args.push(source);
+    if (sourceSet.size > 0) {
+      conditions.push(`source IN (${[...sourceSet].map(() => '?').join(', ')})`);
+      args.push(...sourceSet);
     }
     // sourceType maps to a source class: 'contact' ↔ contacts, 'message' ↔ the rest.
-    if (filters.sourceType === 'contact') {
-      conditions.push(`source = 'contacts'`);
-    } else if (filters.sourceType === 'message') {
-      conditions.push(`source <> 'contacts'`);
+    // Only constrain when the request is unambiguous (a single type requested).
+    const sourceTypeSet = new Set<string>([
+      ...(filters.sourceType ? [filters.sourceType] : []),
+      ...(filters.sourceTypes ?? []),
+    ]);
+    if (sourceTypeSet.size === 1) {
+      if (sourceTypeSet.has('contact')) conditions.push(`source = 'contacts'`);
+      else if (sourceTypeSet.has('message')) conditions.push(`source <> 'contacts'`);
     }
     args.push(limit);
 

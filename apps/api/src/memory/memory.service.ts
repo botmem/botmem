@@ -289,6 +289,9 @@ interface SearchFilters {
   fromMe?: boolean;
 }
 
+/** Connector types the local bridge can serve live (others come from Postgres). */
+const BRIDGE_CONNECTOR_TYPES = new Set(['apple', 'imessage', 'whatsapp', 'contacts']);
+
 type SearchIntent =
   | 'broad_topic'
   | 'person_lookup'
@@ -1142,13 +1145,26 @@ export class MemoryService {
     // search LIVE to the bridge (bridge-only — nothing from Postgres). On bridge
     // failure while online, fall through to normal search (resilient).
     if (this.config.bridgeLiveSearch && userId && this.appleTunnel.isBridgeOnlineForUser(userId)) {
-      const bridged = await this.appleTunnel.searchViaBridge(userId, {
-        query,
-        filters: filters as Record<string, unknown> | undefined,
-        limit,
-      });
-      if (bridged) return this.mapBridgeResults(bridged.items, { limit });
-      // bridge online but failed → fall through to normal search
+      // The bridge only serves apple/imessage/whatsapp/contacts. If the query is
+      // scoped EXCLUSIVELY to connectors the bridge can't serve (gmail, slack, …),
+      // don't route to it — those still come from Postgres. Otherwise route (and
+      // the bridge honors any singular/plural connector filter it does serve).
+      const requestedConnectors = [
+        ...(filters?.connectorType ? [filters.connectorType] : []),
+        ...(filters?.connectorTypes ?? []),
+      ];
+      const bridgeRelevant =
+        requestedConnectors.length === 0 ||
+        requestedConnectors.some((c) => BRIDGE_CONNECTOR_TYPES.has(c));
+      if (bridgeRelevant) {
+        const bridged = await this.appleTunnel.searchViaBridge(userId, {
+          query,
+          filters: filters as Record<string, unknown> | undefined,
+          limit,
+        });
+        if (bridged) return this.mapBridgeResults(bridged.items, { limit });
+        // bridge online but failed → fall through to normal search
+      }
     }
 
     // Pre-resolve user decryption key (async 2-tier: memory → Redis)
