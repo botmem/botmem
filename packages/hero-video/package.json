@@ -13,18 +13,18 @@
     "render:gif": "remotion render HeroVideo out/hero.gif --codec gif"
   },
   "dependencies": {
-    "@remotion/cli": "^4.0.473",
-    "@remotion/google-fonts": "^4.0.473",
-    "@remotion/transitions": "^4.0.473",
+    "@remotion/cli": "^4.0.477",
+    "@remotion/google-fonts": "^4.0.477",
+    "@remotion/transitions": "^4.0.477",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "remotion": "^4.0.473"
+    "remotion": "^4.0.477"
   },
   "devDependencies": {
-    "@remotion/tailwind-v4": "^4.0.473",
-    "@tailwindcss/vite": "^4.3.0",
+    "@remotion/tailwind-v4": "^4.0.477",
+    "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.2.17",
-    "tailwindcss": "^4.3.0",
+    "tailwindcss": "^4.3.1",
     "typescript": "^5.7.0"
   }
 }
