@@ -549,6 +549,16 @@ describe('runJobs', () => {
       await runSync(client, ['acc-1'], true);
       expect(() => JSON.parse(logged(logSpy, 0, 0))).not.toThrow();
     });
+
+    it('should report the skip reason for live-bridge connectors', async () => {
+      const client = createMockClient();
+      (client.triggerSync as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        skipped: true,
+        reason: 'Apple is live-bridge only; no sync needed.',
+      });
+      await runSync(client, ['apple-1'], false);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('live-bridge only'));
+    });
   });
 
   describe('runRetry', () => {

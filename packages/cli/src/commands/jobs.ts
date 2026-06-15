@@ -25,6 +25,8 @@ export async function runSync(client: BotmemClient, args: string[], json: boolea
   const result = await client.triggerSync(accountId);
   if (json) {
     console.log(JSON.stringify(result, null, 2));
+  } else if ('skipped' in result) {
+    console.log(result.reason || 'Sync skipped for this connector.');
   } else {
     console.log(`Sync triggered. Job ID: ${result.job.id}`);
   }

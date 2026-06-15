@@ -13,7 +13,7 @@
  */
 
 import { existsSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, dirname, extname, resolve, relative, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
@@ -141,6 +141,8 @@ export const whatsapp: SourceAdapter = {
     const db = new Database(dbPath, { readonly: true });
     db.pragma('query_only = ON');
     const containerDir = dirname(dbPath);
+    // Canonical container path for symlink-proof containment of attachment reads.
+    const realContainer = await realpath(containerDir).catch(() => containerDir);
     const names = loadContactNames(containerDir);
     try {
       // Session title column name varies across WhatsApp versions; pick what exists.
@@ -179,14 +181,16 @@ export const whatsapp: SourceAdapter = {
         const media: unknown[] = r.mediaPath ? [{ path: r.mediaPath }] : [];
 
         // Extract text from downloaded document attachments (PDF/DOCX/TXT/CSV).
-        // Confine reads to the WhatsApp container: ZMEDIALOCALPATH is data from
-        // the source DB, so resolve it and reject anything that escapes via '..'.
+        // Confine reads to the WhatsApp container: ZMEDIALOCALPATH is data from the
+        // source DB. Resolve to the REAL path (realpath follows symlinks, which
+        // readFile would too) and reject anything that escapes the container.
         if (r.mediaPath) {
           const abs = resolve(containerDir, r.mediaPath);
-          const rel = relative(containerDir, abs);
+          const real = await realpath(abs).catch(() => null);
+          const rel = real ? relative(realContainer, real) : '..';
           const contained = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
-          if (contained) {
-            const docText = await extractDocText(abs);
+          if (real && contained) {
+            const docText = await extractDocText(real);
             if (docText) {
               text = [text, caption, docText].filter(Boolean).join('\n');
             }
