@@ -85,6 +85,11 @@ integration thin and avoids callback-heavy FFI.
   accepted, encrypted session established. `StubDispatcher` answers ping /
   bridge.status; search.query reports the index unavailable until Phase 3.
 - **Phase 3 — local FTS5 index**: SQLite index, migrations, `search.query` shape.
+  ✅ `rusqlite` (bundled FTS5) store ported from `index-store.ts` — same schema,
+  `{text sender_name}` MATCH, bm25 ordering, SearchItem mapping. `IndexDispatcher`
+  wires search.query/bridge.status; engine opens `~/.botmem/apple-bridge/
+index.sqlite`. Verified by a wire roundtrip test (encrypt→dispatch→decrypt).
+  Empty until Phase 4 populates it.
 - **Phase 4 — source readers**: Contacts → WhatsApp → iMessage text →
   `attributedBody` typedstream → attachments → PDF/DOCX.
 - **Phase 5 — parity harness**: old Node vs new Rust on the same fixtures; golden
