@@ -1,0 +1,40 @@
+[package]
+name = "botmem-apple-bridge-engine"
+version = "0.1.0"
+edition = "2021"
+description = "In-process Rust engine for the Botmem Apple Bridge (FDA-held reader, encrypted tunnel, local FTS index)."
+license = "MIT"
+publish = false
+
+[lib]
+name = "botmem_engine"
+# staticlib → linked into the Swift app (the FDA-granted process).
+# cdylib    → handy for standalone testing / future tooling.
+# rlib      → lets integration tests and benches link the crate directly.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+once_cell = "1"
+thiserror = "1"
+libc = "0.2"
+
+# Phase 2+ (tunnel, index, sources) add their deps here as each lands:
+#   tokio-tungstenite, x25519-dalek, hkdf, sha2, aes-gcm, rand_core,
+#   rusqlite (bundled, FTS5), zip, quick-xml, pdf-extract/lopdf, nom.
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+# NOTE: keep the default "unwind" panic strategy. The FFI entry points
+# (src/ffi.rs) wrap their bodies in catch_unwind so a Rust panic never crosses
+# the C boundary into the Swift host (which would be UB). "abort" would break
+# that guard.
