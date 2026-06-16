@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/apple-bridge-release.yml'
       - 'packages/apple-bridge/**'
+      - 'packages/apple-bridge-engine/**'
       - 'apps/api/src/apple-tunnel/**'
       - 'apps/api/src/accounts/**'
       - 'apps/api/src/jobs/**'
@@ -17,6 +18,7 @@ on:
     paths:
       - '.github/workflows/apple-bridge-release.yml'
       - 'packages/apple-bridge/**'
+      - 'packages/apple-bridge-engine/**'
       - 'apps/api/src/apple-tunnel/**'
       - 'apps/api/src/accounts/**'
       - 'apps/api/src/jobs/**'
@@ -57,8 +59,19 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Install native build tooling
-        run: npm install -g node-gyp
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/apple-bridge-engine/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/apple-bridge-engine/Cargo.lock') }}
 
       - run: pnpm install --frozen-lockfile
 
@@ -75,10 +88,10 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
       - name: Build DMG
-        run: |
-          export BOTMEM_NODE_BINARY="$(command -v node)"
-          pnpm --filter @botmem/apple-bridge build:mac-app
+        run: pnpm --filter @botmem/apple-bridge build:mac-app
         env:
+          # The engine is the Rust static lib; build it for the runner's arch.
+          BOTMEM_RUST_TARGET: aarch64-apple-darwin
           BOTMEM_DMG_NAME: ${{ matrix.dmg }}
           BOTMEM_CODESIGN_IDENTITY: ${{ secrets.BOTMEM_CODESIGN_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

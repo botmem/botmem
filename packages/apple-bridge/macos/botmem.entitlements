@@ -2,20 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Contacts: the node child reads Contacts when that source is selected.
-       TCC attributes the access to this signed app, so the entitlement +
-       NSContactsUsageDescription must live here. -->
+  <!-- Contacts: the in-process engine reads Contacts when that source is
+       selected. TCC attributes the access to this signed app, so the entitlement
+       + NSContactsUsageDescription must live here. -->
   <key>com.apple.security.personal-information.addressbook</key>
   <true/>
-  <!-- Node spawned as a child runs JS via V8 JIT; under the hardened runtime
-       these are required or the child crashes on launch. -->
-  <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-  <true/>
-  <!-- Allow loading the bundled better-sqlite3 native .node addon, which may
-       not be signed by the same Team ID as the app. -->
-  <key>com.apple.security.cs.disable-library-validation</key>
-  <true/>
+  <!-- NOTE: the V8-JIT / unsigned-executable-memory / disable-library-validation
+       exceptions were only needed by the old bundled Node child (and its native
+       better-sqlite3 addon). The engine is now Rust statically linked into the
+       app binary, so none of those are required. -->
 </dict>
 </plist>
