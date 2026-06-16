@@ -24,7 +24,7 @@ export interface ApiAccount {
 export interface ApiBridgeStatus {
   connected: boolean;
   accountId: string;
-  sources: { contacts: boolean; imessages: boolean } | null;
+  sources: { contacts: boolean; imessages: boolean; whatsapp?: boolean } | null;
   lastSeenAt: string | null;
   lastError: string | null;
 }
