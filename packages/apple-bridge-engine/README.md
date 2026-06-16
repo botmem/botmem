@@ -7,15 +7,17 @@ databases. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for _why_ (the TCC/FDA
 constraint) and [`PROTOCOL.md`](./PROTOCOL.md) for the frozen tunnel protocol the
 engine must speak (the server side does not change).
 
-> **Status: Phase 4 complete** — the engine is feature-complete vs the node
-> bridge. Implemented and tested: the C ABI, config, status writer, logging,
-> tokio runtime, the X25519/HKDF/AES-256-GCM tunnel (verified against live prod),
-> the bundled-SQLite FTS5 index (bm25, behavior-matched to the node engine), the
-> Contacts / WhatsApp / iMessage readers (incl. the `attributedBody` typedstream
-> decode), and WhatsApp PDF/DOCX/TXT attachment text extraction (realpath-confined).
-> **Next: Phase 5** — a parity harness (old node vs new Rust on the same fixtures)
-> before Phase 6 swaps out the bundled node engine. Run the live handshake check
-> with `cargo run --example connect` (set `BRIDGE_TOKEN`/`BRIDGE_SERVER`).
+> **Status: Phases 0–4 + 6 done.** The engine is feature-complete vs the node
+> bridge AND wired into the macOS app in-process. Implemented and tested: the C
+> ABI, config, status writer, logging, tokio runtime, the X25519/HKDF/AES-256-GCM
+> tunnel (verified against live prod), the bundled-SQLite FTS5 index (bm25,
+> behavior-matched to node), the Contacts / WhatsApp / iMessage readers (incl. the
+> `attributedBody` typedstream decode), WhatsApp PDF/DOCX/TXT attachment extraction
+> (realpath-confined), and the **Swift app cutover** (links `libbotmem_engine.a`
+> in-process, no node child — the FDA fix). `build:mac-app` produces a clean
+> `botmem.dmg`. **Remaining: Phase 7** — cut a release DMG and run the live install
+> e2e (grant FDA, connect, search). Run the handshake check with
+> `cargo run --example connect` (set `BRIDGE_TOKEN`/`BRIDGE_SERVER`).
 
 ## Layout
 
