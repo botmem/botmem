@@ -32,9 +32,9 @@ import Foundation
 
 // MARK: - Config
 
-/// Shared on-disk config consumed by both the CLI and this app.
-/// Stored at ~/.botmem/config.json so the node child (started with
-/// --config <that path>) and the deep-link handler agree on one location.
+/// Connection config persisted by this app at ~/.botmem/config.json so it
+/// survives relaunch: written by the deep-link handler, loaded at startup and
+/// passed to the engine via the C ABI.
 struct BridgeConfig: Codable {
   var server: String
   var token: String
@@ -45,12 +45,12 @@ struct BridgeConfig: Codable {
 let DEFAULT_TUNNEL_URL = "wss://api.botmem.xyz/apple-tunnel"
 
 final class ConfigStore {
-  /// ~/.botmem — the single source of truth shared with the node bridge.
+  /// ~/.botmem — the app's data dir (config, status, logs), shared with the engine.
   let botmemDir: URL
   let configURL: URL
-  /// The structured status doc written by the node bridge (status-writer.ts).
+  /// The structured status doc written by the engine's status writer (PROTOCOL.md §6).
   let statusURL: URL
-  /// Node bridge stdout/stderr log; surfaced via "Open Logs".
+  /// Engine stderr (tracing) log; surfaced via "Open Logs".
   let serviceLogURL: URL
 
   init() {
@@ -184,8 +184,9 @@ final class EngineController {
 
 // MARK: - LaunchAgent (launches THIS APP headless at login)
 
-/// Installs a per-user LaunchAgent that launches THIS signed app at login (not
-/// node). The app, in turn, spawns + supervises node — preserving FDA.
+/// Installs a per-user LaunchAgent that launches THIS signed app at login. The
+/// app runs the engine in-process, so launching the app (not a helper) is what
+/// keeps the FDA-holding process running.
 final class LaunchAgentController {
   private let label = "xyz.botmem.apple-bridge.service"
 
@@ -195,14 +196,14 @@ final class LaunchAgentController {
       .appendingPathComponent("\(label).plist", isDirectory: false)
   }
 
-  /// Ensure the LaunchAgent launches the APP BINARY directly (not `open`, not
-  /// node). launchd must supervise the long-lived signed app process itself, so
+  /// Ensure the LaunchAgent launches the APP BINARY directly (not `open`).
+  /// launchd must supervise the long-lived signed app process itself, so
   /// KeepAlive can restart it on crash; if we launched `/usr/bin/open` instead,
   /// launchd would supervise that short-lived helper and KeepAlive would just
   /// relaunch `open` after the app it spawned had already detached. The app is
   /// a background/menu-bar agent (LSUIElement) so launching the binary directly
   /// does not steal focus or add a Dock icon at login. Rewrites a stale plist
-  /// (e.g. an old install that launched node `--helper` or `open`).
+  /// (e.g. an old install that launched `open` or a separate helper).
   func ensureInstalled() {
     let exePath = Bundle.main.executableURL?.path ?? ""
     guard !exePath.isEmpty else { return }
@@ -239,8 +240,8 @@ final class LaunchAgentController {
 // MARK: - iMessage readability probe (FDA check)
 
 /// Lightweight Full Disk Access probe: can we read ~/Library/Messages/chat.db?
-/// Used only to surface a "Permissions" hint — the node bridge does the real
-/// reads. No DB engine is linked into the app anymore.
+/// Used only to surface a "Permissions" hint — the engine does the real reads
+/// in-process under the same FDA grant.
 func messagesReadable() -> Bool {
   let path = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Messages/chat.db", isDirectory: false).path
@@ -313,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   /// botmem-apple-bridge://connect?server=&token=&accountId=&sources=
-  /// Saves config, (re)starts the node child, and shows the status screen.
+  /// Saves config, (re)starts the engine, and shows the status screen.
   private func configure(from url: URL) {
     guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
     let params = Dictionary(

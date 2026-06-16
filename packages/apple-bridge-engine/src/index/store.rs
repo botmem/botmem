@@ -152,9 +152,14 @@ impl IndexStore {
         let match_expr = format!("{{text sender_name}} : ({})", terms.join(" OR "));
 
         // Resolve internal source filter set from source/connectorType(+plural).
-        let mut source_set: BTreeSet<&'static str> = BTreeSet::new();
-        if let Some(s) = filters.source.as_deref().and_then(SourceName::from_str) {
-            source_set.insert(s.as_str());
+        // NB: `filters.source` is added VERBATIM (matching index-store.ts), so an
+        // unknown source value yields a `source IN (...)` that matches nothing —
+        // rather than being silently dropped and broadening to all sources.
+        let mut source_set: BTreeSet<String> = BTreeSet::new();
+        if let Some(s) = filters.source.as_deref() {
+            if !s.is_empty() {
+                source_set.insert(s.to_string());
+            }
         }
         let mut cts: Vec<&str> = Vec::new();
         if let Some(ct) = filters.connector_type.as_deref() {
@@ -165,7 +170,7 @@ impl IndexStore {
         }
         for ct in cts {
             if let Some(s) = connector_type_to_source(ct) {
-                source_set.insert(s.as_str());
+                source_set.insert(s.as_str().to_string());
             }
         }
 
@@ -181,7 +186,7 @@ impl IndexStore {
                 .collect();
             conditions.push(format!("source IN ({})", placeholders.join(", ")));
             for s in &source_set {
-                binds.push(Box::new((*s).to_string()));
+                binds.push(Box::new(s.clone()));
             }
         }
 
