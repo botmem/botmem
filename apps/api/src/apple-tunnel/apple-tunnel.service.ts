@@ -216,6 +216,10 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Bridge auth failed: invalid token');
       return null;
     }
+    // Clear any stale reconnect_required/degraded status + cancel leftover sync
+    // jobs BEFORE source-mismatch handling, so a fresh mismatch warning (which
+    // sets 'degraded' below) is preserved and not clobbered.
+    await this.markAccountConnected(account.id);
     const sources = this.normalizeSources(sourceList);
     const sourceState = await this.updateAccountSources(account.id, sources);
     if (sourceState?.mismatch) {
@@ -259,9 +263,6 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     this.startHeartbeat(session);
 
     this.logger.log(`Bridge connected: account=${account.id}, session=${sessionId}`);
-    // Clear any stale reconnect_required/degraded status from a previous disconnect
-    // and stop scheduled-sync churn — the bridge is live now (live-search only).
-    await this.markAccountConnected(account.id);
     this.emitStatus(account.id, true);
 
     return {
@@ -858,9 +859,12 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
    */
   private async markAccountConnected(accountId: string): Promise<void> {
     try {
+      // Never resurrect an archived/inactive account — only clear live-bridge churn.
       await this.dbService.queryRaw(
         `UPDATE accounts SET status = 'connected', last_error = NULL
-         WHERE id = $1 AND (status <> 'connected' OR last_error IS NOT NULL)`,
+         WHERE id = $1
+           AND status NOT IN ('archived', 'inactive')
+           AND (status <> 'connected' OR last_error IS NOT NULL)`,
         [accountId],
       );
       await this.dbService.queryRaw(

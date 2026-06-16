@@ -283,7 +283,7 @@ describe('ConnectorSetupModal', () => {
     expect(href).toContain('server=wss%3A%2F%2Fapi.botmem.xyz%2Fapple-tunnel');
     expect(href).toContain('token=token-1');
     expect(href).toContain('accountId=acct-1');
-    expect(href).toContain('sources=contacts%2Cimessages');
+    expect(href).toContain('sources=contacts%2Cimessages%2Cwhatsapp');
 
     expect(screen.getByText(/Waiting for the app/)).toBeInTheDocument();
   });
