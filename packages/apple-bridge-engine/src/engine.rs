@@ -1,28 +1,34 @@
-//! Engine lifecycle: owns the tokio runtime and the long-lived background task
-//! that (in later phases) runs the tunnel client + indexer. Phase 1 wires the
-//! lifecycle, config, status writer, and a graceful shutdown signal; the tunnel
-//! and index are stubbed with clearly-marked TODOs.
+//! Engine lifecycle: owns the tokio runtime (tunnel client) and a dedicated
+//! indexer thread that streams local sources into the FTS index. Phase 1 wired
+//! the lifecycle/status/config; Phase 2 the tunnel; Phase 3 the index; Phase 4
+//! the source readers that populate it.
 
-use crate::config::EngineConfig;
-use crate::index::{IndexDispatcher, IndexStore};
-use crate::rpc::{RpcDispatch, StubDispatcher};
-use crate::status::{BridgeState, StatusWriter};
-use crate::tunnel::TunnelClient;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
 
-/// A running engine instance. Dropping it (via `stop`) tears down the runtime
-/// and flushes a final `offline` status.
+use crate::config::EngineConfig;
+use crate::index::{IndexDispatcher, IndexStore, SharedStore};
+use crate::rpc::{RpcDispatch, StubDispatcher};
+use crate::status::{BridgeState, StatusWriter};
+use crate::tunnel::TunnelClient;
+
+/// A running engine instance. `stop` tears down the runtime, signals the indexer
+/// to abort, and flushes a final `offline` status.
 pub struct Engine {
     runtime: Runtime,
     status: Arc<StatusWriter>,
     shutdown_tx: watch::Sender<bool>,
+    stop_flag: Arc<AtomicBool>,
+    index_thread: Option<JoinHandle<()>>,
 }
 
 impl Engine {
-    /// Start the engine from a parsed config. Returns once the background task
-    /// is spawned (non-blocking); the tunnel connects asynchronously.
+    /// Start the engine from a parsed config. Non-blocking: the tunnel connects
+    /// and the index builds asynchronously.
     pub fn start(config: EngineConfig) -> Result<Self, EngineError> {
         crate::logging::init();
         tracing::info!(
@@ -38,11 +44,42 @@ impl Engine {
         ));
         status.set_state(BridgeState::Starting, "Bridge starting");
 
-        // Ensure the data dir exists early so later phases can rely on it.
         let data_dir = config.resolve_data_dir();
         if let Err(e) = std::fs::create_dir_all(&data_dir) {
             tracing::warn!(error = %e, "could not create data dir");
         }
+
+        // Shared FTS index: the indexer thread writes it, the tunnel dispatcher
+        // reads it. Fall back to a stub dispatcher (tunnel still runs) if it
+        // can't open, so a disk hiccup doesn't take the bridge down.
+        let index_path = data_dir.join("index.sqlite");
+        let (dispatch, shared): (Arc<dyn RpcDispatch>, Option<SharedStore>) =
+            match IndexStore::open(&index_path) {
+                Ok(store) => {
+                    let shared: SharedStore = Arc::new(Mutex::new(store));
+                    (Arc::new(IndexDispatcher::from_shared(Arc::clone(&shared))), Some(shared))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not open local index; serving stub dispatcher");
+                    status.push_activity("Index unavailable");
+                    (Arc::new(StubDispatcher), None)
+                }
+            };
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+
+        // Indexer thread (blocking SQLite + file IO) — populate the shared index.
+        let index_thread = shared.map(|store| {
+            let status = Arc::clone(&status);
+            let stop = Arc::clone(&stop_flag);
+            let sources = config.sources_or_default();
+            std::thread::Builder::new()
+                .name("botmem-indexer".into())
+                .spawn(move || {
+                    crate::sources::build_index(&store, &status, &sources, &stop);
+                })
+                .expect("spawn indexer thread")
+        });
 
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -52,14 +89,13 @@ impl Engine {
             .map_err(EngineError::Runtime)?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
         let task_status = Arc::clone(&status);
         let task_config = config.clone();
         runtime.spawn(async move {
-            run(task_config, task_status, shutdown_rx).await;
+            run(task_config, task_status, shutdown_rx, dispatch).await;
         });
 
-        Ok(Self { runtime, status, shutdown_tx })
+        Ok(Self { runtime, status, shutdown_tx, stop_flag, index_thread })
     }
 
     /// Status writer handle (used by the FFI `status_json` mirror).
@@ -67,44 +103,32 @@ impl Engine {
         &self.status
     }
 
-    /// Signal shutdown, wait briefly for the background task to unwind, then
-    /// flush a final `offline` status and drop the runtime.
-    pub fn stop(self) {
+    /// Signal shutdown, stop the indexer + tunnel, flush a final `offline` status.
+    pub fn stop(mut self) {
         tracing::info!("engine stopping");
+        self.stop_flag.store(true, Ordering::Relaxed);
         let _ = self.shutdown_tx.send(true);
-        // Give the background task a moment to observe the signal and exit.
         self.runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+        // The indexer aborts at its next batch boundary once stop_flag is set.
+        if let Some(handle) = self.index_thread.take() {
+            let _ = handle.join();
+        }
         self.status.set_connected(false);
         self.status.set_state(BridgeState::Offline, "Bridge stopped");
         self.status.close();
     }
 }
 
-/// The long-lived engine loop. Phase 2: run the encrypted tunnel client until
-/// shutdown (it reconnects internally). Phase 3+ will build/refresh the local
-/// FTS5 index and swap the `StubDispatcher` for the real index-backed one.
+/// The long-lived engine loop: run the encrypted tunnel until shutdown (it
+/// reconnects internally and answers RPCs from the shared index dispatcher).
 async fn run(
     config: EngineConfig,
     status: Arc<StatusWriter>,
     shutdown_rx: watch::Receiver<bool>,
+    dispatch: Arc<dyn RpcDispatch>,
 ) {
     status.set_state(BridgeState::Connecting, "Connecting to Botmem…");
     status.push_activity("Engine started");
-
-    // Open the local FTS index; the tunnel answers search.query/bridge.status
-    // from it. If it can't open, fall back to the stub (tunnel still runs) so a
-    // disk hiccup doesn't take the whole bridge down.
-    // TODO(phase-4): the source readers populate this index; until then it's
-    // empty and search.query returns no items (not an error).
-    let index_path = config.resolve_data_dir().join("index.sqlite");
-    let dispatch: Arc<dyn RpcDispatch> = match IndexStore::open(&index_path) {
-        Ok(store) => Arc::new(IndexDispatcher::new(store)),
-        Err(e) => {
-            tracing::warn!(error = %e, "could not open local index; serving stub dispatcher");
-            status.push_activity("Index unavailable");
-            Arc::new(StubDispatcher)
-        }
-    };
 
     let client = TunnelClient {
         server: config.server.clone(),
@@ -113,8 +137,6 @@ async fn run(
         status: Arc::clone(&status),
         dispatch,
     };
-
-    // Runs until shutdown or a permanent auth failure (handles reconnect itself).
     client.run(shutdown_rx).await;
     tracing::info!("engine loop exited");
 }

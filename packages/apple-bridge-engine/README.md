@@ -7,13 +7,14 @@ databases. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for _why_ (the TCC/FDA
 constraint) and [`PROTOCOL.md`](./PROTOCOL.md) for the frozen tunnel protocol the
 engine must speak (the server side does not change).
 
-> **Status: Phase 3** — lifecycle + encrypted tunnel + local FTS5 index. The C
-> ABI, config, status writer, logging, tokio runtime, the X25519/HKDF/AES-256-GCM
-> WebSocket tunnel (verified against live prod), and the bundled-SQLite FTS5 index
-> (`search.query`/`bridge.status`, bm25 ranking, behavior-matched to the node
-> engine) are implemented and tested. **Source readers (Phase 4) are the
-> remaining gap** — the index is empty until they populate it, so `search.query`
-> returns no items yet. Run the live handshake check with
+> **Status: Phase 4a** — lifecycle + encrypted tunnel + FTS5 index + source
+> readers. Implemented and tested: the C ABI, config, status writer, logging,
+> tokio runtime, the X25519/HKDF/AES-256-GCM tunnel (verified against live prod),
+> the bundled-SQLite FTS5 index (bm25, behavior-matched to the node engine), and
+> the **Contacts / WhatsApp / iMessage readers** (incl. the `attributedBody`
+> typedstream decode) feeding a batched index builder that runs in the FDA-held
+> process. **Remaining: Phase 4b** — WhatsApp PDF/DOCX attachment text extraction
+> and incremental refresh. Run the live handshake check with
 > `cargo run --example connect` (set `BRIDGE_TOKEN`/`BRIDGE_SERVER`).
 
 ## Layout

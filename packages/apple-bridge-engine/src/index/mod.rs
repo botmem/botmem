@@ -8,7 +8,7 @@
 pub mod store;
 pub mod types;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
@@ -20,16 +20,27 @@ use crate::rpc::{RpcDispatch, RpcError};
 const DEFAULT_LIMIT: usize = 25;
 const MAX_LIMIT: usize = 200;
 
+/// Store shared between the RPC dispatcher (reads) and the index builder
+/// (writes). A Mutex (not RwLock) is fine: search is fast and the builder
+/// flushes in short batched locks.
+pub type SharedStore = Arc<Mutex<IndexStore>>;
+
 /// RPC dispatcher backed by the local FTS index. Answers `search.query`,
 /// `bridge.status`, and `ping`; legacy read methods (`chats.list`,
-/// `messages.history`, `contacts.list`) land in Phase 4.
+/// `messages.history`, `contacts.list`) land in a later phase.
 pub struct IndexDispatcher {
-    store: Mutex<IndexStore>,
+    store: SharedStore,
 }
 
 impl IndexDispatcher {
+    /// Wrap an owned store (tests).
     pub fn new(store: IndexStore) -> Self {
-        Self { store: Mutex::new(store) }
+        Self { store: Arc::new(Mutex::new(store)) }
+    }
+
+    /// Share an existing store with the builder.
+    pub fn from_shared(store: SharedStore) -> Self {
+        Self { store }
     }
 }
 
