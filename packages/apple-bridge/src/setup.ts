@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { DEFAULT_DB_PATH, detectRunnerName, runPreflight } from './preflight.js';
 
 export const DEFAULT_BOTMEM_HOST = 'https://api.botmem.xyz';
@@ -37,12 +36,17 @@ export interface BridgeStatus {
   };
 }
 
-export function appSupportDir(): string {
-  return join(homedir(), 'Library', 'Application Support', 'botmem');
+/**
+ * Canonical botmem data dir: ~/.botmem. This is the SINGLE shared location for
+ * config.json, service.log, and bridge-status.json — used by both the CLI and
+ * the macOS app, so they never disagree about where state lives.
+ */
+export function botmemDir(): string {
+  return join(homedir(), '.botmem');
 }
 
 export function defaultConfigPath(): string {
-  return join(appSupportDir(), 'config.json');
+  return join(botmemDir(), 'config.json');
 }
 
 export function launchAgentPath(): string {
@@ -50,7 +54,7 @@ export function launchAgentPath(): string {
 }
 
 export function serviceLogPath(): string {
-  return join(appSupportDir(), 'service.log');
+  return join(botmemDir(), 'service.log');
 }
 
 export function normalizeBotmemHost(raw: string | undefined): string {
@@ -128,56 +132,15 @@ export function isServiceLoaded(): boolean {
   return launchctl(['print', serviceTarget()]) === 0;
 }
 
-export function installService(options: { configPath?: string; runnerPath?: string } = {}): void {
-  const configPath = options.configPath || defaultConfigPath();
-  const runnerPath = options.runnerPath || resolveRunnerPath();
-  const plistPath = launchAgentPath();
-
-  mkdirSync(appSupportDir(), { recursive: true });
-  mkdirSync(dirname(plistPath), { recursive: true });
-
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LAUNCH_AGENT_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${escapeXml(runnerPath)}</string>
-    <string>--config</string>
-    <string>${escapeXml(configPath)}</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>BOTMEM_BRIDGE_RUNNER_NAME</key>
-    <string>botmem</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-  <key>StandardOutPath</key>
-  <string>${escapeXml(serviceLogPath())}</string>
-  <key>StandardErrorPath</key>
-  <string>${escapeXml(serviceLogPath())}</string>
-  <key>WorkingDirectory</key>
-  <string>${escapeXml(dirname(runnerPath))}</string>
-</dict>
-</plist>
-`;
-  writeFileSync(plistPath, plist, { mode: 0o644 });
-}
-
-export function restartService(): void {
-  launchctl(['bootout', guiDomain(), launchAgentPath()]);
-  launchctl(['bootstrap', guiDomain(), launchAgentPath()]);
-  launchctl(['kickstart', '-k', serviceTarget()]);
-}
-
+/**
+ * Remove the bridge LaunchAgent (e.g. the macOS app's app-supervisor agent, or
+ * a stale node-runner agent from an older CLI). The CLI no longer INSTALLS a
+ * LaunchAgent: a launchd-spawned node loses Full Disk Access because launchd —
+ * not the signed app — becomes the responsible process for TCC. Background
+ * supervision is owned exclusively by the signed macOS app, which spawns node
+ * as its own child so FDA is inherited. The CLI runs the bridge in the
+ * foreground (the default `apple-bridge` action) for headless/server use.
+ */
 export function removeService(): void {
   launchctl(['bootout', guiDomain(), launchAgentPath()]);
   rmSync(launchAgentPath(), { force: true });
@@ -207,23 +170,4 @@ export function getStatus(configPath = defaultConfigPath()): BridgeStatus {
       plistPath: launchAgentPath(),
     },
   };
-}
-
-function resolveRunnerPath(): string {
-  const argv = process.argv[1];
-  if (argv && existsSync(argv)) return argv;
-  return fileURLToPath(import.meta.url).replace(/setup\.js$/, 'cli.js');
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
-}
-
-export function runnerDisplayName(): string {
-  return basename(resolveRunnerPath());
 }

@@ -362,11 +362,18 @@ describe('ConnectorSetupModal', () => {
     });
     fireEvent.click(screen.getByText('CONNECT'));
 
-    // On the status step the command is available inside the disclosure.
+    // On the status step the foreground command is available inside the
+    // disclosure, with shell-safe single-quoted values.
     await waitFor(() => {
-      expect(screen.getByText(/--sources=contacts,imessages/)).toBeInTheDocument();
+      expect(screen.getByText(/npx @botmem\/apple-bridge@latest/)).toBeInTheDocument();
     });
-    expect(screen.getByText(/--server=wss:\/\/api.botmem.xyz\/apple-tunnel/)).toBeInTheDocument();
+    const command = screen.getByText(/npx @botmem\/apple-bridge@latest/).textContent || '';
+    expect(command).toContain("--token='token-1'");
+    expect(command).toContain("--server='wss://api.botmem.xyz/apple-tunnel'");
+    expect(command).toContain("--account-id='acct-1'");
+    // The LaunchAgent service path is no longer suggested from the UI.
+    expect(command).not.toContain('service start');
+    expect(command).not.toContain('configure');
   });
 
   it('backs off Apple bridge status polling while waiting', async () => {
@@ -530,10 +537,10 @@ describe('ConnectorSetupModal', () => {
 
     provisionAppleBridge();
 
-    await screen.findByText(/--token=token-1/);
+    await screen.findByText(/--token='token-1'/);
     vi.useFakeTimers();
     fireEvent.click(screen.getByText('COPY'));
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('--token=token-1'));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("--token='token-1'"));
     expect(screen.getByText('COPIED')).toBeInTheDocument();
     act(() => {
       vi.advanceTimersByTime(2000);

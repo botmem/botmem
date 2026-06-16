@@ -502,10 +502,12 @@ function buildBridgeDeepLink(opts: { server: string; token: string; accountId: s
   return link.toString();
 }
 
+// Foreground (headless) bridge command — the terminal alternative to the Mac
+// app. Running in the foreground reuses the terminal's Full Disk Access; the
+// `service start` LaunchAgent path would lose FDA now that the signed app is
+// the canonical supervisor. Values are single-quoted to stay shell-safe.
 function buildBridgeCommand(opts: { server: string; token: string; accountId: string }): string {
-  return `npx @botmem/apple-bridge configure --token=${opts.token} --server=${opts.server} --account-id=${opts.accountId} --sources=${BRIDGE_SOURCES}
-npx @botmem/apple-bridge preflight
-npx @botmem/apple-bridge service start`;
+  return `npx @botmem/apple-bridge@latest --token='${opts.token}' --server='${opts.server}' --account-id='${opts.accountId}'`;
 }
 
 function BridgeAuthView({
@@ -699,8 +701,8 @@ function BridgeAuthView({
               Advanced: run from terminal
             </summary>
             <p className="px-3 pb-3 font-mono text-[11px] text-nb-muted">
-              Click Connect first to provision a token, then run these commands on the Mac instead
-              of opening the app.
+              Prefer the terminal? Click Connect to provision a token, then run the bridge in the
+              foreground on the Mac instead of opening the app.
             </p>
           </details>
         </form>

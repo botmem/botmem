@@ -131,6 +131,17 @@ final class NodeSupervisor {
   private var restartWork: DispatchWorkItem?
   private var lastStartAt: Date = .distantPast
 
+  /// Dev-only: BOTMEM_ALLOW_SYSTEM_NODE=1 permits falling back to a PATH node
+  /// when the bundle has no embedded `node`. NEVER set in release builds — the
+  /// bundled node is what carries the app's signature/FDA context.
+  private var allowSystemNodeFallback: Bool {
+    ProcessInfo.processInfo.environment["BOTMEM_ALLOW_SYSTEM_NODE"] == "1"
+  }
+
+  /// Non-nil when the engine cannot run (e.g. missing bundled node). Surfaced
+  /// in the UI as a clear error state. Privacy-safe (no user content).
+  private(set) var failureReason: String?
+
   /// Called on the main queue whenever the child exits or restarts, so the UI
   /// can refresh its supervisor line.
   var onStateChange: (() -> Void)?
@@ -143,15 +154,16 @@ final class NodeSupervisor {
     process?.isRunning ?? false
   }
 
-  /// Resolve the bundled node binary + dist/cli.js inside Contents/Resources.
-  /// Falls back to a PATH `node` only if the bundle copy is missing (dev runs).
+  /// Resolve the node binary. Production REQUIRES the bundled Resources/node so
+  /// the spawn inherits this signed app's TCC/FDA grant. A PATH node is allowed
+  /// ONLY in dev (BOTMEM_ALLOW_SYSTEM_NODE=1).
   private func nodeBinaryURL() -> URL? {
     guard let resources = Bundle.main.resourceURL else { return nil }
     let bundled = resources.appendingPathComponent("node", isDirectory: false)
     if FileManager.default.isExecutableFile(atPath: bundled.path) {
       return bundled
     }
-    // Dev fallback: discover node on PATH.
+    guard allowSystemNodeFallback else { return nil }
     for candidate in ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"] {
       if FileManager.default.isExecutableFile(atPath: candidate) {
         return URL(fileURLWithPath: candidate)
@@ -166,10 +178,12 @@ final class NodeSupervisor {
     return FileManager.default.fileExists(atPath: script.path) ? script : nil
   }
 
-  /// (Re)start the node child. Stops any existing child first.
+  /// (Re)start the node child. Awaits the previous child's clean exit before
+  /// spawning so we never run two tunnel+index processes at once.
   func start() {
-    stop(intentional: false)
     stopping = false
+    terminateAndWait(current: process)
+    process = nil
     spawn()
   }
 
@@ -178,19 +192,41 @@ final class NodeSupervisor {
     if intentional { stopping = true }
     restartWork?.cancel()
     restartWork = nil
-    if let process, process.isRunning {
-      process.terminationHandler = nil
-      process.terminate()
-    }
+    terminateAndWait(current: process)
     process = nil
   }
 
+  /// SIGTERM the child, wait up to `timeout` for a clean exit, then SIGKILL.
+  /// Detaches the terminationHandler first so the synchronous wait here does not
+  /// also trigger the async restart path.
+  private func terminateAndWait(current: Process?, timeout: TimeInterval = 2) {
+    guard let proc = current, proc.isRunning else { return }
+    proc.terminationHandler = nil
+    proc.terminate()  // SIGTERM
+    let deadline = Date().addingTimeInterval(timeout)
+    while proc.isRunning && Date() < deadline {
+      Thread.sleep(forTimeInterval: 0.05)
+    }
+    if proc.isRunning {
+      kill(proc.processIdentifier, SIGKILL)
+      proc.waitUntilExit()
+    }
+  }
+
   private func spawn() {
-    guard let node = nodeBinaryURL(), let cli = cliScriptURL(),
-      let resources = Bundle.main.resourceURL
-    else {
+    guard let resources = Bundle.main.resourceURL, let cli = cliScriptURL() else {
+      failureReason = "Bundle is missing dist/cli.js"
+      onStateChange?()
       return
     }
+    guard let node = nodeBinaryURL() else {
+      // No bundled node and no dev fallback — do NOT crash-loop; surface a clear
+      // error so the UI can tell the user the build is broken.
+      failureReason = "Bundled Node runtime is missing from the app"
+      onStateChange?()
+      return
+    }
+    failureReason = nil
 
     let proc = Process()
     proc.executableURL = node
@@ -210,9 +246,11 @@ final class NodeSupervisor {
       proc.standardError = handle
     }
 
-    proc.terminationHandler = { [weak self] _ in
+    proc.terminationHandler = { [weak self, weak proc] _ in
       guard let self else { return }
       DispatchQueue.main.async {
+        // Ignore stale handlers from a child we already replaced.
+        guard self.process === proc else { return }
         self.handleExit()
       }
     }
@@ -223,6 +261,8 @@ final class NodeSupervisor {
       lastStartAt = Date()
       onStateChange?()
     } catch {
+      failureReason = "Failed to launch Node bridge"
+      onStateChange?()
       scheduleRestart()
     }
   }
@@ -242,7 +282,10 @@ final class NodeSupervisor {
     guard !stopping else { return }
     let delay = backoff
     backoff = min(backoff * 2, maxBackoff)
-    let work = DispatchWorkItem { [weak self] in self?.spawn() }
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, !self.stopping else { return }
+      self.spawn()
+    }
     restartWork = work
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
   }
@@ -273,27 +316,33 @@ final class LaunchAgentController {
       .appendingPathComponent("\(label).plist", isDirectory: false)
   }
 
-  /// Ensure the LaunchAgent points at the current app bundle. Rewrites a stale
-  /// plist (e.g. an old install that launched node `--helper` directly).
+  /// Ensure the LaunchAgent launches the APP BINARY directly (not `open`, not
+  /// node). launchd must supervise the long-lived signed app process itself, so
+  /// KeepAlive can restart it on crash; if we launched `/usr/bin/open` instead,
+  /// launchd would supervise that short-lived helper and KeepAlive would just
+  /// relaunch `open` after the app it spawned had already detached. The app is
+  /// a background/menu-bar agent (LSUIElement) so launching the binary directly
+  /// does not steal focus or add a Dock icon at login. Rewrites a stale plist
+  /// (e.g. an old install that launched node `--helper` or `open`).
   func ensureInstalled() {
-    guard let appBundle = Bundle.main.bundleURL.path.isEmpty ? nil : Bundle.main.bundleURL else {
-      return
-    }
-    let openPath = "/usr/bin/open"
+    let exePath = Bundle.main.executableURL?.path ?? ""
+    guard !exePath.isEmpty else { return }
+
     let desired: [String: Any] = [
       "Label": label,
-      // Launch the app bundle (not node). `open -gj` runs it in the background.
-      "ProgramArguments": [openPath, "-gj", appBundle.path],
+      "ProgramArguments": [exePath],
       "RunAtLoad": true,
-      // App is a singleton UI shell; relaunch only if it exits unexpectedly.
-      "KeepAlive": ["SuccessfulExit": false],
+      // Always keep the supervisor app alive; launchd restarts it on crash.
+      "KeepAlive": true,
+      "ProcessType": "Interactive",
     ]
 
     if let existing = try? Data(contentsOf: plistURL),
       let plist = try? PropertyListSerialization.propertyList(from: existing, format: nil)
         as? [String: Any],
       let args = plist["ProgramArguments"] as? [String],
-      args == (desired["ProgramArguments"] as? [String])
+      args == (desired["ProgramArguments"] as? [String]),
+      (plist["KeepAlive"] as? Bool) == true
     {
       return  // already correct
     }
@@ -676,7 +725,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Supervisor hint (privacy-safe; no content).
-    if !node.isRunning {
+    if let reason = node.failureReason {
+      let warn = label("Engine error: \(reason)", size: 11, weight: .semibold, color: NSColor.systemRed)
+      warn.frame = NSRect(x: 52, y: 92, width: 600, height: 16)
+      content.addSubview(warn)
+    } else if !node.isRunning {
       let warn = label("Node bridge stopped — restarting…", size: 11, weight: .semibold, color: orange())
       warn.frame = NSRect(x: 52, y: 92, width: 600, height: 16)
       content.addSubview(warn)
@@ -752,9 +805,11 @@ struct BotmemAppleBridgeMain {
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
-    // Regular app (Dock + window). The LaunchAgent uses `open -gj` so the login
-    // launch stays in the background without stealing focus.
-    app.setActivationPolicy(.regular)
+    // Accessory/background app (LSUIElement). launchd launches the binary
+    // directly at login; .accessory keeps it out of the Dock and stops the
+    // login launch from stealing focus, while the window is still shown
+    // on demand (deep link, menu-bar item, or reopen).
+    app.setActivationPolicy(.accessory)
     app.run()
   }
 }

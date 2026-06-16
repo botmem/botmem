@@ -18,12 +18,10 @@ import {
   defaultConfigPath,
   formatSources,
   getStatus,
-  installService,
   loadConfig,
   mergeConfig,
   parseSources,
   removeService,
-  restartService,
   saveConfig,
   tunnelUrlFromHost,
 } from './setup.js';
@@ -365,33 +363,20 @@ program
     log(`Service running: ${status.service.loaded ? 'yes' : 'no'}`);
   });
 
-const service = program.command('service').description('Manage the background bridge LaunchAgent');
-
-service
-  .command('start')
-  .description('Install and start the background sync service')
-  .option('--config <path>', 'Config path', defaultConfigPath())
-  .option('--runner <path>', 'Runner path for the LaunchAgent')
-  .action((opts: { config: string; runner?: string }) => {
-    installService({ configPath: opts.config, runnerPath: opts.runner });
-    restartService();
-    log('Service started');
-  });
-
-service
-  .command('restart')
-  .description('Restart the background sync service')
-  .action(() => {
-    restartService();
-    log('Service restarted');
-  });
+// Background supervision is owned by the signed macOS app, which spawns this
+// CLI as its own child so Full Disk Access is inherited (a launchd-spawned node
+// would lose FDA). The CLI therefore does NOT install a LaunchAgent. For
+// headless/server use, run the default `apple-bridge` action in the foreground
+// (e.g. under your own process manager). `service stop` only tears down any
+// legacy node LaunchAgent left by older CLI versions.
+const service = program.command('service').description('Manage legacy bridge LaunchAgents');
 
 service
   .command('stop')
-  .description('Unload and remove the background sync service')
+  .description('Remove any legacy background LaunchAgent installed by older CLI versions')
   .action(() => {
     removeService();
-    log('Service removed');
+    log('Legacy LaunchAgent removed (if present)');
   });
 
 program.parse();

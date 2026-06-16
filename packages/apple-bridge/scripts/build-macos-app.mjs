@@ -111,6 +111,9 @@ mkdirSync(macosDir, { recursive: true });
 mkdirSync(resourcesDir, { recursive: true });
 mkdirSync(generatedAssetsDir, { recursive: true });
 
+// Clean dist before rebuilding so stale artifacts (e.g. previously-compiled
+// __tests__ from before they were excluded) never leak into the shipped bundle.
+rmSync(join(root, 'dist'), { recursive: true, force: true });
 run('pnpm', ['build']);
 
 const logoMark128 = join(generatedAssetsDir, 'logo-mark-128.png');
@@ -180,14 +183,30 @@ if (existsSync(join(root, 'node_modules'))) {
   });
 }
 
+// The bundled Node binary is REQUIRED: the app spawns it as its own child so
+// Full Disk Access is inherited under the app's signature. A system/Homebrew
+// node would NOT inherit FDA. For release/CI this build must FAIL when
+// BOTMEM_NODE_BINARY is missing — no system-node fallback. Only an explicit
+// dev opt-out (BOTMEM_ALLOW_SYSTEM_NODE=1, which the app also honors) skips it.
 const bundledNode = process.env.BOTMEM_NODE_BINARY;
 if (bundledNode) {
+  if (!existsSync(bundledNode)) {
+    throw new Error(`BOTMEM_NODE_BINARY points at a missing file: ${bundledNode}`);
+  }
   copyFileSync(bundledNode, join(resourcesDir, 'node'));
   // Mark the bundled node executable so Process can spawn it.
   run('chmod', ['755', join(resourcesDir, 'node')], { stdio: 'ignore' });
-} else {
+} else if (process.env.BOTMEM_ALLOW_SYSTEM_NODE === '1') {
   console.warn(
-    'BOTMEM_NODE_BINARY is not set; the app will fall back to a PATH node at runtime.',
+    'BOTMEM_NODE_BINARY unset and BOTMEM_ALLOW_SYSTEM_NODE=1 — building a DEV bundle ' +
+      'without an embedded node. The app will fall back to a PATH node (no FDA). ' +
+      'Do NOT ship this build.',
+  );
+} else {
+  throw new Error(
+    'BOTMEM_NODE_BINARY is required: the app must bundle its own Node runtime so the ' +
+      'spawned bridge inherits Full Disk Access. Set BOTMEM_NODE_BINARY to a macOS Node ' +
+      'binary (or BOTMEM_ALLOW_SYSTEM_NODE=1 for a non-shippable dev build).',
   );
 }
 
