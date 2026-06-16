@@ -23,5 +23,9 @@ pub fn init() {
             .with_ansi(false)
             .with_target(true)
             .try_init();
+
+        // rustls 0.23 has no default crypto provider — install `ring` once for
+        // the TLS used by the wss:// tunnel. Ignore the error if already set.
+        let _ = rustls::crypto::ring::default_provider().install_default();
     });
 }

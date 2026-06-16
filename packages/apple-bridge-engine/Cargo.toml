@@ -16,15 +16,27 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 once_cell = "1"
 thiserror = "1"
 libc = "0.2"
 
-# Phase 2+ (tunnel, index, sources) add their deps here as each lands:
-#   tokio-tungstenite, x25519-dalek, hkdf, sha2, aes-gcm, rand_core,
+# Phase 2 — tunnel: WebSocket + the exact crypto suite from PROTOCOL.md §4.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+getrandom = "0.2"
+base64 = "0.22"
+# rustls 0.23 needs an explicit crypto provider; pick `ring` (no C toolchain,
+# unlike aws-lc-rs). Installed once at engine start.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+
+# Phase 3+ (index, sources) add their deps here as each lands:
 #   rusqlite (bundled, FTS5), zip, quick-xml, pdf-extract/lopdf, nom.
 
 [dev-dependencies]
