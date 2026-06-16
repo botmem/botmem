@@ -1305,6 +1305,71 @@ describe('MemoryService', () => {
     });
   });
 
+  describe('synthesizeAsk', () => {
+    it('surfaces old same-conversation attachment stubs found through thread ids', async () => {
+      const oldAttachment = {
+        ...fakeMemoryRow,
+        id: 'doc-old',
+        connectorType: 'whatsapp',
+        sourceType: 'message',
+        sourceId: 'msg-doc-old',
+        text: 'sent Old_offer.pdf',
+        eventTime: new Date('2025-01-01T10:00:00.000Z'),
+        metadata: JSON.stringify({
+          chatId: 'chat-1',
+          chatName: 'Active group',
+          senderName: 'Nouran',
+          attachments: [{ fileName: 'Old_offer.pdf', mimeType: 'application/pdf' }],
+        }),
+      };
+
+      vi.spyOn(service, 'getUserAccountIds').mockResolvedValue(['acc-1']);
+      vi.spyOn(service, 'getPeopleForMemories')
+        .mockResolvedValueOnce(new Map())
+        .mockResolvedValueOnce(new Map());
+      mockDb.where.mockReturnValueOnce(mockDb).mockResolvedValueOnce([
+        { memory: oldAttachment, accountIdentifier: null },
+      ]);
+      mockDb.limit.mockResolvedValueOnce([{ id: 'doc-old' }]);
+
+      const result = await service.synthesizeAsk(
+        'what was the offer?',
+        [
+          {
+            id: 'mem-current',
+            text: 'We discussed the offer in the active group.',
+            sourceType: 'message',
+            connectorType: 'whatsapp',
+            eventTime: new Date('2026-06-01T10:00:00.000Z'),
+            ingestTime: new Date('2026-06-01T10:00:00.000Z'),
+            createdAt: new Date('2026-06-01T10:00:00.000Z'),
+            factuality: { label: 'FACT' },
+            entities: '[]',
+            metadata: { chatId: 'chat-1', chatName: 'Active group' },
+            accountIdentifier: null,
+            pinned: false,
+            score: 0.9,
+            weights: { semantic: 0.9, recency: 0, importance: 0, trust: 0, final: 0.9 },
+          },
+        ],
+        'user-1',
+      );
+
+      expect(result.relatedDocuments).toEqual([
+        expect.objectContaining({
+          fileName: 'Old_offer.pdf',
+          memoryId: 'doc-old',
+          chatName: 'Active group',
+          sender: 'Nouran',
+        }),
+      ]);
+      expect(aiService.generate).toHaveBeenCalledWith(
+        expect.stringContaining('Related documents (content not indexed)'),
+      );
+      expect(aiService.generate).toHaveBeenCalledWith(expect.stringContaining('Old_offer.pdf'));
+    });
+  });
+
   describe('mapBridgeResults', () => {
     const call = (items: unknown[], limit = 20) =>
       (

@@ -8,6 +8,7 @@ import { PgSearchService } from '../memory/pg-search.service';
 import { PeopleService, PersonWithIdentifiers } from '../people/people.service';
 import { ConfigService } from '../config/config.service';
 import { memories, people, memoryPeople } from '../db/schema';
+import type { RelatedDocument, StructuredAskCitation } from '../memory/ask-synthesis';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -116,6 +117,8 @@ export class AgentService {
     query: string;
     answer?: string;
     conversationId?: string;
+    citations?: StructuredAskCitation[];
+    relatedDocuments?: RelatedDocument[];
     parsed?: {
       temporal: { from: string; to: string } | null;
       temporalFallback?: boolean;
@@ -162,8 +165,20 @@ export class AgentService {
 
     // Group by thread (same sourceId prefix for emails, or same sourceId for conversations)
     const grouped = this.groupByThread(enriched.filter(Boolean) as EnrichedMemory[]);
+    const synthesis = await this.memoryService.synthesizeAsk(
+      query,
+      searchResponse.items,
+      options?.userId,
+    );
 
-    return { results: grouped, query, parsed: searchResponse.parsed };
+    return {
+      results: grouped,
+      query,
+      answer: synthesis.answer,
+      citations: synthesis.citations,
+      relatedDocuments: synthesis.relatedDocuments,
+      parsed: searchResponse.parsed,
+    };
   }
 
   private async answerBroadTimelineQuery(

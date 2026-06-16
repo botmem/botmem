@@ -59,6 +59,11 @@ describe('AgentService', () => {
         .mockResolvedValue({ total: 100, byConnector: { gmail: 50 }, bySource: { email: 50 } }),
       delete: vi.fn().mockResolvedValue(undefined),
       getPeopleForMemories: vi.fn().mockResolvedValue(new Map()),
+      synthesizeAsk: vi.fn().mockResolvedValue({
+        answer: 'Summary of memories',
+        citations: [],
+        relatedDocuments: [],
+      }),
     };
 
     aiService = {
@@ -125,6 +130,25 @@ describe('AgentService', () => {
       const result = await service.ask('test query');
       expect(result.results).toHaveLength(1);
       expect(result.results[0].id).toBe('mem-1');
+    });
+
+    it('synthesizes an answer for normal search results', async () => {
+      memoryService.search.mockResolvedValueOnce({
+        items: [{ id: 'mem-1', score: 0.9 }],
+        fallback: false,
+        parsed: { temporal: null, intent: 'recall', cleanQuery: 'test' },
+      });
+
+      const result = await service.ask('test query', { userId: 'user-1' });
+
+      expect(memoryService.synthesizeAsk).toHaveBeenCalledWith(
+        'test query',
+        [{ id: 'mem-1', score: 0.9 }],
+        'user-1',
+      );
+      expect(result.answer).toBe('Summary of memories');
+      expect(result.citations).toEqual([]);
+      expect(result.relatedDocuments).toEqual([]);
     });
 
     it('respects limit and filters', async () => {
