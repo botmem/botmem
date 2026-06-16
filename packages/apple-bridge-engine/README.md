@@ -7,12 +7,13 @@ databases. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for _why_ (the TCC/FDA
 constraint) and [`PROTOCOL.md`](./PROTOCOL.md) for the frozen tunnel protocol the
 engine must speak (the server side does not change).
 
-> **Status: Phase 2** — lifecycle skeleton + encrypted tunnel client. The C ABI,
-> config, status writer, logging, tokio runtime, and the X25519/HKDF/AES-256-GCM
-> WebSocket tunnel (JSON-RPC, reconnect, heartbeat) are implemented and tested,
-> and the handshake is verified against the live prod server. The FTS index
-> (Phase 3) and source readers (Phase 4) are stubbed — `search.query` currently
-> reports the index as unavailable. Run the live handshake check with
+> **Status: Phase 3** — lifecycle + encrypted tunnel + local FTS5 index. The C
+> ABI, config, status writer, logging, tokio runtime, the X25519/HKDF/AES-256-GCM
+> WebSocket tunnel (verified against live prod), and the bundled-SQLite FTS5 index
+> (`search.query`/`bridge.status`, bm25 ranking, behavior-matched to the node
+> engine) are implemented and tested. **Source readers (Phase 4) are the
+> remaining gap** — the index is empty until they populate it, so `search.query`
+> returns no items yet. Run the live handshake check with
 > `cargo run --example connect` (set `BRIDGE_TOKEN`/`BRIDGE_SERVER`).
 
 ## Layout

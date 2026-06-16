@@ -4,6 +4,7 @@
 //! and index are stubbed with clearly-marked TODOs.
 
 use crate::config::EngineConfig;
+use crate::index::{IndexDispatcher, IndexStore};
 use crate::rpc::{RpcDispatch, StubDispatcher};
 use crate::status::{BridgeState, StatusWriter};
 use crate::tunnel::TunnelClient;
@@ -90,10 +91,20 @@ async fn run(
     status.set_state(BridgeState::Connecting, "Connecting to Botmem…");
     status.push_activity("Engine started");
 
-    // TODO(phase-3): construct the index here and pass an index-backed
-    // dispatcher instead of StubDispatcher (which reports the index as
-    // unavailable for search.query). The tunnel protocol does not change.
-    let dispatch: Arc<dyn RpcDispatch> = Arc::new(StubDispatcher);
+    // Open the local FTS index; the tunnel answers search.query/bridge.status
+    // from it. If it can't open, fall back to the stub (tunnel still runs) so a
+    // disk hiccup doesn't take the whole bridge down.
+    // TODO(phase-4): the source readers populate this index; until then it's
+    // empty and search.query returns no items (not an error).
+    let index_path = config.resolve_data_dir().join("index.sqlite");
+    let dispatch: Arc<dyn RpcDispatch> = match IndexStore::open(&index_path) {
+        Ok(store) => Arc::new(IndexDispatcher::new(store)),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not open local index; serving stub dispatcher");
+            status.push_activity("Index unavailable");
+            Arc::new(StubDispatcher)
+        }
+    };
 
     let client = TunnelClient {
         server: config.server.clone(),
