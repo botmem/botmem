@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use super::{open_ro, RecordSink};
+use super::{open_ro, Cancelled, RecordSink};
 use crate::index::IndexRecord;
 
 /// Seconds between 2001-01-01 (Core Data epoch) and 1970-01-01 (Unix).
@@ -33,13 +33,17 @@ pub fn detect(db_path: &Path) -> bool {
 }
 
 /// Stream normalized message records into `sink`. Returns the record count.
-pub fn read(db_path: &Path, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
+pub fn read(db_path: &Path, cancelled: Cancelled<'_>, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
     let conn = open_ro(db_path)?;
-    read_conn(&conn, sink)
+    read_conn(&conn, cancelled, sink)
 }
 
 /// Inner read against an open connection (so tests can use a fixture DB).
-pub(crate) fn read_conn(conn: &Connection, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
+pub(crate) fn read_conn(
+    conn: &Connection,
+    cancelled: Cancelled<'_>,
+    sink: RecordSink<'_>,
+) -> Result<usize, rusqlite::Error> {
     let mut stmt = conn.prepare(
         r#"SELECT m.ROWID AS id, m.text AS text, m.attributedBody AS body, m.date AS date,
                   m.is_from_me AS is_from_me, h.id AS handle,
@@ -54,6 +58,9 @@ pub(crate) fn read_conn(conn: &Connection, sink: RecordSink<'_>) -> Result<usize
     let mut rows = stmt.query([])?;
     let mut count = 0usize;
     while let Some(row) = rows.next()? {
+        if cancelled() {
+            break;
+        }
         let id: i64 = row.get("id")?;
         let text_col: Option<String> = row.get("text")?;
         let body: Option<Vec<u8>> = row.get("body")?;
@@ -131,7 +138,7 @@ mod tests {
     fn reads_text_and_attributed_body() {
         let c = fixture();
         let mut got = Vec::new();
-        let n = read_conn(&c, &mut |r| got.push(r)).unwrap();
+        let n = read_conn(&c, &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
         assert_eq!(n, 2);
 
         let plain = got.iter().find(|r| r.source_id == "10").unwrap();

@@ -9,6 +9,7 @@ pub mod attachments;
 pub mod attributed_body;
 pub mod contacts;
 pub mod imessage;
+pub mod imessage_rpc;
 pub mod whatsapp;
 
 use std::path::Path;
@@ -23,6 +24,41 @@ use crate::status::{BridgeState, IndexingStatus, StatusSource, StatusWriter};
 
 /// Streaming sink for normalized records.
 pub type RecordSink<'a> = &'a mut dyn FnMut(IndexRecord);
+
+/// Cooperative-cancellation probe: readers call this at the top of each row loop
+/// (and before expensive attachment extraction) and stop promptly when it's true,
+/// so `Engine::stop` never waits for a full DB scan.
+pub type Cancelled<'a> = &'a dyn Fn() -> bool;
+
+/// A cancellation probe that never cancels (tests / unconditional reads).
+pub fn never_cancelled() -> impl Fn() -> bool {
+    || false
+}
+
+/// Format epoch MILLISECONDS as `YYYY-MM-DDTHH:MM:SS.mmmZ` (matches JS
+/// `new Date(ms).toISOString()`). Used by the legacy chats.list/messages.history
+/// RPCs to mirror `db.ts` `coreDataToISO`.
+pub(crate) fn epoch_ms_to_iso(ms: i64) -> String {
+    let secs = ms.div_euclid(1000);
+    let millis = ms.rem_euclid(1000);
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    // civil_from_days: days since 1970-01-01 → (year, month, day)
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+
+    format!("{year:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}.{millis:03}Z")
+}
 
 /// Records buffered before each batched insert under the index lock.
 const BATCH: usize = 1000;
@@ -86,30 +122,32 @@ pub fn build_index(
         let _ = s.reset();
     }
 
+    let cancelled = || stop.load(Ordering::Relaxed);
+
     // Contacts first — it feeds name resolution for later sources (and is cheap).
-    if enabled.contacts && !stop.load(Ordering::Relaxed) {
+    if enabled.contacts && !cancelled() {
         let base = contacts::default_base();
         if contacts::detect(&base) {
-            index_source(store, status, stop, SourceName::Contacts, |sink| {
-                contacts::read(&base, sink)
+            index_source(store, status, SourceName::Contacts, |sink| {
+                contacts::read(&base, &cancelled, sink)
             });
         }
     }
 
-    if enabled.whatsapp && !stop.load(Ordering::Relaxed) {
+    if enabled.whatsapp && !cancelled() {
         let db = whatsapp::default_db_path();
         if whatsapp::detect(&db) {
-            index_source(store, status, stop, SourceName::Whatsapp, |sink| {
-                whatsapp::read(&db, sink)
+            index_source(store, status, SourceName::Whatsapp, |sink| {
+                whatsapp::read(&db, &cancelled, sink)
             });
         }
     }
 
-    if enabled.imessages && !stop.load(Ordering::Relaxed) {
+    if enabled.imessages && !cancelled() {
         let db = imessage::default_db_path();
         if imessage::detect(&db) {
-            index_source(store, status, stop, SourceName::Imessage, |sink| {
-                imessage::read(&db, sink)
+            index_source(store, status, SourceName::Imessage, |sink| {
+                imessage::read(&db, &cancelled, sink)
             });
         }
     }
@@ -132,13 +170,10 @@ pub fn build_index(
 }
 
 /// Stream one source's records into the index in batches, updating progress.
-fn index_source<F>(
-    store: &SharedStore,
-    status: &StatusWriter,
-    stop: &Arc<AtomicBool>,
-    source: SourceName,
-    read_fn: F,
-) where
+/// Cancellation is the reader's responsibility (it stops calling `sink` and
+/// returns early when its `Cancelled` probe fires), so this just buffers/flushes.
+fn index_source<F>(store: &SharedStore, status: &StatusWriter, source: SourceName, read_fn: F)
+where
     F: FnOnce(RecordSink<'_>) -> Result<usize, rusqlite::Error>,
 {
     status.set_indexing(IndexingStatus {
@@ -150,7 +185,6 @@ fn index_source<F>(
 
     let mut buf: Vec<IndexRecord> = Vec::with_capacity(BATCH);
     let mut done: u64 = 0;
-    let mut aborted = false;
 
     let flush = |store: &SharedStore, buf: &mut Vec<IndexRecord>| {
         if buf.is_empty() {
@@ -163,16 +197,10 @@ fn index_source<F>(
     };
 
     let mut sink = |rec: IndexRecord| {
-        if aborted {
-            return;
-        }
         buf.push(rec);
         done += 1;
         if buf.len() >= BATCH {
             flush(store, &mut buf);
-            if stop.load(Ordering::Relaxed) {
-                aborted = true;
-            }
             status.set_indexing(IndexingStatus {
                 active: true,
                 source: Some(source.as_str().to_string()),

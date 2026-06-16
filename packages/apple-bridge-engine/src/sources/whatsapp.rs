@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use super::{open_ro, RecordSink};
+use super::{open_ro, Cancelled, RecordSink};
 use crate::index::IndexRecord;
 
 /// Core Data epoch: 2001-01-01 in unix seconds.
@@ -126,19 +126,20 @@ pub(crate) struct AttachCtx {
     pub real_container: PathBuf,
 }
 
-pub fn read(db_path: &Path, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
+pub fn read(db_path: &Path, cancelled: Cancelled<'_>, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
     let conn = open_ro(db_path)?;
     let container_dir = db_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let names = load_contact_names(&container_dir);
     let real_container = std::fs::canonicalize(&container_dir).unwrap_or_else(|_| container_dir.clone());
     let attach = AttachCtx { container: container_dir, real_container };
-    read_conn(&conn, &names, Some(&attach), sink)
+    read_conn(&conn, &names, Some(&attach), cancelled, sink)
 }
 
 pub(crate) fn read_conn(
     conn: &Connection,
     names: &HashMap<String, String>,
     attach: Option<&AttachCtx>,
+    cancelled: Cancelled<'_>,
     sink: RecordSink<'_>,
 ) -> Result<usize, rusqlite::Error> {
     let title_col = pick_title_col(conn);
@@ -161,6 +162,11 @@ pub(crate) fn read_conn(
     let mut rows = stmt.query([])?;
     let mut count = 0usize;
     while let Some(row) = rows.next()? {
+        // Check before each row (and thus before any attachment extraction) so a
+        // stop request interrupts promptly even mid-scan of a large store.
+        if cancelled() {
+            break;
+        }
         let id: i64 = row.get("id")?;
         let text_col: Option<String> = row.get("text")?;
         let ts: Option<f64> = row.get("ts")?;
@@ -270,7 +276,7 @@ mod tests {
         let mut names = HashMap::new();
         names.insert("971501234567".to_string(), "Mostafa".to_string());
         let mut got = Vec::new();
-        let n = read_conn(&c, &names, None, &mut |r| got.push(r)).unwrap();
+        let n = read_conn(&c, &names, None, &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
         assert_eq!(n, 2);
 
         let msg = got.iter().find(|r| r.source_id == "100").unwrap();
@@ -289,7 +295,7 @@ mod tests {
         let c = fixture();
         let names = HashMap::new(); // empty → no resolution
         let mut got = Vec::new();
-        read_conn(&c, &names, None, &mut |r| got.push(r)).unwrap();
+        read_conn(&c, &names, None, &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
         let msg = got.iter().find(|r| r.source_id == "100").unwrap();
         assert_eq!(msg.sender_name, "+971501234567");
     }
@@ -324,7 +330,7 @@ mod tests {
         let attach = AttachCtx { container: container.clone(), real_container: container };
         let names = HashMap::new();
         let mut got = Vec::new();
-        read_conn(&c, &names, Some(&attach), &mut |r| got.push(r)).unwrap();
+        read_conn(&c, &names, Some(&attach), &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
         let msg = got.iter().find(|r| r.source_id == "200").unwrap();
         assert!(msg.text.contains("installment amount is 50,000"), "got: {:?}", msg.text);
         // caption is included alongside the extracted text
@@ -361,7 +367,7 @@ mod tests {
         let attach = AttachCtx { container, real_container };
         let names = HashMap::new();
         let mut got = Vec::new();
-        read_conn(&c, &names, Some(&attach), &mut |r| got.push(r)).unwrap();
+        read_conn(&c, &names, Some(&attach), &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
         let msg = got.iter().find(|r| r.source_id == "300").unwrap();
         // Traversal blocked → secret never read; falls back to the caption only.
         assert!(!msg.text.contains("top secret"), "path traversal leaked: {:?}", msg.text);
