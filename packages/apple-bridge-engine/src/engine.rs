@@ -4,7 +4,9 @@
 //! and index are stubbed with clearly-marked TODOs.
 
 use crate::config::EngineConfig;
+use crate::rpc::{RpcDispatch, StubDispatcher};
 use crate::status::{BridgeState, StatusWriter};
+use crate::tunnel::TunnelClient;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
@@ -77,26 +79,33 @@ impl Engine {
     }
 }
 
-/// The long-lived engine loop. Phase 1: it transitions status to `connecting`
-/// and idles until shutdown. Phase 2 replaces the idle wait with the tunnel
-/// client; Phase 3+ adds the indexer.
+/// The long-lived engine loop. Phase 2: run the encrypted tunnel client until
+/// shutdown (it reconnects internally). Phase 3+ will build/refresh the local
+/// FTS5 index and swap the `StubDispatcher` for the real index-backed one.
 async fn run(
-    _config: EngineConfig,
+    config: EngineConfig,
     status: Arc<StatusWriter>,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown_rx: watch::Receiver<bool>,
 ) {
     status.set_state(BridgeState::Connecting, "Connecting to Botmem…");
     status.push_activity("Engine started");
 
-    // TODO(phase-2): construct and run the TunnelClient here:
-    //   - X25519 keypair + auth handshake (PROTOCOL.md §2/§4)
-    //   - AES-256-GCM encrypted JSON-RPC loop (§3) dispatching to the RPC handler
-    //   - exponential reconnect, ws ping/pong heartbeat
-    // TODO(phase-3): build/refresh the local FTS5 index and answer search.query.
+    // TODO(phase-3): construct the index here and pass an index-backed
+    // dispatcher instead of StubDispatcher (which reports the index as
+    // unavailable for search.query). The tunnel protocol does not change.
+    let dispatch: Arc<dyn RpcDispatch> = Arc::new(StubDispatcher);
 
-    // Idle until asked to stop (cooperative shutdown).
-    let _ = shutdown_rx.changed().await;
-    tracing::info!("engine loop received shutdown signal");
+    let client = TunnelClient {
+        server: config.server.clone(),
+        token: config.token.clone(),
+        sources: config.sources_or_default(),
+        status: Arc::clone(&status),
+        dispatch,
+    };
+
+    // Runs until shutdown or a permanent auth failure (handles reconnect itself).
+    client.run(shutdown_rx).await;
+    tracing::info!("engine loop exited");
 }
 
 #[derive(Debug, thiserror::Error)]

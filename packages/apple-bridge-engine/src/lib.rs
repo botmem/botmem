@@ -13,6 +13,7 @@ pub mod config;
 pub mod engine;
 pub mod ffi;
 pub mod logging;
+pub mod rpc;
 pub mod status;
 
 // Phase 2+ module stubs — kept here so the public module layout is stable as

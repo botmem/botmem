@@ -9,6 +9,11 @@
 //!
 //! Crypto constants are pinned here so a regression is caught at compile sites.
 
+pub mod client;
+pub mod crypto;
+
+pub use client::TunnelClient;
+
 /// HKDF salt — MUST match `crypto.ts` / the server.
 pub const HKDF_SALT: &[u8] = b"botmem-apple-tunnel-v1";
 /// HKDF info — MUST match `crypto.ts` / the server.

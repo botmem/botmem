@@ -81,6 +81,9 @@ integration thin and avoids callback-heavy FFI.
   JSON writer. Swift link wiring documented. ← current
 - **Phase 2 — tunnel compatibility**: WS client + x25519/HKDF/AES-GCM handshake +
   encrypted JSON-RPC; validate against the live API with NO server changes.
+  ✅ Verified against prod (`wss://api.botmem.xyz/apple-tunnel`) — handshake
+  accepted, encrypted session established. `StubDispatcher` answers ping /
+  bridge.status; search.query reports the index unavailable until Phase 3.
 - **Phase 3 — local FTS5 index**: SQLite index, migrations, `search.query` shape.
 - **Phase 4 — source readers**: Contacts → WhatsApp → iMessage text →
   `attributedBody` typedstream → attachments → PDF/DOCX.
