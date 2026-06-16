@@ -32,6 +32,8 @@
   </array>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
+  <key>LSUIElement</key>
+  <true/>
   <key>NSContactsUsageDescription</key>
   <string>Botmem reads Contacts locally when you choose the Apple Contacts source.</string>
 </dict>

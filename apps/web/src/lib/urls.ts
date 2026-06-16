@@ -63,3 +63,25 @@ export function wsUrl(path = '/events'): string {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
+
+/**
+ * WebSocket URL for the Apple bridge tunnel gateway.
+ *
+ * The tunnel gateway is mounted on the API host (api.botmem.xyz) OUTSIDE the
+ * `/api` prefix, and is NOT proxied by the app host. In prod, VITE_API_ORIGIN
+ * is set to the app host, so {@link wsUrl} would point the tunnel at
+ * app.botmem.xyz, which has no gateway. Rewrite the app host to the api host so
+ * the bridge connects to the right place.
+ */
+export function appleTunnelUrl(): string {
+  const ws = wsUrl('/apple-tunnel');
+  try {
+    const u = new URL(ws);
+    if (u.hostname === 'app.botmem.xyz' || u.hostname === 'botmem.xyz') {
+      u.hostname = 'api.botmem.xyz';
+    }
+    return u.toString();
+  } catch {
+    return ws;
+  }
+}

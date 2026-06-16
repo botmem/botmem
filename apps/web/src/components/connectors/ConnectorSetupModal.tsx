@@ -5,7 +5,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { api, createWsConnection, waitForAuth, subscribeToChannel } from '../../lib/api';
-import { wsUrl } from '../../lib/urls';
+import { appleTunnelUrl } from '../../lib/urls';
 import { useConnectorStore } from '../../store/connectorStore';
 import { isFirebaseMode } from '../../store/authStore';
 
@@ -487,8 +487,28 @@ function PhoneCodeAuthView({
 }
 
 // --- Bridge Auth View (Apple remote tunnel) ---
+// Linear 3-step flow: Download -> Connect -> Status.
 
-type BridgeStep = 'email' | 'command' | 'connected';
+type BridgeStep = 'download' | 'connect' | 'status';
+
+const BRIDGE_SOURCES = 'contacts,imessages';
+
+function buildBridgeDeepLink(opts: { server: string; token: string; accountId: string }): string {
+  const link = new URL('botmem-apple-bridge://connect');
+  link.searchParams.set('server', opts.server);
+  link.searchParams.set('token', opts.token);
+  link.searchParams.set('accountId', opts.accountId);
+  link.searchParams.set('sources', BRIDGE_SOURCES);
+  return link.toString();
+}
+
+// Foreground (headless) bridge command — the terminal alternative to the Mac
+// app. Running in the foreground reuses the terminal's Full Disk Access; the
+// `service start` LaunchAgent path would lose FDA now that the signed app is
+// the canonical supervisor. Values are single-quoted to stay shell-safe.
+function buildBridgeCommand(opts: { server: string; token: string; accountId: string }): string {
+  return `npx @botmem/apple-bridge@latest --token='${opts.token}' --server='${opts.server}' --account-id='${opts.accountId}'`;
+}
 
 function BridgeAuthView({
   connectorType,
@@ -504,58 +524,38 @@ function BridgeAuthView({
   editIdentifier?: string;
 }) {
   const fetchAccounts = useConnectorStore((s) => s.fetchAccounts);
+  // Reconnect skips the download step — the app is already installed.
   const isReconnect = !!editAccountId;
-  const [step, setStep] = useState<BridgeStep>(isReconnect ? 'command' : 'email');
+  const [step, setStep] = useState<BridgeStep>(isReconnect ? 'connect' : 'download');
   const [myIdentifier, setMyIdentifier] = useState(editIdentifier || '');
   const [bridgeCommand, setBridgeCommand] = useState('');
   const [bridgeDeepLink, setBridgeDeepLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(editAccountId || null);
-  const [bridgeConnected, setBridgeConnected] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState<{
+    connected: boolean;
+    sources: { contacts: boolean; imessages: boolean } | null;
+  }>({ connected: false, sources: null });
   const [copied, setCopied] = useState(false);
-  const [bridgeLaunchPending, setBridgeLaunchPending] = useState(false);
-  const [bridgeLaunchTimedOut, setBridgeLaunchTimedOut] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const launchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearTimeout(pollRef.current);
-      if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
     };
   }, []);
 
-  const applyBridgeAccount = (acct: Record<string, string>) => {
-    const acctId = acct.id || editAccountId || '';
-    setAccountId(acctId);
-
-    const token = acct.bridgeToken || '';
-    const serverUrl = wsUrl('/apple-tunnel');
-    const sourceList = 'contacts,imessages';
-    const cmd = `npx @botmem/apple-bridge configure --token=${token} --server=${serverUrl} --account-id=${acctId} --sources=${sourceList}
-npx @botmem/apple-bridge preflight
-npx @botmem/apple-bridge service start`;
-    const deepLink = new URL('botmem-apple-bridge://connect');
-    deepLink.searchParams.set('server', serverUrl);
-    deepLink.searchParams.set('token', token);
-    deepLink.searchParams.set('accountId', acctId);
-    deepLink.searchParams.set('sources', sourceList);
-    setBridgeCommand(cmd);
-    setBridgeDeepLink(deepLink.toString());
-    setStep('command');
-    setBridgeLaunchPending(false);
-
+  const startPolling = (acctId: string) => {
     if (pollRef.current) clearTimeout(pollRef.current);
     let delayMs = 2000;
-    const pollBridgeStatus = async () => {
+    const poll = async () => {
       try {
         const data = await api.getBridgeStatus(acctId);
+        setBridgeStatus({ connected: data.connected, sources: data.sources });
         if (data.connected) {
-          setBridgeConnected(true);
-          setBridgeLaunchPending(false);
-          setStep('connected');
           if (pollRef.current) clearTimeout(pollRef.current);
           pollRef.current = null;
           return;
@@ -564,11 +564,12 @@ npx @botmem/apple-bridge service start`;
         // Offline bridges are shown as waiting; the next poll backs off.
       }
       delayMs = Math.min(delayMs * 2, 15000);
-      pollRef.current = setTimeout(pollBridgeStatus, delayMs);
+      pollRef.current = setTimeout(poll, delayMs);
     };
-    pollRef.current = setTimeout(pollBridgeStatus, delayMs);
+    pollRef.current = setTimeout(poll, delayMs);
   };
 
+  // Provision the account (token + accountId), build the deep link, move to status.
   const setupBridge = async () => {
     setLoading(true);
     setError(null);
@@ -582,7 +583,25 @@ npx @botmem/apple-bridge service start`;
       });
 
       if (result.type === 'complete' && result.account) {
-        applyBridgeAccount(result.account as Record<string, string>);
+        const acct = result.account as Record<string, string>;
+        const acctId = acct.id || editAccountId || '';
+        const token = acct.bridgeToken || '';
+        const server = appleTunnelUrl();
+        const deepLink = buildBridgeDeepLink({ server, token, accountId: acctId });
+
+        setAccountId(acctId);
+        setBridgeDeepLink(deepLink);
+        setBridgeCommand(buildBridgeCommand({ server, token, accountId: acctId }));
+        setStep('status');
+
+        // Hand off to the bridge app, then wait for it to phone home.
+        try {
+          window.location.href = deepLink;
+        } catch {
+          // Custom-scheme navigation can throw in non-browser/test envs; the
+          // status step still surfaces a manual "Reopen the app" link.
+        }
+        startPolling(acctId);
       } else {
         setError('Unexpected response from server');
       }
@@ -594,7 +613,7 @@ npx @botmem/apple-bridge service start`;
     }
   };
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  const handleConnectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await setupBridge();
   };
@@ -620,14 +639,7 @@ npx @botmem/apple-bridge service start`;
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const openBridgeApp = () => {
-    setBridgeLaunchPending(true);
-    setBridgeLaunchTimedOut(false);
-    if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
-    launchTimerRef.current = setTimeout(() => setBridgeLaunchTimedOut(true), 8000);
-  };
-
-  const stepNumber = step === 'email' ? 1 : step === 'command' ? 2 : 3;
+  const stepNumber = step === 'download' ? 1 : step === 'connect' ? 2 : 3;
 
   return (
     <Modal open onClose={onClose} title="Connect Apple">
@@ -639,12 +651,34 @@ npx @botmem/apple-bridge service start`;
         </div>
       )}
 
-      {/* Step 1: Email/Phone */}
-      {step === 'email' && (
-        <form onSubmit={handleEmailSubmit} className="flex flex-col gap-4">
+      {/* Step 1: Download */}
+      {step === 'download' && (
+        <div className="flex flex-col gap-4">
           <p className="font-mono text-xs text-nb-muted uppercase">
-            Enter your iMessage email or phone number to identify your side of conversations. Apple
-            sources and permissions are configured in the bridge app or CLI.
+            Get the Mac app that reads your Apple data and streams it over an encrypted tunnel.
+          </p>
+          <a
+            href={APPLE_BRIDGE_GITHUB_RELEASE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-display font-bold uppercase tracking-wider border-3 border-nb-border shadow-nb px-5 py-2.5 text-sm bg-nb-lime text-black text-center transition-all duration-100 cursor-pointer hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm active:translate-x-[4px] active:translate-y-[4px] active:shadow-none"
+          >
+            Download Botmem for Mac
+          </a>
+          <p className="font-mono text-xs text-nb-muted">
+            Install it, then come back and click Connect.
+          </p>
+          <Button type="button" onClick={() => setStep('connect')}>
+            NEXT
+          </Button>
+        </div>
+      )}
+
+      {/* Step 2: Connect */}
+      {step === 'connect' && (
+        <form onSubmit={handleConnectSubmit} className="flex flex-col gap-4">
+          <p className="font-mono text-xs text-nb-muted uppercase">
+            Enter your iMessage email or phone so we know which side of conversations is you.
           </p>
           <Input
             label="Your Email or Phone"
@@ -654,87 +688,81 @@ npx @botmem/apple-bridge service start`;
             required
             autoFocus
           />
-          <Button type="submit" disabled={loading}>
-            {loading ? 'SETTING UP...' : 'PAIR BRIDGE'}
+          <Button type="submit" disabled={loading || !myIdentifier}>
+            {loading ? 'CONNECTING...' : 'CONNECT'}
           </Button>
+
+          <details
+            className="border-3 border-nb-border bg-nb-surface/50"
+            open={showAdvanced}
+            onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 font-display text-xs font-bold uppercase text-nb-muted">
+              Advanced: run from terminal
+            </summary>
+            <p className="px-3 pb-3 font-mono text-[11px] text-nb-muted">
+              Prefer the terminal? Click Connect to provision a token, then run the bridge in the
+              foreground on the Mac instead of opening the app.
+            </p>
+          </details>
         </form>
       )}
 
-      {/* Step 2: Show command */}
-      {step === 'command' && (
+      {/* Step 3: Status */}
+      {step === 'status' && (
         <div className="flex flex-col gap-4">
-          {isReconnect && !bridgeCommand && (
-            <div className="border-3 border-nb-yellow bg-nb-yellow/10 p-3 font-mono text-xs text-nb-text uppercase">
-              Reconnecting can rotate the bridge token if this account has no saved token. The old
-              bridge config may stop working.
-            </div>
-          )}
-          <p className="font-mono text-xs text-nb-muted uppercase">
-            Install and open Botmem Apple Bridge on the Mac with your Apple data. The app and CLI
-            use the same local config, source choices, permission checks, and background service.
-          </p>
-
-          <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
-            <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">App Setup</p>
-            <ol className="font-mono text-xs text-nb-muted space-y-1 list-decimal list-inside">
-              <li>
-                Download Botmem Apple Bridge from{' '}
-                <a
-                  href={APPLE_BRIDGE_GITHUB_RELEASE_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-nb-lime underline underline-offset-2"
-                >
-                  GitHub Releases
-                </a>
-              </li>
-              <li>Open the app, then connect it to this account.</li>
-              <li>Choose Contacts and/or Messages in the bridge app.</li>
-              <li>The app will request only the permissions required for selected sources.</li>
-            </ol>
+          <div className="flex items-center gap-3 py-2" role="status" aria-live="polite">
+            {bridgeStatus.connected ? (
+              <>
+                <div className="size-3 bg-nb-lime" aria-hidden="true" />
+                <p className="font-mono text-sm text-nb-lime uppercase font-bold">
+                  Connected · live search active
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="size-3 bg-nb-muted animate-pulse" aria-hidden="true" />
+                <p className="font-mono text-xs text-nb-muted uppercase">Waiting for the app…</p>
+              </>
+            )}
           </div>
 
-          {isReconnect && !bridgeCommand ? (
-            <Button type="button" onClick={setupBridge} disabled={loading || !myIdentifier}>
-              {loading ? 'RECONNECTING...' : 'RECONNECT BRIDGE'}
-            </Button>
-          ) : (
-            <a
-              href={bridgeDeepLink || undefined}
-              onClick={openBridgeApp}
-              aria-disabled={!bridgeDeepLink}
-              className={cn(
-                'font-display font-bold uppercase tracking-wider border-3 border-nb-border shadow-nb px-5 py-2.5 text-sm bg-nb-lime text-black text-center transition-all duration-100',
-                bridgeDeepLink
-                  ? 'cursor-pointer hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-nb-sm active:translate-x-[4px] active:translate-y-[4px] active:shadow-none'
-                  : 'opacity-50 pointer-events-none',
+          {bridgeStatus.connected && bridgeStatus.sources && (
+            <div className="flex flex-wrap gap-2">
+              {bridgeStatus.sources.contacts && (
+                <span className="border-3 border-nb-lime bg-nb-lime/10 px-2 py-1 font-mono text-[10px] uppercase text-nb-lime">
+                  Contacts
+                </span>
               )}
-            >
-              CONNECT BRIDGE APP
-            </a>
+              {bridgeStatus.sources.imessages && (
+                <span className="border-3 border-nb-lime bg-nb-lime/10 px-2 py-1 font-mono text-[10px] uppercase text-nb-lime">
+                  Messages
+                </span>
+              )}
+            </div>
           )}
 
-          {bridgeLaunchPending && (
-            <div className="border-3 border-nb-border bg-nb-surface/50 p-3 font-mono text-xs text-nb-muted uppercase">
-              {bridgeLaunchTimedOut ? 'Still waiting for bridge app. ' : 'Waiting for bridge app... '}
-              Not installed?{' '}
-              <a
-                href={APPLE_BRIDGE_GITHUB_RELEASE_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="text-nb-lime underline underline-offset-2"
-              >
-                Download
-              </a>
-            </div>
+          {!bridgeStatus.connected && (
+            <p className="font-mono text-xs text-nb-muted">
+              Open Botmem for Mac if it didn't launch automatically.{' '}
+              {bridgeDeepLink && (
+                <a href={bridgeDeepLink} className="text-nb-lime underline underline-offset-2">
+                  Reopen the app
+                </a>
+              )}
+            </p>
           )}
 
           {bridgeCommand && (
-            <>
-              <p className="font-display text-xs font-bold uppercase text-nb-muted">
-                Advanced CLI Setup
-              </p>
-              <div className="flex flex-col gap-2">
+            <details
+              className="border-3 border-nb-border bg-nb-surface/50"
+              open={showAdvanced}
+              onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}
+            >
+              <summary className="cursor-pointer select-none px-3 py-2 font-display text-xs font-bold uppercase text-nb-muted">
+                Advanced: run from terminal
+              </summary>
+              <div className="flex flex-col gap-2 p-3 pt-0">
                 <pre className="bg-black border-3 border-nb-border p-4 font-mono text-sm text-nb-lime overflow-x-auto whitespace-pre-wrap break-all">
                   {bridgeCommand}
                 </pre>
@@ -746,60 +774,14 @@ npx @botmem/apple-bridge service start`;
                   {copied ? 'COPIED' : 'COPY'}
                 </button>
               </div>
-
-              <div className="border-3 border-nb-border bg-nb-surface/50 p-3">
-                <p className="font-display text-xs font-bold uppercase text-nb-muted mb-2">
-                  CLI Requirements
-                </p>
-                <ul className="font-mono text-xs text-nb-muted space-y-1">
-                  <li>• macOS with iMessage signed in</li>
-                  <li>• Node.js 20+ installed</li>
-                  <li>• Use the same --sources list you would choose in the app</li>
-                  <li>• Full Disk Access is only required when syncing iMessage history</li>
-                </ul>
-              </div>
-
-              <div className="flex items-center gap-3 py-2">
-                {bridgeConnected ? (
-                  <>
-                    <div className="size-3 bg-nb-lime" />
-                    <p className="font-mono text-sm text-nb-lime uppercase font-bold">
-                      Bridge Connected
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div className="size-3 bg-nb-muted animate-pulse" />
-                    <p className="font-mono text-xs text-nb-muted uppercase">
-                      Waiting for bridge connection...
-                    </p>
-                  </>
-                )}
-              </div>
-            </>
+            </details>
           )}
 
-          {bridgeConnected && (
+          {bridgeStatus.connected && (
             <Button onClick={handleStartSync} disabled={loading}>
-              {loading ? 'STARTING SYNC...' : 'START SYNC'}
+              {loading ? 'STARTING SYNC...' : 'DONE'}
             </Button>
           )}
-        </div>
-      )}
-
-      {/* Step 3: Connected */}
-      {step === 'connected' && (
-        <div className="flex flex-col gap-4 items-center py-4">
-          <div className="size-16 bg-nb-lime/20 border-3 border-nb-lime flex items-center justify-center">
-            <span className="text-3xl text-nb-lime">✓</span>
-          </div>
-          <p className="font-display text-lg font-bold uppercase">Bridge Connected</p>
-          <p className="font-mono text-xs text-nb-muted text-center">
-            Your Apple bridge is connected through the same encrypted tunnel used by the CLI.
-          </p>
-          <Button onClick={handleStartSync} disabled={loading}>
-            {loading ? 'STARTING SYNC...' : 'START SYNC'}
-          </Button>
         </div>
       )}
     </Modal>

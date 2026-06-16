@@ -18,9 +18,22 @@ import { IndexStore } from './index-store.js';
 import { imessage } from './sources/imessage.js';
 import { whatsapp } from './sources/whatsapp.js';
 import { contacts } from './sources/contacts.js';
-import type { SearchFilters, SearchItem, SourceAdapter, SourceState } from './types.js';
+import type { SearchFilters, SearchItem, SourceAdapter, SourceName, SourceState } from './types.js';
 
 const BATCH_SIZE = 2000;
+
+/**
+ * Privacy-safe build progress, surfaced once per source as it finishes indexing.
+ * Carries only the source name and a record count — never message content.
+ */
+export interface IndexProgress {
+  /** Source name being reported (imessage|whatsapp|contacts). */
+  source: SourceName;
+  /** Records indexed for this source. */
+  count: number;
+  /** True when this source has been fully indexed (count is final). */
+  done: boolean;
+}
 
 export interface LocalIndexOptions {
   /** Override the index db path (default: app-support/bridge/index.db). */
@@ -29,6 +42,11 @@ export interface LocalIndexOptions {
   adapters?: SourceAdapter[];
   /** Optional structured logger; receives privacy-safe messages only. */
   log?: (message: string) => void;
+  /**
+   * Optional progress callback invoked per source during a build. Decoupled
+   * from the status writer so the index has no hard dependency on it.
+   */
+  onProgress?: (progress: IndexProgress) => void;
 }
 
 /** Default bridge-owned index path. Lives under Botmem's app-support dir. */
@@ -40,12 +58,14 @@ export class LocalIndex {
   private store: IndexStore;
   private adapters: SourceAdapter[];
   private log: (message: string) => void;
+  private onProgress: (progress: IndexProgress) => void;
   private building: Promise<void> | null = null;
 
   constructor(opts: LocalIndexOptions = {}) {
     this.store = new IndexStore(opts.indexPath ?? defaultIndexPath());
     this.adapters = opts.adapters ?? [contacts, imessage, whatsapp];
     this.log = opts.log ?? (() => {});
+    this.onProgress = opts.onProgress ?? (() => {});
   }
 
   /**
@@ -87,6 +107,7 @@ export class LocalIndex {
         }
         this.store.setSourceState(adapter.source, count, String(Date.now()));
         this.log(`source ${adapter.source}: indexed ${count} records in ${Date.now() - t0}ms`);
+        this.onProgress({ source: adapter.source, count, done: true });
       } catch (err) {
         // Per-source isolation: one failing source never aborts the others.
         const msg = err instanceof Error ? err.message : String(err);
@@ -98,6 +119,11 @@ export class LocalIndex {
   /** Run a search against the index. */
   search(query: string, filters: SearchFilters = {}, limit = 25): SearchItem[] {
     return this.store.search(query, filters, limit);
+  }
+
+  /** True while a build/refresh is in flight. */
+  get isBuilding(): boolean {
+    return this.building !== null;
   }
 
   /** Per-source counts and last-indexed timestamps. */

@@ -16,12 +16,15 @@ import {
   decryptJson,
 } from './crypto.js';
 import type { RpcHandler } from './rpc-handler.js';
+import type { BridgeStatus } from './status-writer.js';
 
 export interface TunnelOptions {
   serverUrl: string;
   token: string;
   rpcHandler: RpcHandler;
   sources?: string;
+  /** Optional structured status writer; updated on connection-state changes. */
+  status?: BridgeStatus;
 }
 
 export type TunnelStatus = 'connecting' | 'authenticating' | 'connected' | 'disconnected' | 'error';
@@ -87,6 +90,12 @@ export class TunnelClient extends EventEmitter {
       if (!this.destroyed) {
         this.emit('log', `Disconnected (code=${code}, reason=${reason?.toString() || 'none'})`);
         this.setStatus('disconnected');
+        const status = this.opts.status;
+        if (status) {
+          status.setConnected(false);
+          status.setState('offline', 'Disconnected · retrying');
+          status.pushActivity(`Disconnected (code ${code})`);
+        }
         this.scheduleReconnect();
       }
     });
@@ -152,6 +161,13 @@ export class TunnelClient extends EventEmitter {
         // Permanent auth failures — don't reconnect
         this.destroyed = true;
         this.setStatus('error');
+        const status = this.opts.status;
+        if (status) {
+          status.setConnected(false);
+          status.setError(`Authentication failed: ${reason}`);
+          status.setState('error', 'Authentication failed');
+          status.pushActivity('Authentication failed');
+        }
         this.emit('fatal', `Authentication failed: ${reason}. Check your bridge token.`);
         ws.close(4401, 'Auth failed');
         return;
@@ -176,6 +192,11 @@ export class TunnelClient extends EventEmitter {
       this.setStatus('connected');
       this.startHeartbeat(ws);
       this.emit('log', 'Tunnel connected — encrypted session established');
+      const status = this.opts.status;
+      if (status) {
+        status.setConnected(true);
+        status.pushActivity('Tunnel connected');
+      }
     } catch (err) {
       this.emit('log', `Auth response parse error: ${err instanceof Error ? err.message : err}`);
     }
@@ -239,6 +260,8 @@ export class TunnelClient extends EventEmitter {
       'log',
       `Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempt})`,
     );
+
+    this.opts.status?.setState('connecting', 'Reconnecting to Botmem…');
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

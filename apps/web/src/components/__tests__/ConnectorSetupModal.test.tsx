@@ -17,6 +17,17 @@ vi.mock('../../lib/api', () => ({
   api: mockApi,
 }));
 
+// Pin the tunnel URL to the prod-rewritten api host so the deep link the
+// Connect button builds is asserted against the host the bridge must reach.
+// (The app->api host rewrite itself is unit-tested in lib/__tests__/urls.test.ts.)
+vi.mock('../../lib/urls', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/urls')>();
+  return {
+    ...actual,
+    appleTunnelUrl: () => 'wss://api.botmem.xyz/apple-tunnel',
+  };
+});
+
 // Allow tests to control isFirebaseMode
 let mockIsFirebaseMode = false;
 vi.mock('../../store/authStore', async () => {
@@ -202,105 +213,57 @@ describe('ConnectorSetupModal', () => {
     open.mockRestore();
   });
 
-  it('renders Apple pairing copy without web-owned source controls', () => {
-    useConnectorStore.setState({
-      manifests: [
-        {
-          id: 'apple',
-          name: 'Apple',
-          description: 'Import Apple data',
-          color: '#4ECDC4',
-          icon: 'smartphone',
-          authType: 'local-tool',
-          configSchema: { type: 'object', properties: {}, required: [] },
-          entities: ['person', 'message'],
-          pipeline: { clean: false, embed: true, enrich: false },
-          trustScore: 0.8,
-        },
-      ],
-    });
+  const appleManifest = {
+    id: 'apple' as const,
+    name: 'Apple',
+    description: 'Import Apple data',
+    color: '#4ECDC4',
+    icon: 'smartphone',
+    authType: 'local-tool' as const,
+    configSchema: { type: 'object', properties: {}, required: [] },
+    entities: ['person', 'message'] as ('person' | 'message')[],
+    pipeline: { clean: false, embed: true, enrich: false },
+    trustScore: 0.8,
+  };
 
-    render(
-      <ConnectorSetupModal
-        open={true}
-        onClose={vi.fn()}
-        connectorType="apple"
-        onConnect={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText(/Apple sources and permissions are configured/)).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Contacts' })).not.toBeInTheDocument();
-  });
-
-  it('shows GitHub app setup and advanced CLI after generating Apple bridge config', async () => {
-    mockApi.initiateAuth.mockResolvedValue({
-      type: 'complete',
-      account: { id: 'acct-1', bridgeToken: 'token-1' },
-    });
-    useConnectorStore.setState({
-      manifests: [
-        {
-          id: 'apple',
-          name: 'Apple',
-          description: 'Import Apple data',
-          color: '#4ECDC4',
-          icon: 'smartphone',
-          authType: 'local-tool',
-          configSchema: { type: 'object', properties: {}, required: [] },
-          entities: ['person', 'message'],
-          pipeline: { clean: false, embed: true, enrich: false },
-          trustScore: 0.8,
-        },
-      ],
-    });
-
-    render(
-      <ConnectorSetupModal
-        open={true}
-        onClose={vi.fn()}
-        connectorType="apple"
-        onConnect={vi.fn()}
-      />,
-    );
-
+  // Advance the linear flow: Download -> Connect (provision) -> Status.
+  const advanceAppleToConnect = () => {
+    fireEvent.click(screen.getByText('NEXT'));
+  };
+  const provisionAppleBridge = () => {
+    advanceAppleToConnect();
     fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
       target: { value: 'you@icloud.com' },
     });
-    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+    fireEvent.click(screen.getByText('CONNECT'));
+  };
 
-    expect(await screen.findByText('App Setup')).toBeInTheDocument();
-    expect(screen.getByText('GitHub Releases')).toHaveAttribute(
+  it('leads with a Download step and no web-owned source controls', () => {
+    useConnectorStore.setState({ manifests: [appleManifest] });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Download Botmem for Mac')).toHaveAttribute(
       'href',
       'https://github.com/botmem/botmem/releases/latest',
     );
-    await waitFor(() => {
-      expect(screen.getByText(/--sources=contacts,imessages/)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/Full Disk Access is only required/)).toBeInTheDocument();
+    expect(screen.getByText(/Install it, then come back and click Connect/)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Contacts' })).not.toBeInTheDocument();
   });
 
-  it('tells users source choices live in the bridge app or CLI', async () => {
+  it('Connect builds a deep link with the api host and starts status polling', async () => {
     mockApi.initiateAuth.mockResolvedValue({
       type: 'complete',
       account: { id: 'acct-1', bridgeToken: 'token-1' },
     });
-    useConnectorStore.setState({
-      manifests: [
-        {
-          id: 'apple',
-          name: 'Apple',
-          description: 'Import Apple data',
-          color: '#4ECDC4',
-          icon: 'smartphone',
-          authType: 'local-tool',
-          configSchema: { type: 'object', properties: {}, required: [] },
-          entities: ['person', 'message'],
-          pipeline: { clean: false, embed: true, enrich: false },
-          trustScore: 0.8,
-        },
-      ],
-    });
+    useConnectorStore.setState({ manifests: [appleManifest] });
 
     render(
       <ConnectorSetupModal
@@ -311,41 +274,35 @@ describe('ConnectorSetupModal', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
-      target: { value: 'you@icloud.com' },
-    });
-    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+    provisionAppleBridge();
 
-    expect(await screen.findByText('App Setup')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Choose Contacts and\/or Messages in the bridge app/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Use the same --sources list/)).toBeInTheDocument();
+    // Status step renders the manual "Reopen the app" deep link with the api host.
+    const reopen = (await screen.findByText('Reopen the app')) as HTMLAnchorElement;
+    const href = reopen.getAttribute('href') || '';
+    expect(href).toContain('botmem-apple-bridge://connect');
+    expect(href).toContain('server=wss%3A%2F%2Fapi.botmem.xyz%2Fapple-tunnel');
+    expect(href).toContain('token=token-1');
+    expect(href).toContain('accountId=acct-1');
+    expect(href).toContain('sources=contacts%2Cimessages');
+
+    expect(screen.getByText(/Waiting for the app/)).toBeInTheDocument();
   });
 
-  it('backs off Apple bridge status polling while waiting', async () => {
+  it('flips to connected and shows source chips with a Done affordance', async () => {
     vi.useFakeTimers();
     try {
       mockApi.initiateAuth.mockResolvedValue({
         type: 'complete',
         account: { id: 'acct-1', bridgeToken: 'token-1' },
       });
-      useConnectorStore.setState({
-        manifests: [
-          {
-            id: 'apple',
-            name: 'Apple',
-            description: 'Import Apple data',
-            color: '#4ECDC4',
-            icon: 'smartphone',
-            authType: 'local-tool',
-            configSchema: { type: 'object', properties: {}, required: [] },
-            entities: ['person', 'message'],
-            pipeline: { clean: false, embed: true, enrich: false },
-            trustScore: 0.8,
-          },
-        ],
+      mockApi.getBridgeStatus.mockResolvedValue({
+        connected: true,
+        accountId: 'acct-1',
+        sources: { contacts: true, imessages: true },
+        lastSeenAt: '2026-06-16T00:00:00Z',
+        lastError: null,
       });
+      useConnectorStore.setState({ manifests: [appleManifest] });
 
       render(
         <ConnectorSetupModal
@@ -356,13 +313,97 @@ describe('ConnectorSetupModal', () => {
         />,
       );
 
-      fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
-        target: { value: 'you@icloud.com' },
+      await act(async () => {
+        fireEvent.click(screen.getByText('NEXT'));
       });
-      fireEvent.click(screen.getByText('PAIR BRIDGE'));
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+          target: { value: 'you@icloud.com' },
+        });
+        fireEvent.click(screen.getByText('CONNECT'));
+      });
+      expect(screen.getByText(/Waiting for the app/)).toBeInTheDocument();
 
-      await act(async () => {});
-      expect(screen.getByText('App Setup')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(screen.getByText(/Connected · live search active/)).toBeInTheDocument();
+      expect(screen.getByText('Contacts')).toBeInTheDocument();
+      expect(screen.getByText('Messages')).toBeInTheDocument();
+      expect(screen.getByText('DONE')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the terminal command tucked behind an advanced disclosure', async () => {
+    mockApi.initiateAuth.mockResolvedValue({
+      type: 'complete',
+      account: { id: 'acct-1', bridgeToken: 'token-1' },
+    });
+    useConnectorStore.setState({ manifests: [appleManifest] });
+
+    render(
+      <ConnectorSetupModal
+        open={true}
+        onClose={vi.fn()}
+        connectorType="apple"
+        onConnect={vi.fn()}
+      />,
+    );
+
+    advanceAppleToConnect();
+    // The advanced disclosure exists on the Connect step but is collapsed.
+    expect(screen.getByText('Advanced: run from terminal')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+      target: { value: 'you@icloud.com' },
+    });
+    fireEvent.click(screen.getByText('CONNECT'));
+
+    // On the status step the foreground command is available inside the
+    // disclosure, with shell-safe single-quoted values.
+    await waitFor(() => {
+      expect(screen.getByText(/npx @botmem\/apple-bridge@latest/)).toBeInTheDocument();
+    });
+    const command = screen.getByText(/npx @botmem\/apple-bridge@latest/).textContent || '';
+    expect(command).toContain("--token='token-1'");
+    expect(command).toContain("--server='wss://api.botmem.xyz/apple-tunnel'");
+    expect(command).toContain("--account-id='acct-1'");
+    // The LaunchAgent service path is no longer suggested from the UI.
+    expect(command).not.toContain('service start');
+    expect(command).not.toContain('configure');
+  });
+
+  it('backs off Apple bridge status polling while waiting', async () => {
+    vi.useFakeTimers();
+    try {
+      mockApi.initiateAuth.mockResolvedValue({
+        type: 'complete',
+        account: { id: 'acct-1', bridgeToken: 'token-1' },
+      });
+      useConnectorStore.setState({ manifests: [appleManifest] });
+
+      render(
+        <ConnectorSetupModal
+          open={true}
+          onClose={vi.fn()}
+          connectorType="apple"
+          onConnect={vi.fn()}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('NEXT'));
+      });
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
+          target: { value: 'you@icloud.com' },
+        });
+        fireEvent.click(screen.getByText('CONNECT'));
+      });
+      expect(screen.getByText(/Waiting for the app/)).toBeInTheDocument();
       expect(mockApi.getBridgeStatus).not.toHaveBeenCalled();
 
       await act(async () => {
@@ -441,27 +482,12 @@ describe('ConnectorSetupModal', () => {
     mockIsFirebaseMode = false;
   });
 
-  it('opens existing Apple accounts on reconnect instructions with the identifier prefilled', async () => {
+  it('starts reconnect on the Connect step with the identifier prefilled', async () => {
     mockApi.initiateAuth.mockResolvedValue({
       type: 'complete',
       account: { id: 'acct-1', bridgeToken: 'token-1' },
     });
-    useConnectorStore.setState({
-      manifests: [
-        {
-          id: 'apple',
-          name: 'Apple',
-          description: 'Import Apple data',
-          color: '#4ECDC4',
-          icon: 'smartphone',
-          authType: 'local-tool',
-          configSchema: { type: 'object', properties: {}, required: [] },
-          entities: ['person', 'message'],
-          pipeline: { clean: false, embed: true, enrich: false },
-          trustScore: 0.8,
-        },
-      ],
-    });
+    useConnectorStore.setState({ manifests: [appleManifest] });
 
     render(
       <ConnectorSetupModal
@@ -474,18 +500,21 @@ describe('ConnectorSetupModal', () => {
       />,
     );
 
-    expect(screen.getByText(/Reconnecting can rotate the bridge token/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('RECONNECT BRIDGE'));
+    // Reconnect skips Download — lands on Connect with the identifier prefilled.
+    expect((screen.getByLabelText('Your Email or Phone') as HTMLInputElement).value).toBe(
+      'you@icloud.com',
+    );
+    fireEvent.click(screen.getByText('CONNECT'));
     await waitFor(() => {
       expect(mockApi.initiateAuth).toHaveBeenCalledWith(
         'apple',
         expect.objectContaining({ myIdentifier: 'you@icloud.com' }),
       );
     });
-    expect(await screen.findByText(/--account-id=acct-1/)).toBeInTheDocument();
+    expect(await screen.findByText('Reopen the app')).toBeInTheDocument();
   });
 
-  it('moves Apple copy out of the token text and shows copied feedback', async () => {
+  it('copies the tucked-away terminal command with copied feedback', async () => {
     const writeText = vi.fn();
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },
@@ -495,22 +524,7 @@ describe('ConnectorSetupModal', () => {
       type: 'complete',
       account: { id: 'acct-1', bridgeToken: 'token-1' },
     });
-    useConnectorStore.setState({
-      manifests: [
-        {
-          id: 'apple',
-          name: 'Apple',
-          description: 'Import Apple data',
-          color: '#4ECDC4',
-          icon: 'smartphone',
-          authType: 'local-tool',
-          configSchema: { type: 'object', properties: {}, required: [] },
-          entities: ['person', 'message'],
-          pipeline: { clean: false, embed: true, enrich: false },
-          trustScore: 0.8,
-        },
-      ],
-    });
+    useConnectorStore.setState({ manifests: [appleManifest] });
 
     render(
       <ConnectorSetupModal
@@ -521,71 +535,17 @@ describe('ConnectorSetupModal', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
-      target: { value: 'you@icloud.com' },
-    });
-    fireEvent.click(screen.getByText('PAIR BRIDGE'));
+    provisionAppleBridge();
 
-    await screen.findByText(/--token=token-1/);
+    await screen.findByText(/--token='token-1'/);
     vi.useFakeTimers();
     fireEvent.click(screen.getByText('COPY'));
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('--token=token-1'));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("--token='token-1'"));
     expect(screen.getByText('COPIED')).toBeInTheDocument();
     act(() => {
       vi.advanceTimersByTime(2000);
     });
     expect(screen.getByText('COPY')).toBeInTheDocument();
-    vi.useRealTimers();
-  });
-
-  it('shows bridge-app waiting state with download fallback', async () => {
-    mockApi.initiateAuth.mockResolvedValue({
-      type: 'complete',
-      account: { id: 'acct-1', bridgeToken: 'token-1' },
-    });
-    useConnectorStore.setState({
-      manifests: [
-        {
-          id: 'apple',
-          name: 'Apple',
-          description: 'Import Apple data',
-          color: '#4ECDC4',
-          icon: 'smartphone',
-          authType: 'local-tool',
-          configSchema: { type: 'object', properties: {}, required: [] },
-          entities: ['person', 'message'],
-          pipeline: { clean: false, embed: true, enrich: false },
-          trustScore: 0.8,
-        },
-      ],
-    });
-
-    render(
-      <ConnectorSetupModal
-        open={true}
-        onClose={vi.fn()}
-        connectorType="apple"
-        onConnect={vi.fn()}
-      />,
-    );
-
-    fireEvent.change(screen.getByLabelText('Your Email or Phone'), {
-      target: { value: 'you@icloud.com' },
-    });
-    fireEvent.click(screen.getByText('PAIR BRIDGE'));
-    await screen.findByText(/--token=token-1/);
-
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByText('CONNECT BRIDGE APP'));
-    expect(screen.getByText(/Waiting for bridge app/)).toBeInTheDocument();
-    expect(screen.getByText('Download')).toHaveAttribute(
-      'href',
-      'https://github.com/botmem/botmem/releases/latest',
-    );
-    act(() => {
-      vi.advanceTimersByTime(8000);
-    });
-    expect(screen.getByText(/Still waiting for bridge app/)).toBeInTheDocument();
     vi.useRealTimers();
   });
 
