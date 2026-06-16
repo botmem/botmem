@@ -1272,6 +1272,19 @@ export async function syncWhatsApp(
     sock = existingSock;
     ctx.logger.info('Reusing auth socket for first sync (history capture) buffered=yes');
   } else {
+    // Routine/scheduled sync (no fresh QR socket). WhatsApp only dumps history on
+    // the FIRST QR-linked socket — reconnecting with existing creds delivers 0
+    // history. Opening a full-history "Desktop" session here just re-links the
+    // device (spamming the user's phone with login notifications) and conflicts
+    // (code 440) with the persistent realtime socket. If we're already linked,
+    // skip the re-sync entirely; the realtime connector handles new messages.
+    const { state } = await useAtomicMultiFileAuthState(sessionDir);
+    if (state.creds.me?.id) {
+      ctx.logger.info(
+        'WhatsApp already linked; skipping full-history re-sync (realtime handles new messages)',
+      );
+      return { cursor: WHATSAPP_HISTORY_CURSOR, hasMore: false, processed: 0 };
+    }
     sock = await createSyncSocket(sessionDir, { syncFullHistory: true, logger: ctx.logger });
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('WhatsApp connection timeout')), 30_000);
