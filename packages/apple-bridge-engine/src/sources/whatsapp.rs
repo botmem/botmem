@@ -118,16 +118,27 @@ fn pick_title_col(conn: &Connection) -> String {
     "ZCONTACTJID".to_string()
 }
 
+/// Where to find (and how to confine) downloaded attachments for text extraction.
+pub(crate) struct AttachCtx {
+    /// WhatsApp container dir that `ZMEDIALOCALPATH` is relative to.
+    pub container: PathBuf,
+    /// Canonicalized container — attachment reads must resolve within this.
+    pub real_container: PathBuf,
+}
+
 pub fn read(db_path: &Path, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
     let conn = open_ro(db_path)?;
-    let container_dir = db_path.parent().unwrap_or_else(|| Path::new("."));
-    let names = load_contact_names(container_dir);
-    read_conn(&conn, &names, sink)
+    let container_dir = db_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let names = load_contact_names(&container_dir);
+    let real_container = std::fs::canonicalize(&container_dir).unwrap_or_else(|_| container_dir.clone());
+    let attach = AttachCtx { container: container_dir, real_container };
+    read_conn(&conn, &names, Some(&attach), sink)
 }
 
 pub(crate) fn read_conn(
     conn: &Connection,
     names: &HashMap<String, String>,
+    attach: Option<&AttachCtx>,
     sink: RecordSink<'_>,
 ) -> Result<usize, rusqlite::Error> {
     let title_col = pick_title_col(conn);
@@ -174,8 +185,28 @@ pub(crate) fn read_conn(
         };
 
         let caption = media_title.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        // Phase 4b will append extracted PDF/DOCX/TXT text here.
         let mut text = text_col.filter(|t| !t.is_empty()).unwrap_or_default();
+
+        // Extract text from a downloaded document attachment (PDF/DOCX/TXT/CSV).
+        // ZMEDIALOCALPATH is data from the source DB: resolve it against the
+        // container, canonicalize (follows symlinks like a read would), and
+        // reject anything that escapes the real container before reading.
+        if let (Some(ctx), Some(rel)) = (attach, media_path.as_deref()) {
+            let abs = ctx.container.join(rel);
+            if let Ok(real) = std::fs::canonicalize(&abs) {
+                if real.starts_with(&ctx.real_container) {
+                    let doc = super::attachments::extract_doc_text(&real);
+                    if !doc.is_empty() {
+                        text = [text.as_str(), caption.unwrap_or(""), doc.as_str()]
+                            .into_iter()
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                    }
+                }
+            }
+        }
+
         if text.is_empty() {
             if let Some(c) = caption {
                 text = c.to_string();
@@ -239,7 +270,7 @@ mod tests {
         let mut names = HashMap::new();
         names.insert("971501234567".to_string(), "Mostafa".to_string());
         let mut got = Vec::new();
-        let n = read_conn(&c, &names, &mut |r| got.push(r)).unwrap();
+        let n = read_conn(&c, &names, None, &mut |r| got.push(r)).unwrap();
         assert_eq!(n, 2);
 
         let msg = got.iter().find(|r| r.source_id == "100").unwrap();
@@ -258,8 +289,82 @@ mod tests {
         let c = fixture();
         let names = HashMap::new(); // empty → no resolution
         let mut got = Vec::new();
-        read_conn(&c, &names, &mut |r| got.push(r)).unwrap();
+        read_conn(&c, &names, None, &mut |r| got.push(r)).unwrap();
         let msg = got.iter().find(|r| r.source_id == "100").unwrap();
         assert_eq!(msg.sender_name, "+971501234567");
+    }
+
+    #[test]
+    fn extracts_contained_attachment_text() {
+        use std::io::Write;
+        // Container with a real downloaded .txt attachment.
+        let dir = tempfile::tempdir().unwrap();
+        let container = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir_all(container.join("Message/Media")).unwrap();
+        let mut f = std::fs::File::create(container.join("Message/Media/doc.txt")).unwrap();
+        f.write_all(b"the next installment amount is 50,000 due Friday").unwrap();
+
+        // A media row pointing at that file, with no ZTEXT.
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            r#"
+            CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZCONTACTJID TEXT, ZPARTNERNAME TEXT);
+            CREATE TABLE ZWAGROUPMEMBER (Z_PK INTEGER PRIMARY KEY, ZMEMBERJID TEXT);
+            CREATE TABLE ZWAMEDIAITEM (Z_PK INTEGER PRIMARY KEY, ZMEDIALOCALPATH TEXT, ZTITLE TEXT);
+            CREATE TABLE ZWAMESSAGE (Z_PK INTEGER PRIMARY KEY, ZTEXT TEXT, ZMESSAGEDATE REAL,
+                                     ZISFROMME INTEGER, ZFROMJID TEXT, ZCHATSESSION INTEGER,
+                                     ZGROUPMEMBER INTEGER, ZMEDIAITEM INTEGER);
+            INSERT INTO ZWACHATSESSION VALUES (1, '[email protected]', 'Parkwoods Group');
+            INSERT INTO ZWAMEDIAITEM VALUES (7, 'Message/Media/doc.txt', 'statement.txt');
+            INSERT INTO ZWAMESSAGE VALUES (200, NULL, 700000200.0, 0, '[email protected]', 1, NULL, 7);
+            "#,
+        )
+        .unwrap();
+
+        let attach = AttachCtx { container: container.clone(), real_container: container };
+        let names = HashMap::new();
+        let mut got = Vec::new();
+        read_conn(&c, &names, Some(&attach), &mut |r| got.push(r)).unwrap();
+        let msg = got.iter().find(|r| r.source_id == "200").unwrap();
+        assert!(msg.text.contains("installment amount is 50,000"), "got: {:?}", msg.text);
+        // caption is included alongside the extracted text
+        assert!(msg.text.contains("statement.txt"));
+    }
+
+    #[test]
+    fn rejects_attachment_outside_container() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let container = std::fs::canonicalize(dir.path()).unwrap().join("container");
+        std::fs::create_dir_all(&container).unwrap();
+        // Secret file OUTSIDE the container.
+        let mut f = std::fs::File::create(dir.path().join("secret.txt")).unwrap();
+        f.write_all(b"top secret should never be indexed").unwrap();
+
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            r#"
+            CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZCONTACTJID TEXT, ZPARTNERNAME TEXT);
+            CREATE TABLE ZWAGROUPMEMBER (Z_PK INTEGER PRIMARY KEY, ZMEMBERJID TEXT);
+            CREATE TABLE ZWAMEDIAITEM (Z_PK INTEGER PRIMARY KEY, ZMEDIALOCALPATH TEXT, ZTITLE TEXT);
+            CREATE TABLE ZWAMESSAGE (Z_PK INTEGER PRIMARY KEY, ZTEXT TEXT, ZMESSAGEDATE REAL,
+                                     ZISFROMME INTEGER, ZFROMJID TEXT, ZCHATSESSION INTEGER,
+                                     ZGROUPMEMBER INTEGER, ZMEDIAITEM INTEGER);
+            INSERT INTO ZWACHATSESSION VALUES (1, '[email protected]', 'G');
+            INSERT INTO ZWAMEDIAITEM VALUES (7, '../secret.txt', 'cap.txt');
+            INSERT INTO ZWAMESSAGE VALUES (300, NULL, 700000300.0, 0, '[email protected]', 1, NULL, 7);
+            "#,
+        )
+        .unwrap();
+
+        let real_container = std::fs::canonicalize(&container).unwrap();
+        let attach = AttachCtx { container, real_container };
+        let names = HashMap::new();
+        let mut got = Vec::new();
+        read_conn(&c, &names, Some(&attach), &mut |r| got.push(r)).unwrap();
+        let msg = got.iter().find(|r| r.source_id == "300").unwrap();
+        // Traversal blocked → secret never read; falls back to the caption only.
+        assert!(!msg.text.contains("top secret"), "path traversal leaked: {:?}", msg.text);
+        assert_eq!(msg.text, "cap.txt");
     }
 }
