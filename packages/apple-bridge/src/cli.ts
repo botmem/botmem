@@ -13,6 +13,7 @@ import { AppleMessagesDatabase } from './db.js';
 import { RpcHandler } from './rpc-handler.js';
 import { TunnelClient } from './tunnel.js';
 import { LocalIndex } from './local-index/local-index.js';
+import { BridgeStatus, type StatusSource } from './status-writer.js';
 import {
   defaultConfigPath,
   formatSources,
@@ -58,11 +59,21 @@ program
       sources: string;
     }) => {
       console.log('\n  BOTMEM APPLE BRIDGE\n');
+
+      // Structured status file the macOS app polls. Best-effort; never fatal.
+      const status = new BridgeStatus();
+      status.setState('starting', 'Bridge starting');
+      status.pushActivity('Bridge starting');
+
       let fileConfig;
       try {
         fileConfig = loadConfig(opts.config || defaultConfigPath());
       } catch (err) {
-        error(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        error(msg);
+        status.setState('error', 'Config load failed');
+        status.setError(msg);
+        status.close();
         process.exit(1);
       }
       const merged = mergeConfig(fileConfig, {
@@ -72,11 +83,15 @@ program
       });
       const token = merged.token;
       const server = merged.server;
+      if (server) status.setServer(server);
       const sourceList = merged.sources;
       const sources = parseSources(sourceList);
 
       if (!token) {
         error('Missing bridge token. Pass --token or --config with a token.');
+        status.setState('error', 'Missing bridge token');
+        status.setError('Missing bridge token');
+        status.close();
         process.exit(1);
       }
 
@@ -94,6 +109,9 @@ program
             error(line);
           }
         }
+        status.setState('error', 'Preflight failed');
+        status.setError('Preflight failed — check Apple permissions');
+        status.close();
         process.exit(1);
       }
 
@@ -117,12 +135,45 @@ program
       // ── Build local search index ──────────────────────────────────────────
       // Bridge-owned FTS index over Contacts + iMessage + (if present) WhatsApp.
       // Logs are privacy-safe (counts/durations/source names only).
-      const localIndex = new LocalIndex({ log: (msg) => log(msg) });
+      // Tracks whether the tunnel is currently connected, so an index build that
+      // finishes after connect (or vice versa) can promote the state to 'live'.
+      let tunnelConnected = false;
+      const goLiveIfReady = () => {
+        if (tunnelConnected && !localIndex.isBuilding) {
+          const sources: StatusSource[] = localIndex
+            .status()
+            .map((s) => ({ source: s.source, count: s.count }));
+          status.setSources(sources);
+          status.setState('live', 'Live · serving search');
+        }
+      };
+
+      const localIndex = new LocalIndex({
+        log: (msg) => log(msg),
+        onProgress: ({ source, count }) => {
+          status.setIndexing({ active: true, source, done: count, total: null });
+          status.pushActivity(`Indexed ${count} ${source} records`);
+        },
+      });
       log('Building local search index...');
+      status.setState('indexing', 'Indexing local sources…');
+      status.setIndexing({ active: true, source: null, done: 0, total: null });
+      status.pushActivity('Indexing started');
       localIndex
         .refresh()
-        .then(() => log('Local search index ready'))
-        .catch((err) => error(`Index build failed: ${err instanceof Error ? err.message : err}`));
+        .then(() => {
+          log('Local search index ready');
+          status.setIndexing({ active: false, source: null, done: 0, total: null });
+          status.pushActivity('Indexing complete');
+          goLiveIfReady();
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          error(`Index build failed: ${msg}`);
+          status.setIndexing({ active: false, source: null, done: 0, total: null });
+          status.setError(`Index build failed: ${msg}`);
+          status.pushActivity('Indexing failed');
+        });
 
       // Periodic refresh keeps the index reasonably fresh while the bridge runs.
       const INDEX_REFRESH_MS = 6 * 60 * 60 * 1000; // every 6 hours
@@ -140,6 +191,15 @@ program
       // ── Connect tunnel ────────────────────────────────────────────────────
       console.log('');
       log(`Connecting to ${server}...`);
+      const serverHost = (() => {
+        try {
+          return new URL(server).host;
+        } catch {
+          return server;
+        }
+      })();
+      status.setState('connecting', `Connecting to ${serverHost}…`);
+      status.pushActivity(`Connecting to ${serverHost}`);
 
       // Advertise the new local-search capability alongside the existing sources
       // string without breaking the legacy contacts/imessages list.
@@ -150,9 +210,10 @@ program
         token,
         rpcHandler,
         sources: advertisedSources,
+        status,
       });
 
-      tunnel.on('status', (status: string) => {
+      tunnel.on('status', (tunnelStatus: string) => {
         const icon =
           {
             connecting: '...',
@@ -160,8 +221,14 @@ program
             connected: 'OK',
             disconnected: '--',
             error: '!!',
-          }[status] || '??';
-        log(`[${icon}] ${status}`);
+          }[tunnelStatus] || '??';
+        log(`[${icon}] ${tunnelStatus}`);
+        if (tunnelStatus === 'connected') {
+          tunnelConnected = true;
+          goLiveIfReady();
+        } else if (tunnelStatus === 'disconnected' || tunnelStatus === 'error') {
+          tunnelConnected = false;
+        }
       });
 
       tunnel.on('log', (msg: string) => {
@@ -172,6 +239,10 @@ program
         console.error('');
         error(`FATAL: ${msg}`);
         console.error('');
+        status.setState('error', 'Fatal error');
+        status.setError(msg);
+        status.pushActivity('Fatal error — bridge stopped');
+        status.close();
         clearInterval(refreshTimer);
         localIndex.close();
         db?.close();
@@ -184,6 +255,10 @@ program
       const shutdown = () => {
         console.log('');
         log('Shutting down...');
+        status.setConnected(false);
+        status.setState('offline', 'Bridge stopped');
+        status.pushActivity('Bridge stopped');
+        status.close();
         tunnel.destroy();
         clearInterval(refreshTimer);
         localIndex.close();

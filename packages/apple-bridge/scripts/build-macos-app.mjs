@@ -146,22 +146,34 @@ for (const [size, name] of iconSizes) {
 run('iconutil', ['-c', 'icns', iconsetDir, '-o', join(resourcesDir, 'AppIcon.icns')]);
 rmSync(iconsetDir, { recursive: true, force: true });
 
+// The app is now a pure UI shell that supervises the bundled Node bridge.
+// The retired pure-Swift tunnel engine (AppleBridgeNative.swift) is no longer
+// compiled, and the app no longer links Contacts/CryptoKit/sqlite3 — Node owns
+// all data access. Only AppKit + Foundation are needed.
 run('swiftc', [
+  // -parse-as-library: this is now a single source file with `@main`; without
+  // this flag swiftc treats it as top-level script code and rejects @main.
+  '-parse-as-library',
   join(root, 'macos', 'BotmemAppleBridge.swift'),
-  join(root, 'macos', 'AppleBridgeNative.swift'),
   '-framework',
   'AppKit',
-  '-framework',
-  'Contacts',
-  '-framework',
-  'CryptoKit',
-  '-lsqlite3',
   '-o',
   join(macosDir, 'botmem'),
 ]);
 
+// Bundle the Node engine into Resources so the app can spawn it offline:
+//   • dist/        — dist/cli.js (default action) + dist/local-index/* (FTS)
+//   • node_modules — better-sqlite3 (native build), ws, pdf-parse, mammoth
+//   • node         — the Node binary the app spawns as a child process
+// The app sets NODE_PATH to Resources/node_modules and runs:
+//   <Resources/node> <Resources/dist/cli.js> --config ~/.botmem/config.json
 cpSync(join(root, 'dist'), join(resourcesDir, 'dist'), { recursive: true });
+if (!existsSync(join(resourcesDir, 'dist', 'cli.js'))) {
+  throw new Error('Build error: dist/cli.js missing — run `pnpm build` first.');
+}
 if (existsSync(join(root, 'node_modules'))) {
+  // dereference resolves pnpm symlinks so the bundle is self-contained, and
+  // copies the better-sqlite3 native .node build into the signed bundle.
   cpSync(join(root, 'node_modules'), join(resourcesDir, 'node_modules'), {
     recursive: true,
     dereference: true,
@@ -171,26 +183,13 @@ if (existsSync(join(root, 'node_modules'))) {
 const bundledNode = process.env.BOTMEM_NODE_BINARY;
 if (bundledNode) {
   copyFileSync(bundledNode, join(resourcesDir, 'node'));
+  // Mark the bundled node executable so Process can spawn it.
+  run('chmod', ['755', join(resourcesDir, 'node')], { stdio: 'ignore' });
+} else {
+  console.warn(
+    'BOTMEM_NODE_BINARY is not set; the app will fall back to a PATH node at runtime.',
+  );
 }
-
-writeFileSync(
-  join(resourcesDir, 'apple-bridge-runner'),
-  `#!/bin/sh
-set -eu
-DIR="$(cd "$(dirname "$0")" && pwd)"
-NODE="$DIR/node"
-if [ ! -x "$NODE" ]; then
-  NODE="$(command -v node || true)"
-fi
-if [ -z "$NODE" ]; then
-  echo "Node.js 20+ is required to run botmem." >&2
-  exit 1
-fi
-export NODE_PATH="$DIR/node_modules"
-exec "$NODE" "$DIR/dist/cli.js" "$@"
-`,
-  { mode: 0o755 },
-);
 
 const identity = process.env.BOTMEM_CODESIGN_IDENTITY || '-';
 if (identity === '-') {

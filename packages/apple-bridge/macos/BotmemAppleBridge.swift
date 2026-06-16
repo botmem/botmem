@@ -1,109 +1,271 @@
 import AppKit
-import Contacts
 import Foundation
 
+// ============================================================================
+// botmem Apple Bridge — clean UI shell that SUPERVISES THE NODE BRIDGE.
+//
+// Architecture (post-rewrite):
+//   • The real engine is the Node bridge: `dist/cli.js` (default action) +
+//     `src/local-index/*`. It connects the tunnel, builds the FTS index over
+//     WhatsApp/iMessage/Contacts, answers search.query/bridge.status, and writes
+//     structured status to ~/.botmem/bridge-status.json (atomic).
+//   • This app is a thin Swift shell. It does NOT speak the tunnel protocol
+//     anymore (the old pure-Swift engine in AppleBridgeNative.swift is retired
+//     and no longer compiled). Its only jobs are:
+//       1. SPAWN + SUPERVISE the bundled Node binary running dist/cli.js as a
+//          CHILD PROCESS of this signed app (restart on crash with backoff).
+//       2. POLL ~/.botmem/bridge-status.json (~1.5s) and render a clean,
+//          single-window status UI from it.
+//       3. Handle the botmem-apple-bridge://connect deep link: save config,
+//          (re)start the node child, show status.
+//
+// CRITICAL — Full Disk Access (FDA) inheritance:
+//   macOS TCC attributes file access (e.g. ~/Library/Messages/chat.db) to the
+//   *responsible* process. When this signed app spawns Node as a direct child,
+//   the child inherits the app's FDA grant under the app's code signature. That
+//   is WHY the LaunchAgent must launch THIS APP (headless at login) and the app
+//   spawns Node — NOT run Node directly from the LaunchAgent. Running node from
+//   launchd would make `launchd`/`node` the responsible process and FDA would
+//   not apply, breaking iMessage history reads.
+//
+// Privacy: this app reads ONLY counts/sources/states from the status file and
+// never logs or renders user content (message text, names, phone numbers).
+// ============================================================================
+
+// MARK: - Config
+
+/// Shared on-disk config consumed by both the CLI and this app.
+/// Stored at ~/.botmem/config.json so the node child (started with
+/// --config <that path>) and the deep-link handler agree on one location.
 struct BridgeConfig: Codable {
   var server: String
   var token: String
-  let accountId: String
+  var accountId: String
   var sources: String
 }
 
-struct BridgeSettings: Codable {
-  var botmemHost: String
-}
-
-struct ContactsPermissionState {
-  let allowed: Bool
-  let detail: String
-  let canRequest: Bool
-  let canReset: Bool
-}
-
-struct ServiceRuntimeStats {
-  let loaded: Bool
-  let tunnelConnected: Bool
-  let connecting: Bool
-  let lastEvent: String
-  let lastEventAt: String
-  let errorCount: Int
-  let reconnectCount: Int
-  let connectedCount: Int
-
-  static let empty = ServiceRuntimeStats(
-    loaded: false,
-    tunnelConnected: false,
-    connecting: false,
-    lastEvent: "No service activity yet",
-    lastEventAt: "",
-    errorCount: 0,
-    reconnectCount: 0,
-    connectedCount: 0
-  )
-}
-
-let DEFAULT_BOTMEM_HOST = "https://api.botmem.xyz"
-let PENDING_CONTACTS_REQUEST_KEY = "xyz.botmem.apple-bridge.pendingContactsRequest"
+let DEFAULT_TUNNEL_URL = "wss://api.botmem.xyz/apple-tunnel"
 
 final class ConfigStore {
-  let appSupportURL: URL
+  /// ~/.botmem — the single source of truth shared with the node bridge.
+  let botmemDir: URL
   let configURL: URL
-  let settingsURL: URL
+  /// The structured status doc written by the node bridge (status-writer.ts).
+  let statusURL: URL
+  /// Node bridge stdout/stderr log; surfaced via "Open Logs".
   let serviceLogURL: URL
 
   init() {
-    appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("botmem", isDirectory: true)
-    configURL = appSupportURL.appendingPathComponent("config.json", isDirectory: false)
-    settingsURL = appSupportURL.appendingPathComponent("settings.json", isDirectory: false)
-    serviceLogURL = appSupportURL.appendingPathComponent("service.log", isDirectory: false)
+    botmemDir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".botmem", isDirectory: true)
+    configURL = botmemDir.appendingPathComponent("config.json", isDirectory: false)
+    statusURL = botmemDir.appendingPathComponent("bridge-status.json", isDirectory: false)
+    serviceLogURL = botmemDir.appendingPathComponent("service.log", isDirectory: false)
   }
 
   func load() -> BridgeConfig? {
-    guard let data = try? Data(contentsOf: configURL) else {
-      bridgeLog("config load skipped: missing file")
-      return nil
-    }
-    do {
-      return try JSONDecoder().decode(BridgeConfig.self, from: data)
-    } catch {
-      bridgeLog("config load failed: \(error.localizedDescription)")
-      return nil
-    }
+    guard let data = try? Data(contentsOf: configURL) else { return nil }
+    return try? JSONDecoder().decode(BridgeConfig.self, from: data)
   }
 
   func save(_ config: BridgeConfig) throws {
-    try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: botmemDir, withIntermediateDirectories: true)
     let data = try JSONEncoder().encode(config)
     try data.write(to: configURL, options: [.atomic])
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-    bridgeLog("config saved: \(configURL.path)")
-  }
-
-  func loadSettings() -> BridgeSettings {
-    guard let data = try? Data(contentsOf: settingsURL),
-      let settings = try? JSONDecoder().decode(BridgeSettings.self, from: data)
-    else {
-      return BridgeSettings(botmemHost: DEFAULT_BOTMEM_HOST)
-    }
-    return settings
-  }
-
-  func save(_ settings: BridgeSettings) throws {
-    try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
-    let data = try JSONEncoder().encode(settings)
-    try data.write(to: settingsURL, options: [.atomic])
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsURL.path)
   }
 }
 
-final class LaunchAgentController {
-  private let label = "xyz.botmem.apple-bridge.service"
+// MARK: - Bridge status snapshot (exact shape of bridge-status.json)
+
+enum BridgeState: String, Codable {
+  case starting, connecting, indexing, live, error, offline
+}
+
+struct StatusSource: Codable {
+  let source: String
+  let count: Int
+}
+
+struct IndexingStatus: Codable {
+  let active: Bool
+  let source: String?
+  let done: Int
+  let total: Int?
+}
+
+struct ActivityEntry: Codable {
+  let ts: Double
+  let text: String
+}
+
+/// Mirrors BridgeStatusSnapshot from status-writer.ts (schema: 1).
+struct BridgeStatusSnapshot: Codable {
+  let schema: Int
+  let state: BridgeState
+  let label: String
+  let server: String
+  let connected: Bool
+  let sources: [StatusSource]
+  let indexing: IndexingStatus
+  let activity: [ActivityEntry]
+  let lastError: String?
+  let updatedAt: Double
+}
+
+// MARK: - Node supervisor
+
+/// Spawns and supervises the bundled Node bridge as a CHILD of this app.
+///
+/// FDA inheritance: `Process` makes Node a direct child of this signed app, so
+/// TCC attributes its file access to the app's Full Disk Access grant. Do NOT
+/// move this spawn into a LaunchAgent or a detached shell — that breaks FDA.
+final class NodeSupervisor {
   private let store: ConfigStore
+  private var process: Process?
+  /// Restart backoff (seconds), reset to base on a clean/long-lived run.
+  private var backoff: TimeInterval = 1
+  private let maxBackoff: TimeInterval = 30
+  /// Set when the user intentionally stops the child (no auto-restart).
+  private var stopping = false
+  private var restartWork: DispatchWorkItem?
+  private var lastStartAt: Date = .distantPast
+
+  /// Called on the main queue whenever the child exits or restarts, so the UI
+  /// can refresh its supervisor line.
+  var onStateChange: (() -> Void)?
 
   init(store: ConfigStore) {
     self.store = store
   }
+
+  var isRunning: Bool {
+    process?.isRunning ?? false
+  }
+
+  /// Resolve the bundled node binary + dist/cli.js inside Contents/Resources.
+  /// Falls back to a PATH `node` only if the bundle copy is missing (dev runs).
+  private func nodeBinaryURL() -> URL? {
+    guard let resources = Bundle.main.resourceURL else { return nil }
+    let bundled = resources.appendingPathComponent("node", isDirectory: false)
+    if FileManager.default.isExecutableFile(atPath: bundled.path) {
+      return bundled
+    }
+    // Dev fallback: discover node on PATH.
+    for candidate in ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"] {
+      if FileManager.default.isExecutableFile(atPath: candidate) {
+        return URL(fileURLWithPath: candidate)
+      }
+    }
+    return nil
+  }
+
+  private func cliScriptURL() -> URL? {
+    guard let resources = Bundle.main.resourceURL else { return nil }
+    let script = resources.appendingPathComponent("dist/cli.js", isDirectory: false)
+    return FileManager.default.fileExists(atPath: script.path) ? script : nil
+  }
+
+  /// (Re)start the node child. Stops any existing child first.
+  func start() {
+    stop(intentional: false)
+    stopping = false
+    spawn()
+  }
+
+  /// Stop the child. `intentional` suppresses the auto-restart watcher.
+  func stop(intentional: Bool) {
+    if intentional { stopping = true }
+    restartWork?.cancel()
+    restartWork = nil
+    if let process, process.isRunning {
+      process.terminationHandler = nil
+      process.terminate()
+    }
+    process = nil
+  }
+
+  private func spawn() {
+    guard let node = nodeBinaryURL(), let cli = cliScriptURL(),
+      let resources = Bundle.main.resourceURL
+    else {
+      return
+    }
+
+    let proc = Process()
+    proc.executableURL = node
+    proc.arguments = [cli.path, "--config", store.configURL.path]
+    proc.currentDirectoryURL = resources
+
+    // NODE_PATH lets dist/cli.js resolve the bundled node_modules (better-sqlite3,
+    // ws, pdf-parse, mammoth) without a package install at the bundle root.
+    var env = ProcessInfo.processInfo.environment
+    env["NODE_PATH"] = resources.appendingPathComponent("node_modules", isDirectory: true).path
+    env["BOTMEM_BRIDGE_RUNNER_NAME"] = "botmem"
+    proc.environment = env
+
+    // Append child stdout/stderr to ~/.botmem/service.log for the Logs button.
+    if let handle = logFileHandle() {
+      proc.standardOutput = handle
+      proc.standardError = handle
+    }
+
+    proc.terminationHandler = { [weak self] _ in
+      guard let self else { return }
+      DispatchQueue.main.async {
+        self.handleExit()
+      }
+    }
+
+    do {
+      try proc.run()
+      process = proc
+      lastStartAt = Date()
+      onStateChange?()
+    } catch {
+      scheduleRestart()
+    }
+  }
+
+  private func handleExit() {
+    process = nil
+    onStateChange?()
+    guard !stopping else { return }
+    // Reset backoff if the previous run survived a while (not a crash loop).
+    if Date().timeIntervalSince(lastStartAt) > 60 {
+      backoff = 1
+    }
+    scheduleRestart()
+  }
+
+  private func scheduleRestart() {
+    guard !stopping else { return }
+    let delay = backoff
+    backoff = min(backoff * 2, maxBackoff)
+    let work = DispatchWorkItem { [weak self] in self?.spawn() }
+    restartWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  }
+
+  /// Open (creating if needed) the service log for child output.
+  private func logFileHandle() -> FileHandle? {
+    try? FileManager.default.createDirectory(at: store.botmemDir, withIntermediateDirectories: true)
+    let path = store.serviceLogURL.path
+    if !FileManager.default.fileExists(atPath: path) {
+      FileManager.default.createFile(atPath: path, contents: nil)
+    }
+    guard let handle = try? FileHandle(forWritingTo: store.serviceLogURL) else { return nil }
+    _ = try? handle.seekToEnd()
+    return handle
+  }
+}
+
+// MARK: - LaunchAgent (launches THIS APP headless at login)
+
+/// Installs a per-user LaunchAgent that launches THIS signed app at login (not
+/// node). The app, in turn, spawns + supervises node — preserving FDA.
+final class LaunchAgentController {
+  private let label = "xyz.botmem.apple-bridge.service"
 
   var plistURL: URL {
     FileManager.default.homeDirectoryForCurrentUser
@@ -111,154 +273,70 @@ final class LaunchAgentController {
       .appendingPathComponent("\(label).plist", isDirectory: false)
   }
 
-  func isLoaded() -> Bool {
-    runLaunchctl(["print", serviceTarget()]) == 0
-  }
-
-  func removeStaleInstallIfNeeded() {
-    guard FileManager.default.fileExists(atPath: plistURL.path),
-      let data = try? Data(contentsOf: plistURL),
-      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
-    else {
+  /// Ensure the LaunchAgent points at the current app bundle. Rewrites a stale
+  /// plist (e.g. an old install that launched node `--helper` directly).
+  func ensureInstalled() {
+    guard let appBundle = Bundle.main.bundleURL.path.isEmpty ? nil : Bundle.main.bundleURL else {
       return
     }
-
-    let args = plist["ProgramArguments"] as? [String] ?? []
-    let executable = Bundle.main.executableURL?.path ?? ""
-    let usesCurrentExecutable = args.first == executable
-    let usesCurrentConfig = args.contains(store.configURL.path)
-
-    if usesCurrentExecutable && usesCurrentConfig {
-      return
-    }
-
-    bridgeLog("removing stale launch agent: \(args.joined(separator: " "))")
-    uninstall()
-  }
-
-  func install() throws {
-    guard let resourceURL = Bundle.main.resourceURL else {
-      throw BridgeError("App resources are missing.")
-    }
-
-    try FileManager.default.createDirectory(at: store.appSupportURL, withIntermediateDirectories: true)
-    try FileManager.default.createDirectory(
-      at: plistURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
-
-    let plist: [String: Any] = [
+    let openPath = "/usr/bin/open"
+    let desired: [String: Any] = [
       "Label": label,
-      "ProgramArguments": [
-        Bundle.main.executableURL?.path ?? resourceURL.appendingPathComponent("botmem").path,
-        "--helper",
-        "--config",
-        store.configURL.path,
-      ],
-      "EnvironmentVariables": [
-        "BOTMEM_BRIDGE_RUNNER_NAME": "botmem",
-      ],
+      // Launch the app bundle (not node). `open -gj` runs it in the background.
+      "ProgramArguments": [openPath, "-gj", appBundle.path],
       "RunAtLoad": true,
-      "KeepAlive": [
-        "SuccessfulExit": false,
-      ],
-      "StandardOutPath": store.serviceLogURL.path,
-      "StandardErrorPath": store.serviceLogURL.path,
-      "WorkingDirectory": resourceURL.path,
+      // App is a singleton UI shell; relaunch only if it exits unexpectedly.
+      "KeepAlive": ["SuccessfulExit": false],
     ]
 
-    let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-    try data.write(to: plistURL, options: [.atomic])
-    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: plistURL.path)
-  }
-
-  func restart() {
-    _ = runLaunchctl(["bootout", guiDomain(), plistURL.path])
-    _ = runLaunchctl(["bootstrap", guiDomain(), plistURL.path])
-    _ = runLaunchctl(["kickstart", "-k", serviceTarget()])
-  }
-
-  func uninstall() {
-    _ = runLaunchctl(["bootout", guiDomain(), plistURL.path])
-    try? FileManager.default.removeItem(at: plistURL)
-  }
-
-  private func guiDomain() -> String {
-    "gui/\(getuid())"
-  }
-
-  private func serviceTarget() -> String {
-    "\(guiDomain())/\(label)"
-  }
-
-  private func runLaunchctl(_ args: [String]) -> Int32 {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-    process.arguments = args
-    process.standardOutput = Pipe()
-    process.standardError = Pipe()
-    do {
-      try process.run()
-      process.waitUntilExit()
-      bridgeLog("launchctl \(args.joined(separator: " ")) -> \(process.terminationStatus)")
-      return process.terminationStatus
-    } catch {
-      bridgeLog("launchctl failed: \(error.localizedDescription)")
-      return 1
-    }
-  }
-}
-
-struct BridgeError: LocalizedError {
-  private let message: String
-
-  init(_ message: String) {
-    self.message = message
-  }
-
-  var errorDescription: String? {
-    message
-  }
-}
-
-func bridgeLog(_ message: String) {
-  guard ProcessInfo.processInfo.environment["BOTMEM_APP_DEBUG"] == "1" else {
-    return
-  }
-  let range = NSRange(message.startIndex..<message.endIndex, in: message)
-  let redacted = (try? NSRegularExpression(pattern: "token=[^&\\s]+"))?
-    .stringByReplacingMatches(in: message, range: range, withTemplate: "token=<redacted>") ?? message
-  let line = "\(Date()) \(redacted)\n"
-  let url = URL(fileURLWithPath: "/tmp/botmem-apple-bridge.log")
-  if let data = line.data(using: .utf8) {
-    if FileManager.default.fileExists(atPath: url.path),
-      let handle = try? FileHandle(forWritingTo: url)
+    if let existing = try? Data(contentsOf: plistURL),
+      let plist = try? PropertyListSerialization.propertyList(from: existing, format: nil)
+        as? [String: Any],
+      let args = plist["ProgramArguments"] as? [String],
+      args == (desired["ProgramArguments"] as? [String])
     {
-      _ = try? handle.seekToEnd()
-      try? handle.write(contentsOf: data)
-      try? handle.close()
-    } else {
-      try? data.write(to: url)
+      return  // already correct
+    }
+
+    try? FileManager.default.createDirectory(
+      at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    if let data = try? PropertyListSerialization.data(
+      fromPropertyList: desired, format: .xml, options: 0)
+    {
+      try? data.write(to: plistURL, options: [.atomic])
     }
   }
 }
+
+// MARK: - iMessage readability probe (FDA check)
+
+/// Lightweight Full Disk Access probe: can we read ~/Library/Messages/chat.db?
+/// Used only to surface a "Permissions" hint — the node bridge does the real
+/// reads. No DB engine is linked into the app anymore.
+func messagesReadable() -> Bool {
+  let path = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Messages/chat.db", isDirectory: false).path
+  guard FileManager.default.fileExists(atPath: path) else {
+    // No chat.db (fresh Mac / Messages never used) — don't block on FDA.
+    return true
+  }
+  return FileManager.default.isReadableFile(atPath: path)
+}
+
+// MARK: - App delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let store = ConfigStore()
-  private lazy var service = LaunchAgentController(store: store)
+  private lazy var node = NodeSupervisor(store: store)
+  private let launchAgent = LaunchAgentController()
+
   private var config: BridgeConfig?
-  private var settings = BridgeSettings(botmemHost: DEFAULT_BOTMEM_HOST)
-  private var status = "Not Configured"
+  private var snapshot: BridgeStatusSnapshot?
+  private var pollTimer: Timer?
+
   private var window: NSWindow?
   private var contentView: NSView?
-  private var hostField: NSTextField?
-  private var serverField: NSTextField?
-  private var sourceContactsButton: NSButton?
-  private var sourceMessagesButton: NSButton?
-  private var statusRefreshTimer: Timer?
-  private var runtimeStats = ServiceRuntimeStats.empty
-  private let contactStore = CNContactStore()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     installApplicationMenu()
@@ -268,104 +346,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       forEventClass: AEEventClass(kInternetEventClass),
       andEventID: AEEventID(kAEGetURL)
     )
-    settings = store.loadSettings()
+
     config = store.load()
-    migrateLegacyConfigIfNeeded()
-    service.removeStaleInstallIfNeeded()
-    refreshStatus()
-    statusRefreshTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-      self?.refreshStatus()
+    launchAgent.ensureInstalled()
+    node.onStateChange = { [weak self] in self?.renderWindow() }
+
+    // If already configured, supervise node immediately (login launch path).
+    if config != nil {
+      node.start()
     }
+
+    refreshSnapshot()
+    pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+      self?.refreshSnapshot()
+    }
+
     showWindow()
-    maybeRequestPendingContactsPermission()
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(appBecameActive),
-      name: NSApplication.didBecomeActiveNotification,
-      object: nil
-    )
-  }
-
-  private func migrateLegacyConfigIfNeeded() {
-    let legacySupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Botmem Apple Bridge", isDirectory: true)
-    let migrations = [
-      (
-        from: legacySupportURL.appendingPathComponent("config.json", isDirectory: false),
-        to: store.configURL
-      ),
-      (
-        from: legacySupportURL.appendingPathComponent("settings.json", isDirectory: false),
-        to: store.settingsURL
-      ),
-    ]
-
-    for migration in migrations {
-      guard !FileManager.default.fileExists(atPath: migration.to.path),
-        FileManager.default.fileExists(atPath: migration.from.path)
-      else {
-        continue
-      }
-      do {
-        try FileManager.default.createDirectory(at: store.appSupportURL, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: migration.from, to: migration.to)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: migration.to.path)
-        bridgeLog("migrated legacy config: \(migration.from.path) -> \(migration.to.path)")
-      } catch {
-        bridgeLog("legacy config migration failed: \(error.localizedDescription)")
-      }
-    }
-
-    settings = store.loadSettings()
-    config = store.load()
-  }
-
-  private func installApplicationMenu() {
-    let mainMenu = NSMenu()
-
-    let appMenuItem = NSMenuItem()
-    mainMenu.addItem(appMenuItem)
-
-    let appMenu = NSMenu(title: "botmem")
-    appMenu.addItem(
-      NSMenuItem(
-        title: "About botmem",
-        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
-        keyEquivalent: ""
-      )
-    )
-    appMenu.addItem(NSMenuItem.separator())
-    appMenu.addItem(
-      NSMenuItem(
-        title: "Quit botmem",
-        action: #selector(quit),
-        keyEquivalent: "q"
-      )
-    )
-    appMenuItem.submenu = appMenu
-
-    let windowMenuItem = NSMenuItem()
-    mainMenu.addItem(windowMenuItem)
-    let windowMenu = NSMenu(title: "Window")
-    windowMenu.addItem(
-      NSMenuItem(
-        title: "Show botmem",
-        action: #selector(showWindowFromMenu),
-        keyEquivalent: "0"
-      )
-    )
-    windowMenu.addItem(NSMenuItem.separator())
-    windowMenu.addItem(
-      NSMenuItem(
-        title: "Minimize",
-        action: #selector(NSWindow.performMiniaturize(_:)),
-        keyEquivalent: "m"
-      )
-    )
-    windowMenuItem.submenu = windowMenu
-    NSApp.windowsMenu = windowMenu
-
-    NSApp.mainMenu = mainMenu
   }
 
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -373,41 +369,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return true
   }
 
-  @objc private func appBecameActive() {
-    refreshStatus()
-  }
+  // MARK: Deep link
 
   func application(_ application: NSApplication, open urls: [URL]) {
-    for url in urls {
-      configure(from: url)
-    }
+    for url in urls { configure(from: url) }
   }
 
-  @objc private func handleUrlEvent(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
-    guard let rawUrl = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-      let url = URL(string: rawUrl)
-    else {
-      return
-    }
+  @objc private func handleUrlEvent(
+    _ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor
+  ) {
+    guard let raw = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+      let url = URL(string: raw)
+    else { return }
     configure(from: url)
   }
 
+  /// botmem-apple-bridge://connect?server=&token=&accountId=&sources=
+  /// Saves config, (re)starts the node child, and shows the status screen.
   private func configure(from url: URL) {
-    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-      setStatus("Invalid Link")
-      return
-    }
+    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
     let params = Dictionary(
       uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
         item.value.map { (item.name, $0) }
-      }
-    )
-    guard let server = params["server"], let token = params["token"] else {
-      setStatus("Missing Config")
+      })
+
+    guard let token = params["token"], !token.isEmpty else {
+      showWindow()
       return
     }
 
-    let nextConfig = BridgeConfig(
+    // Default server is the apple-tunnel endpoint, NOT app.botmem.xyz.
+    let server = params["server"].flatMap { $0.isEmpty ? nil : $0 } ?? DEFAULT_TUNNEL_URL
+
+    let next = BridgeConfig(
       server: server,
       token: token,
       accountId: params["accountId"] ?? "",
@@ -415,137 +409,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     do {
-      config = nextConfig
-      try store.save(nextConfig)
-      setStatus(permissionIssues().isEmpty ? "Ready To Start" : "Permissions Needed")
+      try store.save(next)
+      config = next
+      launchAgent.ensureInstalled()
+      node.start()
+      refreshSnapshot()
       showWindow()
     } catch {
-      bridgeLog("configure failed: \(error.localizedDescription)")
-      setStatus("Setup Failed")
+      showWindow()
     }
   }
 
-  private func refreshStatus() {
-    guard config != nil else {
-      runtimeStats = latestRuntimeStats()
-      setStatus("Not Configured")
-      return
+  // MARK: Status polling
+
+  /// Atomic-read tolerant: the writer renames a tmp file over the target, so a
+  /// failed decode just means we caught a transient gap — keep the last good
+  /// snapshot and try again on the next tick.
+  private func refreshSnapshot() {
+    if let data = try? Data(contentsOf: store.statusURL),
+      let decoded = try? JSONDecoder().decode(BridgeStatusSnapshot.self, from: data)
+    {
+      snapshot = decoded
     }
-    let issues = permissionIssues()
-    if !issues.isEmpty {
-      runtimeStats = latestRuntimeStats()
-      setStatus("Permissions Needed")
-      return
-    }
-    runtimeStats = latestRuntimeStats()
-    if !runtimeStats.loaded {
-      setStatus("Service Stopped")
-    } else if runtimeStats.tunnelConnected {
-      setStatus("Tunnel Connected")
-    } else if runtimeStats.connecting {
-      setStatus("Connecting")
-    } else {
-      setStatus("Tunnel Offline")
-    }
-  }
-
-  private func latestRuntimeStats() -> ServiceRuntimeStats {
-    let loaded = service.isLoaded()
-    guard let text = try? String(contentsOf: store.serviceLogURL, encoding: .utf8), !text.isEmpty else {
-      return ServiceRuntimeStats(
-        loaded: loaded,
-        tunnelConnected: false,
-        connecting: loaded,
-        lastEvent: loaded ? "Waiting for service log" : "Service is not loaded",
-        lastEventAt: "",
-        errorCount: 0,
-        reconnectCount: 0,
-        connectedCount: 0
-      )
-    }
-
-    let lines = text.split(whereSeparator: \.isNewline).suffix(240).map(String.init)
-    var latestConnected = -1
-    var latestConnecting = -1
-    var latestFailure = -1
-    var errorCount = 0
-    var reconnectCount = 0
-    var connectedCount = 0
-
-    for (index, line) in lines.enumerated() {
-      let lower = line.lowercased()
-      if lower.contains("connecting to ") {
-        latestConnecting = index
-        reconnectCount += 1
-      }
-      if lower.contains("tunnel connected") {
-        latestConnected = index
-        connectedCount += 1
-      }
-      if lower.contains("failed")
-        || lower.contains("auth failed")
-        || lower.contains("cannot ")
-        || lower.contains("denied")
-        || lower.contains("bridge disconnected")
-        || lower.contains("error")
-      {
-        latestFailure = index
-        errorCount += 1
-      }
-    }
-
-    let lastLine = lines.last ?? ""
-    let parsed = parseLogLine(lastLine)
-    let tunnelConnected = loaded && latestConnected >= 0 && latestConnected > latestFailure
-    let connecting = loaded && !tunnelConnected && latestConnecting >= 0 && latestConnecting >= latestFailure
-
-    return ServiceRuntimeStats(
-      loaded: loaded,
-      tunnelConnected: tunnelConnected,
-      connecting: connecting,
-      lastEvent: parsed.message.isEmpty ? "No service activity yet" : parsed.message,
-      lastEventAt: parsed.timestamp,
-      errorCount: errorCount,
-      reconnectCount: reconnectCount,
-      connectedCount: connectedCount
-    )
-  }
-
-  private func parseLogLine(_ line: String) -> (timestamp: String, message: String) {
-    guard let firstSpace = line.firstIndex(of: " ") else {
-      return ("", line)
-    }
-    let timestamp = String(line[..<firstSpace])
-    let messageStart = line.index(after: firstSpace)
-    return (timestamp, String(line[messageStart...]))
-  }
-
-  private func setStatus(_ value: String) {
-    status = value
     updateMenu()
     renderWindow()
+  }
+
+  // MARK: Menu bar
+
+  private func installApplicationMenu() {
+    let mainMenu = NSMenu()
+    let appMenuItem = NSMenuItem()
+    mainMenu.addItem(appMenuItem)
+    let appMenu = NSMenu(title: "botmem")
+    appMenu.addItem(
+      NSMenuItem(
+        title: "About botmem",
+        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+    appMenu.addItem(NSMenuItem.separator())
+    appMenu.addItem(NSMenuItem(title: "Quit botmem", action: #selector(quit), keyEquivalent: "q"))
+    appMenuItem.submenu = appMenu
+    NSApp.mainMenu = mainMenu
   }
 
   private func updateMenu() {
     statusItem.button?.image = NSImage(named: "logo-mark-128")
     statusItem.button?.image?.size = NSSize(width: 18, height: 18)
-    statusItem.button?.toolTip = "botmem Apple bridge: \(status)"
+    let label = snapshot?.label ?? (config == nil ? "Not connected" : "Starting…")
+    statusItem.button?.toolTip = "botmem: \(label)"
+
     let menu = NSMenu()
     menu.addItem(menuInfo("botmem"))
-    menu.addItem(menuInfo("Status: \(status)"))
-    if let config {
-      menu.addItem(menuInfo("Sources: \(config.sources.replacingOccurrences(of: ",", with: " + "))"))
-      menu.addItem(menuInfo("Server: \(config.server)"))
-    }
-    menu.addItem(menuInfo("Connections: \(runtimeStats.connectedCount)  Attempts: \(runtimeStats.reconnectCount)  Errors: \(runtimeStats.errorCount)"))
-    if !runtimeStats.lastEvent.isEmpty {
-      let suffix = runtimeStats.lastEventAt.isEmpty ? "" : " @ \(runtimeStats.lastEventAt)"
-      menu.addItem(menuInfo("Last: \(runtimeStats.lastEvent)\(suffix)"))
-    }
+    menu.addItem(menuInfo(label))
     menu.addItem(NSMenuItem.separator())
     menu.addItem(NSMenuItem(title: "Show Window", action: #selector(showWindowFromMenu), keyEquivalent: ""))
-    menu.addItem(NSMenuItem(title: "Restart Sync Service", action: #selector(reconnect), keyEquivalent: "r"))
-    menu.addItem(NSMenuItem(title: "Open Full Disk Access", action: #selector(openFullDiskAccess), keyEquivalent: ""))
+    if config != nil {
+      menu.addItem(NSMenuItem(title: "Reconnect", action: #selector(reconnect), keyEquivalent: "r"))
+    }
+    menu.addItem(NSMenuItem(title: "Open Logs", action: #selector(openLogs), keyEquivalent: ""))
     menu.addItem(NSMenuItem.separator())
     menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
     statusItem.menu = menu
@@ -557,9 +478,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return item
   }
 
-  @objc private func showWindowFromMenu() {
-    showWindow()
-  }
+  // MARK: Window
+
+  @objc private func showWindowFromMenu() { showWindow() }
 
   private func showWindow() {
     if let window {
@@ -569,22 +490,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
 
-    let width: CGFloat = 760
-    let height: CGFloat = 520
+    let width: CGFloat = 720
+    let height: CGFloat = 560
     let window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: width, height: height),
       styleMask: [.titled, .closable, .miniaturizable],
-      backing: .buffered,
-      defer: false
-    )
+      backing: .buffered, defer: false)
     window.title = "botmem"
     window.center()
     window.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.05, blue: 0.05, alpha: 1)
 
     let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
     content.wantsLayer = true
-    content.layer?.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.05, blue: 0.05, alpha: 1).cgColor
-
+    content.layer?.backgroundColor =
+      NSColor(calibratedRed: 0.05, green: 0.05, blue: 0.05, alpha: 1).cgColor
     window.contentView = content
     contentView = content
     self.window = window
@@ -593,7 +512,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.activate(ignoringOtherApps: true)
   }
 
-  private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
+  // MARK: Colors / labels
+
+  private func lime() -> NSColor { NSColor(calibratedRed: 0.77, green: 0.96, blue: 0.23, alpha: 1) }
+  private func muted() -> NSColor { NSColor(calibratedWhite: 0.72, alpha: 1) }
+  private func orange() -> NSColor { NSColor(calibratedRed: 0.98, green: 0.6, blue: 0.2, alpha: 1) }
+
+  private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor)
+    -> NSTextField
+  {
     let field = NSTextField(labelWithString: text)
     field.font = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
     field.textColor = color
@@ -609,486 +536,224 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return field
   }
 
-  private func actionButton(_ title: String, action: Selector, x: CGFloat, width: CGFloat) -> NSButton {
+  private func actionButton(_ title: String, action: Selector, x: CGFloat, y: CGFloat, width: CGFloat)
+    -> NSButton
+  {
     let button = NSButton(title: title, target: self, action: action)
-    button.frame = NSRect(x: x, y: 48, width: width, height: 34)
+    button.frame = NSRect(x: x, y: y, width: width, height: 34)
     button.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
     button.bezelStyle = .regularSquare
     return button
   }
 
-  private func lime() -> NSColor {
-    NSColor(calibratedRed: 0.77, green: 0.96, blue: 0.23, alpha: 1)
-  }
-
-  private func muted() -> NSColor {
-    NSColor(calibratedWhite: 0.72, alpha: 1)
-  }
+  // MARK: Render
 
   private func renderWindow() {
     guard let content = contentView else { return }
     content.subviews.forEach { $0.removeFromSuperview() }
 
-    let border = NSView(frame: NSRect(x: 28, y: 28, width: 704, height: 464))
+    let border = NSView(frame: NSRect(x: 24, y: 24, width: 672, height: 512))
     border.wantsLayer = true
     border.layer?.borderWidth = 2
     border.layer?.borderColor = NSColor(calibratedWhite: 0.94, alpha: 1).cgColor
-    border.layer?.backgroundColor = NSColor(calibratedRed: 0.07, green: 0.07, blue: 0.07, alpha: 1).cgColor
+    border.layer?.backgroundColor =
+      NSColor(calibratedRed: 0.07, green: 0.07, blue: 0.07, alpha: 1).cgColor
     content.addSubview(border)
 
-    let logo = NSImageView(frame: NSRect(x: 56, y: 398, width: 48, height: 48))
+    let logo = NSImageView(frame: NSRect(x: 52, y: 470, width: 40, height: 40))
     logo.image = NSImage(named: "logo-mark-128")
     logo.imageScaling = .scaleProportionallyUpOrDown
     content.addSubview(logo)
 
-    let eyebrow = label("LOCAL APPLE BRIDGE", size: 12, weight: .semibold, color: lime())
-    eyebrow.frame = NSRect(x: 122, y: 424, width: 260, height: 18)
+    let eyebrow = label("LOCAL APPLE BRIDGE", size: 11, weight: .semibold, color: lime())
+    eyebrow.frame = NSRect(x: 104, y: 492, width: 260, height: 16)
     content.addSubview(eyebrow)
 
-    let title = label("botmem", size: 25, weight: .bold, color: .white)
-    title.frame = NSRect(x: 122, y: 388, width: 500, height: 34)
+    let title = label("botmem", size: 22, weight: .bold, color: .white)
+    title.frame = NSRect(x: 104, y: 462, width: 400, height: 30)
     content.addSubview(title)
 
     if config == nil {
-      renderConnectSetup(on: content)
+      renderConnect(on: content)
       return
     }
 
-    let issues = permissionIssues()
-    if !issues.isEmpty {
-      renderPermissionSetup(on: content, issues: issues)
-      return
-    }
-
-    renderMainStatus(on: content)
+    renderStatus(on: content)
   }
 
-  private func renderConnectSetup(on content: NSView) {
-    addStep(on: content, number: "1", title: "Choose Botmem Server", detail: "Use api.botmem.xyz, or enter your own self-hosted Botmem endpoint.", y: 326)
+  private func renderConnect(on content: NSView) {
+    let heading = label("Not connected", size: 18, weight: .bold, color: .white)
+    heading.frame = NSRect(x: 52, y: 400, width: 580, height: 26)
+    content.addSubview(heading)
 
-    hostField = NSTextField(string: settings.botmemHost)
-    hostField?.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    hostField?.frame = NSRect(x: 86, y: 284, width: 430, height: 28)
-    hostField?.bezelStyle = .squareBezel
-    if let hostField { content.addSubview(hostField) }
+    let body = wrapLabel(
+      "Open Botmem, add the Apple connector, choose your sources, and click Connect. "
+        + "Botmem will hand this app a secure link and syncing starts automatically.",
+      size: 13, color: muted())
+    body.frame = NSRect(x: 52, y: 332, width: 600, height: 60)
+    content.addSubview(body)
 
-    let save = actionButton("SAVE HOST", action: #selector(saveHost), x: 528, width: 112)
-    save.frame.origin.y = 282
-    content.addSubview(save)
+    let connect = actionButton("OPEN BOTMEM", action: #selector(openBotmem), x: 52, y: 280, width: 150)
+    content.addSubview(connect)
 
-    addStep(on: content, number: "2", title: "Create Apple Connector", detail: "Open Botmem, choose Apple, select Contacts and/or iMessages, then click Connect Bridge App.", y: 210)
+    let permissions = actionButton(
+      "PERMISSIONS", action: #selector(openFullDiskAccess), x: 216, y: 280, width: 130)
+    content.addSubview(permissions)
 
-    let openBotmem = actionButton("OPEN BOTMEM", action: #selector(openBotmem), x: 86, width: 136)
-    openBotmem.frame.origin.y = 150
-    content.addSubview(openBotmem)
-
-    let waiting = wrapLabel("Waiting for setup link from Botmem. This window will advance automatically after the browser opens the bridge link.", size: 12, color: muted())
-    waiting.frame = NSRect(x: 240, y: 146, width: 420, height: 44)
-    content.addSubview(waiting)
-
-    let quit = actionButton("QUIT", action: #selector(quit), x: 612, width: 72)
+    let quit = actionButton("QUIT", action: #selector(quit), x: 580, y: 280, width: 80)
     content.addSubview(quit)
-  }
 
-  private func renderPermissionSetup(on content: NSView, issues: [String]) {
-    let contactsState = contactsPermissionState()
-    let configured = wrapLabel(
-      "Connected to \(config?.server ?? "Botmem"). Choose sources, then complete only the permissions those sources require.",
-      size: 13,
-      color: muted()
-    )
-    configured.frame = NSRect(x: 56, y: 336, width: 620, height: 42)
-    content.addSubview(configured)
-
-    addSourceControls(on: content, y: 278)
-
-    let contactsDetail = sourcesContain("contacts") ? contactsState.detail : "Needed only if Contacts was selected."
-    addPermissionRow(on: content, title: "Contacts", ok: !issues.contains("contacts"), detail: contactsDetail, y: 220)
-    addPermissionRow(on: content, title: "Full Disk Access", ok: !issues.contains("messages"), detail: "Needed for iMessage history because macOS protects ~/Library/Messages.", y: 174)
-
-    let contacts = actionButton("ALLOW CONTACTS", action: #selector(requestContactsPermission), x: 56, width: 148)
-    contacts.frame.origin.y = 118
-    contacts.isEnabled = issues.contains("contacts") && contactsState.canRequest
-    content.addSubview(contacts)
-
-    let resetContacts = actionButton("RESET CONTACTS", action: #selector(resetContactsPermission), x: 220, width: 148)
-    resetContacts.frame.origin.y = 118
-    resetContacts.isEnabled = issues.contains("contacts") && contactsState.canReset
-    content.addSubview(resetContacts)
-
-    let fda = actionButton("OPEN FULL DISK ACCESS", action: #selector(openFullDiskAccess), x: 384, width: 190)
-    fda.frame.origin.y = 118
-    fda.isEnabled = issues.contains("messages")
-    content.addSubview(fda)
-
-    let refresh = actionButton("CHECK AGAIN", action: #selector(checkAgain), x: 590, width: 94)
-    refresh.frame.origin.y = 118
-    content.addSubview(refresh)
-
-    let note = wrapLabel("After enabling Full Disk Access, return here and click Check Again. macOS may require restarting the bridge app.", size: 12, color: muted())
-    note.frame = NSRect(x: 56, y: 76, width: 620, height: 36)
+    let note = wrapLabel(
+      "iMessage history needs Full Disk Access for this app. Grant it once in "
+        + "System Settings → Privacy & Security → Full Disk Access.",
+      size: 12, color: muted())
+    note.frame = NSRect(x: 52, y: 200, width: 600, height: 40)
     content.addSubview(note)
   }
 
-  private func renderMainStatus(on content: NSView) {
-    addStatusRow(on: content, labelText: "STATUS", value: status, y: 320)
-    addStatusRow(on: content, labelText: "SOURCES", value: config?.sources.replacingOccurrences(of: ",", with: " + ") ?? "Unknown", y: 270)
-    addStatusRow(on: content, labelText: "SERVER", value: config?.server ?? "Unknown", y: 220)
+  private func renderStatus(on content: NSView) {
+    let snap = snapshot
+    let live = snap?.state == .live
+    let statusColor: NSColor = {
+      switch snap?.state {
+      case .live: return lime()
+      case .error: return NSColor.systemRed
+      case .connecting, .indexing, .starting, .offline, .none: return orange()
+      }
+    }()
 
-    serverField = NSTextField(string: config?.server ?? "")
-    serverField?.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    serverField?.frame = NSRect(x: 150, y: 172, width: 390, height: 26)
-    serverField?.bezelStyle = .squareBezel
-    if let serverField { content.addSubview(serverField) }
+    // Status dot + big label.
+    let dot = NSView(frame: NSRect(x: 52, y: 416, width: 12, height: 12))
+    dot.wantsLayer = true
+    dot.layer?.cornerRadius = 6
+    dot.layer?.backgroundColor = statusColor.cgColor
+    content.addSubview(dot)
 
-    let saveServer = actionButton("SAVE SERVER", action: #selector(saveBridgeServer), x: 554, width: 120)
-    saveServer.frame.origin.y = 169
-    content.addSubview(saveServer)
+    let statusText = label(
+      snap?.label ?? "Starting…", size: 18, weight: .bold, color: live ? lime() : .white)
+    statusText.frame = NSRect(x: 76, y: 410, width: 580, height: 26)
+    content.addSubview(statusText)
 
-    let detail = wrapLabel("The background service starts at login and reconnects automatically. Token/config stay in local user config, not Keychain.", size: 12, color: muted())
-    detail.frame = NSRect(x: 56, y: 108, width: 620, height: 38)
-    content.addSubview(detail)
+    // Source chips.
+    let chips = (snap?.sources ?? []).map { src -> String in
+      "\(displaySource(src.source)) \(src.count)"
+    }
+    let chipText = chips.isEmpty ? "No sources indexed yet" : chips.joined(separator: "  ·  ")
+    let chip = label(chipText, size: 13, weight: .semibold, color: muted())
+    chip.frame = NSRect(x: 52, y: 378, width: 600, height: 20)
+    content.addSubview(chip)
 
-    let restart = actionButton("RESTART SERVICE", action: #selector(reconnect), x: 56, width: 154)
-    content.addSubview(restart)
-    let remove = actionButton("REMOVE SERVICE", action: #selector(removeService), x: 226, width: 150)
-    content.addSubview(remove)
-    let permissions = actionButton("PERMISSIONS", action: #selector(openFullDiskAccess), x: 392, width: 122)
+    // Index progress.
+    if let indexing = snap?.indexing, indexing.active {
+      let src = indexing.source.map { displaySource($0) } ?? "sources"
+      let progress: String
+      if let total = indexing.total, total > 0 {
+        progress = "Indexing \(src) — \(indexing.done)/\(total)"
+      } else {
+        progress = "Indexing \(src) — \(indexing.done)"
+      }
+      let p = label(progress, size: 12, weight: .regular, color: orange())
+      p.frame = NSRect(x: 52, y: 352, width: 600, height: 18)
+      content.addSubview(p)
+    }
+
+    // Activity list (status-writer keeps newest LAST; show newest FIRST).
+    let activityCaption = label("ACTIVITY", size: 11, weight: .semibold, color: NSColor(calibratedWhite: 0.55, alpha: 1))
+    activityCaption.frame = NSRect(x: 52, y: 320, width: 200, height: 16)
+    content.addSubview(activityCaption)
+
+    let activity = (snap?.activity ?? []).suffix(12).reversed()
+    var y: CGFloat = 296
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss"
+    for entry in activity {
+      let time = formatter.string(from: Date(timeIntervalSince1970: entry.ts / 1000))
+      let row = label("\(time)  \(entry.text)", size: 11, weight: .regular, color: muted())
+      row.frame = NSRect(x: 52, y: y, width: 600, height: 16)
+      content.addSubview(row)
+      y -= 18
+      if y < 110 { break }
+    }
+
+    // Supervisor hint (privacy-safe; no content).
+    if !node.isRunning {
+      let warn = label("Node bridge stopped — restarting…", size: 11, weight: .semibold, color: orange())
+      warn.frame = NSRect(x: 52, y: 92, width: 600, height: 16)
+      content.addSubview(warn)
+    }
+
+    // Primary + secondary actions.
+    let reconnect = actionButton(
+      "RECONNECT", action: #selector(reconnect), x: 52, y: 44, width: 140)
+    content.addSubview(reconnect)
+
+    let logs = actionButton("OPEN LOGS", action: #selector(openLogs), x: 206, y: 44, width: 120)
+    content.addSubview(logs)
+
+    let permissions = actionButton(
+      "PERMISSIONS", action: #selector(openFullDiskAccess), x: 340, y: 44, width: 130)
     content.addSubview(permissions)
-    let quit = actionButton("QUIT", action: #selector(quit), x: 612, width: 72)
+
+    let quit = actionButton("QUIT", action: #selector(quit), x: 580, y: 44, width: 80)
     content.addSubview(quit)
   }
 
-  private func addStep(on content: NSView, number: String, title: String, detail: String, y: CGFloat) {
-    let badge = label(number, size: 13, weight: .bold, color: .black)
-    badge.alignment = .center
-    badge.frame = NSRect(x: 56, y: y + 18, width: 24, height: 24)
-    badge.backgroundColor = lime()
-    content.addSubview(badge)
-
-    let heading = label(title, size: 17, weight: .bold, color: .white)
-    heading.frame = NSRect(x: 92, y: y + 20, width: 540, height: 24)
-    content.addSubview(heading)
-
-    let body = wrapLabel(detail, size: 12, color: muted())
-    body.frame = NSRect(x: 92, y: y - 10, width: 560, height: 32)
-    content.addSubview(body)
-  }
-
-  private func addPermissionRow(on content: NSView, title: String, ok: Bool, detail: String, y: CGFloat) {
-    let state = label(ok ? "OK" : "TODO", size: 11, weight: .bold, color: ok ? lime() : NSColor.systemRed)
-    state.frame = NSRect(x: 56, y: y, width: 56, height: 20)
-    content.addSubview(state)
-
-    let heading = label(title, size: 15, weight: .bold, color: .white)
-    heading.frame = NSRect(x: 122, y: y, width: 240, height: 20)
-    content.addSubview(heading)
-
-    let body = wrapLabel(detail, size: 12, color: muted())
-    body.frame = NSRect(x: 300, y: y - 8, width: 360, height: 34)
-    content.addSubview(body)
-  }
-
-  private func addSourceControls(on content: NSView, y: CGFloat) {
-    let caption = label("SOURCES", size: 11, weight: .semibold, color: NSColor(calibratedWhite: 0.58, alpha: 1))
-    caption.frame = NSRect(x: 56, y: y + 4, width: 86, height: 18)
-    content.addSubview(caption)
-
-    let contacts = NSButton(checkboxWithTitle: "Contacts", target: self, action: #selector(updateSources))
-    contacts.frame = NSRect(x: 150, y: y, width: 120, height: 24)
-    contacts.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
-    contacts.contentTintColor = .white
-    contacts.state = sourcesContain("contacts") ? .on : .off
-    content.addSubview(contacts)
-    sourceContactsButton = contacts
-
-    let messages = NSButton(checkboxWithTitle: "Messages", target: self, action: #selector(updateSources))
-    messages.frame = NSRect(x: 286, y: y, width: 120, height: 24)
-    messages.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
-    messages.contentTintColor = .white
-    messages.state = sourcesContain("imessages") ? .on : .off
-    content.addSubview(messages)
-    sourceMessagesButton = messages
-  }
-
-  private func addStatusRow(on content: NSView, labelText: String, value: String, y: CGFloat) {
-    let caption = label(labelText, size: 11, weight: .semibold, color: NSColor(calibratedWhite: 0.58, alpha: 1))
-    caption.frame = NSRect(x: 56, y: y, width: 90, height: 18)
-    content.addSubview(caption)
-
-    let field = label(value, size: 13, weight: .semibold, color: .white)
-    field.frame = NSRect(x: 150, y: y, width: 520, height: 20)
-    content.addSubview(field)
-  }
-
-  private func sourcesContain(_ source: String) -> Bool {
-    let parts = (config?.sources ?? "")
-      .split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-    return parts.contains(source)
-  }
-
-  private func contactsAllowed() -> Bool {
-    contactsPermissionState().allowed
-  }
-
-  private func contactsPermissionState() -> ContactsPermissionState {
-    let status = CNContactStore.authorizationStatus(for: .contacts)
-    bridgeLog("contacts authorization status raw=\(status.rawValue)")
-    if status == .authorized {
-      return ContactsPermissionState(
-        allowed: true,
-        detail: "Allowed by macOS Contacts privacy.",
-        canRequest: false,
-        canReset: false
-      )
-    }
-
-    if status.rawValue == 4 {
-      return ContactsPermissionState(
-        allowed: true,
-        detail: "Allowed by macOS Contacts privacy with limited access.",
-        canRequest: false,
-        canReset: false
-      )
-    }
-
-    switch status {
-    case .notDetermined:
-      return ContactsPermissionState(
-        allowed: false,
-        detail: "Click Allow Contacts and accept the macOS prompt.",
-        canRequest: true,
-        canReset: false
-      )
-    case .denied:
-      return ContactsPermissionState(
-        allowed: false,
-        detail: "macOS reports Contacts denied for this build. Reset it; the app will reopen and ask again.",
-        canRequest: false,
-        canReset: true
-      )
-    case .restricted:
-      return ContactsPermissionState(
-        allowed: false,
-        detail: "Contacts access is restricted by macOS policy.",
-        canRequest: false,
-        canReset: false
-      )
-    default:
-      return ContactsPermissionState(
-        allowed: false,
-        detail: "Unknown Contacts permission state \(status.rawValue). Reset and allow it again.",
-        canRequest: false,
-        canReset: true
-      )
+  private func displaySource(_ source: String) -> String {
+    switch source.lowercased() {
+    case "imessage", "imessages", "messages": return "iMessage"
+    case "whatsapp": return "WhatsApp"
+    case "contacts": return "Contacts"
+    default: return source.capitalized
     }
   }
 
-  private func messagesReadable() -> Bool {
-    nativeMessagesReadable()
+  // MARK: Actions
+
+  @objc private func reconnect() {
+    guard config != nil else { return }
+    node.start()
+    refreshSnapshot()
   }
 
-  private func permissionIssues() -> [String] {
-    guard config != nil else { return [] }
-    var issues: [String] = []
-    if sourcesContain("contacts") && !contactsAllowed() {
-      issues.append("contacts")
+  @objc private func openLogs() {
+    if !FileManager.default.fileExists(atPath: store.serviceLogURL.path) {
+      try? FileManager.default.createDirectory(
+        at: store.botmemDir, withIntermediateDirectories: true)
+      FileManager.default.createFile(atPath: store.serviceLogURL.path, contents: nil)
     }
-    if (sourcesContain("imessages") || sourcesContain("messages")) && !messagesReadable() {
-      issues.append("messages")
-    }
-    return issues
+    NSWorkspace.shared.open(store.serviceLogURL)
   }
 
-  @objc private func updateSources() {
-    guard var current = config else { return }
-    let contacts = sourceContactsButton?.state == .on
-    let messages = sourceMessagesButton?.state == .on
-    if !contacts && !messages {
-      sourceContactsButton?.state = .on
-      current.sources = "contacts"
-    } else {
-      current.sources = [
-        contacts ? "contacts" : nil,
-        messages ? "imessages" : nil,
-      ].compactMap { $0 }.joined(separator: ",")
-    }
-    do {
-      config = current
-      try store.save(current)
-      if service.isLoaded() {
-        service.restart()
-      }
-      refreshStatus()
-    } catch {
-      bridgeLog("sources save failed: \(error.localizedDescription)")
-      setStatus("Setup Failed")
-    }
-  }
-
-  @objc private func openFullDiskAccess() {
-    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+  @objc private func openBotmem() {
+    if let url = URL(string: "https://app.botmem.xyz") {
       NSWorkspace.shared.open(url)
     }
   }
 
-  @objc private func saveHost() {
-    let raw = hostField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !raw.isEmpty else { return }
-    let normalized = raw.contains("://") ? raw : "https://\(raw)"
-    settings.botmemHost = normalized
-    try? store.save(settings)
-    renderWindow()
-  }
-
-  @objc private func openBotmem() {
-    saveHost()
-    guard let url = URL(string: settings.botmemHost) else { return }
-    NSWorkspace.shared.open(url)
-  }
-
-  @objc private func requestContactsPermission() {
-    let status = CNContactStore.authorizationStatus(for: .contacts)
-    bridgeLog("contacts request starting from raw status=\(status.rawValue)")
-    guard status == .notDetermined else {
-      refreshStatus()
-      return
+  @objc private func openFullDiskAccess() {
+    if let url = URL(
+      string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+    {
+      NSWorkspace.shared.open(url)
     }
-
-    contactStore.requestAccess(for: .contacts) { [weak self] granted, error in
-      bridgeLog("contacts request granted=\(granted) error=\(error?.localizedDescription ?? "none")")
-      DispatchQueue.main.async {
-        self?.refreshStatus()
-      }
-    }
-  }
-
-  @objc private func resetContactsPermission() {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-    process.arguments = ["reset", "AddressBook", Bundle.main.bundleIdentifier ?? "xyz.botmem.apple-bridge"]
-    process.standardOutput = Pipe()
-    process.standardError = Pipe()
-    do {
-      try process.run()
-      process.waitUntilExit()
-      bridgeLog("tccutil reset AddressBook -> \(process.terminationStatus)")
-      UserDefaults.standard.set(true, forKey: PENDING_CONTACTS_REQUEST_KEY)
-      relaunchAfterContactsReset()
-    } catch {
-      bridgeLog("tccutil reset AddressBook failed: \(error.localizedDescription)")
-      refreshStatus()
-    }
-  }
-
-  private func maybeRequestPendingContactsPermission() {
-    guard UserDefaults.standard.bool(forKey: PENDING_CONTACTS_REQUEST_KEY),
-      config != nil,
-      sourcesContain("contacts")
-    else {
-      return
-    }
-
-    let status = CNContactStore.authorizationStatus(for: .contacts)
-    bridgeLog("pending contacts request on launch raw=\(status.rawValue)")
-
-    guard status == .notDetermined else {
-      UserDefaults.standard.removeObject(forKey: PENDING_CONTACTS_REQUEST_KEY)
-      refreshStatus()
-      return
-    }
-
-    UserDefaults.standard.removeObject(forKey: PENDING_CONTACTS_REQUEST_KEY)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-      self?.requestContactsPermission()
-    }
-  }
-
-  private func relaunchAfterContactsReset() {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    process.arguments = ["-n", Bundle.main.bundlePath]
-    do {
-      try process.run()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-        NSApp.terminate(nil)
-      }
-    } catch {
-      bridgeLog("contacts reset relaunch failed: \(error.localizedDescription)")
-      refreshStatus()
-    }
-  }
-
-  @objc private func checkAgain() {
-    refreshStatus()
-  }
-
-  @objc private func startService() {
-    guard config != nil else {
-      setStatus("Not Configured")
-      return
-    }
-    let issues = permissionIssues()
-    guard issues.isEmpty else {
-      setStatus("Permissions Needed")
-      return
-    }
-    do {
-      try service.install()
-      service.restart()
-      refreshStatus()
-    } catch {
-      bridgeLog("service start failed: \(error.localizedDescription)")
-      setStatus("Setup Failed")
-    }
-  }
-
-  @objc private func saveBridgeServer() {
-    guard var current = config else { return }
-    let raw = serverField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !raw.isEmpty else { return }
-    current.server = raw
-    do {
-      config = current
-      try store.save(current)
-      if service.isLoaded() {
-        service.restart()
-      }
-      refreshStatus()
-    } catch {
-      bridgeLog("server save failed: \(error.localizedDescription)")
-      setStatus("Setup Failed")
-    }
-  }
-
-  @objc private func reconnect() {
-    guard config != nil else {
-      setStatus("Not Configured")
-      return
-    }
-    startService()
-  }
-
-  @objc private func removeService() {
-    service.uninstall()
-    setStatus(config == nil ? "Not Configured" : "Service Stopped")
   }
 
   @objc private func quit() {
+    node.stop(intentional: true)
     NSApplication.shared.terminate(nil)
   }
 }
 
+// MARK: - Entry point
+
 @main
 struct BotmemAppleBridgeMain {
   static func main() {
-    if runNativeBridgeHelperIfRequested() {
-      return
-    }
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
+    // Regular app (Dock + window). The LaunchAgent uses `open -gj` so the login
+    // launch stays in the background without stealing focus.
     app.setActivationPolicy(.regular)
     app.run()
   }
