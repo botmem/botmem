@@ -78,7 +78,7 @@ integration thin and avoids callback-heavy FFI.
 - **Phase 0 — freeze protocol** → `PROTOCOL.md`. ✅
 - **Phase 1 — Rust engine skeleton in-process**: crate + C ABI + lifecycle
   (start/stop/status) + tokio runtime + tracing logging + config parse + status
-  JSON writer. Swift link wiring documented. ← current
+  JSON writer. Swift link wiring documented. ✅
 - **Phase 2 — tunnel compatibility**: WS client + x25519/HKDF/AES-GCM handshake +
   encrypted JSON-RPC; validate against the live API with NO server changes.
   ✅ Verified against prod (`wss://api.botmem.xyz/apple-tunnel`) — handshake
@@ -91,7 +91,7 @@ integration thin and avoids callback-heavy FFI.
 index.sqlite`. Verified by a wire roundtrip test (encrypt→dispatch→decrypt).
   Empty until Phase 4 populates it.
 - **Phase 4 — source readers**: Contacts → WhatsApp → iMessage text →
-  `attributedBody` typedstream → attachments → PDF/DOCX.
+  `attributedBody` typedstream → attachments → PDF/DOCX. ← current
 - **Phase 5 — parity harness**: old Node vs new Rust on the same fixtures; golden
   queries.
 - **Phase 6 — replace runtime**: remove bundled `node` + `dist/cli.js` + node
