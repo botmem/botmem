@@ -91,7 +91,13 @@ integration thin and avoids callback-heavy FFI.
 index.sqlite`. Verified by a wire roundtrip test (encrypt→dispatch→decrypt).
   Empty until Phase 4 populates it.
 - **Phase 4 — source readers**: Contacts → WhatsApp → iMessage text →
-  `attributedBody` typedstream → attachments → PDF/DOCX. ← current
+  `attributedBody` typedstream → attachments → PDF/DOCX.
+  - **4a ✅** Contacts (abcddb, all accounts), WhatsApp (ChatStorage text +
+    captions + ContactsV2 name resolution), iMessage (chat.db incl.
+    attributedBody decode), + the index build driver (read-only opens, batched
+    inserts, status progress, graceful no-FDA degradation). All fixture-tested.
+  - **4b** ← current: WhatsApp PDF/DOCX/TXT attachment text extraction
+    (realpath-confined to the container), + incremental refresh.
 - **Phase 5 — parity harness**: old Node vs new Rust on the same fixtures; golden
   queries.
 - **Phase 6 — replace runtime**: remove bundled `node` + `dist/cli.js` + node
