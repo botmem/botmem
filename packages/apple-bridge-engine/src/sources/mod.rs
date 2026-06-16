@@ -5,6 +5,7 @@
 //! Contacts, WhatsApp (text + captions), iMessage (incl. attributedBody decode).
 //! Phase 4b adds PDF/DOCX attachment text extraction.
 
+pub mod attachments;
 pub mod attributed_body;
 pub mod contacts;
 pub mod imessage;

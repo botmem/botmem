@@ -7,15 +7,15 @@ databases. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for _why_ (the TCC/FDA
 constraint) and [`PROTOCOL.md`](./PROTOCOL.md) for the frozen tunnel protocol the
 engine must speak (the server side does not change).
 
-> **Status: Phase 4a** — lifecycle + encrypted tunnel + FTS5 index + source
-> readers. Implemented and tested: the C ABI, config, status writer, logging,
+> **Status: Phase 4 complete** — the engine is feature-complete vs the node
+> bridge. Implemented and tested: the C ABI, config, status writer, logging,
 > tokio runtime, the X25519/HKDF/AES-256-GCM tunnel (verified against live prod),
-> the bundled-SQLite FTS5 index (bm25, behavior-matched to the node engine), and
-> the **Contacts / WhatsApp / iMessage readers** (incl. the `attributedBody`
-> typedstream decode) feeding a batched index builder that runs in the FDA-held
-> process. **Remaining: Phase 4b** — WhatsApp PDF/DOCX attachment text extraction
-> and incremental refresh. Run the live handshake check with
-> `cargo run --example connect` (set `BRIDGE_TOKEN`/`BRIDGE_SERVER`).
+> the bundled-SQLite FTS5 index (bm25, behavior-matched to the node engine), the
+> Contacts / WhatsApp / iMessage readers (incl. the `attributedBody` typedstream
+> decode), and WhatsApp PDF/DOCX/TXT attachment text extraction (realpath-confined).
+> **Next: Phase 5** — a parity harness (old node vs new Rust on the same fixtures)
+> before Phase 6 swaps out the bundled node engine. Run the live handshake check
+> with `cargo run --example connect` (set `BRIDGE_TOKEN`/`BRIDGE_SERVER`).
 
 ## Layout
 

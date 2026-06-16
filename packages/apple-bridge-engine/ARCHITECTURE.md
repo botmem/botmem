@@ -96,8 +96,10 @@ index.sqlite`. Verified by a wire roundtrip test (encrypt→dispatch→decrypt).
     captions + ContactsV2 name resolution), iMessage (chat.db incl.
     attributedBody decode), + the index build driver (read-only opens, batched
     inserts, status progress, graceful no-FDA degradation). All fixture-tested.
-  - **4b** ← current: WhatsApp PDF/DOCX/TXT attachment text extraction
-    (realpath-confined to the container), + incremental refresh.
+  - **4b ✅** WhatsApp PDF/DOCX/TXT/CSV/MD attachment text extraction
+    (`pdf-extract`, `zip`+`quick-xml`), realpath-confined to the container
+    (path-traversal rejected), size/char caps, best-effort. Incremental refresh
+    (vs the current full rebuild on start) remains a later optimization.
 - **Phase 5 — parity harness**: old Node vs new Rust on the same fixtures; golden
   queries.
 - **Phase 6 — replace runtime**: remove bundled `node` + `dist/cli.js` + node
