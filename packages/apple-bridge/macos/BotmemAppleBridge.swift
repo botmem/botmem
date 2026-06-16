@@ -2,31 +2,29 @@ import AppKit
 import Foundation
 
 // ============================================================================
-// botmem Apple Bridge — clean UI shell that SUPERVISES THE NODE BRIDGE.
+// botmem Apple Bridge — UI shell around the IN-PROCESS Rust engine.
 //
-// Architecture (post-rewrite):
-//   • The real engine is the Node bridge: `dist/cli.js` (default action) +
-//     `src/local-index/*`. It connects the tunnel, builds the FTS index over
-//     WhatsApp/iMessage/Contacts, answers search.query/bridge.status, and writes
-//     structured status to ~/.botmem/bridge-status.json (atomic).
-//   • This app is a thin Swift shell. It does NOT speak the tunnel protocol
-//     anymore (the old pure-Swift engine in AppleBridgeNative.swift is retired
-//     and no longer compiled). Its only jobs are:
-//       1. SPAWN + SUPERVISE the bundled Node binary running dist/cli.js as a
-//          CHILD PROCESS of this signed app (restart on crash with backoff).
-//       2. POLL ~/.botmem/bridge-status.json (~1.5s) and render a clean,
-//          single-window status UI from it.
-//       3. Handle the botmem-apple-bridge://connect deep link: save config,
-//          (re)start the node child, show status.
+// Architecture:
+//   • The engine is `@botmem/apple-bridge-engine` (Rust), linked into this app
+//     as a static library (libbotmem_engine.a) and driven through the C ABI in
+//     botmem_engine.h. It reads WhatsApp/iMessage/Contacts, builds the local FTS
+//     index, answers search.query/bridge.status over the encrypted tunnel, and
+//     writes structured status to ~/.botmem/bridge-status.json (atomic) — all on
+//     its own threads INSIDE this process.
+//   • This app is the Swift UI: it
+//       1. STARTS/STOPS the engine via the C ABI (botmem_engine_start/stop);
+//       2. POLLS ~/.botmem/bridge-status.json (~1.5s) and renders a clean,
+//          single-window status UI from it;
+//       3. Handles the botmem-apple-bridge://connect deep link: save config,
+//          (re)start the engine, show status.
 //
-// CRITICAL — Full Disk Access (FDA) inheritance:
+// CRITICAL — Full Disk Access (FDA):
 //   macOS TCC attributes file access (e.g. ~/Library/Messages/chat.db) to the
-//   *responsible* process. When this signed app spawns Node as a direct child,
-//   the child inherits the app's FDA grant under the app's code signature. That
-//   is WHY the LaunchAgent must launch THIS APP (headless at login) and the app
-//   spawns Node — NOT run Node directly from the LaunchAgent. Running node from
-//   launchd would make `launchd`/`node` the responsible process and FDA would
-//   not apply, breaking iMessage history reads.
+//   process doing the read. Because the engine runs IN-PROCESS, its reads are
+//   attributed to THIS signed app's FDA grant directly. There is no child
+//   process — which matters under ad-hoc signing, where a separate helper of any
+//   language would NOT inherit the app's FDA. The LaunchAgent must still launch
+//   THIS app at login so the FDA-holding process is running.
 //
 // Privacy: this app reads ONLY counts/sources/states from the status file and
 // never logs or renders user content (message text, names, phone numbers).
@@ -113,193 +111,74 @@ struct BridgeStatusSnapshot: Codable {
   let updatedAt: Double
 }
 
-// MARK: - Node supervisor
+// MARK: - Engine controller (in-process Rust engine)
 
-/// Spawns and supervises the bundled Node bridge as a CHILD of this app.
+/// Drives the Rust bridge engine, which is linked INTO this app as a static
+/// library (`libbotmem_engine.a`) and called through the C ABI in
+/// `botmem_engine.h`. The engine reads ~/Library/Messages/chat.db, the WhatsApp
+/// container, and Contacts; builds a local FTS index; and runs the encrypted
+/// tunnel — all on its own threads inside THIS process.
 ///
-/// FDA inheritance: `Process` makes Node a direct child of this signed app, so
-/// TCC attributes its file access to the app's Full Disk Access grant. Do NOT
-/// move this spawn into a LaunchAgent or a detached shell — that breaks FDA.
-final class NodeSupervisor {
+/// FDA: because the engine runs in-process, its file reads are attributed to
+/// THIS signed app's Full Disk Access grant directly — there is no child process
+/// to inherit (or fail to inherit) the grant. This is the whole reason the
+/// engine is a linked library rather than a spawned helper: under ad-hoc
+/// signing a separate helper of any language does NOT inherit the app's FDA.
+/// The LaunchAgent must still launch THIS app (so the FDA-holding process runs).
+final class EngineController {
   private let store: ConfigStore
-  private var process: Process?
-  /// Restart backoff (seconds), reset to base on a clean/long-lived run.
-  private var backoff: TimeInterval = 1
-  private let maxBackoff: TimeInterval = 30
-  /// Set when the user intentionally stops the child (no auto-restart).
-  private var stopping = false
-  private var restartWork: DispatchWorkItem?
-  private var lastStartAt: Date = .distantPast
 
-  /// Dev-only: BOTMEM_ALLOW_SYSTEM_NODE=1 permits falling back to a PATH node
-  /// when the bundle has no embedded `node`. NEVER set in release builds — the
-  /// bundled node is what carries the app's signature/FDA context.
-  private var allowSystemNodeFallback: Bool {
-    ProcessInfo.processInfo.environment["BOTMEM_ALLOW_SYSTEM_NODE"] == "1"
-  }
-
-  /// Non-nil when the engine cannot run (e.g. missing bundled node). Surfaced
-  /// in the UI as a clear error state. Privacy-safe (no user content).
+  /// Non-nil when the engine could not start. Surfaced in the UI. No user content.
   private(set) var failureReason: String?
+  /// True while the engine is started (it reconnects internally).
+  private(set) var isRunning = false
 
-  /// Called on the main queue whenever the child exits or restarts, so the UI
-  /// can refresh its supervisor line.
+  /// Called on the main queue after start/stop so the UI refreshes.
   var onStateChange: (() -> Void)?
 
   init(store: ConfigStore) {
     self.store = store
   }
 
-  var isRunning: Bool {
-    process?.isRunning ?? false
-  }
-
-  /// Resolve the node binary. Production REQUIRES the bundled Resources/node so
-  /// the spawn inherits this signed app's TCC/FDA grant. A PATH node is allowed
-  /// ONLY in dev (BOTMEM_ALLOW_SYSTEM_NODE=1).
-  private func nodeBinaryURL() -> URL? {
-    guard let resources = Bundle.main.resourceURL else { return nil }
-    let bundled = resources.appendingPathComponent("node", isDirectory: false)
-    if FileManager.default.isExecutableFile(atPath: bundled.path) {
-      return bundled
-    }
-    guard allowSystemNodeFallback else { return nil }
-    for candidate in ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"] {
-      if FileManager.default.isExecutableFile(atPath: candidate) {
-        return URL(fileURLWithPath: candidate)
-      }
-    }
-    return nil
-  }
-
-  private func cliScriptURL() -> URL? {
-    guard let resources = Bundle.main.resourceURL else { return nil }
-    let script = resources.appendingPathComponent("dist/cli.js", isDirectory: false)
-    return FileManager.default.fileExists(atPath: script.path) ? script : nil
-  }
-
-  /// (Re)start the node child. Awaits the previous child's clean exit before
-  /// spawning so we never run two tunnel+index processes at once.
-  func start() {
-    stopping = false
-    terminateAndWait(current: process)
-    process = nil
-    spawn()
-  }
-
-  /// Stop the child. `intentional` suppresses the auto-restart watcher.
-  func stop(intentional: Bool) {
-    if intentional { stopping = true }
-    restartWork?.cancel()
-    restartWork = nil
-    terminateAndWait(current: process)
-    process = nil
-  }
-
-  /// SIGTERM the child, wait up to `timeout` for a clean exit, then SIGKILL.
-  /// Detaches the terminationHandler first so the synchronous wait here does not
-  /// also trigger the async restart path.
-  private func terminateAndWait(current: Process?, timeout: TimeInterval = 2) {
-    guard let proc = current, proc.isRunning else { return }
-    proc.terminationHandler = nil
-    proc.terminate()  // SIGTERM
-    let deadline = Date().addingTimeInterval(timeout)
-    while proc.isRunning && Date() < deadline {
-      Thread.sleep(forTimeInterval: 0.05)
-    }
-    if proc.isRunning {
-      kill(proc.processIdentifier, SIGKILL)
-      proc.waitUntilExit()
-    }
-  }
-
-  private func spawn() {
-    guard let resources = Bundle.main.resourceURL, let cli = cliScriptURL() else {
-      failureReason = "Bundle is missing dist/cli.js"
+  /// (Re)start the engine for the given config. The C ABI stops any prior
+  /// instance first, so this is also the "reconnect" path.
+  func start(config: BridgeConfig) {
+    let dataDir = store.botmemDir.appendingPathComponent("apple-bridge", isDirectory: true).path
+    let payload: [String: Any] = [
+      "token": config.token,
+      "server": config.server,
+      "sources": config.sources,
+      "status_path": store.statusURL.path,
+      "data_dir": dataDir,
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: payload),
+      let json = String(data: data, encoding: .utf8)
+    else {
+      failureReason = "Could not build engine config"
+      isRunning = false
       onStateChange?()
       return
     }
-    guard let node = nodeBinaryURL() else {
-      // No bundled node and no dev fallback — do NOT crash-loop; surface a clear
-      // error so the UI can tell the user the build is broken.
-      failureReason = "Bundled Node runtime is missing from the app"
-      onStateChange?()
-      return
+
+    let rc = json.withCString { botmem_engine_start($0) }
+    if rc == BOTMEM_OK {
+      isRunning = true
+      failureReason = nil
+    } else {
+      isRunning = false
+      // Privacy-safe: a numeric code, never the token/config contents.
+      failureReason = "Engine failed to start (code \(rc))"
     }
-    failureReason = nil
-
-    let proc = Process()
-    proc.executableURL = node
-    proc.arguments = [cli.path, "--config", store.configURL.path]
-    proc.currentDirectoryURL = resources
-
-    // NODE_PATH lets dist/cli.js resolve the bundled node_modules (better-sqlite3,
-    // ws, pdf-parse, mammoth) without a package install at the bundle root.
-    var env = ProcessInfo.processInfo.environment
-    env["NODE_PATH"] = resources.appendingPathComponent("node_modules", isDirectory: true).path
-    env["BOTMEM_BRIDGE_RUNNER_NAME"] = "botmem"
-    proc.environment = env
-
-    // Append child stdout/stderr to ~/.botmem/service.log for the Logs button.
-    if let handle = logFileHandle() {
-      proc.standardOutput = handle
-      proc.standardError = handle
-    }
-
-    proc.terminationHandler = { [weak self, weak proc] _ in
-      guard let self else { return }
-      DispatchQueue.main.async {
-        // Ignore stale handlers from a child we already replaced.
-        guard self.process === proc else { return }
-        self.handleExit()
-      }
-    }
-
-    do {
-      try proc.run()
-      process = proc
-      lastStartAt = Date()
-      onStateChange?()
-    } catch {
-      failureReason = "Failed to launch Node bridge"
-      onStateChange?()
-      scheduleRestart()
-    }
-  }
-
-  private func handleExit() {
-    process = nil
     onStateChange?()
-    guard !stopping else { return }
-    // Reset backoff if the previous run survived a while (not a crash loop).
-    if Date().timeIntervalSince(lastStartAt) > 60 {
-      backoff = 1
-    }
-    scheduleRestart()
   }
 
-  private func scheduleRestart() {
-    guard !stopping else { return }
-    let delay = backoff
-    backoff = min(backoff * 2, maxBackoff)
-    let work = DispatchWorkItem { [weak self] in
-      guard let self, !self.stopping else { return }
-      self.spawn()
-    }
-    restartWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-  }
-
-  /// Open (creating if needed) the service log for child output.
-  private func logFileHandle() -> FileHandle? {
-    try? FileManager.default.createDirectory(at: store.botmemDir, withIntermediateDirectories: true)
-    let path = store.serviceLogURL.path
-    if !FileManager.default.fileExists(atPath: path) {
-      FileManager.default.createFile(atPath: path, contents: nil)
-    }
-    guard let handle = try? FileHandle(forWritingTo: store.serviceLogURL) else { return nil }
-    _ = try? handle.seekToEnd()
-    return handle
+  /// Stop the engine. `intentional` is accepted for call-site symmetry; the
+  /// engine has no auto-restart watcher to suppress (it reconnects the tunnel
+  /// itself but exits cleanly on stop).
+  func stop(intentional: Bool = true) {
+    _ = botmem_engine_stop()
+    isRunning = false
+    onStateChange?()
   }
 }
 
@@ -377,7 +256,7 @@ func messagesReadable() -> Bool {
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let store = ConfigStore()
-  private lazy var node = NodeSupervisor(store: store)
+  private lazy var engine = EngineController(store: store)
   private let launchAgent = LaunchAgentController()
 
   private var config: BridgeConfig?
@@ -398,11 +277,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     config = store.load()
     launchAgent.ensureInstalled()
-    node.onStateChange = { [weak self] in self?.renderWindow() }
+    engine.onStateChange = { [weak self] in self?.renderWindow() }
 
-    // If already configured, supervise node immediately (login launch path).
-    if config != nil {
-      node.start()
+    // If already configured, start the engine immediately (login launch path).
+    if let config {
+      engine.start(config: config)
     }
 
     refreshSnapshot()
@@ -454,14 +333,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       server: server,
       token: token,
       accountId: params["accountId"] ?? "",
-      sources: params["sources"] ?? "contacts,imessages"
+      sources: params["sources"] ?? "contacts,imessages,whatsapp"
     )
 
     do {
       try store.save(next)
       config = next
       launchAgent.ensureInstalled()
-      node.start()
+      engine.start(config: next)
       refreshSnapshot()
       showWindow()
     } catch {
@@ -724,13 +603,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       if y < 110 { break }
     }
 
-    // Supervisor hint (privacy-safe; no content).
-    if let reason = node.failureReason {
+    // Engine hint (privacy-safe; no content).
+    if let reason = engine.failureReason {
       let warn = label("Engine error: \(reason)", size: 11, weight: .semibold, color: NSColor.systemRed)
       warn.frame = NSRect(x: 52, y: 92, width: 600, height: 16)
       content.addSubview(warn)
-    } else if !node.isRunning {
-      let warn = label("Node bridge stopped — restarting…", size: 11, weight: .semibold, color: orange())
+    } else if !engine.isRunning {
+      let warn = label("Engine stopped", size: 11, weight: .semibold, color: orange())
       warn.frame = NSRect(x: 52, y: 92, width: 600, height: 16)
       content.addSubview(warn)
     }
@@ -763,8 +642,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   // MARK: Actions
 
   @objc private func reconnect() {
-    guard config != nil else { return }
-    node.start()
+    guard let config else { return }
+    engine.start(config: config)
     refreshSnapshot()
   }
 
@@ -792,16 +671,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func quit() {
-    node.stop(intentional: true)
+    engine.stop(intentional: true)
     NSApplication.shared.terminate(nil)
   }
 }
 
 // MARK: - Entry point
 
+/// Append this process's stderr to ~/.botmem/service.log (best-effort) so the
+/// linked engine's tracing output is viewable via "Open Logs".
+private func redirectStderrToServiceLog() {
+  let dir = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".botmem", isDirectory: true)
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  let logPath = dir.appendingPathComponent("service.log", isDirectory: false).path
+  _ = logPath.withCString { freopen($0, "a", stderr) }
+}
+
 @main
 struct BotmemAppleBridgeMain {
   static func main() {
+    // Capture the in-process engine's stderr (tracing logs) into the service log
+    // so "Open Logs" surfaces them. The engine logs only states/counts/durations
+    // — never user content.
+    redirectStderrToServiceLog()
+
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
