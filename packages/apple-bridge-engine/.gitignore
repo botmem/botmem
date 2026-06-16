@@ -1,0 +1,3 @@
+/target
+**/*.rs.bk
+# Cargo.lock IS committed — this crate builds a shipped artifact, not a library.
