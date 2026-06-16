@@ -44,6 +44,13 @@ import {
   GRAPH_BASE_SCORE,
   SCORING_PROFILES,
 } from './search.constants';
+import {
+  collectRelatedDocuments,
+  conversationIdsFor,
+  synthesizeAskAnswer,
+  type RelatedDocument,
+  type StructuredAskCitation,
+} from './ask-synthesis';
 
 /** Escape LIKE metacharacters so user input is treated as literal text. */
 function escapeLike(str: string): string {
@@ -1965,7 +1972,8 @@ export class MemoryService {
   ): Promise<{
     answer: string;
     conversationId: string;
-    citations: SearchResult[];
+    citations: StructuredAskCitation[];
+    relatedDocuments: RelatedDocument[];
   }> {
     const searchResponse = await this.search(
       query,
@@ -1977,55 +1985,122 @@ export class MemoryService {
     );
     const citations = searchResponse.items;
 
-    // Enrich with people
-    if (citations.length) {
-      const peopleMap = await this.getPeopleForMemories(citations.map((c) => c.id));
-      for (const item of citations) {
-        item.people = peopleMap.get(item.id) || [];
-      }
-    }
-
-    let answer = 'No relevant memories found for this question.';
-    if (citations.length) {
-      const citationLines = citations
-        .slice(0, 12)
-        .map((item, index) => {
-          const roles = item.matchedContactRoles?.length
-            ? ` matchedRoles=${item.matchedContactRoles.join(',')}`
-            : '';
-          const mode = item.matchMode ? ` matchMode=${item.matchMode}` : '';
-          const coverage =
-            item.topicCoverage !== undefined ? ` topicCoverage=${item.topicCoverage}` : '';
-          const source = item.textSource ? ` textSource=${item.textSource}` : '';
-          return `[${index + 1}] id=${item.id} time=${item.eventTime.toISOString()}${mode}${roles}${coverage}${source}\n${item.text}`;
-        })
-        .join('\n\n');
-      try {
-        answer = await this.ai.generate(
-          [
-            'Answer using only the cited Botmem memories.',
-            'Do not attribute a topic to a person unless the same citation has a hard_filter match, or it has matched person roles plus non-zero topicCoverage.',
-            'If the citations are only fallback or weak related matches, say that no exact person-specific match was found and summarize the weaker evidence.',
-            'Never merge facts across different people or senders unless a citation explicitly connects them.',
-            '',
-            `Question: ${query}`,
-            '',
-            'Citations:',
-            citationLines,
-          ].join('\n'),
-        );
-      } catch (err) {
-        this.logger.warn(`Ask generation failed, returning citations only: ${err}`);
-        answer =
-          'I found matching memories, but answer generation is unavailable. Use the returned citations.';
-      }
-    }
+    const synthesis = await this.synthesizeAsk(
+      query,
+      citations,
+      userId,
+      memoryBankId,
+      memoryBankIds,
+    );
 
     return {
-      answer,
+      answer: synthesis.answer,
       conversationId: conversationId || randomUUID(),
-      citations,
+      citations: synthesis.citations,
+      relatedDocuments: synthesis.relatedDocuments,
     };
+  }
+
+  async synthesizeAsk(
+    query: string,
+    citations: SearchResult[],
+    userId?: string,
+    memoryBankId?: string,
+    memoryBankIds?: string[],
+  ): Promise<{
+    answer: string;
+    citations: StructuredAskCitation[];
+    relatedDocuments: RelatedDocument[];
+  }> {
+    if (citations.length) {
+      const peopleMap = await this.getPeopleForMemories(citations.map((c) => c.id));
+      for (const item of citations) item.people = peopleMap.get(item.id) || [];
+    }
+
+    const candidates = citations.length
+      ? await this.getRelatedDocumentCandidates(citations, userId, memoryBankId, memoryBankIds)
+      : [];
+    const relatedDocuments = collectRelatedDocuments(citations, [...citations, ...candidates]);
+    return synthesizeAskAnswer({
+      query,
+      citations,
+      relatedDocuments,
+      generate: (prompt) => this.ai.generate(prompt),
+      onError: (err) =>
+        this.logger.warn(`Ask generation failed, returning citations only: ${err}`),
+    });
+  }
+
+  private async getRelatedDocumentCandidates(
+    citations: SearchResult[],
+    userId?: string,
+    memoryBankId?: string,
+    memoryBankIds?: string[],
+  ): Promise<SearchResult[]> {
+    const conversationIds = [
+      ...new Set(citations.flatMap((item) => conversationIdsFor(item).map((c) => c.id))),
+    ];
+    if (!conversationIds.length) return [];
+
+    const resolvedKey = await this.resolveUserKey(userId);
+    const userAccountIds = await this.getUserAccountIds(userId);
+    if (userAccountIds !== null && userAccountIds.length === 0) return [];
+
+    const citationIds = citations.map((item) => item.id);
+    const threadConditions = conversationIds.map(
+      (id) => sql`${memorySearchIndex.threadIds} @> ${JSON.stringify([id])}::jsonb`,
+    );
+    const conditions: SQLWrapper[] = [
+      or(...threadConditions)!,
+      sql`${memorySearchIndex.memoryId} NOT IN (${sql.join(
+        citationIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})`,
+    ];
+    if (userId) conditions.push(eq(memorySearchIndex.userId, userId));
+    if (userAccountIds?.length) {
+      conditions.push(inArray(memorySearchIndex.accountId, userAccountIds));
+    }
+    if (memoryBankId) conditions.push(eq(memorySearchIndex.memoryBankId, memoryBankId));
+    else if (memoryBankIds?.length) {
+      conditions.push(inArray(memorySearchIndex.memoryBankId, memoryBankIds));
+    }
+
+    const searchRows = await this.dbService.withCurrentUser((db) =>
+      db
+        .select({ id: memorySearchIndex.memoryId })
+        .from(memorySearchIndex)
+        .where(and(...conditions))
+        .orderBy(desc(memorySearchIndex.eventTime))
+        .limit(300),
+    );
+    const ids = searchRows.map((row) => row.id);
+    if (!ids.length) return [];
+
+    const rowsById = await this.fetchMemoryRowsBatch(ids);
+    const peopleMap = await this.getPeopleForMemories(ids);
+    return ids
+      .map((id) => {
+        const row = rowsById.get(id);
+        if (!row) return null;
+        const result = this.toSearchResult(
+          row,
+          0,
+          {
+            semantic: 0,
+            recency: 0,
+            importance: 0,
+            trust: 0,
+            final: 0,
+          },
+          userId,
+          resolvedKey,
+        );
+        result.people = peopleMap.get(result.id) || [];
+        return result;
+      })
+      .filter((item): item is SearchResult => !!item)
+      .filter((item) => !this.isLockedMemory(item));
   }
 
   private async fetchMemoryRow(id: string) {
