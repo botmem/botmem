@@ -9,9 +9,12 @@ publish = false
 [lib]
 name = "botmem_engine"
 # staticlib → linked into the Swift app (the FDA-granted process).
-# cdylib    → handy for standalone testing / future tooling.
-# rlib      → lets integration tests and benches link the crate directly.
-crate-type = ["staticlib", "cdylib", "rlib"]
+# rlib      → lets integration tests, examples, and benches link the crate.
+# NB: deliberately NO `cdylib`. If a `.dylib` exists next to the `.a`, the
+# system linker prefers it over the static archive — producing an app that
+# dynamically loads an absolute build-path dylib (fails code-signing and is
+# absent on any other Mac). Static-only guarantees the engine is baked in.
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

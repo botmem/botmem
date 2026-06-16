@@ -131,6 +131,16 @@ const engineStaticLib = join(engineLibDir, 'libbotmem_engine.a');
 if (!existsSync(engineStaticLib)) {
   throw new Error(`Build error: engine static lib missing at ${engineStaticLib}`);
 }
+// Defensively remove any stale cdylib left by an older build: the linker prefers
+// a `.dylib` over the `.a` for `-lbotmem_engine`, which would dynamically link an
+// absolute build-path dylib (fails code-signing, absent on other Macs). We link
+// the archive by explicit path below regardless, but this keeps the dir clean.
+for (const dylib of [
+  join(engineLibDir, 'libbotmem_engine.dylib'),
+  join(engineLibDir, 'deps', 'libbotmem_engine.dylib'),
+]) {
+  if (existsSync(dylib)) rmSync(dylib, { force: true });
+}
 const engineHeader = join(engineDir, 'include', 'botmem_engine.h');
 
 const logoMark128 = join(generatedAssetsDir, 'logo-mark-128.png');
@@ -180,9 +190,9 @@ run('swiftc', [
   engineHeader,
   '-framework',
   'AppKit',
-  '-L',
-  engineLibDir,
-  '-lbotmem_engine',
+  // Link the static archive by explicit path (NOT -L/-lbotmem_engine) so the
+  // linker statically pulls the engine in and can never prefer a stray dylib.
+  engineStaticLib,
   '-lresolv',
   '-framework',
   'CoreFoundation',
