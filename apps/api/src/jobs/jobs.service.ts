@@ -220,10 +220,16 @@ export class JobsService implements OnApplicationBootstrap {
       if (!accountId) continue;
 
       const [acct] = await this.dbService.systemDb((db) =>
-        db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        db
+          .select({ id: accounts.id, connectorType: accounts.connectorType })
+          .from(accounts)
+          .where(eq(accounts.id, accountId))
+          .limit(1),
       );
 
-      if (!acct) {
+      // Remove the repeatable when the account is gone OR is a live-bridge connector
+      // (apple/imessage never sync, so a leftover schedule is phantom churn).
+      if (!acct || acct.connectorType === 'apple' || acct.connectorType === 'imessage') {
         await this.syncQueue.removeRepeatableByKey(rj.key);
         removed++;
       }

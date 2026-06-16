@@ -370,7 +370,8 @@ describe('ConnectorSetupModal', () => {
     const command = screen.getByText(/npx @botmem\/apple-bridge@latest/).textContent || '';
     expect(command).toContain("--token='token-1'");
     expect(command).toContain("--server='wss://api.botmem.xyz/apple-tunnel'");
-    expect(command).toContain("--account-id='acct-1'");
+    // The CLI resolves its account from the token; --account-id is not a valid flag.
+    expect(command).not.toContain('--account-id');
     // The LaunchAgent service path is no longer suggested from the UI.
     expect(command).not.toContain('service start');
     expect(command).not.toContain('configure');

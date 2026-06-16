@@ -13,6 +13,7 @@ import { AppleMessagesDatabase } from './db.js';
 import { RpcHandler } from './rpc-handler.js';
 import { TunnelClient } from './tunnel.js';
 import { LocalIndex } from './local-index/local-index.js';
+import { whatsapp as whatsappSource } from './local-index/sources/whatsapp.js';
 import { BridgeStatus, type StatusSource } from './status-writer.js';
 import {
   defaultConfigPath,
@@ -200,8 +201,14 @@ program
       status.pushActivity(`Connecting to ${serverHost}`);
 
       // Advertise the new local-search capability alongside the existing sources
-      // string without breaking the legacy contacts/imessages list.
-      const advertisedSources = sourceList ? `${sourceList},search` : 'search';
+      // string. WhatsApp is auto-detected (indexed whenever its DB is present), so
+      // advertise it when found even though it isn't a user-selected source.
+      const baseList = sourceList || 'contacts,imessages';
+      const withWhatsApp =
+        whatsappSource.detect() && !baseList.includes('whatsapp')
+          ? `${baseList},whatsapp`
+          : baseList;
+      const advertisedSources = `${withWhatsApp},search`;
 
       const tunnel = new TunnelClient({
         serverUrl: server,

@@ -163,6 +163,42 @@ describe('AppleTunnelService', () => {
     );
   });
 
+  it('marks the account connected (clears stale status + cancels leftover jobs) on bridge connect', async () => {
+    const dbPool = makeMockConnectionPool(async () => ({ rows: [] }));
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const crypto = {
+      decrypt: vi.fn((v: string | null) => (v ? v.replace('enc:', '') : v)),
+      encrypt: vi.fn((v: string | null) => (v ? `enc:${v}` : v)),
+    };
+    const service = new AppleTunnelService(
+      { queryRaw, connectionPool: dbPool } as never,
+      crypto as never,
+      { add: vi.fn() } as never,
+      undefined,
+    );
+    vi.spyOn(service as never, 'findAccountByToken').mockResolvedValue({
+      id: 'acct-1',
+      userId: 'user-1',
+      authContext:
+        'enc:{"raw":{"bridgeToken":"t","selectedSources":{"contacts":true,"imessages":true}}}',
+      decryptedAuthContext:
+        'enc:{"raw":{"bridgeToken":"t","selectedSources":{"contacts":true,"imessages":true}}}',
+    });
+    const ws = { send: vi.fn() } as unknown as WebSocket;
+
+    await service.registerBridge('bridge-token', ws, clientPublicKeyBase64, 'contacts,imessages');
+
+    // Clears stale reconnect_required/degraded status + last_error.
+    expect(queryRaw).toHaveBeenCalledWith(expect.stringContaining("status = 'connected'"), [
+      'acct-1',
+    ]);
+    // Cancels any leftover queued/running sync jobs for the account.
+    expect(queryRaw).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE jobs SET status = 'cancelled'[\s\S]*account_id = \$1/),
+      ['acct-1'],
+    );
+  });
+
   it('preserves bridge token under concurrent auth_context updates in account lock path', async () => {
     let updatedAuthContext: string | null = null;
     const dbPool = makeMockConnectionPool(async (sql, params) => {

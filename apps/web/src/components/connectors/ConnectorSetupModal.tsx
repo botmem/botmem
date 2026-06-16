@@ -491,7 +491,7 @@ function PhoneCodeAuthView({
 
 type BridgeStep = 'download' | 'connect' | 'status';
 
-const BRIDGE_SOURCES = 'contacts,imessages';
+const BRIDGE_SOURCES = 'contacts,imessages,whatsapp';
 
 function buildBridgeDeepLink(opts: { server: string; token: string; accountId: string }): string {
   const link = new URL('botmem-apple-bridge://connect');
@@ -505,9 +505,11 @@ function buildBridgeDeepLink(opts: { server: string; token: string; accountId: s
 // Foreground (headless) bridge command — the terminal alternative to the Mac
 // app. Running in the foreground reuses the terminal's Full Disk Access; the
 // `service start` LaunchAgent path would lose FDA now that the signed app is
-// the canonical supervisor. Values are single-quoted to stay shell-safe.
-function buildBridgeCommand(opts: { server: string; token: string; accountId: string }): string {
-  return `npx @botmem/apple-bridge@latest --token='${opts.token}' --server='${opts.server}' --account-id='${opts.accountId}'`;
+// the canonical supervisor. Only --token + --server: the bridge resolves its
+// account from the token, and the CLI does not accept --account-id. Values are
+// single-quoted to stay shell-safe.
+function buildBridgeCommand(opts: { server: string; token: string }): string {
+  return `npx @botmem/apple-bridge@latest --token='${opts.token}' --server='${opts.server}'`;
 }
 
 function BridgeAuthView({
@@ -535,7 +537,7 @@ function BridgeAuthView({
   const [accountId, setAccountId] = useState<string | null>(editAccountId || null);
   const [bridgeStatus, setBridgeStatus] = useState<{
     connected: boolean;
-    sources: { contacts: boolean; imessages: boolean } | null;
+    sources: { contacts: boolean; imessages: boolean; whatsapp?: boolean } | null;
   }>({ connected: false, sources: null });
   const [copied, setCopied] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -591,7 +593,7 @@ function BridgeAuthView({
 
         setAccountId(acctId);
         setBridgeDeepLink(deepLink);
-        setBridgeCommand(buildBridgeCommand({ server, token, accountId: acctId }));
+        setBridgeCommand(buildBridgeCommand({ server, token }));
         setStep('status');
 
         // Hand off to the bridge app, then wait for it to phone home.
@@ -737,6 +739,11 @@ function BridgeAuthView({
               {bridgeStatus.sources.imessages && (
                 <span className="border-3 border-nb-lime bg-nb-lime/10 px-2 py-1 font-mono text-[10px] uppercase text-nb-lime">
                   Messages
+                </span>
+              )}
+              {bridgeStatus.sources.whatsapp && (
+                <span className="border-3 border-nb-lime bg-nb-lime/10 px-2 py-1 font-mono text-[10px] uppercase text-nb-lime">
+                  WhatsApp
                 </span>
               )}
             </div>

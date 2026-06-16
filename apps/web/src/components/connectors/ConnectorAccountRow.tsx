@@ -14,7 +14,7 @@ const BRIDGE_STATUS_POLL_MS = 10_000;
 
 interface BridgeLiveStatus {
   connected: boolean;
-  sources: { contacts: boolean; imessages: boolean } | null;
+  sources: { contacts: boolean; imessages: boolean; whatsapp?: boolean } | null;
 }
 
 /**
@@ -179,15 +179,20 @@ export function ConnectorAccountRow({
                   {bridgeOnline ? 'ONLINE' : 'OFFLINE'}
                 </span>{' '}
                 • {account.memoriesIngested} memories
-                {bridgeSources && (bridgeSources.imessages || bridgeSources.contacts) && (
-                  <>
-                    {' '}
-                    •{' '}
-                    {[bridgeSources.imessages && 'iMessages', bridgeSources.contacts && 'Contacts']
-                      .filter(Boolean)
-                      .join(', ')}
-                  </>
-                )}
+                {bridgeSources &&
+                  (bridgeSources.imessages || bridgeSources.contacts || bridgeSources.whatsapp) && (
+                    <>
+                      {' '}
+                      •{' '}
+                      {[
+                        bridgeSources.imessages && 'iMessages',
+                        bridgeSources.whatsapp && 'WhatsApp',
+                        bridgeSources.contacts && 'Contacts',
+                      ]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </>
+                  )}
               </p>
             ) : (
               <p className="font-mono text-xs text-nb-muted">

@@ -67,6 +67,12 @@ interface PendingRelayRpc {
 export interface AppleBridgeSources {
   contacts: boolean;
   imessages: boolean;
+  /**
+   * WhatsApp is AUTO-detected by the bridge (indexed whenever present), not a
+   * user-selected source — so it is reported/displayed but intentionally excluded
+   * from the selection-mismatch guard below.
+   */
+  whatsapp?: boolean;
 }
 
 export interface AppleTunnelSession {
@@ -253,6 +259,9 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     this.startHeartbeat(session);
 
     this.logger.log(`Bridge connected: account=${account.id}, session=${sessionId}`);
+    // Clear any stale reconnect_required/degraded status from a previous disconnect
+    // and stop scheduled-sync churn — the bridge is live now (live-search only).
+    await this.markAccountConnected(account.id);
     this.emitStatus(account.id, true);
 
     return {
@@ -596,9 +605,7 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
    * `bridge.status` RPC. Returns null if offline or on RPC error.
    * Expected result shape: { sources: Array<{ source, count, lastIndexedAt }> }.
    */
-  async bridgeStatusForUser(
-    userId: string,
-  ): Promise<{
+  async bridgeStatusForUser(userId: string): Promise<{
     sources: Array<{ source: string; count: number; lastIndexedAt: string | null }>;
   } | null> {
     const accountId = this.getOnlineAccountIdForUser(userId);
@@ -710,6 +717,7 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     return {
       contacts: parts.length === 0 || parts.includes('contacts'),
       imessages: parts.length === 0 || parts.includes('imessages') || parts.includes('messages'),
+      whatsapp: parts.includes('whatsapp'),
     };
   }
 
@@ -836,6 +844,35 @@ export class AppleTunnelService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.warn(
         `Failed to persist Apple bridge disconnect for ${accountId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Mark an Apple account live when its bridge connects: clear any stale
+   * reconnect_required/degraded status + last_error from a prior disconnect, and
+   * cancel any leftover non-terminal sync jobs (Apple is live-bridge only, so a
+   * queued/running sync is stale churn that otherwise shows "reconnect required").
+   */
+  private async markAccountConnected(accountId: string): Promise<void> {
+    try {
+      await this.dbService.queryRaw(
+        `UPDATE accounts SET status = 'connected', last_error = NULL
+         WHERE id = $1 AND (status <> 'connected' OR last_error IS NOT NULL)`,
+        [accountId],
+      );
+      await this.dbService.queryRaw(
+        `UPDATE jobs SET status = 'cancelled',
+           error = 'Superseded by live bridge (Apple is live-search only)',
+           completed_at = now()
+         WHERE account_id = $1 AND status IN ('queued', 'running')`,
+        [accountId],
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to mark Apple account ${accountId} connected: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
