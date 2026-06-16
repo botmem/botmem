@@ -100,11 +100,18 @@ index.sqlite`. Verified by a wire roundtrip test (encrypt→dispatch→decrypt).
     (`pdf-extract`, `zip`+`quick-xml`), realpath-confined to the container
     (path-traversal rejected), size/char caps, best-effort. Incremental refresh
     (vs the current full rebuild on start) remains a later optimization.
-- **Phase 5 — parity harness**: old Node vs new Rust on the same fixtures; golden
-  queries.
-- **Phase 6 — replace runtime**: remove bundled `node` + `dist/cli.js` + node
-  supervisor/preflight; migrate config/status paths without breaking onboarding.
-- **Phase 7 — release**: ad-hoc beta → (Developer ID when available).
+- **Phase 5 — parity harness** (deferred): the readers were ported faithfully
+  from the node sources with fixture tests, and the true parity check is the live
+  install e2e (Phase 7). A side-by-side node-vs-Rust golden-query harness can be
+  added if a regression surfaces.
+- **Phase 6 — replace runtime** ✅: the Swift app now links the Rust engine
+  in-process (C ABI) instead of spawning a node child; bundled `node` +
+  `dist/cli.js` + `node_modules` removed; entitlements trimmed; status/config
+  paths unchanged so onboarding still works. `build:mac-app` produces a clean
+  `botmem.dmg` (no node in the bundle).
+- **Phase 7 — release** ← current: ad-hoc beta DMG builds in CI
+  (`apple-bridge-release.yml`). Remaining: cut a release so the DMG publishes,
+  then the live install e2e (grant FDA, connect, search). Developer ID later.
 
 ## Ranked risks (de-risk first)
 
