@@ -29,12 +29,12 @@
     "eslint": "^10.5.0",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
-    "lint-staged": "^17.0.5",
+    "lint-staged": "^17.0.8",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.8.4",
     "turbo": "^2.9.16",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.60.1",
+    "typescript-eslint": "^8.61.1",
     "vitest": "catalog:"
   },
   "lint-staged": {

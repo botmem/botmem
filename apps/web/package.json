@@ -17,12 +17,12 @@
   "dependencies": {
     "@botmem/shared": "workspace:*",
     "driver.js": "^1.4.0",
-    "firebase": "^12.14.0",
-    "posthog-js": "^1.382.0",
+    "firebase": "^12.15.0",
+    "posthog-js": "^1.391.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-force-graph-2d": "^1.29.1",
-    "react-router-dom": "^7.17.0",
+    "react-router-dom": "^7.18.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

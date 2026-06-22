@@ -12,6 +12,6 @@
     "vue": "^3.5.35"
   },
   "dependencies": {
-    "posthog-js": "^1.382.0"
+    "posthog-js": "^1.391.2"
   }
 }
