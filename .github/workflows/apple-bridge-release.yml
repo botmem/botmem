@@ -46,7 +46,7 @@ jobs:
             dmg: botmem-arm64.dmg
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
         with:
