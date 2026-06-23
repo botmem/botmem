@@ -20,7 +20,7 @@
 
 services:
   botmem-api:
-    image: ghcr.io/botmem/botmem-api:latest
+    image: ghcr.io/botmem/botmem:api-latest
     container_name: botmem-api
     restart: unless-stopped
     extra_hosts:

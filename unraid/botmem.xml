@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container version="2">
     <Name>botmem</Name>
-    <Repository>ghcr.io/botmem/botmem-app:latest</Repository>
-    <Registry>https://github.com/botmem/botmem/pkgs/container/botmem-app</Registry>
+    <Repository>ghcr.io/botmem/botmem:app-latest</Repository>
+    <Registry>https://github.com/botmem/botmem/pkgs/container/botmem</Registry>
     <Network>bridge</Network>
     <Shell>sh</Shell>
     <Privileged>false</Privileged>

@@ -8,7 +8,7 @@ https://form.asana.com/?k=qtIUrf5ydiXvXzPI57BiJw&d=714739274360802
 
 - Test install on `nasty`: completed
 - Test install cleanup on `nasty`: completed
-- Container image exists: `ghcr.io/botmem/botmem-app:latest`
+- Container image exists: `ghcr.io/botmem/botmem:app-latest`
 - Supported image platforms: `linux/amd64`, `linux/arm64`
 - License: `AGPL-3.0`
 - Support thread: https://forums.unraid.net/topic/198623-support-botmem-personal-memory-rag-system/
@@ -83,7 +83,7 @@ The template includes both:
 Botmem is a beta self-hosted personal memory/RAG system. It requires the companion stack in unraid/docker-compose.unraid.yml, which runs PostgreSQL, Redis, and the Botmem API. The Community Applications template runs the Botmem app frontend.
 
 The container image is:
-ghcr.io/botmem/botmem-app:latest
+ghcr.io/botmem/botmem:app-latest
 
 The app icon is:
 https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem-icon.png
@@ -102,13 +102,13 @@ Botmem
 Repository:
 
 ```text
-ghcr.io/botmem/botmem-app:latest
+ghcr.io/botmem/botmem:app-latest
 ```
 
 Registry:
 
 ```text
-https://github.com/botmem/botmem/pkgs/container/botmem-app
+https://github.com/botmem/botmem/pkgs/container/botmem
 ```
 
 Project URL:

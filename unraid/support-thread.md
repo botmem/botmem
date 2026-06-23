@@ -3,7 +3,7 @@
 Botmem is a self-hosted personal memory/RAG system. It ingests events from multiple data sources, normalizes them into memories and people, and provides cross-modal search and retrieval over your own data.
 
 - Project: https://github.com/botmem/botmem
-- Container image: `ghcr.io/botmem/botmem-app:latest`
+- Container image: `ghcr.io/botmem/botmem:app-latest`
 - Template: https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem.xml
 - Icon: https://raw.githubusercontent.com/botmem/botmem/main/unraid/botmem-icon.png
 - Unraid docs: https://github.com/botmem/botmem/tree/main/unraid

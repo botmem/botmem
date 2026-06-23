@@ -26,6 +26,8 @@ docker compose up -d    # Starts all services
 
 This pulls and starts everything: the Botmem API, Botmem app, PostgreSQL + pgvector, and Redis. The WebUI is at `http://localhost:12412`.
 
+The published Docker images use the single GHCR package `ghcr.io/botmem/botmem` with surface-prefixed tags: `api-latest` for the API and `app-latest` for the web app.
+
 ::: warning Clean start
 If you've previously built a local image (`docker compose build`), Docker may use the cached local image instead of the published one. Always run `docker compose pull` first to get the latest release.
 :::
