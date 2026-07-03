@@ -1,0 +1,4 @@
+module BotmemEngine {
+    header "../../include/botmem_engine.h"
+    export *
+}

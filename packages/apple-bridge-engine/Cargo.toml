@@ -1,0 +1,57 @@
+[package]
+name = "botmem-apple-bridge-engine"
+version = "0.1.0"
+edition = "2021"
+description = "In-process Rust engine for the Botmem Apple Bridge (FDA-held reader, encrypted tunnel, local FTS index)."
+license = "MIT"
+publish = false
+
+[lib]
+name = "botmem_engine"
+# staticlib → linked into the Swift app (the FDA-granted process).
+# cdylib    → handy for standalone testing / future tooling.
+# rlib      → lets integration tests and benches link the crate directly.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+once_cell = "1"
+thiserror = "1"
+libc = "0.2"
+
+# Phase 2 — tunnel: WebSocket + the exact crypto suite from PROTOCOL.md §4.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+getrandom = "0.2"
+base64 = "0.22"
+# rustls 0.23 needs an explicit crypto provider; pick `ring` (no C toolchain,
+# unlike aws-lc-rs). Installed once at engine start.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+
+# Phase 3 — local FTS5 index. `bundled` compiles SQLite with FTS5 + bm25().
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Phase 4b — attachment text extraction.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.36"
+pdf-extract = "0.7"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+# NOTE: keep the default "unwind" panic strategy. The FFI entry points
+# (src/ffi.rs) wrap their bodies in catch_unwind so a Rust panic never crosses
+# the C boundary into the Swift host (which would be UB). "abort" would break
+# that guard.
