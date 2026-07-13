@@ -458,7 +458,7 @@ INSERT INTO botmem.hosted_document_revision (
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8::timestamptz,
   $9, $10, $11, $12, $13::boolean, $14, $15::jsonb, $16::text[],
-  $17::jsonb, $18, $19, $20, $21::public.vector(768), $22::timestamptz
+  $17::jsonb, $18, $19, $20, $21::public.halfvec(768), $22::timestamptz
 )
 ON CONFLICT (revision_id) DO NOTHING
 RETURNING content_hash, projection_hash

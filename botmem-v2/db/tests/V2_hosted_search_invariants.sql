@@ -82,7 +82,7 @@ INSERT INTO botmem.hosted_document_revision (
     '[{"durableId":"email:owner@example.com","displayName":"Owner Name","identifiers":[{"kind":"email","value":"owner@example.com"}]}]'::jsonb,
     ARRAY['email:owner@example.com'],
     '[]'::jsonb, repeat('a', 64), repeat('b', 64), 'hosted-multilingual-v1',
-    array_fill(0.01::real, ARRAY[768])::public.vector(768),
+    array_fill(0.01::real, ARRAY[768])::public.halfvec(768),
     '2026-07-13T10:00:00Z'
 );
 INSERT INTO botmem.hosted_document_head (
@@ -142,7 +142,7 @@ BEGIN
       JOIN pg_catalog.pg_opclass opc ON opc.oid = idx.indclass[0]
       JOIN pg_catalog.pg_am am ON am.oid = index_class.relam
      WHERE index_class.oid = 'botmem.hosted_document_revision_embedding_hnsw'::regclass;
-    IF operator_class <> 'vector_cosine_ops' OR access_method <> 'hnsw' THEN
+    IF operator_class <> 'halfvec_cosine_ops' OR access_method <> 'hnsw' THEN
         RAISE EXCEPTION 'semantic index has wrong access method or operator class';
     END IF;
 
@@ -167,7 +167,7 @@ BEGIN
             '21000000-0000-4000-8000-000000000001',
             'gmail', 'invalid-dimension', 'history:11', 'email', '', 'test://invalid',
             '[]'::jsonb, '{}'::text[], '[]'::jsonb, repeat('c', 64), repeat('d', 64),
-            'hosted-multilingual-v1', '[1,2,3]'::public.vector,
+            'hosted-multilingual-v1', '[1,2,3]'::public.halfvec,
             '2026-07-13T10:00:00Z'
         );
         RAISE EXCEPTION 'invalid embedding dimensions unexpectedly succeeded';

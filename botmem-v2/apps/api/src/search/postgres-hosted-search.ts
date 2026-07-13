@@ -124,6 +124,13 @@ export class PostgresHostedSearch implements HostedSearchPort {
         text: "SELECT set_config('pg_trgm.word_similarity_threshold', '0.3', true)",
         signal: context.signal,
       });
+      // Production PostgreSQL runs on SSD-backed Vultr storage. The default
+      // HDD-era cost makes RLS-scoped GIN probes look more expensive than
+      // repeatedly scanning every hosted row for lexical and typo misses.
+      await client.query({
+        text: "SELECT set_config('random_page_cost', '1.1', true)",
+        signal: context.signal,
+      });
       if (embedding) {
         try {
           await this.assertProfileReady(client, embedding, context.signal);
@@ -382,12 +389,13 @@ trigram AS (
                     d.revision_id
          ) AS lane_rank
     FROM eligible d
-   -- Typo recovery is a fill lane, not a second exact-search pass. When the
-   -- indexed full-text lane already filled its bounded candidate budget,
-   -- scoring every weak trigram match only duplicates those candidates and
-   -- makes common queries scale with corpus size. PostgreSQL evaluates this
-   -- as a one-time guard, so the trigram scan is skipped in that case.
+   -- Typo recovery is a single-token fill lane, not a second exact-search pass.
+   -- Multi-token fuzziness is already covered by the semantic lane; avoiding a
+   -- redundant trigram pass matters under RLS because pg_trgm operators are not
+   -- leakproof and therefore cannot be pushed ahead of tenant policy checks.
+   -- The provider-outage SQL below retains multi-token typo recovery.
    WHERE (SELECT count(*) FROM lexical) < $12::integer
+     AND strpos(btrim(botmem.normalize_search_text($2::text)), ' ') = 0
      AND (
        botmem.normalize_search_text($2::text) <% d.search_text
        OR d.search_text LIKE
@@ -399,14 +407,14 @@ trigram AS (
             d.revision_id
    LIMIT $12::integer
 ),
--- Materialize a bounded ANN shortlist before validating active heads. pgvector
--- applies joins after approximate graph traversal; putting the head join inside
--- the ANN scan can change graph recall and hide an exact nearest neighbour.
--- The 10x shortlist tolerates bounded revision history without scanning the
--- corpus or persisting any query state.
+-- Materialize a bounded exact shortlist before validating active heads. The
+-- explicit + 0 prevents PostgreSQL from substituting the approximate HNSW order:
+-- this lane promises not to hide an exact semantic nearest neighbour. halfvec
+-- keeps the deterministic 100k scan inside the hosted latency budget while the
+-- 10x shortlist tolerates bounded revision history.
 semantic_ann AS MATERIALIZED (
   SELECT d.revision_id,
-         d.embedding <=> $3::public.vector(768) AS semantic_distance
+         d.embedding <=> $3::public.halfvec(768) AS semantic_distance
     FROM botmem.hosted_document_revision d
    WHERE d.tenant_id = $1::uuid
      AND ($5::text[] IS NULL OR d.connector = ANY($5::text[]))
@@ -419,7 +427,7 @@ semantic_ann AS MATERIALIZED (
      AND d.embedding_profile_id = 'hosted-multilingual-v1'
      AND $4::text = 'hosted-multilingual-v1'
      AND d.embedding IS NOT NULL
-   ORDER BY d.embedding <=> $3::public.vector(768),
+   ORDER BY (d.embedding <=> $3::public.halfvec(768)) + 0.0,
             d.occurred_at DESC NULLS LAST,
             d.revision_id
    LIMIT LEAST(1000, $12::integer * 10)

@@ -48,11 +48,11 @@ is open.
 - PostgreSQL hosted projection/search, immutable active heads, multilingual
   lexical/trigram/semantic lanes, evidence-backed readiness, repair scan, and
   fresh PostgreSQL 17/pgvector invariants. A clean PostgreSQL 17 run with all
-  V1--V16 migrations and 100,000 hosted documents measured p50 119.482 ms,
-  p95 240.802 ms, and p99 256.068 ms in the mixed
+  V1--V16 migrations and 100,000 hosted documents measured p50 67.154 ms,
+  p95 167.316 ms, and p99 172.950 ms in the mixed
   semantic/lexical/Arabic/typo workload. Embedding-outage fallback measured
-  p50 24.193 ms, p95 119.158 ms, and p99 129.015 ms. Both paths remain below
-  the 500 ms release gate.
+  p50 43.016 ms, p95 159.542 ms, and p99 165.880 ms. Both paths remain below
+  the 500 ms release gate while preserving exact semantic-neighbour recall.
 - Production PostgreSQL connector-ingestion unit of work exercised through the
   least-privilege worker role: sync lease, revision, head, content-free outbox,
   cursor, and aggregate state commit atomically.

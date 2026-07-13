@@ -93,7 +93,7 @@ CREATE TABLE botmem.hosted_document_revision (
     content_hash               text        NOT NULL,
     projection_hash            text        NOT NULL,
     embedding_profile_id       text,
-    embedding                  public.vector(768),
+    embedding                  public.halfvec(768),
     projected_at               timestamptz NOT NULL,
     search_text                text GENERATED ALWAYS AS (
         botmem.normalize_search_text(
@@ -195,7 +195,7 @@ CREATE INDEX hosted_document_revision_lexical_gin
 CREATE INDEX hosted_document_revision_trigram_gin
     ON botmem.hosted_document_revision USING gin (search_text public.gin_trgm_ops);
 CREATE INDEX hosted_document_revision_embedding_hnsw
-    ON botmem.hosted_document_revision USING hnsw (embedding public.vector_cosine_ops)
+    ON botmem.hosted_document_revision USING hnsw (embedding public.halfvec_cosine_ops)
     WITH (m = 16, ef_construction = 64)
     WHERE embedding_profile_id = 'hosted-multilingual-v1';
 CREATE INDEX hosted_document_revision_tenant_filter_idx
@@ -293,8 +293,8 @@ BEGIN
       JOIN pg_catalog.pg_am am ON am.oid = index_class.relam
      WHERE index_class.oid = 'botmem.hosted_document_revision_embedding_hnsw'::regclass;
 
-    IF operator_class IS DISTINCT FROM 'vector_cosine_ops' OR access_method IS DISTINCT FROM 'hnsw' THEN
-        RAISE EXCEPTION 'hosted semantic index contract is %, expected hnsw/vector_cosine_ops',
+    IF operator_class IS DISTINCT FROM 'halfvec_cosine_ops' OR access_method IS DISTINCT FROM 'hnsw' THEN
+        RAISE EXCEPTION 'hosted semantic index contract is %, expected hnsw/halfvec_cosine_ops',
             concat_ws('/', access_method, operator_class);
     END IF;
 END

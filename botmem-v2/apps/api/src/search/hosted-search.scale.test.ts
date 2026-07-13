@@ -85,10 +85,15 @@ describe.skipIf(!ENABLED)('hosted search 100k release benchmark', () => {
     }
 
     const samplesMs: number[] = [];
+    const samplesByQuery = new Map<string, number[]>();
     for (const query of workload) {
       const started = performance.now();
       const result = await runSearch(search, query);
-      samplesMs.push(performance.now() - started);
+      const elapsedMs = performance.now() - started;
+      samplesMs.push(elapsedMs);
+      const querySamples = samplesByQuery.get(query) ?? [];
+      querySamples.push(elapsedMs);
+      samplesByQuery.set(query, querySamples);
       expect(result.length).toBeGreaterThan(0);
     }
     samplesMs.sort((left, right) => left - right);
@@ -99,6 +104,20 @@ describe.skipIf(!ENABLED)('hosted search 100k release benchmark', () => {
       p95Ms: percentile(samplesMs, 95),
       p99Ms: percentile(samplesMs, 99),
       maxMs: samplesMs.at(-1) ?? 0,
+      byQuery: Object.fromEntries(
+        [...samplesByQuery.entries()].map(([query, values]) => {
+          values.sort((left, right) => left - right);
+          return [
+            query,
+            {
+              samples: values.length,
+              p50Ms: percentile(values, 50),
+              p95Ms: percentile(values, 95),
+              maxMs: Number((values.at(-1) ?? 0).toFixed(3)),
+            },
+          ];
+        }),
+      ),
     };
     process.stderr.write(`BOTMEM_HOSTED_SEARCH_BENCHMARK ${JSON.stringify(evidence)}\n`);
     expect(evidence.p95Ms).toBeLessThanOrEqual(500);
@@ -195,7 +214,7 @@ async function seedCorpus(admin: Pool): Promise<void> {
     `SELECT (SELECT count(*)::text FROM botmem.hosted_document_revision) AS documents,
             (SELECT model_revision FROM botmem.embedding_profile
               WHERE id = 'hosted-multilingual-v1') AS model_revision,
-            (SELECT embedding <=> ('[1,' || repeat('0,', 766) || '0]')::public.vector
+            (SELECT embedding <=> ('[1,' || repeat('0,', 766) || '0]')::public.halfvec
                FROM botmem.hosted_document_revision
               WHERE source_event_id = 'message:000002') AS semantic_distance`,
   );
@@ -260,7 +279,7 @@ async function seedCorpus(admin: Pool): Promise<void> {
               '[]'::jsonb, repeat('b', 64), repeat('c', 64),
               'hosted-multilingual-v1',
               CASE WHEN item = 2
-                THEN ('[1,' || repeat('0,', 766) || '0]')::public.vector
+                THEN ('[1,' || repeat('0,', 766) || '0]')::public.halfvec
                 ELSE (
                   '[' || array_to_string(
                     ARRAY[
@@ -271,7 +290,7 @@ async function seedCorpus(admin: Pool): Promise<void> {
                     ] || array_fill(0.0::double precision, ARRAY[760]),
                     ','
                   ) || ']'
-                )::public.vector
+                )::public.halfvec
               END,
               timestamptz '2026-01-02T00:00:00Z'
          FROM generate_series(1, $3::integer) AS item`,

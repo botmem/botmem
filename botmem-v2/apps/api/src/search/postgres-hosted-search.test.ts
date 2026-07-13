@@ -117,10 +117,16 @@ describe('PostgresHostedSearch', () => {
     ]);
     expect(search?.text).not.toContain('release planning');
     expect(search?.text).toContain('(SELECT count(*) FROM lexical) < $12::integer');
+    expect(search?.text).toContain("strpos(btrim(botmem.normalize_search_text($2::text)), ' ') = 0");
     expect(client.queries).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining("set_config('hnsw.ef_search'"),
         values: ['500'],
+      }),
+    );
+    expect(client.queries).toContainEqual(
+      expect.objectContaining({
+        text: expect.stringContaining("set_config('random_page_cost', '1.1'"),
       }),
     );
     expect(
@@ -207,6 +213,9 @@ describe('PostgresHostedSearch', () => {
     expect(client.queries.some((query) => query.text.includes('hnsw.ef_search'))).toBe(false);
     const search = client.queries.find((query) => query.text.includes('WITH eligible'));
     expect(search?.text).toContain('(SELECT count(*) FROM lexical) < $10::integer');
+    expect(search?.text).not.toContain(
+      "strpos(btrim(botmem.normalize_search_text($2::text)), ' ') = 0",
+    );
   });
 
   it('search_whenAlreadyAborted_doesNotEmbedOrConnect', async () => {
