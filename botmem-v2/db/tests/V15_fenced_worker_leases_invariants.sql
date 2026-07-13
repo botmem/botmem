@@ -27,7 +27,8 @@ INSERT INTO botmem.workspace_billing_cancellation_request (
  '2026-07-13T10:01:00Z');
 
 -- Reuse the same process ID after expiration. Only the fresh UUID may pass the
--- final destructive predicate or complete the erase.
+-- final destructive predicate or complete the erase. The deliberately
+-- backdated completion timestamp must not substitute for trusted database time.
 SET LOCAL ROLE botmem_lifecycle;
 SELECT * FROM botmem.claim_workspace_lifecycle_job(
     'same.lifecycle', 'f1530000-0000-4000-8000-000000000001',
@@ -132,7 +133,9 @@ SELECT * FROM botmem.claim_stripe_webhook(
     '2026-07-13T10:00:00Z', '2026-07-13T10:01:00Z', 12
 );
 SET LOCAL ROLE botmem_schema_owner;
-UPDATE botmem.stripe_webhook_event SET lease_expires_at = '2026-07-13T10:00:59Z'
+UPDATE botmem.stripe_webhook_event
+   SET claimed_at = clock_timestamp() - interval '2 seconds',
+       lease_expires_at = clock_timestamp() - interval '1 second'
  WHERE id = 'evt_fencedlease123456';
 SET LOCAL ROLE botmem_commerce;
 SELECT set_config('botmem.stripe_event_id', 'evt_fencedlease123456', true);
@@ -158,5 +161,66 @@ BEGIN
     END IF;
 END
 $webhook_token_fenced$;
+
+-- A caller clock in the future cannot reclaim an active database lease. Only
+-- the requested lease duration is accepted from the caller; lease expiry and
+-- reclamation come from PostgreSQL's clock.
+SET LOCAL ROLE botmem_schema_owner;
+INSERT INTO botmem.stripe_webhook_event (
+    id, event_type, event_created_at, object_id, supported, state, attempts,
+    received_at, available_at, worker_id, claimed_at, lease_token, lease_expires_at
+) VALUES ('evt_futurecaller123456', 'invoice.paid', clock_timestamp(),
+          'sub_FutureCaller123', true, 'processing', 1,
+          clock_timestamp(), clock_timestamp(), 'current.webhook', clock_timestamp(),
+          'f1550000-0000-4000-8000-000000000004',
+          clock_timestamp() + interval '1 day');
+SET LOCAL ROLE botmem_commerce;
+SELECT set_config('botmem.stripe_event_id', 'evt_futurecaller123456', true);
+DO $future_caller_clock_ignored$
+DECLARE claimed_count integer;
+BEGIN
+    SELECT count(*) INTO claimed_count
+      FROM botmem.claim_stripe_webhook(
+          'future.webhook', 'f1550000-0000-4000-8000-000000000003',
+          clock_timestamp() + interval '1 year',
+          clock_timestamp() + interval '1 year 1 minute', 12
+    );
+    IF claimed_count <> 0 THEN
+        RAISE EXCEPTION 'future caller clock reclaimed active webhook lease';
+    END IF;
+END
+$future_caller_clock_ignored$;
+
+-- The external destruction gate must retain the same exclusive runtime-role
+-- boundary as the underlying database deletion function.
+SET LOCAL ROLE botmem_lifecycle;
+SELECT * FROM botmem.claim_workspace_lifecycle_job(
+    'exclusive.lifecycle', 'f1530000-0000-4000-8000-000000000003',
+    '2026-07-13T10:03:00Z', '2026-07-13T10:08:00Z'
+);
+RESET ROLE;
+CREATE ROLE botmem_v15_mixed_runtime NOLOGIN NOINHERIT
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT botmem_lifecycle, botmem_api TO botmem_v15_mixed_runtime;
+SET SESSION AUTHORIZATION botmem_v15_mixed_runtime;
+DO $mixed_runtime_destruction_rejected$
+DECLARE rejected boolean := false;
+BEGIN
+    BEGIN
+        PERFORM botmem.authorize_workspace_destruction(
+            'f1510000-0000-4000-8000-000000000002', 'exclusive.lifecycle',
+            'f1530000-0000-4000-8000-000000000003',
+            clock_timestamp() - interval '1 year',
+            clock_timestamp() - interval '1 year' + interval '5 minutes'
+        );
+    EXCEPTION WHEN insufficient_privilege THEN
+        rejected := true;
+    END;
+    IF NOT rejected THEN
+        RAISE EXCEPTION 'mixed API/lifecycle login authorized workspace destruction';
+    END IF;
+END
+$mixed_runtime_destruction_rejected$;
+RESET SESSION AUTHORIZATION;
 
 ROLLBACK;

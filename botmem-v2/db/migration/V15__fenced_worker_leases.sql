@@ -14,29 +14,35 @@ ALTER TABLE botmem.workspace_billing_cancellation_request ADD COLUMN lease_token
 -- fenced recovery instead of allowing a legacy static owner to settle it.
 UPDATE botmem.transactional_outbox
    SET state = 'pending', lease_owner = NULL, lease_expires_at = NULL,
+       attempts = GREATEST(0, attempts - 1),
        next_attempt_at = LEAST(next_attempt_at, statement_timestamp())
  WHERE state = 'processing';
 UPDATE botmem.projection_state
    SET state = 'pending', lease_owner = NULL, lease_expires_at = NULL,
+       attempts = GREATEST(0, attempts - 1),
        output_hash = NULL, last_error_code = NULL, applied_at = NULL,
        updated_at = statement_timestamp()
  WHERE state = 'processing';
 UPDATE botmem.stripe_webhook_event
    SET state = 'pending', worker_id = NULL, claimed_at = NULL,
+       attempts = GREATEST(0, attempts - 1),
        lease_expires_at = NULL, available_at = LEAST(available_at, statement_timestamp()),
        processed_at = NULL, failure_code = NULL
  WHERE state = 'processing';
 UPDATE botmem.workspace_lifecycle_job
    SET state = 'retry', available_at = statement_timestamp(),
+       attempts = GREATEST(0, attempts - 1),
        lease_owner = NULL, lease_expires_at = NULL,
        failure_code = 'LEASE_MIGRATED'
  WHERE state = 'running';
 UPDATE botmem.workspace_device_deletion_notice
    SET state = 'pending', available_at = LEAST(available_at, statement_timestamp()),
+       attempts = GREATEST(0, attempts - 1),
        lease_owner = NULL, lease_expires_at = NULL
  WHERE state = 'delivering';
 UPDATE botmem.workspace_billing_cancellation_request
    SET state = 'pending', available_at = LEAST(available_at, statement_timestamp()),
+       attempts = GREATEST(0, attempts - 1),
        lease_owner = NULL, lease_expires_at = NULL, failure_code = NULL
  WHERE state = 'processing';
 
@@ -77,37 +83,43 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = botmem, pg_catalog
 AS $claim_webhook_fenced$
+DECLARE
+    lease_duration interval := p_lease_expires_at - p_claimed_at;
+    trusted_now timestamptz;
 BEGIN
     IF NOT pg_has_role(session_user, 'botmem_commerce', 'SET') OR
        p_worker_id !~ '^[A-Za-z0-9._:-]{1,128}$' OR
+       p_lease_token IS NULL OR
        p_max_attempts NOT BETWEEN 1 AND 100 OR
-       p_lease_expires_at <= p_claimed_at THEN
+       lease_duration IS NULL OR lease_duration <= interval '0 seconds' OR
+       lease_duration > interval '5 minutes' THEN
         RAISE EXCEPTION 'commerce reconciler claim rejected' USING ERRCODE = '42501';
     END IF;
 
     UPDATE botmem.stripe_webhook_event event
        SET state = 'dead_letter', worker_id = NULL, claimed_at = NULL,
-           lease_token = NULL, lease_expires_at = NULL, processed_at = p_claimed_at,
+           lease_token = NULL, lease_expires_at = NULL, processed_at = clock_timestamp(),
            failure_code = 'LEASE_ATTEMPTS_EXHAUSTED'
      WHERE event.state = 'processing'
-       AND event.lease_expires_at <= p_claimed_at
+       AND event.lease_expires_at <= clock_timestamp()
        AND event.attempts >= p_max_attempts;
 
+    trusted_now := clock_timestamp();
     RETURN QUERY
     WITH candidate AS (
         SELECT queued.id
           FROM botmem.stripe_webhook_event queued
          WHERE (
              (queued.state = 'pending' AND queued.available_at <= p_claimed_at) OR
-             (queued.state = 'processing' AND queued.lease_expires_at <= p_claimed_at)
+             (queued.state = 'processing' AND queued.lease_expires_at <= trusted_now)
          ) AND queued.attempts < p_max_attempts
          ORDER BY queued.available_at, queued.received_at, queued.id
          FOR UPDATE SKIP LOCKED LIMIT 1
     )
     UPDATE botmem.stripe_webhook_event queued
        SET state = 'processing', attempts = queued.attempts + 1,
-           worker_id = p_worker_id, claimed_at = p_claimed_at,
-           lease_token = p_lease_token, lease_expires_at = p_lease_expires_at,
+           worker_id = p_worker_id, claimed_at = trusted_now,
+           lease_token = p_lease_token, lease_expires_at = trusted_now + lease_duration,
            processed_at = NULL, failure_code = NULL
       FROM candidate
      WHERE queued.id = candidate.id
@@ -132,11 +144,15 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = botmem, pg_catalog
 AS $claim_lifecycle_job_fenced$
+DECLARE
+    lease_duration interval := p_lease_expires_at - p_claimed_at;
+    trusted_now timestamptz;
 BEGIN
     IF NOT pg_has_role(session_user, 'botmem_lifecycle', 'SET') OR
        p_worker_id !~ '^[A-Za-z0-9._:-]{1,128}$' OR
-       p_lease_expires_at <= p_claimed_at OR
-       p_lease_expires_at > p_claimed_at + interval '15 minutes' THEN
+       p_lease_token IS NULL OR
+       lease_duration IS NULL OR lease_duration <= interval '0 seconds' OR
+       lease_duration > interval '15 minutes' THEN
         RAISE EXCEPTION 'lifecycle claim rejected' USING ERRCODE = '42501';
     END IF;
 
@@ -146,7 +162,7 @@ BEGIN
            lease_token = NULL, lease_expires_at = NULL,
            failure_code = 'BILLING_CANCELLATION_PENDING'
      WHERE job.kind = 'deletion' AND job.state = 'running'
-       AND job.lease_expires_at <= p_claimed_at
+       AND job.lease_expires_at <= clock_timestamp()
        AND NOT EXISTS (
            SELECT 1 FROM botmem.workspace_billing_cancellation_request cancellation
             WHERE cancellation.job_id = job.id
@@ -156,9 +172,10 @@ BEGIN
     UPDATE botmem.workspace_lifecycle_job job
        SET state = 'dead', lease_owner = NULL, lease_token = NULL,
            lease_expires_at = NULL, failure_code = 'LEASE_ATTEMPTS_EXHAUSTED'
-     WHERE job.state = 'running' AND job.lease_expires_at <= p_claimed_at
+     WHERE job.state = 'running' AND job.lease_expires_at <= clock_timestamp()
        AND job.attempts >= job.max_attempts;
 
+    trusted_now := clock_timestamp();
     RETURN QUERY
     WITH candidate AS (
         SELECT candidate_job.id
@@ -167,7 +184,7 @@ BEGIN
              (candidate_job.state IN ('queued', 'retry') AND
               candidate_job.available_at <= p_claimed_at) OR
              (candidate_job.state = 'running' AND
-              candidate_job.lease_expires_at <= p_claimed_at)
+              candidate_job.lease_expires_at <= trusted_now)
          ) AND candidate_job.attempts < candidate_job.max_attempts
            AND (
                candidate_job.kind <> 'deletion' OR EXISTS (
@@ -182,7 +199,7 @@ BEGIN
     UPDATE botmem.workspace_lifecycle_job claimed
        SET state = 'running', attempts = claimed.attempts + 1,
            lease_owner = p_worker_id, lease_token = p_lease_token,
-           lease_expires_at = p_lease_expires_at, failure_code = NULL
+           lease_expires_at = trusted_now + lease_duration, failure_code = NULL
       FROM candidate
      WHERE claimed.id = candidate.id
     RETURNING claimed.id, claimed.tenant_id, claimed.workspace_id,
@@ -205,26 +222,31 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = botmem, pg_catalog
 AS $claim_deletion_notice_fenced$
+DECLARE
+    lease_duration interval := p_lease_expires_at - p_claimed_at;
+    trusted_now timestamptz;
 BEGIN
     IF NOT pg_has_role(session_user, 'botmem_api', 'SET') OR
        p_relay_id !~ '^[A-Za-z0-9._:-]{1,128}$' OR
-       p_lease_expires_at <= p_claimed_at OR
-       p_lease_expires_at > p_claimed_at + interval '2 minutes' THEN
+       p_lease_token IS NULL OR
+       lease_duration IS NULL OR lease_duration <= interval '0 seconds' OR
+       lease_duration > interval '2 minutes' THEN
         RAISE EXCEPTION 'device deletion relay claim rejected' USING ERRCODE = '42501';
     END IF;
     UPDATE botmem.workspace_device_deletion_notice notice
        SET state = 'unreachable', lease_owner = NULL, lease_token = NULL,
-           lease_expires_at = NULL, attempted_at = p_claimed_at
-     WHERE notice.state = 'delivering' AND notice.lease_expires_at <= p_claimed_at
+           lease_expires_at = NULL, attempted_at = clock_timestamp()
+     WHERE notice.state = 'delivering' AND notice.lease_expires_at <= clock_timestamp()
        AND notice.attempts >= 5;
 
+    trusted_now := clock_timestamp();
     RETURN QUERY
     WITH candidate AS (
         SELECT pending.job_id, pending.device_id
           FROM botmem.workspace_device_deletion_notice pending
          WHERE (
              (pending.state = 'pending' AND pending.available_at <= p_claimed_at) OR
-             (pending.state = 'delivering' AND pending.lease_expires_at <= p_claimed_at)
+             (pending.state = 'delivering' AND pending.lease_expires_at <= trusted_now)
          ) AND pending.attempts < 5
          ORDER BY pending.available_at, pending.job_id, pending.device_id
          FOR UPDATE SKIP LOCKED LIMIT 1
@@ -232,7 +254,7 @@ BEGIN
     UPDATE botmem.workspace_device_deletion_notice claimed
        SET state = 'delivering', attempts = claimed.attempts + 1,
            lease_owner = p_relay_id, lease_token = p_lease_token,
-           lease_expires_at = p_lease_expires_at
+           lease_expires_at = trusted_now + lease_duration
       FROM candidate
      WHERE claimed.job_id = candidate.job_id AND claimed.device_id = candidate.device_id
     RETURNING claimed.job_id, claimed.tenant_id, claimed.workspace_id,
@@ -255,21 +277,26 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = botmem, pg_catalog
 AS $claim_billing_cancel_fenced$
+DECLARE
+    lease_duration interval := p_lease_expires_at - p_claimed_at;
+    trusted_now timestamptz;
 BEGIN
     IF NOT pg_has_role(session_user, 'botmem_commerce', 'SET') OR
        p_worker_id !~ '^[A-Za-z0-9._:-]{1,128}$' OR
+       p_lease_token IS NULL OR
        p_max_attempts NOT BETWEEN 1 AND 20 OR
-       p_lease_expires_at <= p_claimed_at OR
-       p_lease_expires_at > p_claimed_at + interval '5 minutes' THEN
+       lease_duration IS NULL OR lease_duration <= interval '0 seconds' OR
+       lease_duration > interval '5 minutes' THEN
         RAISE EXCEPTION 'billing cancellation claim rejected' USING ERRCODE = '42501';
     END IF;
+    trusted_now := clock_timestamp();
     RETURN QUERY
     WITH candidate AS (
         SELECT pending.job_id
           FROM botmem.workspace_billing_cancellation_request pending
          WHERE (
              (pending.state = 'pending' AND pending.available_at <= p_claimed_at) OR
-             (pending.state = 'processing' AND pending.lease_expires_at <= p_claimed_at)
+             (pending.state = 'processing' AND pending.lease_expires_at <= trusted_now)
          ) AND pending.stripe_subscription_id IS NOT NULL
          ORDER BY pending.available_at, pending.job_id
          FOR UPDATE SKIP LOCKED LIMIT 1
@@ -279,7 +306,7 @@ BEGIN
            attempts = CASE WHEN claimed.attempts >= p_max_attempts
                            THEN claimed.attempts ELSE claimed.attempts + 1 END,
            lease_owner = p_worker_id, lease_token = p_lease_token,
-           lease_expires_at = p_lease_expires_at, failure_code = NULL
+           lease_expires_at = trusted_now + lease_duration, failure_code = NULL
       FROM candidate
      WHERE claimed.job_id = candidate.job_id
     RETURNING claimed.job_id, claimed.tenant_id, claimed.workspace_id,
@@ -295,13 +322,21 @@ CREATE FUNCTION botmem.renew_workspace_lifecycle_lease(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
+DECLARE
+    lease_duration interval := p_lease_expires_at - p_now;
+    trusted_now timestamptz;
 BEGIN
+    IF lease_duration IS NULL OR lease_duration <= interval '0 seconds' OR
+       lease_duration > interval '15 minutes' THEN
+        RETURN false;
+    END IF;
     PERFORM 1 FROM botmem.workspace_lifecycle_job
      WHERE id = p_job_id AND state = 'running' AND lease_owner = p_worker_id
-       AND lease_token = p_lease_token AND lease_expires_at > p_now FOR UPDATE;
+       AND lease_token = p_lease_token AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
+    trusted_now := clock_timestamp();
     RETURN botmem.renew_workspace_lifecycle_lease(
-        p_job_id, p_worker_id, p_now, p_lease_expires_at
+        p_job_id, p_worker_id, trusted_now, trusted_now + lease_duration
     );
 END
 $fenced$;
@@ -317,14 +352,17 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
+DECLARE trusted_now timestamptz;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job job
      WHERE job.id = p_job_id AND job.kind = 'export' AND job.state = 'running'
        AND job.lease_owner = p_worker_id AND job.lease_token = p_lease_token
-       AND job.lease_expires_at > p_now FOR UPDATE;
+       AND job.lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'lifecycle export lease is not active' USING ERRCODE = '55000'; END IF;
+    trusted_now := clock_timestamp();
     RETURN QUERY SELECT * FROM botmem.read_workspace_export_page(
-        p_job_id, p_worker_id, p_now, p_after_account_id, p_after_source_event_id, p_page_size
+        p_job_id, p_worker_id, trusted_now,
+        p_after_account_id, p_after_source_event_id, p_page_size
     );
 END
 $fenced$;
@@ -335,13 +373,17 @@ CREATE FUNCTION botmem.workspace_deletion_blockers(
 RETURNS TABLE (pending_notices integer, billing_state text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
+DECLARE trusted_now timestamptz;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job
      WHERE id = p_job_id AND kind = 'deletion' AND state = 'running'
        AND lease_owner = p_worker_id AND lease_token = p_lease_token
-       AND lease_expires_at > p_now FOR UPDATE;
+       AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'lifecycle deletion blocker read rejected' USING ERRCODE = '42501'; END IF;
-    RETURN QUERY SELECT * FROM botmem.workspace_deletion_blockers(p_job_id, p_worker_id, p_now);
+    trusted_now := clock_timestamp();
+    RETURN QUERY SELECT * FROM botmem.workspace_deletion_blockers(
+        p_job_id, p_worker_id, trusted_now
+    );
 END
 $fenced$;
 
@@ -351,14 +393,17 @@ CREATE FUNCTION botmem.defer_workspace_deletion(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed boolean;
+DECLARE
+    changed boolean;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job
      WHERE id = p_job_id AND kind = 'deletion' AND state = 'running'
        AND lease_owner = p_worker_id AND lease_token = p_lease_token
-       AND lease_expires_at > p_now FOR UPDATE;
+       AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
-    changed := botmem.defer_workspace_deletion(p_job_id, p_worker_id, p_now, p_retry_at, p_reason);
+    changed := botmem.defer_workspace_deletion(
+        p_job_id, p_worker_id, p_now, p_retry_at, p_reason
+    );
     IF changed THEN UPDATE botmem.workspace_lifecycle_job SET lease_token = NULL WHERE id = p_job_id; END IF;
     RETURN changed;
 END
@@ -370,13 +415,17 @@ CREATE FUNCTION botmem.list_workspace_deletion_artifacts(
 RETURNS TABLE (job_id uuid, artifact_key text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
+DECLARE trusted_now timestamptz;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job
      WHERE id = p_job_id AND kind = 'deletion' AND state = 'running'
        AND lease_owner = p_worker_id AND lease_token = p_lease_token
-       AND lease_expires_at > p_now FOR UPDATE;
+       AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'lifecycle deletion lease was lost' USING ERRCODE = '55000'; END IF;
-    RETURN QUERY SELECT * FROM botmem.list_workspace_deletion_artifacts(p_job_id, p_worker_id, p_now);
+    trusted_now := clock_timestamp();
+    RETURN QUERY SELECT * FROM botmem.list_workspace_deletion_artifacts(
+        p_job_id, p_worker_id, trusted_now
+    );
 END
 $fenced$;
 
@@ -386,12 +435,13 @@ CREATE FUNCTION botmem.complete_workspace_export(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed boolean;
+DECLARE
+    changed boolean;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job
      WHERE id = p_job_id AND kind = 'export' AND state = 'running'
        AND lease_owner = p_worker_id AND lease_token = p_lease_token
-       AND lease_expires_at > p_completed_at FOR UPDATE;
+       AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
     changed := botmem.complete_workspace_export(
         p_job_id, p_worker_id, p_completed_at, p_artifact_key, p_artifact_expires_at
@@ -407,17 +457,38 @@ CREATE FUNCTION botmem.authorize_workspace_destruction(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $authorize_destruction$
+DECLARE
+    lease_duration interval := p_lease_expires_at - p_now;
+    trusted_now timestamptz;
 BEGIN
-    IF NOT pg_has_role(session_user, 'botmem_lifecycle', 'SET') OR
-       p_lease_expires_at <= p_now OR
-       p_lease_expires_at > p_now + interval '15 minutes' THEN
+    IF NOT pg_has_role(session_user, 'botmem_lifecycle', 'SET') OR EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles runtime_login
+         WHERE runtime_login.rolname = session_user
+           AND NOT runtime_login.rolsuper
+           AND (
+               pg_has_role(session_user, 'botmem_api', 'SET') OR
+               pg_has_role(session_user, 'botmem_commerce', 'SET')
+           )
+    ) OR lease_duration IS NULL OR lease_duration <= interval '0 seconds' OR
+       lease_duration > interval '15 minutes' THEN
         RAISE EXCEPTION 'workspace destruction authorization rejected' USING ERRCODE = '42501';
     END IF;
-    UPDATE botmem.workspace_lifecycle_job job
-       SET lease_expires_at = p_lease_expires_at
+    PERFORM 1 FROM botmem.workspace_lifecycle_job job
      WHERE job.id = p_job_id AND job.kind = 'deletion' AND job.state = 'running'
        AND job.lease_owner = p_worker_id AND job.lease_token = p_lease_token
-       AND job.lease_expires_at > p_now
+       AND job.lease_expires_at > clock_timestamp()
+       AND EXISTS (
+           SELECT 1 FROM botmem.workspace_billing_cancellation_request cancellation
+            WHERE cancellation.job_id = job.id
+              AND cancellation.state IN ('confirmed', 'not_required')
+       ) FOR UPDATE;
+    IF NOT FOUND THEN RETURN false; END IF;
+    trusted_now := clock_timestamp();
+    UPDATE botmem.workspace_lifecycle_job job
+       SET lease_expires_at = trusted_now + lease_duration
+     WHERE job.id = p_job_id AND job.kind = 'deletion' AND job.state = 'running'
+       AND job.lease_owner = p_worker_id AND job.lease_token = p_lease_token
+       AND job.lease_expires_at > trusted_now
        AND EXISTS (
            SELECT 1 FROM botmem.workspace_billing_cancellation_request cancellation
             WHERE cancellation.job_id = job.id
@@ -432,12 +503,13 @@ CREATE FUNCTION botmem.complete_workspace_deletion(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed boolean;
+DECLARE
+    changed boolean;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job job
      WHERE job.id = p_job_id AND job.kind = 'deletion' AND job.state = 'running'
        AND job.lease_owner = p_worker_id AND job.lease_token = p_lease_token
-       AND job.lease_expires_at > p_completed_at
+       AND job.lease_expires_at > clock_timestamp()
        AND EXISTS (
            SELECT 1 FROM botmem.workspace_billing_cancellation_request cancellation
             WHERE cancellation.job_id = job.id
@@ -456,11 +528,12 @@ CREATE FUNCTION botmem.fail_workspace_lifecycle_job(
 )
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed text;
+DECLARE
+    changed text;
 BEGIN
     PERFORM 1 FROM botmem.workspace_lifecycle_job
      WHERE id = p_job_id AND state = 'running' AND lease_owner = p_worker_id
-       AND lease_token = p_lease_token AND lease_expires_at > p_failed_at FOR UPDATE;
+       AND lease_token = p_lease_token AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN NULL; END IF;
     changed := botmem.fail_workspace_lifecycle_job(
         p_job_id, p_worker_id, p_failed_at, p_retry_at, p_failure_code
@@ -476,12 +549,13 @@ CREATE FUNCTION botmem.finish_workspace_device_deletion_notice(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed boolean;
+DECLARE
+    changed boolean;
 BEGIN
     PERFORM 1 FROM botmem.workspace_device_deletion_notice
      WHERE job_id = p_job_id AND device_id = p_device_id AND state = 'delivering'
        AND lease_owner = p_relay_id AND lease_token = p_lease_token
-       AND lease_expires_at > p_attempted_at FOR UPDATE;
+       AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
     changed := botmem.finish_workspace_device_deletion_notice(
         p_job_id, p_device_id, p_relay_id, p_state, p_attempted_at
@@ -498,12 +572,13 @@ CREATE FUNCTION botmem.fail_workspace_device_deletion_notice(
 )
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed text;
+DECLARE
+    changed text;
 BEGIN
     PERFORM 1 FROM botmem.workspace_device_deletion_notice
      WHERE job_id = p_job_id AND device_id = p_device_id AND state = 'delivering'
        AND lease_owner = p_relay_id AND lease_token = p_lease_token
-       AND lease_expires_at > p_failed_at FOR UPDATE;
+       AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN NULL; END IF;
     changed := botmem.fail_workspace_device_deletion_notice(
         p_job_id, p_device_id, p_relay_id, p_failed_at, p_retry_at
@@ -520,11 +595,12 @@ CREATE FUNCTION botmem.confirm_workspace_billing_cancellation(
 )
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed boolean;
+DECLARE
+    changed boolean;
 BEGIN
     PERFORM 1 FROM botmem.workspace_billing_cancellation_request
      WHERE job_id = p_job_id AND state = 'processing' AND lease_owner = p_worker_id
-       AND lease_token = p_lease_token AND lease_expires_at > p_confirmed_at FOR UPDATE;
+       AND lease_token = p_lease_token AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
     changed := botmem.confirm_workspace_billing_cancellation(
         p_job_id, p_worker_id, p_confirmed_at, p_observed_stripe_status
@@ -541,14 +617,16 @@ CREATE FUNCTION botmem.fail_workspace_billing_cancellation(
 )
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = botmem, pg_catalog
 AS $fenced$
-DECLARE changed text;
+DECLARE
+    changed text;
 BEGIN
     PERFORM 1 FROM botmem.workspace_billing_cancellation_request
      WHERE job_id = p_job_id AND state = 'processing' AND lease_owner = p_worker_id
-       AND lease_token = p_lease_token AND lease_expires_at > p_failed_at FOR UPDATE;
+       AND lease_token = p_lease_token AND lease_expires_at > clock_timestamp() FOR UPDATE;
     IF NOT FOUND THEN RETURN NULL; END IF;
     changed := botmem.fail_workspace_billing_cancellation(
-        p_job_id, p_worker_id, p_failed_at, p_retry_at, p_max_attempts, p_failure_code
+        p_job_id, p_worker_id, p_failed_at, p_retry_at,
+        p_max_attempts, p_failure_code
     );
     IF changed IS NOT NULL THEN UPDATE botmem.workspace_billing_cancellation_request SET lease_token = NULL
                               WHERE job_id = p_job_id; END IF;
