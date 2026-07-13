@@ -105,5 +105,14 @@ describe('PostgresHostedProjectionStore', () => {
     );
     expect(insert?.values?.[15]).toEqual(['email:owner@example.com']);
     expect(insert?.values?.[15]).not.toContain('Owner Name');
+    const claim = client.queries.find((query) =>
+      query.text.includes('INSERT INTO botmem.projection_state'),
+    );
+    const settlement = client.queries.find((query) =>
+      query.text.includes('UPDATE botmem.projection_state'),
+    );
+    expect(claim?.values?.[5]).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(settlement?.values?.[5]).toBe(claim?.values?.[5]);
+    expect(settlement?.text).toContain('lease_token = $6::uuid');
   });
 });

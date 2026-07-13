@@ -7,6 +7,7 @@ interface ClaimedRow {
   readonly account_id: string;
   readonly revision_id: string;
   readonly attempts: number;
+  readonly lease_token: string;
   readonly lease_expires_at: Date | string;
 }
 
@@ -48,6 +49,7 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
             accountId: row.account_id,
             revisionId: row.revision_id,
             attempt: Number(row.attempts),
+            leaseToken: row.lease_token,
             leaseExpiresAt: iso(row.lease_expires_at),
           }),
         ),
@@ -58,6 +60,7 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
   async complete(input: {
     readonly messageId: string;
     readonly owner: string;
+    readonly leaseToken: string;
     readonly publishedAt: string;
     readonly signal: AbortSignal;
   }): Promise<void> {
@@ -66,10 +69,13 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
       const result = await client.query({
         text: `UPDATE botmem.transactional_outbox
                   SET state = 'published', lease_owner = NULL,
-                      lease_expires_at = NULL, published_at = $3::timestamptz,
-                      next_attempt_at = $3::timestamptz
-                WHERE id = $1::uuid AND state = 'processing' AND lease_owner = $2`,
-        values: [input.messageId, input.owner, input.publishedAt],
+                      lease_token = NULL, lease_expires_at = NULL,
+                      published_at = $4::timestamptz,
+                      next_attempt_at = $4::timestamptz
+                WHERE id = $1::uuid AND state = 'processing'
+                  AND lease_owner = $2 AND lease_token = $3::uuid
+                  AND lease_expires_at > $4::timestamptz`,
+        values: [input.messageId, input.owner, input.leaseToken, input.publishedAt],
         signal: input.signal,
       });
       if (result.rowCount !== 1) throw new OutboxSettlementConflictError();
@@ -79,7 +85,9 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
   async fail(input: {
     readonly messageId: string;
     readonly owner: string;
+    readonly leaseToken: string;
     readonly dead: boolean;
+    readonly failedAt: string;
     readonly nextAttemptAt: string;
     readonly signal: AbortSignal;
   }): Promise<void> {
@@ -87,11 +95,20 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
     await this.transaction(input.signal, async (client) => {
       const result = await client.query({
         text: `UPDATE botmem.transactional_outbox
-                  SET state = CASE WHEN $3::boolean THEN 'dead' ELSE 'pending' END,
-                      lease_owner = NULL, lease_expires_at = NULL,
-                      next_attempt_at = $4::timestamptz, published_at = NULL
-                WHERE id = $1::uuid AND state = 'processing' AND lease_owner = $2`,
-        values: [input.messageId, input.owner, input.dead, input.nextAttemptAt],
+                  SET state = CASE WHEN $5::boolean THEN 'dead' ELSE 'pending' END,
+                      lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+                      next_attempt_at = $6::timestamptz, published_at = NULL
+                WHERE id = $1::uuid AND state = 'processing'
+                  AND lease_owner = $2 AND lease_token = $3::uuid
+                  AND lease_expires_at > $4::timestamptz`,
+        values: [
+          input.messageId,
+          input.owner,
+          input.leaseToken,
+          input.failedAt,
+          input.dead,
+          input.nextAttemptAt,
+        ],
         signal: input.signal,
       });
       if (result.rowCount !== 1) throw new OutboxSettlementConflictError();
@@ -165,12 +182,13 @@ WITH claimable AS (
 UPDATE botmem.transactional_outbox outbox
    SET state = 'processing', attempts = outbox.attempts + 1,
        lease_owner = $1,
+       lease_token = gen_random_uuid(),
        lease_expires_at = statement_timestamp() + ($2::integer * interval '1 millisecond'),
        published_at = NULL
   FROM claimable
  WHERE outbox.id = claimable.id
 RETURNING outbox.id, outbox.tenant_id, outbox.account_id, outbox.revision_id,
-          outbox.attempts, outbox.lease_expires_at
+          outbox.attempts, outbox.lease_token, outbox.lease_expires_at
 `;
 
 function validateOwner(value: string): void {

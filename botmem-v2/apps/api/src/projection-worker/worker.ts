@@ -210,6 +210,7 @@ export class ProjectionOutboxWorker {
       await this.dispatcher.complete({
         messageId: message.messageId,
         owner: this.options.workerId,
+        leaseToken: message.leaseToken,
         publishedAt: new Date(this.clock.nowMs()).toISOString(),
         signal: task.signal,
       });
@@ -248,7 +249,9 @@ export class ProjectionOutboxWorker {
       await this.dispatcher.fail({
         messageId: message.messageId,
         owner: this.options.workerId,
+        leaseToken: message.leaseToken,
         dead,
+        failedAt: new Date(now).toISOString(),
         nextAttemptAt: new Date(now + (dead ? 0 : this.backoffMs(message.attempt))).toISOString(),
         signal: outerSignal,
       });

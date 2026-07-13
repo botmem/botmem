@@ -35,6 +35,7 @@ export interface LifecycleJobClaim {
   readonly requestedByUserId: string;
   readonly kind: LifecycleJobKind;
   readonly attempts: number;
+  readonly leaseToken: string;
 }
 
 export interface HostedExportRecord {

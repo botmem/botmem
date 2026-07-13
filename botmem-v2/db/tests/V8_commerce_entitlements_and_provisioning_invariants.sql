@@ -59,7 +59,8 @@ DO $api_cannot_reconcile$
 BEGIN
     BEGIN
         PERFORM * FROM botmem.claim_stripe_webhook(
-            'forbidden.api', '2026-07-13T12:02:00Z', '2026-07-13T12:03:00Z', 12
+            'forbidden.api', '88000000-0000-4000-8000-000000000001',
+            '2026-07-13T12:02:00Z', '2026-07-13T12:03:00Z', 12
         );
         RAISE EXCEPTION 'API role unexpectedly claimed reconciliation work';
     EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -163,18 +164,21 @@ DO $durable_claim$
 DECLARE claimed integer;
 BEGIN
     SELECT count(*) INTO claimed FROM botmem.claim_stripe_webhook(
-        'commerce.test', '2026-07-13T12:05:02Z', '2026-07-13T12:06:02Z', 12
+        'commerce.test', '88000000-0000-4000-8000-000000000002',
+        '2026-07-13T12:05:02Z', '2026-07-13T12:06:02Z', 12
     );
     IF claimed <> 1 THEN RAISE EXCEPTION 'durable Stripe envelope was not claimed'; END IF;
     SELECT count(*) INTO claimed FROM botmem.claim_stripe_webhook(
-        'commerce.other', '2026-07-13T12:05:03Z', '2026-07-13T12:06:03Z', 12
+        'commerce.other', '88000000-0000-4000-8000-000000000003',
+        '2026-07-13T12:05:03Z', '2026-07-13T12:06:03Z', 12
     );
     IF claimed <> 0 THEN RAISE EXCEPTION 'active webhook lease was concurrently claimable'; END IF;
 END
 $durable_claim$;
 UPDATE botmem.stripe_webhook_event
    SET state = 'processed', worker_id = NULL, claimed_at = NULL,
-       lease_expires_at = NULL, processed_at = '2026-07-13T12:05:04Z'
+       lease_token = NULL, lease_expires_at = NULL,
+       processed_at = '2026-07-13T12:05:04Z'
  WHERE id = 'evt_commerce_webhook123456';
 SELECT botmem.heartbeat_commerce_reconciler(
     'commerce.test', '2026-07-13T12:00:00Z', '2026-07-13T12:05:05Z'

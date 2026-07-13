@@ -1,4 +1,5 @@
 import type { AuthenticatedPrincipal } from '../identity/domain.js';
+import { randomUUID } from 'node:crypto';
 import type { SqlClientPort, SqlPoolPort } from '../search/postgres-ports.js';
 import type {
   ExportPage,
@@ -39,6 +40,7 @@ interface ClaimRow {
   readonly requested_by_user_id: string;
   readonly kind: LifecycleJobKind;
   readonly attempts: number;
+  readonly lease_token: string;
 }
 
 interface ExportRow {
@@ -193,11 +195,12 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
     readonly leaseExpiresAt: string;
   }): Promise<LifecycleJobClaim | null> {
     return transaction(this.pool, 'botmem_lifecycle', async (client) => {
+      const leaseToken = randomUUID();
       const result = await client.query<ClaimRow>({
         text: `SELECT * FROM botmem.claim_workspace_lifecycle_job(
-                 $1, $2::timestamptz, $3::timestamptz
+                 $1, $2::uuid, $3::timestamptz, $4::timestamptz
                )`,
-        values: [input.workerId, input.claimedAt, input.leaseExpiresAt],
+        values: [input.workerId, leaseToken, input.claimedAt, input.leaseExpiresAt],
       });
       const row = result.rows[0];
       return row ? claim(row) : null;
@@ -207,19 +210,21 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
   renewLease(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
     readonly leaseExpiresAt: string;
   }): Promise<boolean> {
     return this.booleanFunction(
       'renew_workspace_lifecycle_lease',
-      [input.jobId, input.workerId, input.now, input.leaseExpiresAt],
-      '$1::uuid, $2, $3::timestamptz, $4::timestamptz',
+      [input.jobId, input.workerId, input.leaseToken, input.now, input.leaseExpiresAt],
+      '$1::uuid, $2, $3::uuid, $4::timestamptz, $5::timestamptz',
     );
   }
 
   async readExportPage(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
     readonly cursor: { readonly accountId: string; readonly sourceEventId: string } | null;
     readonly pageSize: number;
@@ -227,11 +232,12 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
     return transaction(this.pool, 'botmem_lifecycle', async (client) => {
       const result = await client.query<ExportRow>({
         text: `SELECT * FROM botmem.read_workspace_export_page(
-                 $1::uuid, $2, $3::timestamptz, $4::uuid, $5, $6::integer
+                 $1::uuid, $2, $3::uuid, $4::timestamptz, $5::uuid, $6, $7::integer
                )`,
         values: [
           input.jobId,
           input.workerId,
+          input.leaseToken,
           input.now,
           input.cursor?.accountId ?? null,
           input.cursor?.sourceEventId ?? null,
@@ -253,6 +259,7 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
   async deletionBlockers(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
   }): Promise<{
     readonly pendingNotices: number;
@@ -264,9 +271,9 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
         readonly billing_state: 'not_required' | 'pending' | 'processing' | 'confirmed' | 'dead';
       }>({
         text: `SELECT * FROM botmem.workspace_deletion_blockers(
-                 $1::uuid, $2, $3::timestamptz
+                 $1::uuid, $2, $3::uuid, $4::timestamptz
                )`,
-        values: [input.jobId, input.workerId, input.now],
+        values: [input.jobId, input.workerId, input.leaseToken, input.now],
       });
       const row = result.rows[0];
       if (!row) throw new LifecycleJobNotFoundError();
@@ -280,29 +287,31 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
   deferDeletion(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
     readonly retryAt: string;
     readonly reason: 'BILLING_CANCELLATION_PENDING' | 'BILLING_CANCELLATION_DEAD';
   }): Promise<boolean> {
     return this.booleanFunction(
       'defer_workspace_deletion',
-      [input.jobId, input.workerId, input.now, input.retryAt, input.reason],
-      '$1::uuid, $2, $3::timestamptz, $4::timestamptz, $5',
+      [input.jobId, input.workerId, input.leaseToken, input.now, input.retryAt, input.reason],
+      '$1::uuid, $2, $3::uuid, $4::timestamptz, $5::timestamptz, $6',
     );
   }
 
   async listDeletionArtifacts(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
   }): Promise<readonly { readonly jobId: string; readonly artifactKey: string }[]> {
     return transaction(this.pool, 'botmem_lifecycle', async (client) => {
       const result = await client.query<{ readonly job_id: string; readonly artifact_key: string }>(
         {
           text: `SELECT * FROM botmem.list_workspace_deletion_artifacts(
-                 $1::uuid, $2, $3::timestamptz
+                 $1::uuid, $2, $3::uuid, $4::timestamptz
                )`,
-          values: [input.jobId, input.workerId, input.now],
+          values: [input.jobId, input.workerId, input.leaseToken, input.now],
         },
       );
       return result.rows.map((row) => ({ jobId: row.job_id, artifactKey: row.artifact_key }));
@@ -312,32 +321,56 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
   completeExport(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly completedAt: string;
     readonly artifactKey: string;
     readonly artifactExpiresAt: string;
   }): Promise<boolean> {
     return this.booleanFunction(
       'complete_workspace_export',
-      [input.jobId, input.workerId, input.completedAt, input.artifactKey, input.artifactExpiresAt],
-      '$1::uuid, $2, $3::timestamptz, $4, $5::timestamptz',
+      [
+        input.jobId,
+        input.workerId,
+        input.leaseToken,
+        input.completedAt,
+        input.artifactKey,
+        input.artifactExpiresAt,
+      ],
+      '$1::uuid, $2, $3::uuid, $4::timestamptz, $5, $6::timestamptz',
     );
   }
 
   completeDeletion(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly completedAt: string;
   }): Promise<boolean> {
     return this.booleanFunction(
       'complete_workspace_deletion',
-      [input.jobId, input.workerId, input.completedAt],
-      '$1::uuid, $2, $3::timestamptz',
+      [input.jobId, input.workerId, input.leaseToken, input.completedAt],
+      '$1::uuid, $2, $3::uuid, $4::timestamptz',
+    );
+  }
+
+  authorizeWorkspaceDestruction(input: {
+    readonly jobId: string;
+    readonly workerId: string;
+    readonly leaseToken: string;
+    readonly now: string;
+    readonly leaseExpiresAt: string;
+  }): Promise<boolean> {
+    return this.booleanFunction(
+      'authorize_workspace_destruction',
+      [input.jobId, input.workerId, input.leaseToken, input.now, input.leaseExpiresAt],
+      '$1::uuid, $2, $3::uuid, $4::timestamptz, $5::timestamptz',
     );
   }
 
   async fail(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly failedAt: string;
     readonly retryAt: string;
     readonly failureCode: string;
@@ -345,9 +378,16 @@ export class PostgresLifecycleWorkerRepository implements LifecycleWorkerReposit
     return transaction(this.pool, 'botmem_lifecycle', async (client) => {
       const result = await client.query<TextRow>({
         text: `SELECT botmem.fail_workspace_lifecycle_job(
-                 $1::uuid, $2, $3::timestamptz, $4::timestamptz, $5
+                 $1::uuid, $2, $3::uuid, $4::timestamptz, $5::timestamptz, $6
                ) AS value`,
-        values: [input.jobId, input.workerId, input.failedAt, input.retryAt, input.failureCode],
+        values: [
+          input.jobId,
+          input.workerId,
+          input.leaseToken,
+          input.failedAt,
+          input.retryAt,
+          input.failureCode,
+        ],
       });
       const value = result.rows[0]?.value;
       return value === 'retry' || value === 'dead' ? value : null;
@@ -441,17 +481,19 @@ export class PostgresDeviceDeletionNoticeRelayRepository implements DeviceDeleti
     readonly leaseExpiresAt: string;
   }): Promise<DeviceDeletionNoticeClaim | null> {
     return transaction(this.pool, 'botmem_api', async (client) => {
+      const leaseToken = randomUUID();
       const result = await client.query<{
         readonly job_id: string;
         readonly tenant_id: string;
         readonly workspace_id: string;
         readonly device_id: string;
         readonly attempts: number;
+        readonly lease_token: string;
       }>({
         text: `SELECT * FROM botmem.claim_workspace_device_deletion_notice(
-                 $1, $2::timestamptz, $3::timestamptz
+                 $1, $2::uuid, $3::timestamptz, $4::timestamptz
                )`,
-        values: [input.relayId, input.claimedAt, input.leaseExpiresAt],
+        values: [input.relayId, leaseToken, input.claimedAt, input.leaseExpiresAt],
       });
       const row = result.rows[0];
       return row
@@ -461,6 +503,7 @@ export class PostgresDeviceDeletionNoticeRelayRepository implements DeviceDeleti
             workspaceId: row.workspace_id,
             deviceId: row.device_id,
             attempts: Number(row.attempts),
+            leaseToken: row.lease_token,
           }
         : null;
     });
@@ -470,13 +513,21 @@ export class PostgresDeviceDeletionNoticeRelayRepository implements DeviceDeleti
     readonly jobId: string;
     readonly deviceId: string;
     readonly relayId: string;
+    readonly leaseToken: string;
     readonly state: 'delivered' | 'unreachable';
     readonly attemptedAt: string;
   }): Promise<boolean> {
     return this.booleanFunction(
       'finish_workspace_device_deletion_notice',
-      [input.jobId, input.deviceId, input.relayId, input.state, input.attemptedAt],
-      '$1::uuid, $2::uuid, $3, $4, $5::timestamptz',
+      [
+        input.jobId,
+        input.deviceId,
+        input.relayId,
+        input.leaseToken,
+        input.state,
+        input.attemptedAt,
+      ],
+      '$1::uuid, $2::uuid, $3, $4::uuid, $5, $6::timestamptz',
     );
   }
 
@@ -484,15 +535,23 @@ export class PostgresDeviceDeletionNoticeRelayRepository implements DeviceDeleti
     readonly jobId: string;
     readonly deviceId: string;
     readonly relayId: string;
+    readonly leaseToken: string;
     readonly failedAt: string;
     readonly retryAt: string;
   }): Promise<'pending' | 'unreachable' | null> {
     return transaction(this.pool, 'botmem_api', async (client) => {
       const result = await client.query<TextRow>({
         text: `SELECT botmem.fail_workspace_device_deletion_notice(
-                 $1::uuid, $2::uuid, $3, $4::timestamptz, $5::timestamptz
+                 $1::uuid, $2::uuid, $3, $4::uuid, $5::timestamptz, $6::timestamptz
                ) AS value`,
-        values: [input.jobId, input.deviceId, input.relayId, input.failedAt, input.retryAt],
+        values: [
+          input.jobId,
+          input.deviceId,
+          input.relayId,
+          input.leaseToken,
+          input.failedAt,
+          input.retryAt,
+        ],
       });
       const value = result.rows[0]?.value;
       return value === 'pending' || value === 'unreachable' ? value : null;
@@ -528,17 +587,25 @@ export class PostgresBillingCancellationRepository implements BillingCancellatio
     readonly maxAttempts: number;
   }): Promise<BillingCancellationClaim | null> {
     return transaction(this.pool, 'botmem_commerce', async (client) => {
+      const leaseToken = randomUUID();
       const result = await client.query<{
         readonly job_id: string;
         readonly tenant_id: string;
         readonly workspace_id: string;
         readonly stripe_subscription_id: string;
         readonly attempts: number;
+        readonly lease_token: string;
       }>({
         text: `SELECT * FROM botmem.claim_workspace_billing_cancellation(
-                 $1, $2::timestamptz, $3::timestamptz, $4::integer
+                 $1, $2::uuid, $3::timestamptz, $4::timestamptz, $5::integer
                )`,
-        values: [input.workerId, input.claimedAt, input.leaseExpiresAt, input.maxAttempts],
+        values: [
+          input.workerId,
+          leaseToken,
+          input.claimedAt,
+          input.leaseExpiresAt,
+          input.maxAttempts,
+        ],
       });
       const row = result.rows[0];
       return row
@@ -548,6 +615,7 @@ export class PostgresBillingCancellationRepository implements BillingCancellatio
             workspaceId: row.workspace_id,
             stripeSubscriptionId: row.stripe_subscription_id,
             attempts: Number(row.attempts),
+            leaseToken: row.lease_token,
           }
         : null;
     });
@@ -556,19 +624,27 @@ export class PostgresBillingCancellationRepository implements BillingCancellatio
   confirm(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly confirmedAt: string;
     readonly observedStripeStatus: 'canceled';
   }): Promise<boolean> {
     return this.booleanFunction(
       'confirm_workspace_billing_cancellation',
-      [input.jobId, input.workerId, input.confirmedAt, input.observedStripeStatus],
-      '$1::uuid, $2, $3::timestamptz, $4',
+      [
+        input.jobId,
+        input.workerId,
+        input.leaseToken,
+        input.confirmedAt,
+        input.observedStripeStatus,
+      ],
+      '$1::uuid, $2, $3::uuid, $4::timestamptz, $5',
     );
   }
 
   async fail(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly failedAt: string;
     readonly retryAt: string;
     readonly maxAttempts: number;
@@ -577,11 +653,13 @@ export class PostgresBillingCancellationRepository implements BillingCancellatio
     return transaction(this.pool, 'botmem_commerce', async (client) => {
       const result = await client.query<TextRow>({
         text: `SELECT botmem.fail_workspace_billing_cancellation(
-                 $1::uuid, $2, $3::timestamptz, $4::timestamptz, $5::integer, $6
+                 $1::uuid, $2, $3::uuid, $4::timestamptz, $5::timestamptz,
+                 $6::integer, $7
                ) AS value`,
         values: [
           input.jobId,
           input.workerId,
+          input.leaseToken,
           input.failedAt,
           input.retryAt,
           input.maxAttempts,
@@ -672,6 +750,7 @@ function claim(row: ClaimRow): LifecycleJobClaim {
     requestedByUserId: row.requested_by_user_id,
     kind: row.kind,
     attempts: Number(row.attempts),
+    leaseToken: row.lease_token,
   };
 }
 

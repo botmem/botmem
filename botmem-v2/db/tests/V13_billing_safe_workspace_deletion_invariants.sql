@@ -27,7 +27,7 @@ INSERT INTO botmem.workspace (
 INSERT INTO botmem.workspace_lifecycle_job (
     id, tenant_id, workspace_id, requested_by_user_id, kind, state,
     requested_at, available_at, attempts, max_attempts,
-    lease_owner, lease_expires_at
+    lease_owner, lease_token, lease_expires_at
 ) VALUES
 (
     'd1320000-0000-4000-8000-000000000001',
@@ -35,7 +35,8 @@ INSERT INTO botmem.workspace_lifecycle_job (
     'd1310000-0000-4000-8000-000000000001',
     'd1330000-0000-4000-8000-000000000001',
     'deletion', 'running', '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z',
-    1, 5, 'v13.pending', '2026-07-13T10:05:00Z'
+    1, 5, 'v13.pending', 'd1350000-0000-4000-8000-000000000001',
+    '2026-07-13T10:05:00Z'
 ),
 (
     'd1320000-0000-4000-8000-000000000002',
@@ -43,7 +44,7 @@ INSERT INTO botmem.workspace_lifecycle_job (
     'd1310000-0000-4000-8000-000000000002',
     'd1330000-0000-4000-8000-000000000002',
     'deletion', 'queued', '2026-07-13T10:01:00Z', '2026-07-13T10:01:00Z',
-    0, 5, NULL, NULL
+    0, 5, NULL, NULL, NULL
 ),
 (
     'd1320000-0000-4000-8000-000000000003',
@@ -51,7 +52,8 @@ INSERT INTO botmem.workspace_lifecycle_job (
     'd1310000-0000-4000-8000-000000000003',
     'd1330000-0000-4000-8000-000000000003',
     'deletion', 'running', '2026-07-13T09:00:00Z', '2026-07-13T09:00:00Z',
-    5, 5, 'v13.crashed', '2026-07-13T09:59:00Z'
+    5, 5, 'v13.crashed', 'd1350000-0000-4000-8000-000000000003',
+    '2026-07-13T09:59:00Z'
 );
 
 INSERT INTO botmem.workspace_billing_cancellation_request (
@@ -90,14 +92,13 @@ INSERT INTO botmem.workspace_device_deletion_notice (
 SET LOCAL ROLE botmem_lifecycle;
 DO $pending_cannot_erase$
 BEGIN
-    BEGIN
-        PERFORM botmem.complete_workspace_deletion(
+    IF botmem.complete_workspace_deletion(
             'd1320000-0000-4000-8000-000000000001',
-            'v13.pending', '2026-07-13T10:00:01Z'
-        );
+            'v13.pending', 'd1350000-0000-4000-8000-000000000001',
+            '2026-07-13T10:00:01Z'
+        ) THEN
         RAISE EXCEPTION 'workspace erased before billing cancellation settled';
-    EXCEPTION WHEN object_not_in_prerequisite_state THEN NULL;
-    END;
+    END IF;
 END
 $pending_cannot_erase$;
 
@@ -122,7 +123,8 @@ DO $defer_pending_deletion$
 BEGIN
     IF NOT botmem.defer_workspace_deletion(
         'd1320000-0000-4000-8000-000000000001',
-        'v13.pending', '2026-07-13T10:00:02Z',
+        'v13.pending', 'd1350000-0000-4000-8000-000000000001',
+        '2026-07-13T10:00:02Z',
         '2026-07-13T10:00:32Z', 'BILLING_CANCELLATION_PENDING'
     ) THEN
         RAISE EXCEPTION 'blocked lifecycle deletion was not deferred';
@@ -151,7 +153,8 @@ DECLARE
     claimed record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_lifecycle_job(
-        'v13.claim', '2026-07-13T10:00:03Z', '2026-07-13T10:05:03Z'
+        'v13.claim', 'd1350000-0000-4000-8000-000000000004',
+        '2026-07-13T10:00:03Z', '2026-07-13T10:05:03Z'
     );
     IF claimed.job_id IS NOT NULL THEN
         RAISE EXCEPTION 'unsettled deletion was claimable';
@@ -180,7 +183,8 @@ BEGIN
     BEGIN
         PERFORM botmem.defer_workspace_deletion(
             'd1320000-0000-4000-8000-000000000001',
-            'v13.pending', '2026-07-13T10:00:04Z',
+            'v13.pending', 'd1350000-0000-4000-8000-000000000001',
+            '2026-07-13T10:00:04Z',
             '2026-07-13T10:00:34Z', 'BILLING_CANCELLATION_PENDING'
         );
         RAISE EXCEPTION 'commerce crossed into lifecycle deferral authority';
@@ -194,14 +198,16 @@ DECLARE
     claimed record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_billing_cancellation(
-        'v13.commerce', '2026-07-13T10:00:10Z', '2026-07-13T10:01:10Z', 2
+        'v13.commerce', 'd1350000-0000-4000-8000-000000000005',
+        '2026-07-13T10:00:10Z', '2026-07-13T10:01:10Z', 2
     );
     IF claimed.job_id <> 'd1320000-0000-4000-8000-000000000001' OR
        claimed.attempts <> 1 THEN
         RAISE EXCEPTION 'billing cancellation was not claimed';
     END IF;
     IF botmem.fail_workspace_billing_cancellation(
-        claimed.job_id, 'v13.commerce', '2026-07-13T10:00:11Z',
+        claimed.job_id, 'v13.commerce', claimed.lease_token,
+        '2026-07-13T10:00:11Z',
         '2026-07-13T10:00:21Z', 2, 'STRIPE_CANCELLATION_FAILED'
     ) <> 'pending' THEN
         RAISE EXCEPTION 'billing cancellation failure was not retried';
@@ -230,10 +236,12 @@ DECLARE
     claimed record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_billing_cancellation(
-        'v13.commerce', '2026-07-13T10:00:21Z', '2026-07-13T10:01:21Z', 2
+        'v13.commerce', 'd1350000-0000-4000-8000-000000000006',
+        '2026-07-13T10:00:21Z', '2026-07-13T10:01:21Z', 2
     );
     IF claimed.attempts <> 2 OR NOT botmem.confirm_workspace_billing_cancellation(
-        claimed.job_id, 'v13.commerce', '2026-07-13T10:00:22Z', 'canceled'
+        claimed.job_id, 'v13.commerce', claimed.lease_token,
+        '2026-07-13T10:00:22Z', 'canceled'
     ) THEN
         RAISE EXCEPTION 'billing cancellation did not recover and confirm';
     END IF;
@@ -246,21 +254,25 @@ DECLARE
     claimed record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_lifecycle_job(
-        'v13.lifecycle', '2026-07-13T10:00:32Z', '2026-07-13T10:05:32Z'
+        'v13.lifecycle', 'd1350000-0000-4000-8000-000000000007',
+        '2026-07-13T10:00:32Z', '2026-07-13T10:05:32Z'
     );
     IF claimed.job_id <> 'd1320000-0000-4000-8000-000000000001' OR
        NOT botmem.complete_workspace_deletion(
-           claimed.job_id, 'v13.lifecycle', '2026-07-13T10:00:33Z'
+           claimed.job_id, 'v13.lifecycle', claimed.lease_token,
+           '2026-07-13T10:00:33Z'
        ) THEN
         RAISE EXCEPTION 'confirmed cancellation did not release hosted deletion';
     END IF;
 
     SELECT * INTO claimed FROM botmem.claim_workspace_lifecycle_job(
-        'v13.lifecycle', '2026-07-13T10:01:00Z', '2026-07-13T10:06:00Z'
+        'v13.lifecycle', 'd1350000-0000-4000-8000-000000000008',
+        '2026-07-13T10:01:00Z', '2026-07-13T10:06:00Z'
     );
     IF claimed.job_id <> 'd1320000-0000-4000-8000-000000000002' OR
        NOT botmem.complete_workspace_deletion(
-           claimed.job_id, 'v13.lifecycle', '2026-07-13T10:01:01Z'
+           claimed.job_id, 'v13.lifecycle', claimed.lease_token,
+           '2026-07-13T10:01:01Z'
        ) THEN
         RAISE EXCEPTION 'no-subscription deletion did not complete';
     END IF;

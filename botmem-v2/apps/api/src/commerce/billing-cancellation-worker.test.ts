@@ -13,6 +13,7 @@ const CLAIM: BillingCancellationClaim = {
   workspaceId: 'c1000000-0000-4000-8000-000000000002',
   stripeSubscriptionId: 'sub_cancellationfixture',
   attempts: 3,
+  leaseToken: 'c1000000-0000-4000-8000-000000000004',
 };
 
 describe('BillingCancellationProcessor', () => {
@@ -53,6 +54,7 @@ describe('BillingCancellationProcessor', () => {
     expect(repository.fail).toHaveBeenCalledWith({
       jobId: CLAIM.jobId,
       workerId: 'commerce.cancel',
+      leaseToken: CLAIM.leaseToken,
       failedAt: '2026-07-13T10:00:00.000Z',
       retryAt: '2026-07-13T10:00:04.000Z',
       maxAttempts: 12,

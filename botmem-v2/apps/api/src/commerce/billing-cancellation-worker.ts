@@ -68,6 +68,7 @@ export class BillingCancellationProcessor {
       const confirmed = await this.repository.confirm({
         jobId: claimed.jobId,
         workerId,
+        leaseToken: claimed.leaseToken,
         confirmedAt: new Date(this.clock.nowMs()).toISOString(),
         observedStripeStatus: 'canceled',
       });
@@ -78,6 +79,7 @@ export class BillingCancellationProcessor {
       const state = await this.repository.fail({
         jobId: claimed.jobId,
         workerId,
+        leaseToken: claimed.leaseToken,
         failedAt: new Date(failedAtMs).toISOString(),
         retryAt: new Date(failedAtMs + this.retryDelay(claimed.attempts)).toISOString(),
         maxAttempts: this.maxAttempts,

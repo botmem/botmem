@@ -187,6 +187,7 @@ function checkoutJob(eventId: string): ClaimedStripeWebhook {
   return {
     supported: true,
     attempts: 1,
+    leaseToken: '82000000-0000-4000-8000-000000000001',
     envelope: {
       eventId,
       eventType: 'checkout.session.completed',
@@ -204,6 +205,7 @@ function subscriptionJob(eventId: string, eventType: string): ClaimedStripeWebho
   return {
     supported: true,
     attempts: 1,
+    leaseToken: '82000000-0000-4000-8000-000000000001',
     envelope: {
       eventId,
       eventType,

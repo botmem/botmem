@@ -83,6 +83,7 @@ export class CommerceReconciler {
       await this.repository.settleWebhook({
         eventId: claimed.envelope.eventId,
         workerId,
+        leaseToken: claimed.leaseToken,
         outcome,
         completedAt: new Date(this.clock.nowMs()).toISOString(),
       });
@@ -107,6 +108,7 @@ export class CommerceReconciler {
       await this.repository.retryWebhook({
         eventId: claimed.envelope.eventId,
         workerId,
+        leaseToken: claimed.leaseToken,
         failureCode,
         failedAt: new Date(failedAtMs).toISOString(),
         availableAt: new Date(failedAtMs + this.retryDelay(claimed.attempts)).toISOString(),

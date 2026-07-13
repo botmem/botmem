@@ -109,6 +109,7 @@ export class WorkspaceLifecycleWorker {
         const renewed = await this.jobs.renewLease({
           jobId: job.jobId,
           workerId: this.options.workerId,
+          leaseToken: job.leaseToken,
           now,
           leaseExpiresAt: new Date(nowMs + this.leaseMs).toISOString(),
         });
@@ -116,6 +117,7 @@ export class WorkspaceLifecycleWorker {
         const page = await this.jobs.readExportPage({
           jobId: job.jobId,
           workerId: this.options.workerId,
+          leaseToken: job.leaseToken,
           now,
           cursor,
           pageSize: this.exportPageSize,
@@ -164,6 +166,7 @@ export class WorkspaceLifecycleWorker {
       const completed = await this.jobs.completeExport({
         jobId: job.jobId,
         workerId: this.options.workerId,
+        leaseToken: job.leaseToken,
         completedAt: new Date(completedMs).toISOString(),
         artifactKey,
         artifactExpiresAt: new Date(completedMs + this.exportRetentionMs).toISOString(),
@@ -187,6 +190,7 @@ export class WorkspaceLifecycleWorker {
       const blockers = await this.jobs.deletionBlockers({
         jobId: job.jobId,
         workerId: this.options.workerId,
+        leaseToken: job.leaseToken,
         now: new Date(blockerNowMs).toISOString(),
       });
       if (blockers.billingState !== 'confirmed' && blockers.billingState !== 'not_required') {
@@ -197,6 +201,7 @@ export class WorkspaceLifecycleWorker {
         const deferred = await this.jobs.deferDeletion({
           jobId: job.jobId,
           workerId: this.options.workerId,
+          leaseToken: job.leaseToken,
           now: new Date(blockerNowMs).toISOString(),
           retryAt: new Date(blockerNowMs + 30_000).toISOString(),
           reason,
@@ -209,6 +214,7 @@ export class WorkspaceLifecycleWorker {
       const deletionArtifacts = await this.jobs.listDeletionArtifacts({
         jobId: job.jobId,
         workerId: this.options.workerId,
+        leaseToken: job.leaseToken,
         now: artifactNow,
       });
       for (const artifact of deletionArtifacts) {
@@ -220,11 +226,21 @@ export class WorkspaceLifecycleWorker {
       }
       // Removes crash-left temporary/reservation files as well as any orphaned
       // final file that never acquired a durable database locator.
+      const destructionNowMs = this.clock.nowMs();
+      const authorized = await this.jobs.authorizeWorkspaceDestruction({
+        jobId: job.jobId,
+        workerId: this.options.workerId,
+        leaseToken: job.leaseToken,
+        now: new Date(destructionNowMs).toISOString(),
+        leaseExpiresAt: new Date(destructionNowMs + this.leaseMs).toISOString(),
+      });
+      if (!authorized) throw new LifecycleLeaseLostError();
       await this.artifacts.deleteWorkspace(job.workspaceId);
       failureCode = 'HOSTED_ERASE_FAILED';
       const completed = await this.jobs.completeDeletion({
         jobId: job.jobId,
         workerId: this.options.workerId,
+        leaseToken: job.leaseToken,
         completedAt: new Date(this.clock.nowMs()).toISOString(),
       });
       if (!completed) throw new LifecycleLeaseLostError();
@@ -243,6 +259,7 @@ export class WorkspaceLifecycleWorker {
     const state = await this.jobs.fail({
       jobId: job.jobId,
       workerId: this.options.workerId,
+      leaseToken: job.leaseToken,
       failedAt: new Date(failedAtMs).toISOString(),
       retryAt: new Date(failedAtMs + delay).toISOString(),
       failureCode: code,

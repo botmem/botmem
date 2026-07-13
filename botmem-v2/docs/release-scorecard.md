@@ -48,7 +48,7 @@ is open.
 - PostgreSQL hosted projection/search, immutable active heads, multilingual
   lexical/trigram/semantic lanes, evidence-backed readiness, repair scan, and
   fresh PostgreSQL 17/pgvector invariants. A clean PostgreSQL 17 run with all
-  V1--V14 migrations and 100,000 hosted documents measured p50 113.025 ms,
+  V1--V15 migrations and 100,000 hosted documents measured p50 113.025 ms,
   p95 239.982 ms, and p99 251.302 ms in the mixed
   semantic/lexical/Arabic/typo workload. Embedding-outage fallback measured
   p50 23.102 ms, p95 118.414 ms, and p99 124.489 ms. Both paths remain below
@@ -98,7 +98,7 @@ is open.
 - Scheduler, bounded retry/exhaustion recovery, transactional hosted projection,
   repair, commerce reconciliation, lifecycle export/deletion, audit events,
   redacted health surfaces, and independent least-privilege worker identities.
-- V1--V14 forward-only database history now runs through a minimal Node/Postgres
+- V1--V15 forward-only database history now runs through a minimal Node/Postgres
   migrator with SHA-256 ledger, advisory serialization, transactional scripts,
   tamper/out-of-order/database-ahead rejection, and a verified one-time legacy
   Flyway import. Fresh, concurrent, no-op, tamper, rollback, and role-isolation

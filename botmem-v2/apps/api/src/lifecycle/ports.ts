@@ -36,12 +36,14 @@ export interface LifecycleWorkerRepositoryPort {
   renewLease(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
     readonly leaseExpiresAt: string;
   }): Promise<boolean>;
   readExportPage(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
     readonly cursor: { readonly accountId: string; readonly sourceEventId: string } | null;
     readonly pageSize: number;
@@ -49,6 +51,7 @@ export interface LifecycleWorkerRepositoryPort {
   deletionBlockers(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
   }): Promise<{
     readonly pendingNotices: number;
@@ -57,6 +60,7 @@ export interface LifecycleWorkerRepositoryPort {
   deferDeletion(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
     readonly retryAt: string;
     readonly reason: 'BILLING_CANCELLATION_PENDING' | 'BILLING_CANCELLATION_DEAD';
@@ -64,11 +68,13 @@ export interface LifecycleWorkerRepositoryPort {
   listDeletionArtifacts(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly now: string;
   }): Promise<readonly { readonly jobId: string; readonly artifactKey: string }[]>;
   completeExport(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly completedAt: string;
     readonly artifactKey: string;
     readonly artifactExpiresAt: string;
@@ -76,11 +82,20 @@ export interface LifecycleWorkerRepositoryPort {
   completeDeletion(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly completedAt: string;
+  }): Promise<boolean>;
+  authorizeWorkspaceDestruction(input: {
+    readonly jobId: string;
+    readonly workerId: string;
+    readonly leaseToken: string;
+    readonly now: string;
+    readonly leaseExpiresAt: string;
   }): Promise<boolean>;
   fail(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly failedAt: string;
     readonly retryAt: string;
     readonly failureCode: string;
@@ -133,6 +148,7 @@ export interface DeviceDeletionNoticeClaim {
   readonly workspaceId: string;
   readonly deviceId: string;
   readonly attempts: number;
+  readonly leaseToken: string;
 }
 
 export interface DeviceDeletionNoticeRelayRepositoryPort {
@@ -145,6 +161,7 @@ export interface DeviceDeletionNoticeRelayRepositoryPort {
     readonly jobId: string;
     readonly deviceId: string;
     readonly relayId: string;
+    readonly leaseToken: string;
     readonly state: 'delivered' | 'unreachable';
     readonly attemptedAt: string;
   }): Promise<boolean>;
@@ -152,6 +169,7 @@ export interface DeviceDeletionNoticeRelayRepositoryPort {
     readonly jobId: string;
     readonly deviceId: string;
     readonly relayId: string;
+    readonly leaseToken: string;
     readonly failedAt: string;
     readonly retryAt: string;
   }): Promise<'pending' | 'unreachable' | null>;
@@ -168,6 +186,7 @@ export interface BillingCancellationClaim {
   readonly workspaceId: string;
   readonly stripeSubscriptionId: string;
   readonly attempts: number;
+  readonly leaseToken: string;
 }
 
 export interface BillingCancellationRepositoryPort {
@@ -180,12 +199,14 @@ export interface BillingCancellationRepositoryPort {
   confirm(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly confirmedAt: string;
     readonly observedStripeStatus: 'canceled';
   }): Promise<boolean>;
   fail(input: {
     readonly jobId: string;
     readonly workerId: string;
+    readonly leaseToken: string;
     readonly failedAt: string;
     readonly retryAt: string;
     readonly maxAttempts: number;

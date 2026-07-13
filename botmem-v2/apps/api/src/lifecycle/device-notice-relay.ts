@@ -57,6 +57,7 @@ export class DeviceDeletionNoticeRelay {
         jobId: notice.jobId,
         deviceId: notice.deviceId,
         relayId: this.options.relayId,
+        leaseToken: notice.leaseToken,
         state,
         attemptedAt: new Date(this.clock.nowMs()).toISOString(),
       });
@@ -74,6 +75,7 @@ export class DeviceDeletionNoticeRelay {
         jobId: notice.jobId,
         deviceId: notice.deviceId,
         relayId: this.options.relayId,
+        leaseToken: notice.leaseToken,
         failedAt: new Date(failedAtMs).toISOString(),
         retryAt: new Date(failedAtMs + delayMs).toISOString(),
       });

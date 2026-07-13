@@ -5,6 +5,7 @@ import {
   type BillingStatusResponse,
   type StripeSubscriptionStatus,
 } from '@botmem-v2/contracts';
+import { randomUUID } from 'node:crypto';
 import type { SqlClientPort, SqlPoolPort } from '../search/postgres-ports.js';
 import type { BillingSignup } from './domain.js';
 import type { CommerceRepositoryPort } from './ports.js';
@@ -49,6 +50,7 @@ interface ClaimedWebhookRow {
   readonly stripe_subscription_id: string | null;
   readonly stripe_customer_id: string | null;
   readonly attempts: number;
+  readonly lease_token: string;
 }
 
 export class PostgresCommerceRepository implements CommerceRepositoryPort {
@@ -256,17 +258,25 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
 
   async claimWebhook(input: Parameters<CommerceRepositoryPort['claimWebhook']>[0]) {
     return this.transaction(async (client) => {
+      const leaseToken = randomUUID();
       const result = await client.query<ClaimedWebhookRow>({
         text: `SELECT * FROM botmem.claim_stripe_webhook(
-                 $1, $2::timestamptz, $3::timestamptz, $4
+                 $1, $2::uuid, $3::timestamptz, $4::timestamptz, $5
                )`,
-        values: [input.workerId, input.claimedAt, input.leaseExpiresAt, input.maxAttempts],
+        values: [
+          input.workerId,
+          leaseToken,
+          input.claimedAt,
+          input.leaseExpiresAt,
+          input.maxAttempts,
+        ],
       });
       const row = result.rows[0];
       if (!row) return null;
       return {
         supported: row.supported,
         attempts: row.attempts,
+        leaseToken: row.lease_token,
         envelope: {
           eventId: row.event_id,
           eventType: row.event_type,
@@ -377,10 +387,18 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
       const result = await client.query({
         text: `UPDATE botmem.stripe_webhook_event
                   SET state = $2, worker_id = NULL, claimed_at = NULL,
-                      lease_expires_at = NULL,
+                      lease_token = NULL, lease_expires_at = NULL,
                       processed_at = $3::timestamptz, failure_code = NULL
-                WHERE id = $1 AND state = 'processing' AND worker_id = $4`,
-        values: [input.eventId, input.outcome, input.completedAt, input.workerId],
+                WHERE id = $1 AND state = 'processing' AND worker_id = $4
+                  AND lease_token = $5::uuid
+                  AND lease_expires_at > $3::timestamptz`,
+        values: [
+          input.eventId,
+          input.outcome,
+          input.completedAt,
+          input.workerId,
+          input.leaseToken,
+        ],
       });
       if (result.rowCount !== 1) throw new CommerceLeaseLostError();
     });
@@ -392,11 +410,14 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
       const result = await client.query({
         text: `UPDATE botmem.stripe_webhook_event
                   SET state = CASE WHEN $5 THEN 'dead_letter' ELSE 'pending' END,
-                      worker_id = NULL, claimed_at = NULL, lease_expires_at = NULL,
+                      worker_id = NULL, claimed_at = NULL,
+                      lease_token = NULL, lease_expires_at = NULL,
                       processed_at = CASE WHEN $5 THEN $3::timestamptz ELSE NULL END,
                       failure_code = $2,
                       available_at = $4::timestamptz
-                WHERE id = $1 AND state = 'processing' AND worker_id = $6`,
+                WHERE id = $1 AND state = 'processing' AND worker_id = $6
+                  AND lease_token = $7::uuid
+                  AND lease_expires_at > $3::timestamptz`,
         values: [
           input.eventId,
           input.failureCode,
@@ -404,6 +425,7 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
           input.availableAt,
           input.deadLetter,
           input.workerId,
+          input.leaseToken,
         ],
       });
       if (result.rowCount !== 1) throw new CommerceLeaseLostError();

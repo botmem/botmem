@@ -15,6 +15,7 @@ const DELETION: LifecycleJobClaim = {
   requestedByUserId: 'd1000000-0000-4000-8000-000000000003',
   kind: 'deletion',
   attempts: 1,
+  leaseToken: 'd1000000-0000-4000-8000-000000000004',
 };
 
 describe('WorkspaceLifecycleWorker billing boundary', () => {
@@ -27,6 +28,7 @@ describe('WorkspaceLifecycleWorker billing boundary', () => {
     expect(repository.deferred).toEqual({
       jobId: DELETION.jobId,
       workerId: 'lifecycle.test',
+      leaseToken: DELETION.leaseToken,
       now: '2026-07-13T10:00:00.000Z',
       retryAt: '2026-07-13T10:00:30.000Z',
       reason: 'BILLING_CANCELLATION_PENDING',
@@ -46,6 +48,16 @@ describe('WorkspaceLifecycleWorker billing boundary', () => {
     expect(repository.completedDeletion).toBe(true);
     expect(artifacts.deletedWorkspace).toBe(true);
   });
+
+  it('never calls destructive storage after the exact claim loses authorization', async () => {
+    const repository = new LifecycleRepository('confirmed', 0, false);
+    const artifacts = new LifecycleArtifacts();
+
+    await expect(build(repository, artifacts).runOnce()).resolves.toBe(true);
+
+    expect(repository.completedDeletion).toBe(false);
+    expect(artifacts.deletedWorkspace).toBe(false);
+  });
 });
 
 class LifecycleRepository implements LifecycleWorkerRepositoryPort {
@@ -57,6 +69,7 @@ class LifecycleRepository implements LifecycleWorkerRepositoryPort {
   constructor(
     private readonly billingState: 'not_required' | 'pending' | 'processing' | 'confirmed' | 'dead',
     private readonly pendingNotices = 0,
+    private readonly destructionAuthorized = true,
   ) {}
 
   async claim() {
@@ -87,6 +100,9 @@ class LifecycleRepository implements LifecycleWorkerRepositoryPort {
   async completeDeletion() {
     this.completedDeletion = true;
     return true;
+  }
+  async authorizeWorkspaceDestruction() {
+    return this.destructionAuthorized;
   }
   async fail() {
     return null;

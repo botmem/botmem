@@ -47,14 +47,14 @@ run_migrator >"$temporary_root/concurrent-b.log" 2>&1 &
 second_pid=$!
 wait "$first_pid"
 wait "$second_pid"
-grep -Eq '"appliedCount":14' "$temporary_root/concurrent-a.log" "$temporary_root/concurrent-b.log"
+grep -Eq '"appliedCount":15' "$temporary_root/concurrent-a.log" "$temporary_root/concurrent-b.log"
 grep -Eq '"appliedCount":0' "$temporary_root/concurrent-a.log" "$temporary_root/concurrent-b.log"
 
 run_migrator >"$temporary_root/no-op.log" 2>&1
-grep -q '"previouslyAppliedCount":14,"appliedCount":0' "$temporary_root/no-op.log"
+grep -q '"previouslyAppliedCount":15,"appliedCount":0' "$temporary_root/no-op.log"
 
 cp -R "$ROOT/db/migration" "$temporary_root/tampered"
-printf '\n-- checksum drift fixture\n' >>"$temporary_root/tampered/V14__stripe_event_second_precision.sql"
+printf '\n-- checksum drift fixture\n' >>"$temporary_root/tampered/V15__fenced_worker_leases.sql"
 if run_migrator "$temporary_root/tampered" >"$temporary_root/tamper.log" 2>&1; then
   echo 'tampered migration unexpectedly passed' >&2
   exit 1
@@ -65,16 +65,16 @@ cp -R "$ROOT/db/migration" "$temporary_root/failed"
 printf '%s\n' \
   'CREATE TABLE botmem.failed_migration_transaction_fixture (id bigint PRIMARY KEY);' \
   'SELECT 1 / 0;' \
-  >"$temporary_root/failed/V15__forced_transaction_failure.sql"
+  >"$temporary_root/failed/V16__forced_transaction_failure.sql"
 if run_migrator "$temporary_root/failed" >"$temporary_root/failure.log" 2>&1; then
   echo 'failed migration unexpectedly passed' >&2
   exit 1
 fi
-grep -q '"code":"migration_failed","script":"V15__forced_transaction_failure.sql"' \
+grep -q '"code":"migration_failed","script":"V16__forced_transaction_failure.sql"' \
   "$temporary_root/failure.log"
 psql "$BOTMEM_CI_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc \
   "SELECT to_regclass('botmem.failed_migration_transaction_fixture') IS NULL
-          AND (SELECT count(*) = 14 FROM botmem_migration.history)" \
+          AND (SELECT count(*) = 15 FROM botmem_migration.history)" \
   | grep -qx t
 
 while IFS= read -r invariant; do
@@ -102,10 +102,10 @@ $roles$;
 SQL
 
 psql "$BOTMEM_CI_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc \
-  "SELECT count(*) = 14
-          AND count(*) FILTER (WHERE source = 'botmem_node') = 14
+  "SELECT count(*) = 15
+          AND count(*) FILTER (WHERE source = 'botmem_node') = 15
           AND min(version) = 1
-          AND max(version) = 14
+          AND max(version) = 15
      FROM botmem_migration.history" \
   | grep -qx t
 
@@ -163,4 +163,4 @@ MIGRATOR_EXPECTED_LOGIN=botmem_ci_migrator \
 MIGRATIONS_DIR="$ROOT/db/migration" \
 DATABASE_URL="$legacy_database_url" \
   node "$ROOT/apps/migrator/dist/bin.js" >"$temporary_root/legacy-import.log" 2>&1
-grep -q '"appliedCount":0,"importedLegacyCount":14' "$temporary_root/legacy-import.log"
+grep -q '"appliedCount":0,"importedLegacyCount":15' "$temporary_root/legacy-import.log"

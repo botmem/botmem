@@ -318,14 +318,16 @@ DECLARE
     exported record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_lifecycle_job(
-        'lifecycle-test', '2026-07-13T10:06:01Z', '2026-07-13T10:11:01Z'
+        'lifecycle-test', '99000000-0000-4000-8000-000000000001',
+        '2026-07-13T10:06:01Z', '2026-07-13T10:11:01Z'
     );
     IF claimed.job_id <> '91700000-0000-4000-8000-000000000001' OR
        claimed.kind <> 'export' THEN
         RAISE EXCEPTION 'export job was not claimed by lifecycle role';
     END IF;
     SELECT * INTO exported FROM botmem.read_workspace_export_page(
-        claimed.job_id, 'lifecycle-test', '2026-07-13T10:06:02Z', NULL, NULL, 100
+        claimed.job_id, 'lifecycle-test', claimed.lease_token,
+        '2026-07-13T10:06:02Z', NULL, NULL, 100
     );
     IF exported.source_event_id <> 'message-1' OR
        exported.payload->>'subject' <> 'Lifecycle export' THEN
@@ -335,7 +337,8 @@ BEGIN
         RAISE EXCEPTION 'hosted export exposed internal hash or ciphertext fields';
     END IF;
     IF NOT botmem.complete_workspace_export(
-        claimed.job_id, 'lifecycle-test', '2026-07-13T10:07:00Z',
+        claimed.job_id, 'lifecycle-test', claimed.lease_token,
+        '2026-07-13T10:07:00Z',
         '91000000-0000-4000-8000-000000000001/91700000-0000-4000-8000-000000000001.bme',
         '2026-07-14T10:07:00Z'
     ) THEN
@@ -413,13 +416,14 @@ DECLARE
     notice record;
 BEGIN
     SELECT * INTO notice FROM botmem.claim_workspace_device_deletion_notice(
-        'api-relay-test', '2026-07-13T10:09:01Z', '2026-07-13T10:09:31Z'
+        'api-relay-test', '99000000-0000-4000-8000-000000000002',
+        '2026-07-13T10:09:01Z', '2026-07-13T10:09:31Z'
     );
     IF notice.device_id <> '91600000-0000-4000-8000-000000000001' THEN
         RAISE EXCEPTION 'durable local deletion notice was not claimed';
     END IF;
     IF botmem.fail_workspace_device_deletion_notice(
-        notice.job_id, notice.device_id, 'api-relay-test',
+        notice.job_id, notice.device_id, 'api-relay-test', notice.lease_token,
         '2026-07-13T10:09:02Z', '2026-07-13T10:20:00Z'
     ) <> 'pending' THEN
         RAISE EXCEPTION 'offline local deletion notice was not retained for best-effort retry';
@@ -427,7 +431,8 @@ BEGIN
     BEGIN
         PERFORM botmem.complete_workspace_deletion(
             '91800000-0000-4000-8000-000000000001',
-            'not-the-lifecycle-worker', '2026-07-13T10:10:00Z'
+            'not-the-lifecycle-worker', '99000000-0000-4000-8000-000000000003',
+            '2026-07-13T10:10:00Z'
         );
         RAISE EXCEPTION 'API role executed hosted erasure';
     EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -442,7 +447,8 @@ DECLARE
     claimed record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_lifecycle_job(
-        'lifecycle-delete-test', '2026-07-13T10:10:00Z', '2026-07-13T10:15:00Z'
+        'lifecycle-delete-test', '99000000-0000-4000-8000-000000000004',
+        '2026-07-13T10:10:00Z', '2026-07-13T10:15:00Z'
     );
     IF claimed.job_id IS NOT NULL THEN
         RAISE EXCEPTION 'deletion was claimable before billing cancellation settled';
@@ -462,22 +468,26 @@ DECLARE
     claimed record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_billing_cancellation(
-        'commerce-cancel-test', '2026-07-13T10:11:00Z', '2026-07-13T10:12:00Z', 2
+        'commerce-cancel-test', '99000000-0000-4000-8000-000000000005',
+        '2026-07-13T10:11:00Z', '2026-07-13T10:12:00Z', 2
     );
     IF claimed.job_id <> '91800000-0000-4000-8000-000000000001' THEN
         RAISE EXCEPTION 'pre-erasure billing cancellation was not durably claimable';
     END IF;
     IF botmem.fail_workspace_billing_cancellation(
-        claimed.job_id, 'commerce-cancel-test', '2026-07-13T10:11:01Z',
+        claimed.job_id, 'commerce-cancel-test', claimed.lease_token,
+        '2026-07-13T10:11:01Z',
         '2026-07-13T10:12:01Z', 2, 'STRIPE_UNAVAILABLE'
     ) <> 'pending' THEN
         RAISE EXCEPTION 'Stripe outage dead-lettered billing cancellation';
     END IF;
     SELECT * INTO claimed FROM botmem.claim_workspace_billing_cancellation(
-        'commerce-cancel-test', '2026-07-13T10:12:01Z', '2026-07-13T10:13:01Z', 2
+        'commerce-cancel-test', '99000000-0000-4000-8000-000000000006',
+        '2026-07-13T10:12:01Z', '2026-07-13T10:13:01Z', 2
     );
     IF NOT botmem.confirm_workspace_billing_cancellation(
-        claimed.job_id, 'commerce-cancel-test', '2026-07-13T10:12:02Z', 'canceled'
+        claimed.job_id, 'commerce-cancel-test', claimed.lease_token,
+        '2026-07-13T10:12:02Z', 'canceled'
     ) THEN
         RAISE EXCEPTION 'billing cancellation did not recover after Stripe outage';
     END IF;
@@ -493,26 +503,30 @@ DECLARE
     artifact record;
 BEGIN
     SELECT * INTO claimed FROM botmem.claim_workspace_lifecycle_job(
-        'lifecycle-delete-test', '2026-07-13T10:13:00Z', '2026-07-13T10:18:00Z'
+        'lifecycle-delete-test', '99000000-0000-4000-8000-000000000007',
+        '2026-07-13T10:13:00Z', '2026-07-13T10:18:00Z'
     );
     IF claimed.job_id <> '91800000-0000-4000-8000-000000000001' OR
        claimed.kind <> 'deletion' THEN
         RAISE EXCEPTION 'settled deletion job was not claimed by lifecycle role';
     END IF;
     SELECT * INTO blockers FROM botmem.workspace_deletion_blockers(
-        claimed.job_id, 'lifecycle-delete-test', '2026-07-13T10:13:01Z'
+        claimed.job_id, 'lifecycle-delete-test', claimed.lease_token,
+        '2026-07-13T10:13:01Z'
     );
     IF blockers.pending_notices <> 1 OR blockers.billing_state <> 'confirmed' THEN
         RAISE EXCEPTION 'deletion blockers were misreported after billing settlement';
     END IF;
     SELECT * INTO artifact FROM botmem.list_workspace_deletion_artifacts(
-        claimed.job_id, 'lifecycle-delete-test', '2026-07-13T10:13:01Z'
+        claimed.job_id, 'lifecycle-delete-test', claimed.lease_token,
+        '2026-07-13T10:13:01Z'
     );
     IF artifact.artifact_key IS NULL OR NOT botmem.complete_workspace_artifact_purge(artifact.job_id) THEN
         RAISE EXCEPTION 'deletion did not durably purge export metadata first';
     END IF;
     IF NOT botmem.complete_workspace_deletion(
-        claimed.job_id, 'lifecycle-delete-test', '2026-07-13T10:13:02Z'
+        claimed.job_id, 'lifecycle-delete-test', claimed.lease_token,
+        '2026-07-13T10:13:02Z'
     ) THEN
         RAISE EXCEPTION 'hosted deletion did not complete';
     END IF;

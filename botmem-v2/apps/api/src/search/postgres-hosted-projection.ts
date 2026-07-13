@@ -1,4 +1,5 @@
 import { SearchCandidateSchema, type SearchCandidate } from '@botmem-v2/contracts';
+import { randomUUID } from 'node:crypto';
 import { HostedSearchFailure, throwIfAborted } from './errors.js';
 import type { SqlClientPort, SqlPoolPort } from './postgres-ports.js';
 
@@ -66,6 +67,7 @@ export class PostgresHostedProjectionStore {
     const client = await this.begin(command.workspaceId, command.signal);
     let transactionOpen = true;
     try {
+      const leaseToken = randomUUID();
       const ingest = await this.loadIngest(client, command);
       this.validateCandidate(ingest, command);
       const claim = await client.query<ProjectionStateRow>({
@@ -76,6 +78,7 @@ export class PostgresHostedProjectionStore {
           command.revisionId,
           PROJECTION_NAME,
           command.workerId,
+          leaseToken,
           command.leaseExpiresAt,
         ],
         signal: command.signal,
@@ -136,17 +139,21 @@ export class PostgresHostedProjectionStore {
 
       const applied = await client.query({
         text: `UPDATE botmem.projection_state
-                  SET state = 'applied', lease_owner = NULL, lease_expires_at = NULL,
+                  SET state = 'applied', lease_owner = NULL, lease_token = NULL,
+                      lease_expires_at = NULL,
                       output_hash = $1, last_error_code = NULL,
                       applied_at = $2::timestamptz, updated_at = $2::timestamptz
                 WHERE projection_name = $3 AND revision_id = $4::uuid
-                  AND state = 'processing' AND lease_owner = $5`,
+                  AND state = 'processing' AND lease_owner = $5
+                  AND lease_token = $6::uuid
+                  AND lease_expires_at > $2::timestamptz`,
         values: [
           command.outputHash,
           command.projectedAt,
           PROJECTION_NAME,
           command.revisionId,
           command.workerId,
+          leaseToken,
         ],
         signal: command.signal,
       });
@@ -424,11 +431,13 @@ function vectorLiteral(values: readonly number[]): string {
 const CLAIM_PROJECTION_SQL = `
 INSERT INTO botmem.projection_state (
   tenant_id, account_id, projection_name, revision_id, state, attempts,
-  lease_owner, lease_expires_at, updated_at
-) VALUES ($1::uuid, $2::uuid, $4, $3::uuid, 'processing', 1, $5, $6::timestamptz, statement_timestamp())
+  lease_owner, lease_token, lease_expires_at, updated_at
+) VALUES ($1::uuid, $2::uuid, $4, $3::uuid, 'processing', 1,
+          $5, $6::uuid, $7::timestamptz, statement_timestamp())
 ON CONFLICT (projection_name, revision_id) DO UPDATE
   SET state = 'processing', attempts = botmem.projection_state.attempts + 1,
-      lease_owner = EXCLUDED.lease_owner, lease_expires_at = EXCLUDED.lease_expires_at,
+      lease_owner = EXCLUDED.lease_owner, lease_token = EXCLUDED.lease_token,
+      lease_expires_at = EXCLUDED.lease_expires_at,
       output_hash = NULL, last_error_code = NULL, applied_at = NULL,
       updated_at = statement_timestamp()
   WHERE botmem.projection_state.state IN ('pending', 'failed')

@@ -6,6 +6,7 @@ export interface ClaimedOutboxMessage {
   readonly accountId: string;
   readonly revisionId: string;
   readonly attempt: number;
+  readonly leaseToken: string;
   readonly leaseExpiresAt: string;
 }
 
@@ -19,13 +20,16 @@ export interface OutboxDispatcherPort {
   complete(input: {
     readonly messageId: string;
     readonly owner: string;
+    readonly leaseToken: string;
     readonly publishedAt: string;
     readonly signal: AbortSignal;
   }): Promise<void>;
   fail(input: {
     readonly messageId: string;
     readonly owner: string;
+    readonly leaseToken: string;
     readonly dead: boolean;
+    readonly failedAt: string;
     readonly nextAttemptAt: string;
     readonly signal: AbortSignal;
   }): Promise<void>;

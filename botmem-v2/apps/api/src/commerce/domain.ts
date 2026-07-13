@@ -35,6 +35,7 @@ export interface ClaimedStripeWebhook {
   readonly supported: boolean;
   readonly envelope: StripeWebhookEnvelope;
   readonly attempts: number;
+  readonly leaseToken: string;
 }
 
 export type CheckoutCompletionStatus = 'pending' | 'active' | 'inactive' | 'expired' | 'failed';
