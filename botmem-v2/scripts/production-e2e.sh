@@ -10,27 +10,42 @@ POSTGRES_CONTAINER="botmem-v2-e2e-postgres-${RUN_ID}"
 REDIS_CONTAINER="botmem-v2-e2e-redis-${RUN_ID}"
 TEMP="$(mktemp -d "${TMPDIR:-/tmp}/botmem-v2-production-e2e.XXXXXX")"
 
-openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
-  -subj '/CN=Botmem Production E2E CA' \
-  -keyout "$TEMP/ca.key" -out "$TEMP/ca.pem" >/dev/null 2>&1
-openssl req -newkey rsa:2048 -nodes -sha256 -subj '/CN=localhost' \
-  -keyout "$TEMP/server.key" -out "$TEMP/server.csr" >/dev/null 2>&1
-openssl x509 -req -sha256 -days 2 -in "$TEMP/server.csr" \
-  -CA "$TEMP/ca.pem" -CAkey "$TEMP/ca.key" -CAcreateserial \
-  -out "$TEMP/server.pem" -extfile /dev/stdin \
-  <<< $'subjectAltName=DNS:localhost,DNS:127.0.0.1.nip.io,IP:127.0.0.1\nextendedKeyUsage=serverAuth' >/dev/null 2>&1
-
 cleanup() {
   docker rm -f "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$TEMP"
 }
 trap cleanup EXIT INT TERM
 
-docker run -d --rm --name "$POSTGRES_CONTAINER" \
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
+  -subj '/CN=Botmem Production E2E CA' \
+  -keyout "$TEMP/ca.key" -out "$TEMP/ca.pem" >/dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes -sha256 -subj '/CN=localhost' \
+  -keyout "$TEMP/server.key" -out "$TEMP/server.csr" >/dev/null 2>&1
+cat > "$TEMP/server.ext" <<'EOF'
+subjectAltName=DNS:localhost,DNS:127.0.0.1.nip.io,IP:127.0.0.1
+extendedKeyUsage=serverAuth
+EOF
+openssl x509 -req -sha256 -days 2 -in "$TEMP/server.csr" \
+  -CA "$TEMP/ca.pem" -CAkey "$TEMP/ca.key" -CAcreateserial \
+  -out "$TEMP/server.pem" -extfile "$TEMP/server.ext" >/dev/null 2>&1
+
+# The pinned Redis image deliberately drops from root to its redis user
+# (uid 999). Docker Desktop's bind-mount virtualization can make a runner-owned
+# mode-0600 key appear readable, while a Linux runner correctly rejects it.
+# Stage the ephemeral key for the real runtime uid and keep it owner-readable
+# only; the containing directory remains non-listable to other users.
+chmod 0711 "$TEMP"
+docker run --rm --user 0 \
+  -v "$TEMP:/tls" \
+  --entrypoint sh \
+  "$REDIS_IMAGE" \
+  -c 'chown redis:redis /tls/server.key && chmod 0400 /tls/server.key && chmod 0444 /tls/server.pem /tls/ca.pem'
+
+docker run -d --name "$POSTGRES_CONTAINER" \
   -e POSTGRES_HOST_AUTH_METHOD=trust \
   -p 127.0.0.1::5432 \
   "$POSTGRES_IMAGE" >/dev/null
-docker run -d --rm --name "$REDIS_CONTAINER" \
+docker run -d --name "$REDIS_CONTAINER" \
   --user 0 \
   -v "$TEMP:/tls:ro" \
   -p 127.0.0.1::6379 \
@@ -86,7 +101,13 @@ for _attempt in $(seq 1 60); do
   fi
   sleep 1
 done
-docker exec "$REDIS_CONTAINER" redis-cli --tls --cacert /tls/ca.pem ping | grep -qx PONG
+if ! docker exec "$REDIS_CONTAINER" redis-cli --tls --cacert /tls/ca.pem ping \
+  | grep -qx PONG; then
+  docker inspect --format '{{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' \
+    "$REDIS_CONTAINER" >&2 || true
+  docker logs "$REDIS_CONTAINER" >&2 || true
+  exit 1
+fi
 
 psql "$ADMIN_CLUSTER_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE botmem_v2_e2e'
 psql "$ADMIN_CLUSTER_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/bootstrap/00_roles.sql"
