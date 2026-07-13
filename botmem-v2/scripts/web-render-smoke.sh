@@ -117,7 +117,7 @@ await page.wait('#main-content');
 await audit('desktop/login');
 EOF
 
-"$AXI" emulate --viewport "390x844x3,mobile,touch" --color-scheme dark >/dev/null
+"$AXI" emulate --viewport "320x568x2,mobile,touch" --color-scheme dark >/dev/null
 BASE_URL="$BASE_URL" "$AXI" run <<'EOF'
 const base = process.env.BASE_URL;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };

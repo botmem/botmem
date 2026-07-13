@@ -65,7 +65,7 @@ export interface BotmemWebClient
   ): Promise<BillingCheckoutStatusResponse>;
   getBillingStatus(workspaceId: string): Promise<BillingStatusResponse>;
   createBillingPortal(workspaceId: string): Promise<BillingPortalResponse>;
-  completeEmailLogin(token: string): Promise<void>;
+  completeEmailLogin(token: string, signal?: AbortSignal): Promise<void>;
   issuePairingCode(workspaceId: string): Promise<DevicePairingCodeResponse>;
   issueDeviceSetup(workspaceId: string): Promise<{
     readonly payload: string;
@@ -144,13 +144,14 @@ export class BrowserBotmemClient implements BotmemWebClient {
     return PublicReleaseConfigurationSchema.parse(body);
   }
 
-  async completeEmailLogin(token: string): Promise<void> {
+  async completeEmailLogin(token: string, signal?: AbortSignal): Promise<void> {
     const payload = EmailLoginCompleteRequestSchema.parse({ token });
     const response = await this.fetch(`${this.baseUrl}/v2/auth/email/complete`, {
       method: 'POST',
       credentials: 'include',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
       body: JSON.stringify(payload),
+      ...(signal ? { signal } : {}),
     });
     const body = await responseBody(response);
     if (!response.ok) throw new WebApiError(response.status, errorMessage(body));

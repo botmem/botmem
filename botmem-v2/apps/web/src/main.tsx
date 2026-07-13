@@ -80,27 +80,35 @@ if (currentUrl.pathname === '/privacy') {
   );
   const fragment = parseLoginFragment(window.location.hash);
   let loginError: string | undefined;
-
-  if (fragment.workspaceId) rememberBrowserWorkspace(fragment.workspaceId);
-  if (fragment.token) {
-    try {
-      await client.completeEmailLogin(fragment.token);
-    } catch (error) {
-      loginError = error instanceof Error ? error.message : 'The sign-in link could not be used.';
-    } finally {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-    }
-  }
+  let bootstrapTimedOut = false;
+  const bootstrapController = new AbortController();
+  const bootstrapTimeout = window.setTimeout(() => {
+    bootstrapTimedOut = true;
+    bootstrapController.abort();
+  }, 10_000);
 
   try {
-    const sessionController = new AbortController();
-    const sessionTimeout = window.setTimeout(() => sessionController.abort(), 10_000);
+    if (fragment.workspaceId) rememberBrowserWorkspace(fragment.workspaceId);
+    if (fragment.token) {
+      try {
+        await client.completeEmailLogin(fragment.token, bootstrapController.signal);
+      } catch (error) {
+        loginError = error instanceof Error ? error.message : 'The sign-in link could not be used.';
+      } finally {
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}`,
+        );
+      }
+    }
+
     const [session, releases] = await Promise.all([
-      client.getSession(sessionController.signal),
+      client.getSession(bootstrapController.signal),
       client
-        .getPublicReleases(sessionController.signal)
+        .getPublicReleases(bootstrapController.signal)
         .catch(() => unavailableReleaseConfiguration(baseUrl)),
-    ]).finally(() => window.clearTimeout(sessionTimeout));
+    ]);
     root.render(
       <StrictMode>
         <App client={client} workspaceId={session.workspaceId} releases={releases} />
@@ -116,11 +124,18 @@ if (currentUrl.pathname === '/privacy') {
         ) : (
           <BootError
             message={
-              error instanceof Error ? error.message : 'The authenticated session is unavailable.'
+              bootstrapTimedOut
+                ? 'The session check exceeded 10 seconds. Refresh to try again.'
+                : error instanceof Error
+                  ? error.message
+                  : 'The authenticated session is unavailable.'
             }
           />
         )}
       </StrictMode>,
     );
+  } finally {
+    window.clearTimeout(bootstrapTimeout);
+    bootstrapController.abort();
   }
 }

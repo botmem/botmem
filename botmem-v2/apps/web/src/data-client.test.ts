@@ -126,9 +126,13 @@ describe('BrowserBotmemClient', () => {
       )
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = new BrowserBotmemClient({ baseUrl: 'https://app.botmem.test', fetch });
+    const completionController = new AbortController();
 
     await client.startEmailLogin({ version: 2, email: 'me@example.com' });
-    await client.completeEmailLogin('bml_v2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    await client.completeEmailLogin(
+      'bml_v2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      completionController.signal,
+    );
 
     expect(fetch.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
@@ -140,6 +144,7 @@ describe('BrowserBotmemClient', () => {
       expect.objectContaining({
         credentials: 'include',
         body: JSON.stringify({ token: 'bml_v2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }),
+        signal: completionController.signal,
       }),
     );
   });

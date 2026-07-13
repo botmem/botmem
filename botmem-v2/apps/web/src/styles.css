@@ -1190,6 +1190,7 @@ select:focus-visible {
 .mac-download-action {
   display: inline-flex;
   width: fit-content;
+  max-width: 100%;
   min-height: 2.75rem;
   align-items: center;
   padding: 0.75rem 1rem;
@@ -1198,6 +1199,8 @@ select:focus-visible {
   color: var(--accent-ink);
   font-weight: 700;
   text-decoration: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .release-fingerprint {
@@ -1280,8 +1283,10 @@ select:focus-visible {
 
 .public-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-sm) var(--space-md);
   padding: var(--space-md);
   border-bottom: 2px solid var(--line);
 }
@@ -1290,8 +1295,10 @@ select:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-md);
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-sm) var(--space-md);
 }
 
 .public-theme-control {
@@ -1917,6 +1924,15 @@ select:focus-visible {
 }
 
 @media (min-width: 48rem) {
+  .public-header {
+    flex-wrap: nowrap;
+  }
+
+  .public-links {
+    justify-content: flex-end;
+    width: auto;
+  }
+
   .site-header {
     grid-template-columns: auto 1fr auto;
     padding-inline: var(--space-lg);
