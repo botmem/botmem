@@ -1,0 +1,89 @@
+name: Botmem v2 Off-host Backup
+
+on:
+  schedule:
+    - cron: '41 1 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Run before the production backup variable is enabled
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: botmem-v2-vultr-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  backup:
+    name: Verify restore and retain encrypted copy off host
+    if: vars.BOTMEM_V2_BACKUP_ENABLED == 'true' || inputs.force == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: botmem-v2-production
+    steps:
+      - name: Configure strictly pinned SSH transport
+        env:
+          SSH_HOST: ${{ secrets.BOTMEM_V2_SSH_HOST }}
+          SSH_PORT: ${{ secrets.BOTMEM_V2_SSH_PORT }}
+          SSH_USER: ${{ secrets.BOTMEM_V2_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.BOTMEM_V2_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.BOTMEM_V2_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && (( SSH_PORT <= 65535 ))
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/botmem-v2
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/botmem-v2-known-hosts
+          chmod 0600 ~/.ssh/botmem-v2 ~/.ssh/botmem-v2-known-hosts
+          ssh-keygen -y -f ~/.ssh/botmem-v2 >/dev/null
+          lookup="$SSH_HOST"
+          [[ "$SSH_PORT" == 22 ]] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/botmem-v2-known-hosts >/dev/null
+          printf '%s\n' \
+            'Host botmem' \
+            "  HostName $SSH_HOST" \
+            "  Port $SSH_PORT" \
+            "  User $SSH_USER" \
+            '  IdentityFile ~/.ssh/botmem-v2' \
+            '  UserKnownHostsFile ~/.ssh/botmem-v2-known-hosts' \
+            '  StrictHostKeyChecking yes' \
+            '  IdentitiesOnly yes' \
+            '  BatchMode yes' \
+            '  LogLevel ERROR' > ~/.ssh/config
+          chmod 0600 ~/.ssh/config
+
+      - name: Create encrypted backup and prove a disposable restore
+        run: |
+          ssh botmem \
+            '/opt/botmem-v2/current/backup-and-restore.sh /opt/botmem-v2/config.env /opt/botmem-v2/release.env'
+
+      - name: Retrieve ciphertext and verify its checksum
+        run: |
+          set -euo pipefail
+          install -d -m 0700 production-backup
+          archive="$(ssh botmem 'readlink -f /opt/botmem-v2/backups/latest.dump.age')"
+          [[ "$archive" =~ ^/opt/botmem-v2/backups/botmem-v2-[0-9]{8}T[0-9]{6}Z\.dump\.age$ ]]
+          scp "botmem:$archive" "botmem:$archive.sha256" production-backup/
+          (cd production-backup && sha256sum --check "$(basename "$archive").sha256")
+          head -1 "production-backup/$(basename "$archive")" | grep -Fqx age-encryption.org/v1
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: botmem-v2-verified-encrypted-backup-${{ github.run_id }}
+          path: production-backup/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove transient SSH credentials
+        if: always()
+        run: rm -f ~/.ssh/botmem-v2 ~/.ssh/botmem-v2-known-hosts ~/.ssh/config

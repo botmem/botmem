@@ -1,0 +1,19 @@
+[Unit]
+Description=Botmem v2 encrypted PostgreSQL backup and restore rehearsal
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=BOTMEM_V2_BACKUP_DIR=/opt/botmem-v2/backups
+ExecStart=/opt/botmem-v2/current/backup-and-restore.sh /opt/botmem-v2/config.env /opt/botmem-v2/release.env
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/botmem-v2/backups /var/run/docker.sock
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+{
+  "name": "@botmem-v2/search-domain",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@botmem-v2/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "3.2.7",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

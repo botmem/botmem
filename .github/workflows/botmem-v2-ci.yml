@@ -1,0 +1,395 @@
+name: Botmem v2 CI
+
+on:
+  pull_request:
+    paths:
+      - 'botmem-v2/**'
+      - '.github/workflows/botmem-v2-ci.yml'
+      - '.github/workflows/botmem-v2-release.yml'
+      - '.github/workflows/botmem-v2-deploy.yml'
+      - '.github/workflows/botmem-v2-backup.yml'
+      - '.github/workflows/botmem-v2-uptime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'botmem-v2/**'
+      - '.github/workflows/botmem-v2-ci.yml'
+      - '.github/workflows/botmem-v2-release.yml'
+      - '.github/workflows/botmem-v2-deploy.yml'
+      - '.github/workflows/botmem-v2-backup.yml'
+      - '.github/workflows/botmem-v2-uptime.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: botmem-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  quality:
+    name: TypeScript and Rust quality gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: botmem-v2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+          package_json_file: botmem-v2/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+          cache-dependency-path: botmem-v2/pnpm-lock.yaml
+      - name: Pin Rust toolchain
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup override set 1.85.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Validate operational shell scripts
+        run: |
+          find scripts deploy/vps deploy/docker -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          mapfile -t shell_files < <(find scripts deploy/vps deploy/docker -type f -name '*.sh' -print | sort)
+          docker run --rm -v "$GITHUB_WORKSPACE/botmem-v2:/mnt:ro" -w /mnt \
+            koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
+            --severity=warning "${shell_files[@]}"
+          bash deploy/docker/run-with-secret-files.test.sh
+      - name: Validate v2 GitHub Actions workflows
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            .github/workflows/botmem-v2-backup.yml \
+            .github/workflows/botmem-v2-ci.yml \
+            .github/workflows/botmem-v2-deploy.yml \
+            .github/workflows/botmem-v2-release.yml \
+            .github/workflows/botmem-v2-uptime.yml
+
+  postgres-redis:
+    name: PostgreSQL 17, pgvector, Redis integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg17-bookworm@sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:8.8.0-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: botmem-v2
+    env:
+      BOTMEM_CI_ADMIN_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+      BOTMEM_CI_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_CI_MIGRATOR_DATABASE_URL: postgresql://botmem_ci_migrator@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_API_DATABASE_URL: postgresql://botmem_test_api@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_WORKER_DATABASE_URL: postgresql://botmem_test_worker@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_DISPATCHER_DATABASE_URL: postgresql://botmem_test_dispatcher@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_ADMIN_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_IDENTITY_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_COMMERCE_DATABASE_URL: postgresql://botmem_test_commerce@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_IDENTITY_ADMIN_DATABASE_URL: postgresql://botmem_test_identity_admin@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_TEST_LIFECYCLE_DATABASE_URL: postgresql://botmem_test_lifecycle@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_V2_DEVICE_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/botmem_v2_ci
+      BOTMEM_V2_DEVICE_TEST_REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+          package_json_file: botmem-v2/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+          cache-dependency-path: botmem-v2/pnpm-lock.yaml
+      - name: Pin Rust toolchain for the real device process canary
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup override set 1.85.1
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - run: pnpm install --frozen-lockfile
+      - name: Apply every migration and SQL invariant on a fresh database
+        run: ./scripts/ci/verify-postgres.sh
+      - name: Run all real database, Redis, and WebSocket integration tests
+        run: pnpm build && pnpm --filter @botmem-v2/api test -- --no-file-parallelism
+      - name: Run the Rust tunnel against the real API, PostgreSQL, and Redis
+        env:
+          BOTMEM_V2_DEVICE_PROCESS_CANARY: 1
+        run: ./scripts/device-process-canary.sh
+      - name: Prove production composition parity across Web, CLI, MCP, and Rust relay
+        run: ./scripts/production-e2e.sh
+
+  containers:
+    name: Container build, SBOM, and vulnerability gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [quality]
+    defaults:
+      run:
+        working-directory: botmem-v2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build non-root release targets
+        run: |
+          docker build --target api --tag botmem-v2-api:ci .
+          docker build --target sync-worker --tag botmem-v2-sync-worker:ci .
+          docker build --target projection-worker --tag botmem-v2-projection-worker:ci .
+          docker build --target commerce-reconciler --tag botmem-v2-commerce-reconciler:ci .
+          docker build --target lifecycle-worker --tag botmem-v2-lifecycle-worker:ci .
+          docker build --target web --tag botmem-v2-web:ci .
+          docker build --target migrator --tag botmem-v2-migrator:ci .
+          docker build --target database --tag botmem-v2-database:ci .
+          docker build --target edge --tag botmem-v2-edge:ci .
+      - name: Smoke the hardened infrastructure images
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint gosu botmem-v2-database:ci --version | grep -Fq '1.19 (go1.26.5'
+          test "$(docker run --rm --entrypoint caddy botmem-v2-edge:ci version)" = v2.11.4
+          test "$(docker image inspect botmem-v2-edge:ci --format '{{.Config.User}}')" = 1000:1000
+          database_name=botmem-v2-database-smoke
+          trap 'docker rm -f "$database_name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$database_name" \
+            -e POSTGRES_HOST_AUTH_METHOD=trust botmem-v2-database:ci >/dev/null
+          for _ in {1..30}; do
+            docker exec "$database_name" pg_isready -U postgres >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec "$database_name" pg_isready -U postgres
+          docker exec "$database_name" psql -U postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION vector' \
+            -c "SELECT extversion FROM pg_extension WHERE extname='vector'" | grep -Fq 0.8.2
+          docker run --rm -e BOTMEM_TLS_CONTACT_EMAIL=ops@example.com \
+            -v "$PWD/deploy/vps/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            --entrypoint caddy botmem-v2-edge:ci \
+            validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Generate CycloneDX SBOMs with pinned Syft
+        run: |
+          mkdir -p reports/sbom
+          for image in api sync-worker projection-worker commerce-reconciler lifecycle-worker web migrator database edge; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$PWD/reports/sbom:/reports" \
+              anchore/syft:v1.29.0@sha256:e86b0ba0b1d2fe8a2e9f96ed9b22033df9781f43b9a7eb27c57e6c89234946bc \
+              "docker:botmem-v2-${image}:ci" -o "cyclonedx-json=/reports/${image}.cdx.json"
+          done
+      - name: Block fixable high and critical pnpm/Cargo lockfile vulnerabilities
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" -w /workspace \
+            -v botmem-v2-trivy-cache:/root/.cache/ \
+            aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 \
+            fs --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+            --scanners vuln --include-dev-deps \
+            --skip-dirs node_modules --skip-dirs target .
+      - name: Block fixable high and critical image vulnerabilities
+        run: |
+          for image in api sync-worker projection-worker commerce-reconciler lifecycle-worker web migrator database edge; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              -v botmem-v2-trivy-cache:/root/.cache/ \
+              aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 \
+              image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+              "botmem-v2-${image}:ci"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: botmem-v2-sboms
+          path: botmem-v2/reports/sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  hosted-search-scale:
+    name: Hosted search 100k latency gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    needs: [quality]
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg17-bookworm@sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: botmem-v2
+    env:
+      BOTMEM_SCALE_DESTRUCTIVE_CONFIRM: botmem_v2_bench
+      BOTMEM_BENCH_CLUSTER_ADMIN_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+      BOTMEM_BENCH_ADMIN_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/botmem_v2_bench
+      BOTMEM_BENCH_MIGRATOR_DATABASE_URL: postgresql://botmem_bench_migrator@127.0.0.1:5432/botmem_v2_bench
+      BOTMEM_BENCH_API_DATABASE_URL: postgresql://botmem_bench_api@127.0.0.1:5432/botmem_v2_bench
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+          package_json_file: botmem-v2/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+          cache-dependency-path: botmem-v2/pnpm-lock.yaml
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Seed 100k hosted documents and enforce normal/degraded p95
+        run: ./scripts/ci/run-hosted-search-scale.sh
+
+  cli-package:
+    name: Reproducible standalone CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [quality]
+    defaults:
+      run:
+        working-directory: botmem-v2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 9.15.0
+          package_json_file: botmem-v2/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+          cache-dependency-path: botmem-v2/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm package:cli
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: botmem-v2-cli
+          path: |
+            botmem-v2/artifacts/cli/*.tgz
+            botmem-v2/artifacts/cli/*.sha256
+            botmem-v2/artifacts/cli/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  vps-compose:
+    name: Validate Vultr Docker Compose delivery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: botmem-v2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate stable and side-by-side canary Compose models
+        run: ./deploy/vps/validate-local.sh
+
+  macos:
+    name: macOS Swift and Rust tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: botmem-v2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Pin Rust toolchain
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup override set 1.85.1
+      - name: Test the signed-client source tree
+        run: ./scripts/macos/test.sh
+      - name: Confirm release fails closed without a bundled Universal tunnel helper
+        run: |
+          if BOTMEM_VERSION=0.1.0 BOTMEM_BUILD_NUMBER=1 \
+             ./scripts/macos/release-preflight.sh | tee /tmp/preflight.json | grep -q '"ok": true'; then
+            echo 'release preflight unexpectedly passed without release credentials/helper' >&2
+            exit 1
+          fi
+
+  publish-images:
+    name: Publish and keyless-sign ${{ matrix.name }}
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: [containers, postgres-redis, hosted-search-scale, vps-compose, macos]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: api, target: api }
+          - { name: sync-worker, target: sync-worker }
+          - { name: projection-worker, target: projection-worker }
+          - { name: commerce-reconciler, target: commerce-reconciler }
+          - { name: lifecycle-worker, target: lifecycle-worker }
+          - { name: web, target: web }
+          - { name: migrator, target: migrator }
+          - { name: database, target: database }
+          - { name: edge, target: edge }
+    defaults:
+      run:
+        working-directory: botmem-v2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Authenticate to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Publish immutable multi-platform image with provenance and SBOM
+        id: publish
+        env:
+          TARGET: ${{ matrix.target }}
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}/v2-${IMAGE_NAME}"
+          docker buildx create --use --name botmem-v2-publisher
+          docker buildx build . \
+            --platform linux/amd64,linux/arm64 \
+            --target "$TARGET" \
+            --build-arg "BUILD_VERSION=${GITHUB_SHA}" \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --tag "${REPOSITORY}:${GITHUB_SHA}" \
+            --provenance=mode=max --sbom=true --push \
+            --metadata-file /tmp/build-metadata.json
+          DIGEST="$(jq -r '."containerimage.digest"' /tmp/build-metadata.json)"
+          test "${DIGEST#sha256:}" != "$DIGEST"
+          echo "reference=${REPOSITORY}@${DIGEST}" >> "$GITHUB_OUTPUT"
+      - name: Sign the published digest using GitHub OIDC
+        env:
+          IMAGE_REFERENCE: ${{ steps.publish.outputs.reference }}
+        run: cosign sign --yes "$IMAGE_REFERENCE"
+      - name: Record immutable release reference
+        env:
+          IMAGE_REFERENCE: ${{ steps.publish.outputs.reference }}
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          # shellcheck disable=SC2016
+          printf '### %s\n`%s`\n' "$IMAGE_NAME" "$IMAGE_REFERENCE" >> "$GITHUB_STEP_SUMMARY"

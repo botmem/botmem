@@ -1,0 +1,12 @@
+[Unit]
+Description=Check and recover Botmem v2 stateless services
+
+[Timer]
+OnBootSec=3m
+OnUnitActiveSec=2m
+RandomizedDelaySec=15s
+Persistent=true
+Unit=botmem-v2-health-recover.service
+
+[Install]
+WantedBy=timers.target

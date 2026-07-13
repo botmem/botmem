@@ -1,0 +1,37 @@
+{
+	admin off
+	email {$BOTMEM_TLS_CONTACT_EMAIL}
+}
+
+(security_headers) {
+	header {
+		-Server
+		-X-Powered-By
+		Strict-Transport-Security "max-age=31536000"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+	}
+}
+
+botmem.xyz, www.botmem.xyz, app.botmem.xyz {
+	import security_headers
+	@api path /v2/* /health/*
+	handle @api {
+		reverse_proxy api:12412
+	}
+	@immutable path /assets/*
+	handle @immutable {
+		reverse_proxy web:8080
+	}
+	handle {
+		header Cache-Control "no-store, private"
+		reverse_proxy web:8080
+	}
+}
+
+api.botmem.xyz {
+	import security_headers
+	reverse_proxy api:12412
+}

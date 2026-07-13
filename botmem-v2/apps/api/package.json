@@ -1,0 +1,51 @@
+{
+  "name": "@botmem-v2/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "botmem-v2-api": "./dist/bin/api.js",
+    "botmem-v2-sync-worker": "./dist/bin/sync-worker.js",
+    "botmem-v2-projection-worker": "./dist/bin/projection-worker.js",
+    "botmem-v2-commerce-reconciler": "./dist/bin/commerce-reconciler.js",
+    "botmem-v2-lifecycle-worker": "./dist/bin/lifecycle-worker.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start:api": "node dist/bin/api.js",
+    "start:sync-worker": "node dist/bin/sync-worker.js",
+    "start:projection-worker": "node dist/bin/projection-worker.js",
+    "start:commerce-reconciler": "node dist/bin/commerce-reconciler.js",
+    "start:lifecycle-worker": "node dist/bin/lifecycle-worker.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@botmem-v2/connector-domain": "workspace:*",
+    "@botmem-v2/contracts": "workspace:*",
+    "@botmem-v2/mcp": "workspace:*",
+    "@botmem-v2/search-domain": "workspace:*",
+    "@botmem-v2/sdk": "workspace:*",
+    "@fastify/websocket": "11.3.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "fastify": "5.8.5",
+    "pg": "8.21.0",
+    "redis": "6.1.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/pg": "8.20.0",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

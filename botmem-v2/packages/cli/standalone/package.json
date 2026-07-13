@@ -1,0 +1,25 @@
+{
+  "name": "@botmem-v2/cli",
+  "version": "0.1.0",
+  "description": "Botmem v2 command-line client for people and agents",
+  "type": "module",
+  "bin": {
+    "botmem": "bin/botmem.mjs",
+    "botmem-v2": "bin/botmem.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/botmem/botmem",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/botmem/botmem.git",
+    "directory": "botmem-v2/packages/cli"
+  }
+}

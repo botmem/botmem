@@ -1,0 +1,84 @@
+name: Botmem v2 public uptime
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Run before the production monitor variable is enabled
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: botmem-v2-public-uptime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  public-boundary:
+    if: vars.BOTMEM_V2_PUBLIC_MONITOR_ENABLED == 'true' || inputs.force == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    env:
+      API_ORIGIN: ${{ vars.BOTMEM_V2_PUBLIC_API_ORIGIN }}
+      WEB_ORIGIN: ${{ vars.BOTMEM_V2_PUBLIC_WEB_ORIGIN }}
+      GH_TOKEN: ${{ github.token }}
+      INCIDENT_TITLE: '[Botmem v2] Public availability incident'
+    steps:
+      - name: Check TLS, API readiness, and Web HTML
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$API_ORIGIN" =~ ^https://[^/@]+$ && "$WEB_ORIGIN" =~ ^https://[^/@]+$ ]] \
+            || { echo 'monitor configuration requires credential-free HTTPS origins' >&2; exit 78; }
+          reason='healthy'
+          ready="$(curl --proto '=https' --tlsv1.2 --silent --show-error --fail \
+            --connect-timeout 5 --max-time 15 "$API_ORIGIN/health/ready" 2>/dev/null || true)"
+          if [[ "$ready" != *'"status":"ready"'* ]]; then
+            reason='api_not_ready'
+          elif ! curl --proto '=https' --tlsv1.2 --silent --show-error --fail \
+            --connect-timeout 5 --max-time 15 "$WEB_ORIGIN/" | grep -Eqi '<!doctype html|<html'; then
+            reason='web_unavailable'
+          fi
+          echo "reason=$reason" >>"$GITHUB_OUTPUT"
+
+      - name: Open or update bounded incident
+        if: steps.check.outputs.reason != 'healthy'
+        shell: bash
+        env:
+          REASON: ${{ steps.check.outputs.reason }}
+        run: |
+          set -euo pipefail
+          issue="$(gh api --method GET search/issues \
+            -f "q=repo:${GITHUB_REPOSITORY} is:issue is:open in:title \"${INCIDENT_TITLE}\"" \
+            --jq '.items[0].number // empty')"
+          body="Automated public-boundary monitoring failed. Reason code: \`${REASON}\`. Workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. No response body or customer data was retained."
+          if [[ -n "$issue" ]]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f title="$INCIDENT_TITLE" -f body="$body" >/dev/null
+          fi
+          echo "public availability failed: $REASON" >&2
+          exit 1
+
+      - name: Close recovered incident
+        if: steps.check.outputs.reason == 'healthy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          issue="$(gh api --method GET search/issues \
+            -f "q=repo:${GITHUB_REPOSITORY} is:issue is:open in:title \"${INCIDENT_TITLE}\"" \
+            --jq '.items[0].number // empty')"
+          if [[ -n "$issue" ]]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
+              -f body='Public readiness and Web checks recovered. The incident is being closed automatically.' >/dev/null
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${issue}" -f state=closed >/dev/null
+          fi
+          echo 'public availability: healthy'
