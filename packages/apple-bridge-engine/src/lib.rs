@@ -18,9 +18,9 @@ pub mod status;
 
 // Phase 2+ module stubs — kept here so the public module layout is stable as
 // each phase lands.
-pub mod tunnel;
 pub mod index;
 pub mod sources;
+pub mod tunnel;
 
 // Re-export the most useful types for the rlib consumers (tests, tooling).
 pub use config::EngineConfig;

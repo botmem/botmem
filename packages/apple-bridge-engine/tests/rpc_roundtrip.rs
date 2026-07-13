@@ -36,7 +36,9 @@ fn dispatcher() -> IndexDispatcher {
             }],
         )
         .unwrap();
-    store.set_source_state(SourceName::Whatsapp, 1, None).unwrap();
+    store
+        .set_source_state(SourceName::Whatsapp, 1, None)
+        .unwrap();
     IndexDispatcher::new(store)
 }
 

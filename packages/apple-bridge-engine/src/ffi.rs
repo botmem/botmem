@@ -151,9 +151,15 @@ mod tests {
     #[test]
     fn ffi_lifecycle_and_arg_validation() {
         // null / bad config never start an engine
-        assert_eq!(unsafe { botmem_engine_start(ptr::null()) }, BOTMEM_ERR_BAD_ARG);
+        assert_eq!(
+            unsafe { botmem_engine_start(ptr::null()) },
+            BOTMEM_ERR_BAD_ARG
+        );
         let bad = CString::new(r#"{"token":"","server":"wss://x/y"}"#).unwrap();
-        assert_eq!(unsafe { botmem_engine_start(bad.as_ptr()) }, BOTMEM_ERR_CONFIG);
+        assert_eq!(
+            unsafe { botmem_engine_start(bad.as_ptr()) },
+            BOTMEM_ERR_CONFIG
+        );
 
         // ensure a clean baseline, then start
         botmem_engine_stop();

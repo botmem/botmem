@@ -18,11 +18,17 @@ export async function runConnectionsListCommand(
   argv: readonly string[],
   dependencies: Pick<StatusCommandDependencies, 'connections' | 'io'>,
 ): Promise<ConnectionListResponse> {
-  const workspaceId = parseStatusArguments(argv, 'connections', 'list');
+  const { workspaceId, json } = parseStatusArguments(argv, 'connections', 'list');
   const response = ConnectionListResponseSchema.parse(
     await dependencies.connections.listConnections(workspaceId),
   );
-  dependencies.io.writeStdout(`${JSON.stringify(response)}\n`);
+  dependencies.io.writeStdout(
+    json
+      ? `${JSON.stringify(response)}\n`
+      : renderList(
+          response.items.map((item) => `${item.id} ${item.connector} ${item.state}`),
+        ),
+  );
   return response;
 }
 
@@ -30,19 +36,27 @@ export async function runDevicesStatusCommand(
   argv: readonly string[],
   dependencies: Pick<StatusCommandDependencies, 'devices' | 'io'>,
 ): Promise<DeviceListResponse> {
-  const workspaceId = parseStatusArguments(argv, 'devices', 'status');
+  const { workspaceId, json } = parseStatusArguments(argv, 'devices', 'status');
   const response = DeviceListResponseSchema.parse(
     await dependencies.devices.listDevices(workspaceId),
   );
-  dependencies.io.writeStdout(`${JSON.stringify(response)}\n`);
+  dependencies.io.writeStdout(
+    json
+      ? `${JSON.stringify(response)}\n`
+      : renderList(response.items.map((item) => `${item.deviceId} ${item.displayName} ${item.state}`)),
+  );
   return response;
+}
+
+function renderList(rows: readonly string[]): string {
+  return `${rows.length === 0 ? '(none)' : rows.join('\n')}\n`;
 }
 
 function parseStatusArguments(
   argv: readonly string[],
   noun: 'connections' | 'devices',
   verb: 'list' | 'status',
-): string {
+): { workspaceId: string; json: boolean } {
   if (argv[0] !== noun || argv[1] !== verb) {
     throw new CliUsageError(`expected the ${noun} ${verb} command`);
   }
@@ -65,5 +79,5 @@ function parseStatusArguments(
     index += 1;
   }
   if (!workspace) throw new CliUsageError('--workspace is required');
-  return parseWorkspaceId(workspace);
+  return { workspaceId: parseWorkspaceId(workspace), json: jsonSeen };
 }

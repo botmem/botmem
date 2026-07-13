@@ -53,18 +53,22 @@ impl Engine {
         // reads it. Fall back to a stub dispatcher (tunnel still runs) if it
         // can't open, so a disk hiccup doesn't take the bridge down.
         let index_path = data_dir.join("index.sqlite");
-        let (dispatch, shared): (Arc<dyn RpcDispatch>, Option<SharedStore>) =
-            match IndexStore::open(&index_path) {
-                Ok(store) => {
-                    let shared: SharedStore = Arc::new(Mutex::new(store));
-                    (Arc::new(IndexDispatcher::from_shared(Arc::clone(&shared))), Some(shared))
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "could not open local index; serving stub dispatcher");
-                    status.push_activity("Index unavailable");
-                    (Arc::new(StubDispatcher), None)
-                }
-            };
+        let (dispatch, shared): (Arc<dyn RpcDispatch>, Option<SharedStore>) = match IndexStore::open(
+            &index_path,
+        ) {
+            Ok(store) => {
+                let shared: SharedStore = Arc::new(Mutex::new(store));
+                (
+                    Arc::new(IndexDispatcher::from_shared(Arc::clone(&shared))),
+                    Some(shared),
+                )
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "could not open local index; serving stub dispatcher");
+                status.push_activity("Index unavailable");
+                (Arc::new(StubDispatcher), None)
+            }
+        };
 
         let stop_flag = Arc::new(AtomicBool::new(false));
 
@@ -95,7 +99,13 @@ impl Engine {
             run(task_config, task_status, shutdown_rx, dispatch).await;
         });
 
-        Ok(Self { runtime, status, shutdown_tx, stop_flag, index_thread })
+        Ok(Self {
+            runtime,
+            status,
+            shutdown_tx,
+            stop_flag,
+            index_thread,
+        })
     }
 
     /// Status writer handle (used by the FFI `status_json` mirror).
@@ -108,13 +118,15 @@ impl Engine {
         tracing::info!("engine stopping");
         self.stop_flag.store(true, Ordering::Relaxed);
         let _ = self.shutdown_tx.send(true);
-        self.runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+        self.runtime
+            .shutdown_timeout(std::time::Duration::from_secs(2));
         // The indexer aborts at its next batch boundary once stop_flag is set.
         if let Some(handle) = self.index_thread.take() {
             let _ = handle.join();
         }
         self.status.set_connected(false);
-        self.status.set_state(BridgeState::Offline, "Bridge stopped");
+        self.status
+            .set_state(BridgeState::Offline, "Bridge stopped");
         self.status.close();
     }
 }

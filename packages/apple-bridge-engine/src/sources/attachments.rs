@@ -10,6 +10,9 @@ use std::path::Path;
 const MAX_DOC_CHARS: usize = 50_000;
 /// Skip parsing attachments larger than this (cost guard).
 const MAX_DOC_BYTES: u64 = 25 * 1024 * 1024;
+/// Cap the decompressed size of a single zip entry (e.g. `word/document.xml`)
+/// so a highly compressible "zip bomb" attachment cannot inflate to multi-GB.
+const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Extract plain text from a downloaded attachment. "" on any failure/unknown type.
 pub fn extract_doc_text(abs: &Path) -> String {
@@ -52,7 +55,11 @@ fn extract_docx(path: &Path) -> Option<String> {
     let file = std::fs::File::open(path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
     let mut xml = String::new();
-    zip.by_name("word/document.xml").ok()?.read_to_string(&mut xml).ok()?;
+    zip.by_name("word/document.xml")
+        .ok()?
+        .take(MAX_ENTRY_BYTES)
+        .read_to_string(&mut xml)
+        .ok()?;
 
     let mut reader = Reader::from_str(&xml);
     reader.config_mut().trim_text(false);

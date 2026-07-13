@@ -24,6 +24,20 @@ describe('status CLI commands', () => {
     expect(output).toBe('{"version":2,"items":[]}\n');
   });
 
+  it('connectionsList_withoutJsonFlag_rendersHumanReadableDefault', async () => {
+    let output = '';
+    const connections = {
+      listConnections: async () => ({ version: 2 as const, items: [] }),
+    } as ConnectionsApplicationService;
+
+    await runConnectionsListCommand(['connections', 'list', '--workspace', WORKSPACE_ID], {
+      connections,
+      io: { writeStdout: (value) => (output += value) },
+    });
+
+    expect(output).toBe('(none)\n');
+  });
+
   it('devicesStatus_rejectsUnknownOptionsBeforeCallingTheApi', async () => {
     let called = false;
     const devices: DevicesApplicationService = {

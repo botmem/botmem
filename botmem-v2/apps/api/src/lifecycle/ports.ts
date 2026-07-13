@@ -107,6 +107,7 @@ export interface LifecycleWorkerRepositoryPort {
 }
 
 export interface LifecycleArtifactWriterPort {
+  readonly maxRecordBytes: number;
   write(line: string): Promise<void>;
   commit(): Promise<string>;
   abort(): Promise<void>;

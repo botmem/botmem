@@ -70,14 +70,17 @@ impl TunnelClient {
             if *shutdown.borrow() {
                 break;
             }
-            self.status.set_state(BridgeState::Connecting, "Connecting to Botmem…");
+            self.status
+                .set_state(BridgeState::Connecting, "Connecting to Botmem…");
 
             match self.connect_once(&mut shutdown).await {
                 ConnOutcome::Shutdown => break,
                 ConnOutcome::Fatal(reason) => {
                     self.status.set_connected(false);
-                    self.status.set_error(Some(format!("Authentication failed: {reason}")));
-                    self.status.set_state(BridgeState::Error, "Authentication failed");
+                    self.status
+                        .set_error(Some(format!("Authentication failed: {reason}")));
+                    self.status
+                        .set_state(BridgeState::Error, "Authentication failed");
                     self.status.push_activity("Authentication failed");
                     tracing::error!("tunnel auth failed (permanent): {reason}");
                     break;
@@ -86,7 +89,8 @@ impl TunnelClient {
                     // We had a good connection; reset backoff.
                     attempt = 0;
                     self.status.set_connected(false);
-                    self.status.set_state(BridgeState::Connecting, "Reconnecting to Botmem…");
+                    self.status
+                        .set_state(BridgeState::Connecting, "Reconnecting to Botmem…");
                     self.status.push_activity("Disconnected");
                     if self.backoff(attempt, &mut shutdown).await {
                         break;
@@ -94,7 +98,8 @@ impl TunnelClient {
                 }
                 ConnOutcome::ConnectError(msg) => {
                     self.status.set_connected(false);
-                    self.status.set_state(BridgeState::Connecting, "Reconnecting to Botmem…");
+                    self.status
+                        .set_state(BridgeState::Connecting, "Reconnecting to Botmem…");
                     tracing::warn!("tunnel connect error: {msg}");
                     let did_shutdown = self.backoff(attempt, &mut shutdown).await;
                     attempt = attempt.saturating_add(1);
@@ -109,7 +114,9 @@ impl TunnelClient {
 
     /// Sleep for the backoff delay, returning true if shutdown fired meanwhile.
     async fn backoff(&self, attempt: u32, shutdown: &mut watch::Receiver<bool>) -> bool {
-        let delay = (1000u64).saturating_mul(1u64 << attempt.min(5)).min(MAX_BACKOFF_MS);
+        let delay = (1000u64)
+            .saturating_mul(1u64 << attempt.min(5))
+            .min(MAX_BACKOFF_MS);
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_millis(delay)) => false,
             _ = wait_shutdown(shutdown) => true,
@@ -138,7 +145,8 @@ impl TunnelClient {
         let (mut write, mut read) = ws_stream.split();
 
         // ── Handshake ────────────────────────────────────────────────────────
-        self.status.set_state(BridgeState::Connecting, "Authenticating…");
+        self.status
+            .set_state(BridgeState::Connecting, "Authenticating…");
         let keypair = match KeyPair::generate() {
             Ok(k) => k,
             Err(e) => return ConnOutcome::ConnectError(e.to_string()),
@@ -177,11 +185,15 @@ impl TunnelClient {
                     }
                     let pk_b64 = match resp.data.public_key {
                         Some(p) => p,
-                        None => return ConnOutcome::ConnectError("auth resp missing publicKey".into()),
+                        None => {
+                            return ConnOutcome::ConnectError("auth resp missing publicKey".into())
+                        }
                     };
                     let pk = match B64.decode(pk_b64.as_bytes()) {
                         Ok(p) => p,
-                        Err(e) => return ConnOutcome::ConnectError(format!("bad server pubkey: {e}")),
+                        Err(e) => {
+                            return ConnOutcome::ConnectError(format!("bad server pubkey: {e}"))
+                        }
                     };
                     match keypair.derive_session_key(&pk) {
                         Ok(k) => break k,
@@ -206,9 +218,9 @@ impl TunnelClient {
 
         let mut hb = tokio::time::interval(HEARTBEAT_INTERVAL);
         hb.tick().await; // consume the immediate first tick
-        // True once we've pinged and are awaiting a pong; if still true at the
-        // next tick, the peer is unresponsive (~detection within one interval;
-        // well under the server's 90s stale window).
+                         // True once we've pinged and are awaiting a pong; if still true at the
+                         // next tick, the peer is unresponsive (~detection within one interval;
+                         // well under the server's 90s stale window).
         let mut awaiting_pong = false;
 
         loop {

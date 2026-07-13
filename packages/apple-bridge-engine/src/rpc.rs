@@ -28,7 +28,10 @@ pub struct RpcError {
 
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
     pub fn method_not_found(method: &str) -> Self {
         Self::new(-32601, format!("Method not found: {method}"))
@@ -49,7 +52,9 @@ pub trait RpcDispatch: Send + Sync {
 pub fn response_json(id: &Value, outcome: Result<Value, RpcError>) -> Value {
     match outcome {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-        Err(e) => json!({ "jsonrpc": "2.0", "id": id, "error": { "code": e.code, "message": e.message } }),
+        Err(e) => {
+            json!({ "jsonrpc": "2.0", "id": id, "error": { "code": e.code, "message": e.message } })
+        }
     }
 }
 

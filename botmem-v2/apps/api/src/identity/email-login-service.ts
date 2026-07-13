@@ -107,7 +107,6 @@ export class EmailLoginService {
         secretHashHex: token.hashHex,
         cancelledAt: new Date(this.clock.nowMs()).toISOString(),
       });
-      throw new LoginDeliveryUnavailableError();
     }
   }
 

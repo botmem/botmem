@@ -125,19 +125,34 @@ export class WorkspaceLifecycleWorker {
           // Only user-owned hosted event fields are emitted. Internal hashes,
           // encrypted credentials, projection data, and local device content
           // are absent from this contract.
-          await writer.write(
-            `${JSON.stringify({
-              type: 'hosted_event',
-              connector: item.connector,
-              sourceEventId: item.sourceEventId,
-              sourceRevision: item.sourceRevision,
-              kind: item.kind,
-              occurredAt: item.occurredAt,
-              observedAt: item.observedAt,
-              payload: item.payload,
-              tombstone: item.tombstone,
-            })}\n`,
-          );
+          const record = `${JSON.stringify({
+            type: 'hosted_event',
+            connector: item.connector,
+            sourceEventId: item.sourceEventId,
+            sourceRevision: item.sourceRevision,
+            kind: item.kind,
+            occurredAt: item.occurredAt,
+            observedAt: item.observedAt,
+            payload: item.payload,
+            tombstone: item.tombstone,
+          })}\n`;
+          if (Buffer.byteLength(record, 'utf8') > writer.maxRecordBytes) {
+            await writer.write(
+              `${JSON.stringify({
+                type: 'hosted_event_skipped',
+                connector: item.connector,
+                sourceEventId: item.sourceEventId,
+                sourceRevision: item.sourceRevision,
+                kind: item.kind,
+                occurredAt: item.occurredAt,
+                observedAt: item.observedAt,
+                tombstone: item.tombstone,
+                reason: 'record_exceeds_size_limit',
+              })}\n`,
+            );
+            continue;
+          }
+          await writer.write(record);
         }
         cursor = page.nextCursor;
       } while (cursor);

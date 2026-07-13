@@ -73,30 +73,49 @@ export class CommerceReconciler {
       maxAttempts: this.maxAttempts,
     });
     if (!claimed) return 'idle';
+    let outcome: 'processed' | 'ignored';
     try {
-      const outcome = await this.process(claimed);
+      outcome = await this.process(claimed);
+    } catch (error) {
+      return this.scheduleRetry(workerId, claimed, error);
+    }
+    try {
       await this.repository.settleWebhook({
         eventId: claimed.envelope.eventId,
+        workerId,
         outcome,
         completedAt: new Date(this.clock.nowMs()).toISOString(),
       });
-      return outcome;
-    } catch (error) {
-      const failureCode =
-        error instanceof CommerceReconciliationStageError
-          ? error.code
-          : 'BILLING_RECONCILIATION_FAILED';
-      const failedAtMs = this.clock.nowMs();
-      const deadLetter = claimed.attempts >= this.maxAttempts;
+    } catch {
+      return 'idle';
+    }
+    return outcome;
+  }
+
+  private async scheduleRetry(
+    workerId: string,
+    claimed: ClaimedStripeWebhook,
+    error: unknown,
+  ): Promise<CommerceReconciliationResult> {
+    const failureCode =
+      error instanceof CommerceReconciliationStageError
+        ? error.code
+        : 'BILLING_RECONCILIATION_FAILED';
+    const failedAtMs = this.clock.nowMs();
+    const deadLetter = claimed.attempts >= this.maxAttempts;
+    try {
       await this.repository.retryWebhook({
         eventId: claimed.envelope.eventId,
+        workerId,
         failureCode,
         failedAt: new Date(failedAtMs).toISOString(),
         availableAt: new Date(failedAtMs + this.retryDelay(claimed.attempts)).toISOString(),
         deadLetter,
       });
-      return deadLetter ? 'dead_letter' : 'retry_scheduled';
+    } catch {
+      return 'idle';
     }
+    return deadLetter ? 'dead_letter' : 'retry_scheduled';
   }
 
   async heartbeat(workerId: string, startedAt: string): Promise<void> {

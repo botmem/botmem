@@ -42,7 +42,9 @@ pub fn extract_attributed_body_text(body: &[u8]) -> String {
                     search_from = after_class;
                     continue;
                 }
-                let text = String::from_utf8_lossy(&body[start..end]).trim().to_string();
+                let text = String::from_utf8_lossy(&body[start..end])
+                    .trim()
+                    .to_string();
                 if is_likely_message_text(&text) {
                     return text;
                 }
@@ -139,7 +141,10 @@ mod tests {
     #[test]
     fn extracts_short_string() {
         let b = blob_with("next installment is 50,000");
-        assert_eq!(extract_attributed_body_text(&b), "next installment is 50,000");
+        assert_eq!(
+            extract_attributed_body_text(&b),
+            "next installment is 50,000"
+        );
     }
 
     #[test]
@@ -162,7 +167,10 @@ mod tests {
 
     #[test]
     fn no_nsstring_yields_empty() {
-        assert_eq!(extract_attributed_body_text(b"random bytes with no marker"), "");
+        assert_eq!(
+            extract_attributed_body_text(b"random bytes with no marker"),
+            ""
+        );
     }
 
     #[test]

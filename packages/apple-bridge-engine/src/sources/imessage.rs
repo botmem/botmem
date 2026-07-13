@@ -33,7 +33,11 @@ pub fn detect(db_path: &Path) -> bool {
 }
 
 /// Stream normalized message records into `sink`. Returns the record count.
-pub fn read(db_path: &Path, cancelled: Cancelled<'_>, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
+pub fn read(
+    db_path: &Path,
+    cancelled: Cancelled<'_>,
+    sink: RecordSink<'_>,
+) -> Result<usize, rusqlite::Error> {
     let conn = open_ro(db_path)?;
     read_conn(&conn, cancelled, sink)
 }
@@ -72,7 +76,9 @@ pub(crate) fn read_conn(
 
         let text = match text_col {
             Some(t) if !t.is_empty() => t,
-            _ => super::attributed_body::extract_attributed_body_text(body.as_deref().unwrap_or(&[])),
+            _ => {
+                super::attributed_body::extract_attributed_body_text(body.as_deref().unwrap_or(&[]))
+            }
         };
         if text.is_empty() {
             continue;
@@ -83,7 +89,11 @@ pub(crate) fn read_conn(
             source_id: id.to_string(),
             thread_id: chat_id.unwrap_or_default(),
             thread_title: chat_title.unwrap_or_default(),
-            sender_name: if from_me { "Me".to_string() } else { handle.clone().unwrap_or_default() },
+            sender_name: if from_me {
+                "Me".to_string()
+            } else {
+                handle.clone().unwrap_or_default()
+            },
             sender_id: handle.unwrap_or_default(),
             is_from_me: from_me,
             ts: to_unix_seconds(date),
@@ -129,8 +139,11 @@ mod tests {
             v.extend_from_slice(t);
             v
         };
-        c.execute("UPDATE message SET attributedBody = ?1 WHERE ROWID = 11", [blob])
-            .unwrap();
+        c.execute(
+            "UPDATE message SET attributedBody = ?1 WHERE ROWID = 11",
+            [blob],
+        )
+        .unwrap();
         c
     }
 

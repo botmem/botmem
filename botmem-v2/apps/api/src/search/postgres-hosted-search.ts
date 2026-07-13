@@ -88,12 +88,14 @@ export class PostgresHostedSearch implements HostedSearchPort {
     throwIfAborted(context.signal);
     let embedding: QueryEmbedding | undefined;
     let degradationReason: string | undefined;
+    let degradationRetryable = true;
     try {
       embedding = await this.embeddings.embed(request.query, context.signal);
       this.validateEmbedding(embedding);
     } catch (error) {
       throwIfAborted(context.signal);
       degradationReason = embeddingFailureReason(error);
+      degradationRetryable = embeddingFailureRetryable(error);
     }
     const laneLimit = Math.min(200, request.limit * this.laneOversampling);
 
@@ -123,6 +125,7 @@ export class PostgresHostedSearch implements HostedSearchPort {
         } catch (error) {
           if (!isRecoverableProfileFailure(error)) throw error;
           degradationReason = error.code;
+          degradationRetryable = true;
           embedding = undefined;
         }
       }
@@ -155,7 +158,7 @@ export class PostgresHostedSearch implements HostedSearchPort {
           ? {
               degradation: Object.freeze({
                 reasonCode: degradationReason,
-                retryable: true,
+                retryable: degradationRetryable,
               }),
             }
           : {}),
@@ -223,6 +226,20 @@ function embeddingFailureReason(error: unknown): string {
 function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
   return typeof error.code === 'string' ? error.code : undefined;
+}
+
+function embeddingFailureRetryable(error: unknown): boolean {
+  const status = errorStatus(error);
+  if (status !== undefined && status >= 400 && status < 500 && status !== 429) {
+    return false;
+  }
+  return true;
+}
+
+function errorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || !('status' in error)) return undefined;
+  const status = (error as { readonly status?: unknown }).status;
+  return typeof status === 'number' ? status : undefined;
 }
 
 function isRecoverableProfileFailure(error: unknown): error is HostedSearchFailure {

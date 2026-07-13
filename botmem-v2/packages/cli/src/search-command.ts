@@ -26,7 +26,7 @@ export async function runSearchCommand(
   const options = parseArguments(argv);
   const response = await dependencies.search.search(options.workspaceId, options.request);
   const validated = parseSearchResponse(response);
-  dependencies.io.writeStdout(renderSearchJson(validated));
+  dependencies.io.writeStdout(options.json ? renderSearchJson(validated) : renderSearchText(validated));
   return validated;
 }
 
@@ -34,9 +34,28 @@ export function renderSearchJson(response: SearchResponse): string {
   return `${JSON.stringify(response)}\n`;
 }
 
+export function renderSearchText(response: SearchResponse): string {
+  const lines: string[] = [];
+  lines.push(`${response.found} result${response.found === 1 ? '' : 's'} in ${response.tookMs}ms`);
+  for (const hit of response.items) {
+    const when = hit.occurredAt ?? 'unknown time';
+    const label = hit.title ?? hit.text.split('\n', 1)[0] ?? '';
+    lines.push(`${hit.ranking.rank}. [${hit.origin.connector}] ${when} ${label}`.trimEnd());
+  }
+  for (const lane of response.coverage.lanes) {
+    if (lane.status !== 'complete') {
+      lines.push(
+        `! lane ${lane.laneId} (${lane.placement}) ${lane.status}${lane.reasonCode ? `: ${lane.reasonCode}` : ''}`,
+      );
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 function parseArguments(argv: readonly string[]): {
   workspaceId: string;
   request: SearchRequestInput;
+  json: boolean;
 } {
   if (argv[0] !== 'search') throw new CliUsageError('expected the search command');
   const values = new Map<string, string[]>();
@@ -95,7 +114,7 @@ function parseArguments(argv: readonly string[]): {
     ...(accountIds ? { accountIds } : {}),
     ...(deviceIds ? { deviceIds } : {}),
   });
-  return { workspaceId, request };
+  return { workspaceId, request, json: jsonSeen };
 }
 
 function one(values: ReadonlyMap<string, readonly string[]>, flag: string): string {

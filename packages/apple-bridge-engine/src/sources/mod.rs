@@ -94,7 +94,11 @@ impl EnabledSources {
             .filter(|p| !p.is_empty())
             .collect();
         if parts.is_empty() {
-            return Self { contacts: true, imessages: true, whatsapp: true };
+            return Self {
+                contacts: true,
+                imessages: true,
+                whatsapp: true,
+            };
         }
         Self {
             contacts: parts.iter().any(|p| p == "contacts"),
@@ -157,7 +161,10 @@ pub fn build_index(
         if let Ok(states) = s.status() {
             let sources: Vec<StatusSource> = states
                 .into_iter()
-                .map(|st| StatusSource { source: st.source, count: st.count as u64 })
+                .map(|st| StatusSource {
+                    source: st.source,
+                    count: st.count as u64,
+                })
                 .collect();
             status.set_sources(sources);
         }

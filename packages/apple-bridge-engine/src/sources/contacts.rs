@@ -56,7 +56,11 @@ pub fn detect(base: &Path) -> bool {
 
 /// Stream contact records into `sink`. `base` may be a directory (enumerate) or
 /// a single `.abcddb`. Returns the record count.
-pub fn read(base: &Path, cancelled: Cancelled<'_>, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
+pub fn read(
+    base: &Path,
+    cancelled: Cancelled<'_>,
+    sink: RecordSink<'_>,
+) -> Result<usize, rusqlite::Error> {
     let dbs = if base.extension().map(|e| e == "abcddb").unwrap_or(false) {
         vec![base.to_path_buf()]
     } else {
@@ -106,7 +110,11 @@ pub(crate) fn read_conn(
             .join(" ")
             .trim()
             .to_string();
-        let name = if !full.is_empty() { full } else { org.clone().unwrap_or_default() };
+        let name = if !full.is_empty() {
+            full
+        } else {
+            org.clone().unwrap_or_default()
+        };
         if name.is_empty() {
             continue;
         }
@@ -200,7 +208,9 @@ pub fn list_apple_contacts(
 /// version without these tables/columns degrades gracefully.
 fn owner_values(conn: &Connection, sql: &str) -> HashMap<i64, Vec<String>> {
     let mut map: HashMap<i64, Vec<String>> = HashMap::new();
-    let Ok(mut stmt) = conn.prepare(sql) else { return map };
+    let Ok(mut stmt) = conn.prepare(sql) else {
+        return map;
+    };
     let Ok(rows) = stmt.query_map([], |r| {
         Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<String>>(1)?))
     }) else {
@@ -288,7 +298,13 @@ mod tests {
     fn reads_names_and_orgs() {
         let c = fixture();
         let mut got = Vec::new();
-        let n = read_conn(&c, "icloudAB", &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
+        let n = read_conn(
+            &c,
+            "icloudAB",
+            &crate::sources::never_cancelled(),
+            &mut |r| got.push(r),
+        )
+        .unwrap();
         assert_eq!(n, 2);
 
         let person = got.iter().find(|r| r.source_id == "icloudAB:1").unwrap();

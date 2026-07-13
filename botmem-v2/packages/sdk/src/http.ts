@@ -75,7 +75,7 @@ export class FetchHttpTransport implements HttpTransport {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     const fetchImplementation = options.fetch ?? globalThis.fetch;
     this.fetch = fetchImplementation?.bind(globalThis);
-    this.timeoutMs = options.timeoutMs ?? 5_000;
+    this.timeoutMs = options.timeoutMs ?? 30_000;
     this.credentials = options.credentials ?? 'same-origin';
     if (!this.fetch) throw new Error('global fetch is unavailable');
     if (!Number.isInteger(this.timeoutMs) || this.timeoutMs <= 0 || this.timeoutMs > 60_000) {
@@ -100,11 +100,20 @@ export class FetchHttpTransport implements HttpTransport {
       const text = await response.text();
       return {
         status: response.status,
-        body: text.length > 0 ? JSON.parse(text) : null,
+        body: parseJsonBody(text),
       };
     } finally {
       clearTimeout(timeout);
     }
+  }
+}
+
+function parseJsonBody(text: string): unknown {
+  if (text.length === 0) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }
 

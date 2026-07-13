@@ -136,8 +136,11 @@ export function AccountWorkspace({
       const link = document.createElement('a');
       link.href = url;
       link.download = `botmem-hosted-export-${workspaceId}.ndjson`;
+      link.rel = 'noopener';
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setReload((value) => value + 1);
     } catch (error) {
       setActionError(message(error, 'Export download failed.'));

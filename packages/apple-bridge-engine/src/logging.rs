@@ -15,8 +15,8 @@ static INIT: OnceCell<()> = OnceCell::new();
 /// `botmem_engine=debug`), defaulting to `info`.
 pub fn init() {
     INIT.get_or_init(|| {
-        let filter = EnvFilter::try_from_env("BOTMEM_BRIDGE_LOG")
-            .unwrap_or_else(|_| EnvFilter::new("info"));
+        let filter =
+            EnvFilter::try_from_env("BOTMEM_BRIDGE_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
         // Writes to stderr; the Swift host captures it. No ANSI (log files).
         let _ = fmt()
             .with_env_filter(filter)

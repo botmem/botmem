@@ -126,12 +126,23 @@ pub(crate) struct AttachCtx {
     pub real_container: PathBuf,
 }
 
-pub fn read(db_path: &Path, cancelled: Cancelled<'_>, sink: RecordSink<'_>) -> Result<usize, rusqlite::Error> {
+pub fn read(
+    db_path: &Path,
+    cancelled: Cancelled<'_>,
+    sink: RecordSink<'_>,
+) -> Result<usize, rusqlite::Error> {
     let conn = open_ro(db_path)?;
-    let container_dir = db_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let container_dir = db_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     let names = load_contact_names(&container_dir);
-    let real_container = std::fs::canonicalize(&container_dir).unwrap_or_else(|_| container_dir.clone());
-    let attach = AttachCtx { container: container_dir, real_container };
+    let real_container =
+        std::fs::canonicalize(&container_dir).unwrap_or_else(|_| container_dir.clone());
+    let attach = AttachCtx {
+        container: container_dir,
+        real_container,
+    };
     read_conn(&conn, &names, Some(&attach), cancelled, sink)
 }
 
@@ -185,12 +196,18 @@ pub(crate) fn read_conn(
             .unwrap_or_default();
         let digits = jid_digits(&sender_jid);
         let sender_name = if !digits.is_empty() {
-            names.get(&digits).cloned().unwrap_or_else(|| format!("+{digits}"))
+            names
+                .get(&digits)
+                .cloned()
+                .unwrap_or_else(|| format!("+{digits}"))
         } else {
             String::new()
         };
 
-        let caption = media_title.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let caption = media_title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         let mut text = text_col.filter(|t| !t.is_empty()).unwrap_or_default();
 
         // Extract text from a downloaded document attachment (PDF/DOCX/TXT/CSV).
@@ -233,7 +250,9 @@ pub(crate) fn read_conn(
             sender_name,
             sender_id: sender_jid,
             is_from_me: is_from_me != 0,
-            ts: ts.map(|t| (t + CORE_DATA_EPOCH).round() as i64).unwrap_or(0),
+            ts: ts
+                .map(|t| (t + CORE_DATA_EPOCH).round() as i64)
+                .unwrap_or(0),
             text,
             media_json,
         });
@@ -276,7 +295,14 @@ mod tests {
         let mut names = HashMap::new();
         names.insert("971501234567".to_string(), "Mostafa".to_string());
         let mut got = Vec::new();
-        let n = read_conn(&c, &names, None, &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
+        let n = read_conn(
+            &c,
+            &names,
+            None,
+            &crate::sources::never_cancelled(),
+            &mut |r| got.push(r),
+        )
+        .unwrap();
         assert_eq!(n, 2);
 
         let msg = got.iter().find(|r| r.source_id == "100").unwrap();
@@ -295,7 +321,14 @@ mod tests {
         let c = fixture();
         let names = HashMap::new(); // empty → no resolution
         let mut got = Vec::new();
-        read_conn(&c, &names, None, &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
+        read_conn(
+            &c,
+            &names,
+            None,
+            &crate::sources::never_cancelled(),
+            &mut |r| got.push(r),
+        )
+        .unwrap();
         let msg = got.iter().find(|r| r.source_id == "100").unwrap();
         assert_eq!(msg.sender_name, "+971501234567");
     }
@@ -308,7 +341,8 @@ mod tests {
         let container = std::fs::canonicalize(dir.path()).unwrap();
         std::fs::create_dir_all(container.join("Message/Media")).unwrap();
         let mut f = std::fs::File::create(container.join("Message/Media/doc.txt")).unwrap();
-        f.write_all(b"the next installment amount is 50,000 due Friday").unwrap();
+        f.write_all(b"the next installment amount is 50,000 due Friday")
+            .unwrap();
 
         // A media row pointing at that file, with no ZTEXT.
         let c = Connection::open_in_memory().unwrap();
@@ -327,12 +361,26 @@ mod tests {
         )
         .unwrap();
 
-        let attach = AttachCtx { container: container.clone(), real_container: container };
+        let attach = AttachCtx {
+            container: container.clone(),
+            real_container: container,
+        };
         let names = HashMap::new();
         let mut got = Vec::new();
-        read_conn(&c, &names, Some(&attach), &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
+        read_conn(
+            &c,
+            &names,
+            Some(&attach),
+            &crate::sources::never_cancelled(),
+            &mut |r| got.push(r),
+        )
+        .unwrap();
         let msg = got.iter().find(|r| r.source_id == "200").unwrap();
-        assert!(msg.text.contains("installment amount is 50,000"), "got: {:?}", msg.text);
+        assert!(
+            msg.text.contains("installment amount is 50,000"),
+            "got: {:?}",
+            msg.text
+        );
         // caption is included alongside the extracted text
         assert!(msg.text.contains("statement.txt"));
     }
@@ -364,13 +412,27 @@ mod tests {
         .unwrap();
 
         let real_container = std::fs::canonicalize(&container).unwrap();
-        let attach = AttachCtx { container, real_container };
+        let attach = AttachCtx {
+            container,
+            real_container,
+        };
         let names = HashMap::new();
         let mut got = Vec::new();
-        read_conn(&c, &names, Some(&attach), &crate::sources::never_cancelled(), &mut |r| got.push(r)).unwrap();
+        read_conn(
+            &c,
+            &names,
+            Some(&attach),
+            &crate::sources::never_cancelled(),
+            &mut |r| got.push(r),
+        )
+        .unwrap();
         let msg = got.iter().find(|r| r.source_id == "300").unwrap();
         // Traversal blocked → secret never read; falls back to the caption only.
-        assert!(!msg.text.contains("top secret"), "path traversal leaked: {:?}", msg.text);
+        assert!(
+            !msg.text.contains("top secret"),
+            "path traversal leaked: {:?}",
+            msg.text
+        );
         assert_eq!(msg.text, "cap.txt");
     }
 }

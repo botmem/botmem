@@ -65,6 +65,11 @@ function mapStatus(status: number): GmailProviderError {
 }
 
 export class GoogleGmailAdapter implements GmailOAuthProviderPort, GmailApiPort {
+  private readonly inflightRefresh = new WeakMap<
+    GmailAuthorizationSession,
+    Promise<OAuthTokenSet>
+  >();
+
   public constructor(
     private readonly config: GoogleProviderConfig,
     private readonly http: BoundedHttpClientPort,
@@ -267,7 +272,21 @@ export class GoogleGmailAdapter implements GmailOAuthProviderPort, GmailApiPort 
     });
   }
 
-  private async refresh(
+  private refresh(
+    previous: OAuthTokenSet,
+    authorization: GmailAuthorizationSession,
+    signal?: AbortSignal,
+  ): Promise<OAuthTokenSet> {
+    const existing = this.inflightRefresh.get(authorization);
+    if (existing) return existing;
+    const pending = this.performRefresh(previous, authorization, signal).finally(() => {
+      this.inflightRefresh.delete(authorization);
+    });
+    this.inflightRefresh.set(authorization, pending);
+    return pending;
+  }
+
+  private async performRefresh(
     previous: OAuthTokenSet,
     authorization: GmailAuthorizationSession,
     signal?: AbortSignal,

@@ -319,6 +319,7 @@ export class SharedFilesystemLifecycleArtifactStore implements LifecycleArtifact
 }
 
 class FilesystemArtifactWriter implements LifecycleArtifactWriterPort {
+  readonly maxRecordBytes = MAX_RECORD_BYTES;
   private closed = false;
   private writtenBytes = 0;
 

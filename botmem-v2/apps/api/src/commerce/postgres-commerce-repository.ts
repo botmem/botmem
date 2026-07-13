@@ -379,10 +379,10 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
                   SET state = $2, worker_id = NULL, claimed_at = NULL,
                       lease_expires_at = NULL,
                       processed_at = $3::timestamptz, failure_code = NULL
-                WHERE id = $1 AND state = 'processing'`,
-        values: [input.eventId, input.outcome, input.completedAt],
+                WHERE id = $1 AND state = 'processing' AND worker_id = $4`,
+        values: [input.eventId, input.outcome, input.completedAt, input.workerId],
       });
-      if (result.rowCount !== 1) throw new CommercePersistenceError();
+      if (result.rowCount !== 1) throw new CommerceLeaseLostError();
     });
   }
 
@@ -396,16 +396,17 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
                       processed_at = CASE WHEN $5 THEN $3::timestamptz ELSE NULL END,
                       failure_code = $2,
                       available_at = $4::timestamptz
-                WHERE id = $1 AND state = 'processing'`,
+                WHERE id = $1 AND state = 'processing' AND worker_id = $6`,
         values: [
           input.eventId,
           input.failureCode,
           input.failedAt,
           input.availableAt,
           input.deadLetter,
+          input.workerId,
         ],
       });
-      if (result.rowCount !== 1) throw new CommercePersistenceError();
+      if (result.rowCount !== 1) throw new CommerceLeaseLostError();
     });
   }
 
@@ -514,4 +515,8 @@ function iso(value: Date | string): string {
 
 export class CommercePersistenceError extends Error {
   override readonly name = 'CommercePersistenceError';
+}
+
+export class CommerceLeaseLostError extends Error {
+  override readonly name = 'CommerceLeaseLostError';
 }

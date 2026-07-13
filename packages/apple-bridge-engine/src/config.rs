@@ -44,7 +44,15 @@ impl EngineConfig {
         if self.server.trim().is_empty() {
             return Err(ConfigError::Missing("server"));
         }
-        if !(self.server.starts_with("ws://") || self.server.starts_with("wss://")) {
+        if let Some(rest) = self.server.strip_prefix("wss://") {
+            if rest.is_empty() {
+                return Err(ConfigError::BadServer);
+            }
+        } else if let Some(rest) = self.server.strip_prefix("ws://") {
+            if !is_loopback_authority(rest) {
+                return Err(ConfigError::BadServer);
+            }
+        } else {
             return Err(ConfigError::BadServer);
         }
         Ok(())
@@ -93,6 +101,21 @@ impl EngineConfig {
     }
 }
 
+/// True when the URL authority (everything after the scheme) points at the
+/// loopback interface. Plaintext `ws://` is only tolerated for loopback dev
+/// endpoints; every remote endpoint must use `wss://` so the bridge token is
+/// never sent in the clear.
+fn is_loopback_authority(rest: &str) -> bool {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if let Some(inner) = host_port.strip_prefix('[') {
+        inner.split(']').next().unwrap_or("")
+    } else {
+        host_port.split(':').next().unwrap_or("")
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
 /// Best-effort home directory (`$HOME`, else `/tmp`). Avoids pulling a crate in
 /// just for this; macOS always sets `$HOME`.
 pub fn home_dir() -> PathBuf {
@@ -107,7 +130,7 @@ pub enum ConfigError {
     Parse(#[source] serde_json::Error),
     #[error("missing required config field: {0}")]
     Missing(&'static str),
-    #[error("server must be a ws:// or wss:// url")]
+    #[error("server must be a wss:// url (ws:// is only allowed for loopback dev endpoints)")]
     BadServer,
 }
 
@@ -142,9 +165,33 @@ mod tests {
 
     #[test]
     fn rejects_non_ws_server() {
-        let err =
-            EngineConfig::from_json(r#"{"token":"apple_bt_x","server":"https://x/y"}"#).unwrap_err();
+        let err = EngineConfig::from_json(r#"{"token":"apple_bt_x","server":"https://x/y"}"#)
+            .unwrap_err();
         assert!(matches!(err, ConfigError::BadServer));
+    }
+
+    #[test]
+    fn rejects_plaintext_ws_for_remote_host() {
+        let err = EngineConfig::from_json(
+            r#"{"token":"apple_bt_x","server":"ws://api.botmem.xyz/apple-tunnel"}"#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::BadServer));
+    }
+
+    #[test]
+    fn allows_plaintext_ws_for_loopback() {
+        for server in [
+            "ws://localhost:8080/apple-tunnel",
+            "ws://127.0.0.1:8080/apple-tunnel",
+            "ws://[::1]:8080/apple-tunnel",
+        ] {
+            let json = format!(r#"{{"token":"apple_bt_x","server":"{server}"}}"#);
+            assert!(
+                EngineConfig::from_json(&json).is_ok(),
+                "expected {server} to be allowed"
+            );
+        }
     }
 
     #[test]

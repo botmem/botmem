@@ -21,6 +21,12 @@ import type {
 
 const HOSTED_CONNECTORS = new Set<Connector>(['gmail', 'outlook', 'owntracks']);
 const DEVICE_CONNECTORS = new Set<Connector>(['imessage', 'whatsapp']);
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+function coverageDeviceId(deviceId: string): { readonly deviceId?: string } {
+  return UUID_PATTERN.test(deviceId) ? { deviceId } : {};
+}
 
 interface FederatedSearchOptions {
   readonly hostedDeadlineMs: number;
@@ -126,7 +132,7 @@ export class FederatedSearchService {
               {
                 laneId,
                 placement: 'device',
-                deviceId: device.deviceId,
+                ...coverageDeviceId(device.deviceId),
               },
               this.options.deviceDeadlineMs,
               (signal) =>
@@ -227,7 +233,7 @@ export class FederatedSearchService {
       coverage: {
         laneId: `device:${device.deviceId}`,
         placement: 'device',
-        deviceId: device.deviceId,
+        ...coverageDeviceId(device.deviceId),
         status,
         retryable: status !== 'permission_required',
         returned: 0,

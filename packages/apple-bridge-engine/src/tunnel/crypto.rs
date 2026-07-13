@@ -33,7 +33,10 @@ impl KeyPair {
         // StaticSecret applies X25519 clamping on construction.
         let secret = StaticSecret::from(seed);
         let public = PublicKey::from(&secret);
-        Ok(Self { secret, public_raw: *public.as_bytes() })
+        Ok(Self {
+            secret,
+            public_raw: *public.as_bytes(),
+        })
     }
 
     /// Derive the AES-256 session key from the remote raw 32-byte public key.
@@ -48,7 +51,8 @@ impl KeyPair {
 
         let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), shared.as_bytes());
         let mut okm = [0u8; 32];
-        hk.expand(HKDF_INFO, &mut okm).map_err(|_| CryptoError::Hkdf)?;
+        hk.expand(HKDF_INFO, &mut okm)
+            .map_err(|_| CryptoError::Hkdf)?;
         Ok(okm)
     }
 }
@@ -62,7 +66,13 @@ pub fn encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError>
     // aes-gcm returns ciphertext with the 16-byte tag appended → matches the
     // [ct][tag] tail of the wire frame.
     let ct = cipher
-        .encrypt(nonce, Payload { msg: plaintext, aad: &[] })
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext,
+                aad: &[],
+            },
+        )
         .map_err(|_| CryptoError::Encrypt)?;
     let mut out = Vec::with_capacity(IV_LEN + ct.len());
     out.extend_from_slice(&iv);
@@ -79,7 +89,13 @@ pub fn decrypt(key: &[u8; 32], frame: &[u8]) -> Result<Vec<u8>, CryptoError> {
     let (iv, ct_and_tag) = frame.split_at(IV_LEN);
     let nonce = Nonce::from_slice(iv);
     cipher
-        .decrypt(nonce, Payload { msg: ct_and_tag, aad: &[] })
+        .decrypt(
+            nonce,
+            Payload {
+                msg: ct_and_tag,
+                aad: &[],
+            },
+        )
         .map_err(|_| CryptoError::Decrypt)
 }
 
@@ -152,12 +168,18 @@ mod tests {
     #[test]
     fn short_frame_rejected() {
         let key = [0u8; 32];
-        assert!(matches!(decrypt(&key, &[0u8; 10]), Err(CryptoError::FrameTooShort)));
+        assert!(matches!(
+            decrypt(&key, &[0u8; 10]),
+            Err(CryptoError::FrameTooShort)
+        ));
     }
 
     #[test]
     fn rejects_wrong_length_public_key() {
         let a = KeyPair::generate().unwrap();
-        assert!(matches!(a.derive_session_key(&[0u8; 16]), Err(CryptoError::BadPublicKey)));
+        assert!(matches!(
+            a.derive_session_key(&[0u8; 16]),
+            Err(CryptoError::BadPublicKey)
+        ));
     }
 }

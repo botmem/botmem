@@ -21,13 +21,38 @@ pub struct IndexStore {
     db: Connection,
 }
 
+#[cfg(unix)]
+fn create_private_dir(dir: &Path) {
+    use std::os::unix::fs::DirBuilderExt;
+    let _ = std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir);
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(dir: &Path) {
+    let _ = std::fs::create_dir_all(dir);
+}
+
+#[cfg(unix)]
+fn harden_index_file(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn harden_index_file(_path: &Path) {}
+
 impl IndexStore {
     /// Open/create the index at `path` (created if missing). Never a source DB.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, rusqlite::Error> {
-        if let Some(dir) = path.as_ref().parent() {
-            let _ = std::fs::create_dir_all(dir);
+        let path = path.as_ref();
+        if let Some(dir) = path.parent() {
+            create_private_dir(dir);
         }
         let db = Connection::open(path)?;
+        harden_index_file(path);
         Self::init(db)
     }
 
@@ -240,14 +265,29 @@ impl IndexStore {
 
             Ok(SearchItem {
                 id: format!("{source}:{source_id}"),
-                connector_type: src.map(|s| s.connector_type()).unwrap_or("contacts").to_string(),
-                source_type: if source == "contacts" { "contact" } else { "message" }.to_string(),
+                connector_type: src
+                    .map(|s| s.connector_type())
+                    .unwrap_or("contacts")
+                    .to_string(),
+                source_type: if source == "contacts" {
+                    "contact"
+                } else {
+                    "message"
+                }
+                .to_string(),
                 text: row.get(0)?,
-                event_time: if ts != 0 { Some(epoch_secs_to_iso(ts)) } else { None },
+                event_time: if ts != 0 {
+                    Some(epoch_secs_to_iso(ts))
+                } else {
+                    None
+                },
                 people: if sender_name.is_empty() {
                     Vec::new()
                 } else {
-                    vec![Person { name: sender_name, durable_id: sender_id }]
+                    vec![Person {
+                        name: sender_name,
+                        durable_id: sender_id,
+                    }]
                 },
                 thread_title: row.get(2)?,
                 is_from_me: is_from_me != 0,
@@ -305,14 +345,24 @@ mod tests {
         s.add_records(
             SourceName::Imessage,
             &[
-                rec("1", "next installment amount is 50000 due Friday", "Amr", 1_700_000_000),
+                rec(
+                    "1",
+                    "next installment amount is 50000 due Friday",
+                    "Amr",
+                    1_700_000_000,
+                ),
                 rec("2", "lunch plans tomorrow", "Sara", 1_700_001_000),
             ],
         )
         .unwrap();
         s.add_records(
             SourceName::Whatsapp,
-            &[rec("9", "the installment receipt is attached", "Mostafa", 1_700_002_000)],
+            &[rec(
+                "9",
+                "the installment receipt is attached",
+                "Mostafa",
+                1_700_002_000,
+            )],
         )
         .unwrap();
         let mut c = rec("c1", "Amr Essam", "Amr Essam", 0);
@@ -327,7 +377,9 @@ mod tests {
     #[test]
     fn finds_term_across_sources_ranked() {
         let s = store_with_data();
-        let items = s.search("installment", &SearchFilters::default(), 25).unwrap();
+        let items = s
+            .search("installment", &SearchFilters::default(), 25)
+            .unwrap();
         assert_eq!(items.len(), 2, "both installment messages match");
         // each has a higher (less-negative) score for better bm25
         assert!(items[0].score >= items[1].score);
@@ -337,7 +389,9 @@ mod tests {
     #[test]
     fn search_item_shape_matches_contract() {
         let s = store_with_data();
-        let items = s.search("installment", &SearchFilters::default(), 1).unwrap();
+        let items = s
+            .search("installment", &SearchFilters::default(), 1)
+            .unwrap();
         let it = &items[0];
         assert!(it.id.contains(':'));
         assert!(matches!(it.connector_type.as_str(), "apple" | "whatsapp"));
@@ -350,7 +404,10 @@ mod tests {
     #[test]
     fn connector_type_filter_scopes_source() {
         let s = store_with_data();
-        let f = SearchFilters { connector_types: Some(vec!["whatsapp".into()]), ..Default::default() };
+        let f = SearchFilters {
+            connector_types: Some(vec!["whatsapp".into()]),
+            ..Default::default()
+        };
         let items = s.search("installment", &f, 25).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].connector_type, "whatsapp");
@@ -360,15 +417,24 @@ mod tests {
     fn sender_name_is_searchable_but_thread_title_is_not() {
         let s = store_with_data();
         // sender_name matches
-        assert!(!s.search("Sara", &SearchFilters::default(), 25).unwrap().is_empty());
+        assert!(!s
+            .search("Sara", &SearchFilters::default(), 25)
+            .unwrap()
+            .is_empty());
         // thread_title ("Parkwoods") must NOT match (excluded from MATCH columns)
-        assert!(s.search("Parkwoods", &SearchFilters::default(), 25).unwrap().is_empty());
+        assert!(s
+            .search("Parkwoods", &SearchFilters::default(), 25)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn source_type_contact_only_returns_contacts() {
         let s = store_with_data();
-        let f = SearchFilters { source_types: Some(vec!["contact".into()]), ..Default::default() };
+        let f = SearchFilters {
+            source_types: Some(vec!["contact".into()]),
+            ..Default::default()
+        };
         let items = s.search("Amr", &f, 25).unwrap();
         assert!(items.iter().all(|i| i.source_type == "contact"));
         assert!(!items.is_empty());
@@ -377,7 +443,10 @@ mod tests {
     #[test]
     fn unservable_source_type_returns_empty() {
         let s = store_with_data();
-        let f = SearchFilters { source_types: Some(vec!["email".into()]), ..Default::default() };
+        let f = SearchFilters {
+            source_types: Some(vec!["email".into()]),
+            ..Default::default()
+        };
         assert!(s.search("installment", &f, 25).unwrap().is_empty());
     }
 
@@ -400,6 +469,9 @@ mod tests {
     #[test]
     fn empty_query_returns_empty() {
         let s = store_with_data();
-        assert!(s.search("   ", &SearchFilters::default(), 25).unwrap().is_empty());
+        assert!(s
+            .search("   ", &SearchFilters::default(), 25)
+            .unwrap()
+            .is_empty());
     }
 }

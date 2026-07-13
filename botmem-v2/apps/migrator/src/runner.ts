@@ -508,9 +508,10 @@ async function applyMigration(
       ],
     );
     await client.query('COMMIT');
-  } catch {
+  } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);
-    throw new MigratorRuntimeError('migration_failed', migration.script);
+    if (error instanceof MigratorRuntimeError) throw error;
+    throw new MigratorRuntimeError('migration_failed', migration.script, error);
   }
 }
 

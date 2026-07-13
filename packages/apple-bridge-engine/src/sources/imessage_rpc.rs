@@ -118,19 +118,24 @@ pub(crate) fn chats_list_conn(
                   LEFT JOIN message m ON m.ROWID = cmj.message_id
                   GROUP BY c.ROWID
                   ORDER BY last_message_date DESC"#;
-    let sql = if limit.is_some() { format!("{base}\nLIMIT ?1") } else { base.to_string() };
+    let sql = if limit.is_some() {
+        format!("{base}\nLIMIT ?1")
+    } else {
+        base.to_string()
+    };
 
     let mut stmt = conn.prepare(&sql)?;
-    let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(i64, String, String, String, String, i64)> {
-        Ok((
-            row.get("id")?,
-            row.get("name")?,
-            row.get("identifier")?,
-            row.get("guid")?,
-            row.get("service")?,
-            row.get::<_, Option<i64>>("last_message_date")?.unwrap_or(0),
-        ))
-    };
+    let map_row =
+        |row: &rusqlite::Row<'_>| -> rusqlite::Result<(i64, String, String, String, String, i64)> {
+            Ok((
+                row.get("id")?,
+                row.get("name")?,
+                row.get("identifier")?,
+                row.get("guid")?,
+                row.get("service")?,
+                row.get::<_, Option<i64>>("last_message_date")?.unwrap_or(0),
+            ))
+        };
     let raw: Vec<_> = if let Some(l) = limit {
         stmt.query_map([l], map_row)?.collect::<Result<_, _>>()?
     } else {
@@ -146,7 +151,10 @@ pub(crate) fn chats_list_conn(
         } else if is_group {
             "Group Chat".to_string()
         } else {
-            participants.first().cloned().unwrap_or_else(|| "Unknown".to_string())
+            participants
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string())
         };
         chats.push(Chat {
             id,
@@ -208,7 +216,9 @@ pub(crate) fn messages_history_conn(
     let attachments = attachments_for_chat(conn, chat_id)?;
 
     let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(rusqlite::params_from_iter(params.iter().map(|b| b.as_ref())))?;
+    let mut rows = stmt.query(rusqlite::params_from_iter(
+        params.iter().map(|b| b.as_ref()),
+    ))?;
     let mut out = Vec::new();
     while let Some(row) = rows.next()? {
         let id: i64 = row.get("id")?;
@@ -222,7 +232,9 @@ pub(crate) fn messages_history_conn(
 
         let text = match text_col {
             Some(t) if !t.is_empty() => t,
-            _ => super::attributed_body::extract_attributed_body_text(body.as_deref().unwrap_or(&[])),
+            _ => {
+                super::attributed_body::extract_attributed_body_text(body.as_deref().unwrap_or(&[]))
+            }
         };
         out.push(Message {
             id,
@@ -254,8 +266,9 @@ fn chat_participants(conn: &Connection, chat_id: i64) -> Result<Vec<String>, rus
 }
 
 fn chat_meta(conn: &Connection, chat_id: i64) -> Result<(String, String), rusqlite::Error> {
-    let mut stmt = conn
-        .prepare("SELECT COALESCE(display_name, '') AS name, guid AS identifier FROM chat WHERE ROWID = ?1")?;
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(display_name, '') AS name, guid AS identifier FROM chat WHERE ROWID = ?1",
+    )?;
     let mut rows = stmt.query([chat_id])?;
     if let Some(row) = rows.next()? {
         Ok((row.get("name")?, row.get("identifier")?))
@@ -281,9 +294,15 @@ fn attachments_for_chat(
     while let Some(row) = rows.next()? {
         let mid: i64 = row.get("mid")?;
         map.entry(mid).or_default().push(Attachment {
-            filename: row.get::<_, Option<String>>("filename")?.filter(|s| !s.is_empty()),
-            mime_type: row.get::<_, Option<String>>("mime_type")?.filter(|s| !s.is_empty()),
-            transfer_name: row.get::<_, Option<String>>("transfer_name")?.filter(|s| !s.is_empty()),
+            filename: row
+                .get::<_, Option<String>>("filename")?
+                .filter(|s| !s.is_empty()),
+            mime_type: row
+                .get::<_, Option<String>>("mime_type")?
+                .filter(|s| !s.is_empty()),
+            transfer_name: row
+                .get::<_, Option<String>>("transfer_name")?
+                .filter(|s| !s.is_empty()),
         });
     }
     Ok(map)
@@ -335,7 +354,16 @@ mod tests {
     #[test]
     fn messages_history_shape_and_attachments() {
         let c = fixture();
-        let msgs = messages_history_conn(&c, 1, &MessagesOpts { limit: None, start: None, end: None }).unwrap();
+        let msgs = messages_history_conn(
+            &c,
+            1,
+            &MessagesOpts {
+                limit: None,
+                start: None,
+                end: None,
+            },
+        )
+        .unwrap();
         assert_eq!(msgs.len(), 2);
 
         let m10 = msgs.iter().find(|m| m.id == 10).unwrap();
@@ -343,7 +371,10 @@ mod tests {
         assert_eq!(m10.sender, "+15551234567");
         assert!(!m10.is_from_me);
         assert_eq!(m10.attachments.len(), 1);
-        assert_eq!(m10.attachments[0].mime_type.as_deref(), Some("application/pdf"));
+        assert_eq!(
+            m10.attachments[0].mime_type.as_deref(),
+            Some("application/pdf")
+        );
         assert!(m10.is_group);
         assert_eq!(m10.participants.len(), 2);
         assert!(m10.created_at.ends_with('Z'));

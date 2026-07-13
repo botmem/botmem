@@ -47,7 +47,12 @@ pub struct IndexingStatus {
 
 impl Default for IndexingStatus {
     fn default() -> Self {
-        Self { active: false, source: None, done: 0, total: None }
+        Self {
+            active: false,
+            source: None,
+            done: 0,
+            total: None,
+        }
     }
 }
 
@@ -151,7 +156,10 @@ impl StatusWriter {
     pub fn push_activity(&self, text: impl Into<String>) {
         {
             let mut g = self.lock();
-            g.activity.push(ActivityEntry { ts: now_ms() as u64, text: text.into() });
+            g.activity.push(ActivityEntry {
+                ts: now_ms() as u64,
+                text: text.into(),
+            });
             let len = g.activity.len();
             if len > ACTIVITY_LIMIT {
                 g.activity.drain(0..len - ACTIVITY_LIMIT);
@@ -259,7 +267,10 @@ fn set_mode_600(_f: &std::fs::File) {}
 
 /// Current time in epoch milliseconds.
 pub fn now_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -292,7 +303,10 @@ mod tests {
         }
         let snap = w.snapshot();
         assert_eq!(snap.activity.len(), ACTIVITY_LIMIT);
-        assert_eq!(snap.activity.last().unwrap().text, format!("event {}", ACTIVITY_LIMIT + 4));
+        assert_eq!(
+            snap.activity.last().unwrap().text,
+            format!("event {}", ACTIVITY_LIMIT + 4)
+        );
     }
 
     #[test]

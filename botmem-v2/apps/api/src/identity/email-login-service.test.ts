@@ -142,12 +142,10 @@ describe('EmailLoginService', () => {
     expect(challenges.beginInputs).toEqual([]);
   });
 
-  it('begin_whenProviderFails_cancelsPersistedChallenge', async () => {
+  it('begin_whenProviderFails_cancelsChallengeButHidesOutcomeFromCaller', async () => {
     const { login, challenges, delivery, tokens } = fixture();
     delivery.fail = true;
-    await expect(login.begin('owner@example.com', '203.0.113.10')).rejects.toBeInstanceOf(
-      LoginDeliveryUnavailableError,
-    );
+    await expect(login.begin('owner@example.com', '203.0.113.10')).resolves.toBeUndefined();
     expect(challenges.cancelled).toEqual([await tokens.hash(LOGIN_TOKEN)]);
   });
 

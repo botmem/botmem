@@ -105,11 +105,13 @@ export interface CommerceRepositoryPort {
   }): Promise<void>;
   settleWebhook(input: {
     readonly eventId: string;
+    readonly workerId: string;
     readonly outcome: 'processed' | 'ignored';
     readonly completedAt: string;
   }): Promise<void>;
   retryWebhook(input: {
     readonly eventId: string;
+    readonly workerId: string;
     readonly failureCode: string;
     readonly failedAt: string;
     readonly availableAt: string;

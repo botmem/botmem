@@ -100,22 +100,29 @@ impl RpcDispatch for IndexDispatcher {
             "messages.history" => {
                 let chat_id = match params.get("chat_id").and_then(Value::as_i64) {
                     Some(id) => id,
-                    None => return Err(RpcError::invalid_params("Missing required param: chat_id")),
+                    None => {
+                        return Err(RpcError::invalid_params("Missing required param: chat_id"))
+                    }
                 };
                 let opts = imessage_rpc::MessagesOpts {
                     limit: params.get("limit").and_then(Value::as_i64),
-                    start: params.get("start").and_then(Value::as_str).map(String::from),
+                    start: params
+                        .get("start")
+                        .and_then(Value::as_str)
+                        .map(String::from),
                     end: params.get("end").and_then(Value::as_str).map(String::from),
                 };
-                let messages =
-                    imessage_rpc::messages_history(&self.imessage_db, chat_id, &opts).map_err(db_err)?;
+                let messages = imessage_rpc::messages_history(&self.imessage_db, chat_id, &opts)
+                    .map_err(db_err)?;
                 Ok(json!({ "messages": messages }))
             }
 
             "contacts.list" => {
-                let contacts =
-                    contacts::list_apple_contacts(&self.contacts_base, &crate::sources::never_cancelled())
-                        .map_err(db_err)?;
+                let contacts = contacts::list_apple_contacts(
+                    &self.contacts_base,
+                    &crate::sources::never_cancelled(),
+                )
+                .map_err(db_err)?;
                 Ok(json!({ "contacts": contacts }))
             }
 
@@ -152,7 +159,9 @@ mod tests {
                 }],
             )
             .unwrap();
-        store.set_source_state(SourceName::Imessage, 1, None).unwrap();
+        store
+            .set_source_state(SourceName::Imessage, 1, None)
+            .unwrap();
         IndexDispatcher::new(store)
     }
 
@@ -160,7 +169,10 @@ mod tests {
     fn search_returns_items() {
         let d = dispatcher();
         let out = d
-            .dispatch("search.query", &json!({ "query": "installment", "limit": 5 }))
+            .dispatch(
+                "search.query",
+                &json!({ "query": "installment", "limit": 5 }),
+            )
             .unwrap();
         let items = out["items"].as_array().unwrap();
         assert_eq!(items.len(), 1);
@@ -171,7 +183,9 @@ mod tests {
     #[test]
     fn empty_query_is_invalid_params() {
         let d = dispatcher();
-        let err = d.dispatch("search.query", &json!({ "query": "" })).unwrap_err();
+        let err = d
+            .dispatch("search.query", &json!({ "query": "" }))
+            .unwrap_err();
         assert_eq!(err.code, -32602);
     }
 
@@ -189,7 +203,10 @@ mod tests {
         let d = dispatcher();
         // huge limit must not error
         let out = d
-            .dispatch("search.query", &json!({ "query": "installment", "limit": 99999 }))
+            .dispatch(
+                "search.query",
+                &json!({ "query": "installment", "limit": 99999 }),
+            )
             .unwrap();
         assert!(out["items"].is_array());
     }

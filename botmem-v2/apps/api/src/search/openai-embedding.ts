@@ -101,7 +101,9 @@ export class OpenAiEmbeddingProvider implements QueryEmbeddingPort {
         }),
         signal: controller.signal,
       });
-      if (!response.ok) throw new OpenAiEmbeddingError('embedding_provider_rejected');
+      if (!response.ok) {
+        throw new OpenAiEmbeddingError('embedding_provider_rejected', response.status);
+      }
       const parsed = responseSchema.parse(await response.json());
       if (parsed.data.length !== inputs.length) {
         throw new OpenAiEmbeddingError('embedding_response_count_mismatch');
@@ -137,7 +139,10 @@ export class OpenAiEmbeddingProvider implements QueryEmbeddingPort {
 export class OpenAiEmbeddingError extends Error {
   override readonly name = 'OpenAiEmbeddingError';
 
-  constructor(readonly code: string) {
+  constructor(
+    readonly code: string,
+    readonly status?: number,
+  ) {
     super(code);
   }
 }
