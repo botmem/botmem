@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { BotmemWebClient } from './data-client.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 interface LoginPageProps {
   readonly client: BotmemWebClient;
@@ -37,6 +38,9 @@ export function LoginPage({ client, initialError }: LoginPageProps) {
       <a className="skip-link" href="#main-content">
         Skip to sign in
       </a>
+      <div className="public-theme-control">
+        <ThemeToggle />
+      </div>
       <main id="main-content" className="login-shell" tabIndex={-1}>
         <section className="login-panel" aria-labelledby="login-heading">
           <p className="eyebrow">BOTMEM WEB / PRIVATE ACCESS</p>

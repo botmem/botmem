@@ -52,6 +52,9 @@ describe('Botmem search page', () => {
     expect(within(result).getByText('HOSTED')).toBeVisible();
     expect(within(result).getByText('1.0%')).toBeVisible();
     expect(within(result).getByText('botmem://memory/gmail:sentinel')).toBeVisible();
+    const completion = screen.getByRole('heading', { name: '1 memory found' });
+    await waitFor(() => expect(completion).toHaveFocus());
+    expect(document.title).toBe('Botmem — 1 result');
   });
 
   it('search_whenDeviceIsOffline_keepsResultsAndShowsExplicitPartialWarning', async () => {
@@ -155,10 +158,14 @@ describe('Botmem search page', () => {
     const skipLink = screen.getByRole('link', { name: 'Skip to workspace' });
     expect(skipLink).toHaveAttribute('href', '#main-content');
 
-    for (const view of ['Search', 'Connections', 'Mac device', 'Billing', 'Account']) {
+    for (const view of ['Connections', 'Mac device', 'Billing', 'Account', 'Search']) {
       await user.click(screen.getByRole('button', { name: view }));
-      expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
-      expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1');
+      const main = screen.getByRole('main');
+      expect(main).toHaveAttribute('id', 'main-content');
+      expect(main).toHaveAttribute('tabindex', '-1');
+      await waitFor(() => expect(main).toHaveFocus());
+      expect(document.title).toBe(`Botmem — ${view}`);
+      expect(screen.getByText(`${view} workspace`)).toBeInTheDocument();
     }
   });
 
@@ -198,9 +205,7 @@ describe('Botmem search page', () => {
 
     await user.click(screen.getByRole('button', { name: 'Mac device' }));
 
-    expect(screen.getByRole('status')).toHaveTextContent(
-      /verified Mac download is temporarily unavailable/i,
-    );
+    expect(screen.getByText(/verified Mac download is temporarily unavailable/i)).toBeVisible();
     expect(screen.queryByRole('link', { name: /download/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate Mac setup' })).toBeEnabled();
   });
@@ -225,12 +230,24 @@ describe('Botmem search page', () => {
     render(<App client={client} workspaceId={WORKSPACE_ID} />);
 
     expect(await screen.findByRole('heading', { name: 'Connect the evidence.' })).toBeVisible();
-    expect(screen.getByText('Gmail authorization returned.')).toBeVisible();
+    expect(screen.getByText('Gmail authorization return received.')).toBeVisible();
     expect(screen.getByText(/Initial sync is running/u)).toBeVisible();
+    expect(window.location.pathname).toBe('/connections');
+    expect(window.location.search).toBe('');
     expect(screen.getByRole('button', { name: 'Connections' })).toHaveAttribute(
       'aria-current',
       'page',
     );
+  });
+
+  it('oauthCallback_withoutDurableRecord_neverClaimsAuthorizationSucceeded', async () => {
+    window.history.replaceState(null, '', '/connections?connector=gmail&status=connected');
+    render(<App client={fakeClient([], searchResponse())} workspaceId={WORKSPACE_ID} />);
+
+    expect(await screen.findByText('Gmail authorization return received.')).toBeVisible();
+    expect(screen.getByText(/Waiting for Botmem to confirm the connection record/u)).toBeVisible();
+    expect(screen.queryByText(/Authorization succeeded/u)).not.toBeInTheDocument();
+    expect(window.location.href).not.toContain('status=connected');
   });
 });
 

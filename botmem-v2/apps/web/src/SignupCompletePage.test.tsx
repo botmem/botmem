@@ -60,4 +60,16 @@ describe('SignupCompletePage', () => {
     expect(client.getBillingCheckoutStatus).not.toHaveBeenCalled();
     expect(client.startEmailLogin).not.toHaveBeenCalled();
   });
+
+  it('uses neutral checking copy until Botmem confirms durable active state', () => {
+    const client = {
+      getBillingCheckoutStatus: vi.fn(() => new Promise(() => {})),
+      startEmailLogin: vi.fn(),
+    } as unknown as BotmemWebClient;
+    render(<SignupCompletePage client={client} sessionId={SESSION_ID} />);
+
+    expect(screen.getByRole('heading', { name: 'Confirming your workspace.' })).toBeVisible();
+    expect(screen.getByText(/waiting for its signed webhook and worker commit/u)).toBeVisible();
+    expect(screen.queryByText('Your memory layer is ready.')).not.toBeInTheDocument();
+  });
 });

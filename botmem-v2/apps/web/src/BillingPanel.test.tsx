@@ -56,4 +56,42 @@ describe('BillingPanel', () => {
     expect(await screen.findByText('Active')).toBeVisible();
     expect(getBillingStatus).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps canonical status visible and lets the Portal action retry independently', async () => {
+    const getBillingStatus = vi.fn(async () => ({
+      version: 2 as const,
+      workspaceId: WORKSPACE_ID,
+      subscriptionStatus: 'active',
+      entitled: true,
+    }));
+    const createBillingPortal = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('portal temporarily unavailable'))
+      .mockResolvedValueOnce({
+        version: 2,
+        portalUrl: 'https://billing.stripe.test/retry-session',
+      });
+    const navigateExternal = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <BillingPanel
+        client={{ getBillingStatus, createBillingPortal } as unknown as BotmemWebClient}
+        workspaceId={WORKSPACE_ID}
+        navigateExternal={navigateExternal}
+      />,
+    );
+
+    expect(await screen.findByText('Active')).toBeVisible();
+    const manage = screen.getByRole('button', { name: 'Manage subscription' });
+    await user.click(manage);
+
+    expect(await screen.findByText(/portal temporarily unavailable/u)).toBeVisible();
+    expect(screen.getByText('Active')).toBeVisible();
+    expect(manage).toBeEnabled();
+
+    await user.click(manage);
+    expect(navigateExternal).toHaveBeenCalledWith('https://billing.stripe.test/retry-session');
+    expect(createBillingPortal).toHaveBeenCalledTimes(2);
+    expect(getBillingStatus).toHaveBeenCalledTimes(1);
+  });
 });

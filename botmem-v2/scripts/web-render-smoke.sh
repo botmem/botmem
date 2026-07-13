@@ -63,12 +63,26 @@ const oldTheme = await page.eval(() => document.documentElement.dataset.theme);
 await page.click('.theme-toggle');
 assert((await page.eval(() => document.documentElement.dataset.theme)) !== oldTheme, 'theme toggle did not change theme');
 
-await page.fill('#memory-query', 'launch decision');
+await page.eval(() => {
+  const input = document.querySelector('#memory-query');
+  if (!(input instanceof HTMLInputElement)) throw new Error('memory query input is missing');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (!setter) throw new Error('native input value setter is unavailable');
+  setter.call(input, 'launch decision');
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'launch decision' }));
+});
 await page.click('.query-row button');
 await page.wait('.result-list');
 assert((await page.eval(() => document.querySelectorAll('.result-item').length)) === 2, 'federated results did not render');
 
-await page.fill('#memory-query', 'partial coverage');
+await page.eval(() => {
+  const input = document.querySelector('#memory-query');
+  if (!(input instanceof HTMLInputElement)) throw new Error('memory query input is missing');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (!setter) throw new Error('native input value setter is unavailable');
+  setter.call(input, 'partial coverage');
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'partial coverage' }));
+});
 await page.click('.query-row button');
 await page.wait('.coverage-warning');
 assert((await page.eval(() => document.querySelector('.coverage-warning')?.textContent?.includes('device_disconnected'))) === true, 'partial lane reason is missing');
@@ -134,7 +148,7 @@ for (const [position, label] of [[1, 'search'], [2, 'connections'], [3, 'Mac dev
 EOF
 
 CONSOLE_ERRORS="$("$AXI" console --type error --limit 100)"
-if [[ -n "$CONSOLE_ERRORS" && "$CONSOLE_ERRORS" != *"No console messages"* ]]; then
+if [[ -n "$CONSOLE_ERRORS" && "$CONSOLE_ERRORS" != *"No console messages"* && "$CONSOLE_ERRORS" != *"<no console messages found>"* ]]; then
   echo "$CONSOLE_ERRORS" >&2
   exit 1
 fi

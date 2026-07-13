@@ -12,7 +12,7 @@ import { LoginPage } from './LoginPage.js';
 import { PricingPage } from './PricingPage.js';
 import { PrivacyPage } from './PrivacyPage.js';
 import { SignupCompletePage } from './SignupCompletePage.js';
-import { parseLoginFragment, rememberWorkspace } from './login-state.js';
+import { parseLoginFragment, rememberBrowserWorkspace } from './login-state.js';
 import { unavailableReleaseConfiguration } from './mac-release.js';
 import { readTheme } from './theme.js';
 import './styles.css';
@@ -81,7 +81,7 @@ if (currentUrl.pathname === '/privacy') {
   const fragment = parseLoginFragment(window.location.hash);
   let loginError: string | undefined;
 
-  if (fragment.workspaceId) rememberWorkspace(window.localStorage, fragment.workspaceId);
+  if (fragment.workspaceId) rememberBrowserWorkspace(fragment.workspaceId);
   if (fragment.token) {
     try {
       await client.completeEmailLogin(fragment.token);
@@ -97,7 +97,9 @@ if (currentUrl.pathname === '/privacy') {
     const sessionTimeout = window.setTimeout(() => sessionController.abort(), 10_000);
     const [session, releases] = await Promise.all([
       client.getSession(sessionController.signal),
-      client.getPublicReleases().catch(() => unavailableReleaseConfiguration(baseUrl)),
+      client
+        .getPublicReleases(sessionController.signal)
+        .catch(() => unavailableReleaseConfiguration(baseUrl)),
     ]).finally(() => window.clearTimeout(sessionTimeout));
     root.render(
       <StrictMode>

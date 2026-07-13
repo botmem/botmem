@@ -53,10 +53,20 @@ export function ConnectionsWorkspace({
           throw connections.reason;
         }
         failures = 0;
-        setState({
+        setState((previous) => ({
           phase: 'ready',
-          connections: connections.status === 'fulfilled' ? connections.value.items : [],
-          devices: devices.status === 'fulfilled' ? devices.value.items : [],
+          connections:
+            connections.status === 'fulfilled'
+              ? connections.value.items
+              : previous.phase === 'ready'
+                ? previous.connections
+                : [],
+          devices:
+            devices.status === 'fulfilled'
+              ? devices.value.items
+              : previous.phase === 'ready'
+                ? previous.devices
+                : [],
           checkedAt: new Date().toISOString(),
           ...(connections.status === 'rejected'
             ? {
@@ -69,7 +79,7 @@ export function ConnectionsWorkspace({
           ...(devices.status === 'rejected'
             ? { devicesError: errorMessage(devices.reason, 'Mac device state is unavailable.') }
             : {}),
-        });
+        }));
         const changing =
           connections.status === 'rejected' ||
           devices.status === 'rejected' ||
@@ -195,7 +205,8 @@ export function ConnectionsWorkspace({
       {connectionNotice ? (
         <section className="connection-callback-notice" role="status">
           <strong>
-            {connectionNotice.connector === 'gmail' ? 'Gmail' : 'Outlook'} authorization returned.
+            {connectionNotice.connector === 'gmail' ? 'Gmail' : 'Outlook'} authorization return
+            received.
           </strong>
           <span>{connectionProgress(state, connectionNotice.connector)}</span>
         </section>
@@ -236,9 +247,11 @@ export function ConnectionsWorkspace({
             </div>
             {state.connectionsError ? (
               <p className="setup-action-error" role="status">
+                {state.connections.length > 0 ? 'Showing the last known hosted state. ' : ''}
                 {state.connectionsError}
               </p>
-            ) : (
+            ) : null}
+            {!state.connectionsError || state.connections.length > 0 ? (
               <div className="connection-grid">
                 {(['gmail', 'outlook'] as const).map((connector) => (
                   <OAuthConnectionCard
@@ -257,7 +270,7 @@ export function ConnectionsWorkspace({
                   onAction={act}
                 />
               </div>
-            )}
+            ) : null}
           </section>
 
           <section className="setup-section" aria-labelledby="device-heading">
@@ -267,9 +280,11 @@ export function ConnectionsWorkspace({
             </div>
             {state.devicesError ? (
               <p className="setup-action-error" role="status">
+                {state.devices.length > 0 ? 'Showing the last known Mac state. ' : ''}
                 {state.devicesError}
               </p>
-            ) : state.devices.length === 0 ? (
+            ) : null}
+            {!state.devicesError && state.devices.length === 0 ? (
               <div className="device-empty">
                 <strong>No Mac is paired.</strong>
                 <p>
@@ -277,13 +292,13 @@ export function ConnectionsWorkspace({
                   this workspace. Botmem cannot grant Full Disk Access for you.
                 </p>
               </div>
-            ) : (
+            ) : state.devices.length > 0 ? (
               <ul className="device-list">
                 {state.devices.map((device) => (
                   <DeviceRow key={device.deviceId} device={device} />
                 ))}
               </ul>
-            )}
+            ) : null}
           </section>
         </>
       )}
@@ -392,13 +407,16 @@ function OwnTracksConnectionCard({
 }
 
 function connectionProgress(state: SetupState, connector: 'gmail' | 'outlook'): string {
-  if (state.phase !== 'ready') return 'Reading initial sync status…';
+  if (state.phase !== 'ready') return 'Checking Botmem for a durable connection record…';
   if (state.connectionsError)
-    return 'Authorization returned. Connection state is temporarily unavailable.';
+    return 'Return received. Durable connection state is temporarily unavailable.';
   const connection = state.connections.find((item) => item.connector === connector);
-  if (!connection) return 'Authorization succeeded. Waiting for the connection record…';
+  if (!connection) return 'Return received. Waiting for Botmem to confirm the connection record…';
   if (connection.state === 'ready' && connection.source.searchable) {
     return 'Initial sync is ready for search.';
+  }
+  if (connection.state === 'revoked' || connection.state === 'disconnected') {
+    return `Botmem reports the connection as ${connection.state}.`;
   }
   if (connection.failureCode) return `Initial sync needs attention: ${connection.failureCode}`;
   return 'Initial sync is running. This page refreshes automatically.';

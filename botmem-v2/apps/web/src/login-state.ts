@@ -37,3 +37,11 @@ export function rememberWorkspace(storage: Pick<Storage, 'setItem'>, workspaceId
     // A blocked storage API must not block authentication.
   }
 }
+
+export function rememberBrowserWorkspace(workspaceId: string): void {
+  try {
+    rememberWorkspace(window.localStorage, workspaceId);
+  } catch {
+    // The durable HttpOnly session remains authoritative when storage is denied.
+  }
+}

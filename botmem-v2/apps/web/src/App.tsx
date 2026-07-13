@@ -7,9 +7,8 @@ import {
   type SourceStatus,
   type PublicReleaseConfiguration,
 } from '@botmem-v2/contracts';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import type { BotmemWebClient } from './data-client.js';
-import { useTheme } from './theme.js';
 import { ConnectionsWorkspace } from './ConnectionsWorkspace.js';
 import { DevicePairingPanel } from './DevicePairingPanel.js';
 import { BillingPanel } from './BillingPanel.js';
@@ -17,6 +16,7 @@ import { AccountWorkspace } from './AccountWorkspace.js';
 import { unavailableReleaseConfiguration } from './mac-release.js';
 import { OneShotTimer } from './one-shot-timer.js';
 import { workspaceEntry, workspacePath, type WorkspaceView } from './workspace-route.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 const CONNECTORS: readonly Connector[] = ['gmail', 'outlook', 'owntracks', 'imessage', 'whatsapp'];
 
@@ -35,6 +35,14 @@ const RESULT_DATE_FORMATTER = new Intl.DateTimeFormat('en', {
   hour: '2-digit',
   minute: '2-digit',
 });
+
+const WORKSPACE_LABELS: Readonly<Record<WorkspaceView, string>> = {
+  search: 'Search',
+  connections: 'Connections',
+  devices: 'Mac device',
+  billing: 'Billing',
+  account: 'Account',
+};
 
 interface AppProps {
   readonly client: BotmemWebClient;
@@ -63,7 +71,6 @@ export function App({
   workspaceId,
   releases = unavailableReleaseConfiguration(window.location.origin),
 }: AppProps) {
-  const [theme, toggleTheme] = useTheme();
   const entryRef = useRef<ReturnType<typeof workspaceEntry> | null>(null);
   entryRef.current ??= workspaceEntry(new URL(window.location.href));
   const entry = entryRef.current;
@@ -75,6 +82,7 @@ export function App({
   const [sourceState, setSourceState] = useState<SourceLoadState>({ phase: 'loading' });
   const [sourceReload, setSourceReload] = useState(0);
   const searchRun = useRef(0);
+  const initialWorkspaceFocus = useRef(true);
 
   useEffect(() => {
     const onPopState = () => setView(workspaceEntry(new URL(window.location.href)).view);
@@ -83,7 +91,24 @@ export function App({
   }, []);
 
   useEffect(() => {
-    document.title = `Botmem — ${view === 'devices' ? 'Mac device' : `${view[0]?.toUpperCase()}${view.slice(1)}`}`;
+    if (!entry.connectionNotice) return;
+    window.history.replaceState(null, '', workspacePath('connections'));
+  }, [entry.connectionNotice]);
+
+  useEffect(() => {
+    const viewLabel = WORKSPACE_LABELS[view];
+    document.title =
+      view === 'search' && searchState.phase === 'success'
+        ? `Botmem — ${searchState.response.found} ${searchState.response.found === 1 ? 'result' : 'results'}`
+        : `Botmem — ${viewLabel}`;
+  }, [searchState, view]);
+
+  useLayoutEffect(() => {
+    if (initialWorkspaceFocus.current) {
+      initialWorkspaceFocus.current = false;
+      return;
+    }
+    document.getElementById('main-content')?.focus();
   }, [view]);
 
   useEffect(() => {
@@ -186,7 +211,6 @@ export function App({
       // react-doctor-disable-next-line react-doctor/no-impure-state-updater -- This is a direct event-handler update, not a functional state updater callback.
       setView(nextView);
     }
-    window.requestAnimationFrame(() => document.getElementById('main-content')?.focus());
   }
 
   return (
@@ -200,11 +224,12 @@ export function App({
           <small>V2</small>
         </a>
         <p className="header-statement">Your history. One evidence layer.</p>
-        <button className="theme-toggle" type="button" onClick={toggleTheme}>
-          <span aria-hidden="true">{theme === 'dark' ? '☼' : '◐'}</span>
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        </button>
+        <ThemeToggle />
       </header>
+
+      <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        {WORKSPACE_LABELS[view]} workspace
+      </p>
 
       <nav className="view-switcher" aria-label="Workspace sections">
         <button
@@ -340,6 +365,15 @@ export function App({
 }
 
 function SearchOutput({ state }: { readonly state: SearchState }) {
+  const completionHeading = useRef<HTMLHeadingElement>(null);
+  const focusKey = state.phase === 'success' ? state.response.queryId : state.phase;
+
+  useEffect(() => {
+    if (state.phase !== 'success' && state.phase !== 'error') return;
+    const frame = window.requestAnimationFrame(() => completionHeading.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusKey, state.phase]);
+
   if (state.phase === 'idle') {
     return (
       <section className="empty-state" aria-labelledby="empty-heading">
@@ -366,7 +400,9 @@ function SearchOutput({ state }: { readonly state: SearchState }) {
     return (
       <section className="error-state" role="alert">
         <p className="eyebrow">SEARCH DID NOT COMPLETE</p>
-        <h2>Nothing was guessed.</h2>
+        <h2 ref={completionHeading} tabIndex={-1}>
+          Nothing was guessed.
+        </h2>
         <p>{state.message} Check the connection and search again.</p>
       </section>
     );
@@ -375,10 +411,10 @@ function SearchOutput({ state }: { readonly state: SearchState }) {
   const failedLanes = state.response.coverage.lanes.filter((lane) => lane.status !== 'complete');
   return (
     <section className="result-stream" aria-labelledby="results-heading">
-      <div className="result-summary" role="status" aria-live="polite">
+      <div className="result-summary" role="status" aria-live="polite" aria-atomic="true">
         <div>
           <p className="eyebrow">QUERY COMPLETE / {state.response.tookMs} MS</p>
-          <h2 id="results-heading">
+          <h2 id="results-heading" ref={completionHeading} tabIndex={-1}>
             {state.response.found} {state.response.found === 1 ? 'memory' : 'memories'} found
           </h2>
         </div>

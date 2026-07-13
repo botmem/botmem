@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { BillingPriceResponse } from '@botmem-v2/contracts';
 import type { BotmemWebClient } from './data-client.js';
-import { rememberBillingDraft } from './billing-state.js';
+import { rememberBrowserBillingDraft } from './billing-state.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 interface PricingPageProps {
   readonly client: BotmemWebClient;
@@ -72,7 +73,7 @@ export function PricingPage({
     try {
       const draft = { email: email.trim(), workspaceName: workspaceName.trim() };
       const created = await client.createBillingCheckout({ version: 2, ...draft });
-      rememberBillingDraft(window.sessionStorage, draft);
+      rememberBrowserBillingDraft(draft);
       navigate(created.checkoutUrl);
     } catch (error) {
       setState({
@@ -99,6 +100,7 @@ export function PricingPage({
           <a className="text-link" href="/">
             Sign in
           </a>
+          <ThemeToggle />
         </nav>
       </header>
       <main id="main-content" tabIndex={-1}>

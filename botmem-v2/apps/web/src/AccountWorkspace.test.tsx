@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { AccountWorkspace } from './AccountWorkspace.js';
@@ -94,7 +94,104 @@ describe('AccountWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'Delete workspace' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
   });
+
+  it('keeps sign out visible even while account reads never settle', async () => {
+    const client = fakeClient();
+    vi.mocked(client.listPersonalAccessTokens).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(client.listLifecycleJobs).mockImplementation(() => new Promise(() => {}));
+    const onSignedOut = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AccountWorkspace
+        client={client}
+        workspaceId={WORKSPACE_ID}
+        onSignedOut={onSignedOut}
+      />,
+    );
+
+    expect(screen.getByText(/Sign out remains available below/u)).toBeVisible();
+    const signOut = screen.getByRole('button', { name: 'Sign out' });
+    expect(signOut).toBeEnabled();
+    await user.click(signOut);
+    expect(client.signOut).toHaveBeenCalledOnce();
+    expect(onSignedOut).toHaveBeenCalledOnce();
+  });
+
+  it('keeps last-known token metadata visible when a later token refresh fails', async () => {
+    const client = fakeClient();
+    vi.mocked(client.listPersonalAccessTokens)
+      .mockResolvedValueOnce({
+        version: 2,
+        items: [
+          {
+            version: 2,
+            credentialId: '10000000-0000-4000-8000-000000000004',
+            label: 'Production MCP',
+            tokenPrefix: 'AbCdEfGh1234',
+            scopes: ['botmem:search'],
+            createdAt: '2026-07-13T10:00:00.000Z',
+            expiresAt: '2026-08-13T10:00:00.000Z',
+            lastUsedAt: null,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('token refresh unavailable'));
+    const user = userEvent.setup();
+    render(<AccountWorkspace client={client} workspaceId={WORKSPACE_ID} />);
+
+    expect(await screen.findByText('Production MCP')).toBeVisible();
+    await user.type(screen.getByLabelText('Token label'), 'Trigger safe refresh');
+    await user.click(screen.getByRole('button', { name: 'Create 30-day token' }));
+
+    expect(await screen.findByText(/Agent tokens: token refresh unavailable/u)).toBeVisible();
+    expect(screen.getByText('Production MCP')).toBeVisible();
+    expect(screen.getByText(/Showing the last known active token list/u)).toBeVisible();
+  });
+
+  it('polls active lifecycle jobs through a terminal state and then stops', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient();
+      vi.mocked(client.listLifecycleJobs)
+        .mockResolvedValueOnce({ version: 2, items: [lifecycleJob('running')] })
+        .mockResolvedValueOnce({ version: 2, items: [lifecycleJob('completed')] });
+
+      render(<AccountWorkspace client={client} workspaceId={WORKSPACE_ID} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByText('running')).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(screen.getByText('completed')).toBeVisible();
+      expect(client.listLifecycleJobs).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(client.listLifecycleJobs).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+function lifecycleJob(state: 'running' | 'completed') {
+  return {
+    version: 2 as const,
+    jobId: '10000000-0000-4000-8000-000000000003',
+    kind: 'deletion' as const,
+    state,
+    requestedAt: '2026-07-13T10:00:00.000Z',
+    attempts: state === 'running' ? 1 : 2,
+    availableUntil: null,
+    completedAt: state === 'completed' ? '2026-07-13T10:01:00.000Z' : null,
+    failureCode: null,
+    localDelete: { delivered: 1, unreachable: 0, pending: state === 'running' ? 1 : 0 },
+  };
+}
 
 function fakeClient(): BotmemWebClient & {
   issuePersonalAccessToken: ReturnType<typeof vi.fn<BotmemWebClient['issuePersonalAccessToken']>>;

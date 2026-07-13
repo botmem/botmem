@@ -38,3 +38,20 @@ export function loadBillingDraft(storage: Storage): BillingDraft | null {
   }
   return null;
 }
+
+/** Reads the browser storage capability itself inside the guard as privacy modes may deny it. */
+export function rememberBrowserBillingDraft(draft: BillingDraft): void {
+  try {
+    rememberBillingDraft(window.sessionStorage, draft);
+  } catch {
+    // Checkout is server-authoritative and must not depend on browser storage.
+  }
+}
+
+export function loadBrowserBillingDraft(): BillingDraft | null {
+  try {
+    return loadBillingDraft(window.sessionStorage);
+  } catch {
+    return null;
+  }
+}

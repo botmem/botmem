@@ -12,20 +12,21 @@ export function BillingPanel({
   readonly navigateExternal?: (url: string) => void;
 }) {
   const [status, setStatus] = useState<BillingStatusResponse>();
-  const [error, setError] = useState<string>();
+  const [statusError, setStatusError] = useState<string>();
+  const [portalError, setPortalError] = useState<string>();
   const [opening, setOpening] = useState(false);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setError(undefined);
+    setStatusError(undefined);
     async function load() {
       try {
         const value = await client.getBillingStatus(workspaceId);
         if (!cancelled) setStatus(value);
       } catch (caught) {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : 'Billing status failed.');
+          setStatusError(caught instanceof Error ? caught.message : 'Billing status failed.');
         }
       }
     }
@@ -37,12 +38,12 @@ export function BillingPanel({
 
   async function portal() {
     setOpening(true);
-    setError(undefined);
+    setPortalError(undefined);
     try {
       const created = await client.createBillingPortal(workspaceId);
       navigateExternal(created.portalUrl);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Billing Portal is unavailable.');
+      setPortalError(caught instanceof Error ? caught.message : 'Billing Portal is unavailable.');
       setOpening(false);
     }
   }
@@ -52,9 +53,9 @@ export function BillingPanel({
       <section className="billing-panel" aria-labelledby="billing-heading">
         <p className="eyebrow">SUBSCRIPTION / STRIPE CUSTOMER PORTAL</p>
         <h1 id="billing-heading">Billing without lock-in.</h1>
-        {error ? (
+        {statusError ? (
           <div className="field-error" role="alert">
-            <p>{error}</p>
+            <p>{statusError}</p>
             <button type="button" onClick={() => setReload((value) => value + 1)}>
               Retry billing status
             </button>
@@ -79,6 +80,11 @@ export function BillingPanel({
             ) : null}
           </dl>
         )}
+        {portalError ? (
+          <p className="field-error" role="alert">
+            {portalError} Retry with Manage subscription.
+          </p>
+        ) : null}
         <button type="button" onClick={portal} disabled={opening}>
           {opening ? 'Opening Stripe…' : 'Manage subscription'}
         </button>

@@ -1,3 +1,5 @@
+import { ThemeToggle } from './ThemeToggle.js';
+
 const OPENAI_DATA_CONTROLS_URL =
   'https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint';
 
@@ -19,6 +21,7 @@ export function PrivacyPage() {
           <a className="text-link" href="/">
             Sign in
           </a>
+          <ThemeToggle />
         </nav>
       </header>
 

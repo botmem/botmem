@@ -20,6 +20,7 @@ interface AccountWorkspaceProps {
 interface AccountState {
   readonly tokens: readonly PersonalAccessTokenMetadata[];
   readonly jobs: readonly LifecycleJob[];
+  readonly checkedAt: string;
   readonly tokenError?: string;
   readonly jobError?: string;
 }
@@ -48,23 +49,24 @@ export function AccountWorkspace({
       client.listLifecycleJobs(workspaceId),
     ]).then(([tokens, jobs]) => {
       if (!current) return;
-      setState({
-        tokens: tokens.status === 'fulfilled' ? tokens.value.items : [],
-        jobs: jobs.status === 'fulfilled' ? jobs.value.items : [],
+      setState((previous) => ({
+        tokens: tokens.status === 'fulfilled' ? tokens.value.items : (previous?.tokens ?? []),
+        jobs: jobs.status === 'fulfilled' ? jobs.value.items : (previous?.jobs ?? []),
+        checkedAt: new Date().toISOString(),
         ...(tokens.status === 'rejected'
           ? { tokenError: message(tokens.reason, 'Access-token state is unavailable.') }
           : {}),
         ...(jobs.status === 'rejected'
           ? { jobError: message(jobs.reason, 'Lifecycle state is unavailable.') }
           : {}),
-      });
-      if (
-        jobs.status === 'fulfilled' &&
-        jobs.value.items.some(
-          (job) => job.state === 'queued' || job.state === 'running' || job.state === 'retry',
-        )
-      ) {
-        refresh.schedule(2_000, () => setReload((value) => value + 1));
+      }));
+      const shouldPoll =
+        jobs.status === 'rejected' ||
+        jobs.value.items.some((job) => isActiveLifecycleJob(job));
+      if (shouldPoll) {
+        refresh.schedule(jobs.status === 'rejected' ? 5_000 : 2_000, () =>
+          setReload((value) => value + 1),
+        );
       }
     });
     return () => {
@@ -118,7 +120,14 @@ export function AccountWorkspace({
     setAction('export');
     setActionError(undefined);
     try {
-      await client.requestWorkspaceExport(workspaceId);
+      const response = await client.requestWorkspaceExport(workspaceId);
+      setState((current) => ({
+        tokens: current?.tokens ?? [],
+        jobs: [response.job, ...(current?.jobs ?? [])],
+        checkedAt: new Date().toISOString(),
+        ...(current?.tokenError ? { tokenError: current.tokenError } : {}),
+        ...(current?.jobError ? { jobError: current.jobError } : {}),
+      }));
       setReload((value) => value + 1);
     } catch (error) {
       setActionError(message(error, 'Export could not be queued.'));
@@ -161,10 +170,15 @@ export function AccountWorkspace({
     setActionError(undefined);
     try {
       const response = await client.requestWorkspaceDeletion(workspaceId, confirmation);
-      setState((current) =>
-        current ? { ...current, jobs: [response.job, ...current.jobs] } : current,
-      );
+      setState((current) => ({
+        tokens: current?.tokens ?? [],
+        jobs: [response.job, ...(current?.jobs ?? [])],
+        checkedAt: new Date().toISOString(),
+        ...(current?.tokenError ? { tokenError: current.tokenError } : {}),
+        ...(current?.jobError ? { jobError: current.jobError } : {}),
+      }));
       setConfirmation('');
+      setReload((value) => value + 1);
     } catch (error) {
       setActionError(message(error, 'Deletion could not be queued.'));
     } finally {
@@ -195,21 +209,23 @@ export function AccountWorkspace({
 
       {!state ? (
         <p className="account-loading" role="status">
-          Reading account truth…
+          Reading account truth… Sign out remains available below.
         </p>
-      ) : (
-        <>
-          {state.tokenError || state.jobError ? (
-            <section className="account-load-error" role="alert">
-              <strong>Some account state is unavailable.</strong>
-              {state.tokenError ? <p>Agent tokens: {state.tokenError}</p> : null}
-              {state.jobError ? <p>Lifecycle jobs: {state.jobError}</p> : null}
-              <button type="button" onClick={() => setReload((value) => value + 1)}>
-                Retry
-              </button>
-            </section>
-          ) : null}
-          <div className="account-ledger">
+      ) : null}
+      {state?.tokenError || state?.jobError ? (
+        <section className="account-load-error" role="alert">
+          <strong>Some account state is unavailable.</strong>
+          {state.tokenError ? <p>Agent tokens: {state.tokenError}</p> : null}
+          {state.jobError ? <p>Lifecycle jobs: {state.jobError}</p> : null}
+          <p className="account-stale">Last attempted {new Date(state.checkedAt).toLocaleString()}.</p>
+          <button type="button" onClick={() => setReload((value) => value + 1)}>
+            Retry
+          </button>
+        </section>
+      ) : null}
+      <div className="account-ledger">
+        {state ? (
+          <>
             <section
               className="account-section agent-access"
               aria-labelledby="agent-access-heading"
@@ -276,11 +292,14 @@ export function AccountWorkspace({
               <AgentSetup workspaceId={workspaceId} releases={releases} />
               {state.tokenError ? (
                 <p className="account-empty">
-                  Active token list is unavailable. Existing tokens were not changed.
+                  {state.tokens.length > 0
+                    ? 'Showing the last known active token list. Refresh failed; existing tokens were not changed.'
+                    : 'Active token list is unavailable. Existing tokens were not changed.'}
                 </p>
-              ) : state.tokens.length === 0 ? (
+              ) : null}
+              {state.tokens.length === 0 && !state.tokenError ? (
                 <p className="account-empty">No active personal access tokens.</p>
-              ) : (
+              ) : state.tokens.length > 0 ? (
                 <ul className="token-list">
                   {state.tokens.map((token) => (
                     <li key={token.credentialId}>
@@ -301,7 +320,7 @@ export function AccountWorkspace({
                     </li>
                   ))}
                 </ul>
-              )}
+              ) : null}
             </section>
 
             <section className="account-section" aria-labelledby="export-heading">
@@ -321,15 +340,18 @@ export function AccountWorkspace({
               </button>
               {state.jobError ? (
                 <p className="account-empty">
-                  Export history is unavailable. New requests are still explicit.
+                  {state.jobs.some((job) => job.kind === 'export')
+                    ? 'Showing the last known export history. Refresh failed; new requests remain explicit.'
+                    : 'Export history is unavailable. New requests are still explicit.'}
                 </p>
-              ) : (
+              ) : null}
+              {!state.jobError || state.jobs.some((job) => job.kind === 'export') ? (
                 <JobList
                   jobs={state.jobs.filter((job) => job.kind === 'export')}
                   action={action}
                   onDownload={downloadExport}
                 />
-              )}
+              ) : null}
             </section>
 
             <section className="account-section danger-zone" aria-labelledby="deletion-heading">
@@ -363,31 +385,34 @@ export function AccountWorkspace({
               </form>
               {state.jobError ? (
                 <p className="account-empty">
-                  Deletion history is unavailable. Sign out remains available below.
+                  {state.jobs.some((job) => job.kind === 'deletion')
+                    ? 'Showing the last known deletion history. Refresh failed; sign out remains available below.'
+                    : 'Deletion history is unavailable. Sign out remains available below.'}
                 </p>
-              ) : (
+              ) : null}
+              {!state.jobError || state.jobs.some((job) => job.kind === 'deletion') ? (
                 <JobList
                   jobs={state.jobs.filter((job) => job.kind === 'deletion')}
                   action={action}
                 />
-              )}
+              ) : null}
             </section>
 
-            <section className="account-section session-exit" aria-labelledby="session-heading">
-              <div className="account-section-heading">
-                <span>04</span>
-                <div>
-                  <h2 id="session-heading">This browser</h2>
-                  <p>Revoke the current HttpOnly session and return to sign in.</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => void signOut()} disabled={action === 'sign-out'}>
-                {action === 'sign-out' ? 'Signing out…' : 'Sign out'}
-              </button>
-            </section>
+          </>
+        ) : null}
+        <section className="account-section session-exit" aria-labelledby="session-heading">
+          <div className="account-section-heading">
+            <span>04</span>
+            <div>
+              <h2 id="session-heading">This browser</h2>
+              <p>Revoke the current HttpOnly session and return to sign in.</p>
+            </div>
           </div>
-        </>
-      )}
+          <button type="button" onClick={() => void signOut()} disabled={action === 'sign-out'}>
+            {action === 'sign-out' ? 'Signing out…' : 'Sign out'}
+          </button>
+        </section>
+      </div>
       {actionError ? (
         <p className="account-action-error" role="alert">
           {actionError}
@@ -553,6 +578,10 @@ function JobList({
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function isActiveLifecycleJob(job: LifecycleJob): boolean {
+  return job.state === 'queued' || job.state === 'running' || job.state === 'retry';
 }
 
 function scopeLabel(scope: PersonalAccessTokenScope): string {

@@ -29,6 +29,8 @@ describe('LoginPage', () => {
       '#main-content',
     );
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
+    await user.click(screen.getByRole('button', { name: 'Use light theme' }));
+    expect(document.documentElement.dataset['theme']).toBe('light');
   });
 
   it('does not submit an empty or malformed email address', async () => {

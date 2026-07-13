@@ -1,8 +1,9 @@
 import { StripeCheckoutSessionIdSchema } from '@botmem-v2/contracts';
 import { useEffect, useState } from 'react';
-import { loadBillingDraft } from './billing-state.js';
+import { loadBrowserBillingDraft } from './billing-state.js';
 import type { BotmemWebClient } from './data-client.js';
-import { rememberWorkspace } from './login-state.js';
+import { rememberBrowserWorkspace } from './login-state.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 interface SignupCompletePageProps {
   readonly client: BotmemWebClient;
@@ -44,8 +45,8 @@ export function SignupCompletePage({
             controller.signal,
           );
           if (status.status === 'active') {
-            rememberWorkspace(window.localStorage, status.workspaceId);
-            const draft = loadBillingDraft(window.sessionStorage);
+            rememberBrowserWorkspace(status.workspaceId);
+            const draft = loadBrowserBillingDraft();
             if (!draft) {
               setState({ phase: 'signin_required' });
               return;
@@ -83,6 +84,9 @@ export function SignupCompletePage({
       <a className="skip-link" href="#main-content">
         Skip to completion status
       </a>
+      <div className="public-theme-control">
+        <ThemeToggle />
+      </div>
       <main id="main-content" className="completion-shell" tabIndex={-1}>
         <section className="completion-panel" aria-live="polite">
           <p className="eyebrow">CHECKOUT RETURN / BOTMEM RECONCILIATION</p>

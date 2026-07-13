@@ -8,6 +8,7 @@
   --line: oklch(88% 0.02 102);
   --accent: #c4f53a;
   --accent-ink: oklch(15% 0.035 120);
+  --focus-ring: #c4f53a;
   --danger: oklch(70% 0.2 28);
   --warning: oklch(82% 0.16 82);
   --good: oklch(83% 0.2 130);
@@ -34,6 +35,7 @@
   --line: oklch(22% 0.02 110);
   --accent: #315600;
   --accent-ink: oklch(98% 0.01 95);
+  --focus-ring: #274800;
   --danger: oklch(52% 0.2 28);
   --warning: oklch(55% 0.16 72);
   --good: oklch(45% 0.16 135);
@@ -96,7 +98,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
 }
 
@@ -115,6 +117,19 @@ select:focus-visible {
 
 .skip-link:focus {
   transform: translateY(0);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
 }
 
 .site-header {
@@ -377,7 +392,7 @@ select:focus-visible {
 }
 
 .filter-options input:focus-visible + span {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
 }
 
@@ -713,6 +728,15 @@ select:focus-visible {
   margin: var(--space-sm) 0 var(--space-md);
 }
 
+.source-stale {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
 .setup-workspace {
   width: min(100%, 100rem);
   min-height: 70vh;
@@ -820,7 +844,10 @@ select:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.device-row > div,
 .device-row > div strong {
+  min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 
@@ -908,12 +935,12 @@ select:focus-visible {
   gap: var(--space-sm) var(--space-md);
   margin-bottom: var(--space-xl);
   padding: var(--space-md);
-  border: 2px solid var(--good);
+  border: 2px solid var(--warning);
   background: var(--ink-raised);
-  box-shadow: 0.3rem 0.3rem 0 var(--good);
+  box-shadow: 0.3rem 0.3rem 0 var(--warning);
 }
 
-.connection-callback-notice strong { color: var(--good); }
+.connection-callback-notice strong { color: var(--warning); }
 .connection-callback-notice span { color: var(--paper-muted); }
 
 .owntracks-form > small {
@@ -950,6 +977,7 @@ select:focus-visible {
 .device-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
   gap: var(--space-md);
   --connector: var(--accent);
 }
@@ -962,7 +990,9 @@ select:focus-visible {
 
 .device-row li {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  min-width: 0;
   gap: var(--space-md);
   padding-top: var(--space-sm);
   border-top: 1px solid var(--paper-muted);
@@ -970,8 +1000,11 @@ select:focus-visible {
 }
 
 .device-row li strong {
+  min-width: 0;
+  max-width: 100%;
   color: var(--connector);
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .device-row li strong[data-readiness='ready'] { color: var(--good); }
@@ -1197,6 +1230,7 @@ select:focus-visible {
 .device-pairing-card button,
 .device-setup-output button {
   width: fit-content;
+  max-width: 100%;
   min-height: 2.75rem;
   padding: 0.75rem 1rem;
   border: 2px solid var(--line);
@@ -1205,6 +1239,8 @@ select:focus-visible {
   color: var(--accent-ink);
   font: inherit;
   font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .device-setup-output {
@@ -1222,6 +1258,7 @@ select:focus-visible {
   color: var(--paper);
   font: inherit;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .device-setup-output > div {
@@ -1255,6 +1292,14 @@ select:focus-visible {
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-md);
+}
+
+.public-theme-control {
+  display: flex;
+  justify-content: flex-end;
+  width: min(100%, 100rem);
+  margin-inline: auto;
+  padding: var(--space-md);
 }
 
 .text-link,
@@ -1612,6 +1657,7 @@ select:focus-visible {
 .account-section button,
 .account-load-error button {
   width: fit-content;
+  max-width: 100%;
   min-height: 2.75rem;
   padding: var(--space-sm) var(--space-md);
   border: 2px solid var(--line);
@@ -1619,6 +1665,8 @@ select:focus-visible {
   color: var(--accent-ink);
   cursor: pointer;
   font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .account-section button:disabled {
@@ -1788,6 +1836,7 @@ select:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   gap: var(--space-md);
   padding: var(--space-md) 0;
   border-bottom: 1px solid var(--paper-muted);
@@ -1796,7 +1845,9 @@ select:focus-visible {
 .token-list li > div,
 .job-list li > div {
   display: grid;
+  flex: 1 1 18rem;
   min-width: 0;
+  max-width: 100%;
   gap: var(--space-xs);
 }
 
@@ -1843,6 +1894,11 @@ select:focus-visible {
 
 .account-load-error p {
   color: var(--paper-muted);
+}
+
+.account-stale {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .account-action-error {

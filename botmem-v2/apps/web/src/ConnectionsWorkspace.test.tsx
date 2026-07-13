@@ -96,7 +96,7 @@ describe('ConnectionsWorkspace', () => {
         await Promise.resolve();
       });
 
-      expect(screen.getByText('Gmail authorization returned.')).toBeVisible();
+      expect(screen.getByText('Gmail authorization return received.')).toBeVisible();
       expect(screen.getByText(/Initial sync is running/u)).toBeVisible();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_000);
@@ -120,6 +120,41 @@ describe('ConnectionsWorkspace', () => {
     expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeEnabled();
     expect(screen.getByText('device status unavailable')).toBeVisible();
     expect(screen.queryByText('No Mac is paired.')).not.toBeInTheDocument();
+  });
+
+  it('preserves last-known Mac state when a later device refresh fails', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient();
+      vi.mocked(client.listDevices)
+        .mockResolvedValueOnce({
+          version: 2,
+          items: [
+            {
+              deviceId: 'df381211-58ea-4558-a36f-a2a3202bc682',
+              displayName: 'Personal Mac',
+              state: 'offline',
+              connectors: ['imessage'],
+              sources: [{ connector: 'imessage', readiness: 'ready', searchable: true }],
+            },
+          ],
+        })
+        .mockRejectedValueOnce(new Error('device refresh unavailable'));
+      render(<ConnectionsWorkspace client={client} workspaceId={WORKSPACE_ID} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByText('Personal Mac')).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(screen.getByText('Personal Mac')).toBeVisible();
+      expect(screen.getByText(/Showing the last known Mac state.*device refresh unavailable/u)).toBeVisible();
+      expect(client.listDevices).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
