@@ -1,0 +1,19 @@
+[package]
+name = "botmem-device-ffi"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+botmem-device-core = { path = "../../crates/device-core" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[workspace]

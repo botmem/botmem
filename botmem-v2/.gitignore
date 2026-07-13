@@ -1,0 +1,10 @@
+node_modules/
+dist/
+target/
+coverage/
+.playwright-cli/
+.env
+.env.*
+!.env.example
+artifacts/
+.tmp/

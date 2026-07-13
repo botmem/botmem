@@ -111,10 +111,37 @@ mkdirSync(macosDir, { recursive: true });
 mkdirSync(resourcesDir, { recursive: true });
 mkdirSync(generatedAssetsDir, { recursive: true });
 
-// Clean dist before rebuilding so stale artifacts (e.g. previously-compiled
-// __tests__ from before they were excluded) never leak into the shipped bundle.
-rmSync(join(root, 'dist'), { recursive: true, force: true });
-run('pnpm', ['build']);
+// Build the Rust engine static library that the app links in-process. The
+// engine (not a bundled node) is the bridge: it reads the local DBs under the
+// app's own FDA grant. See packages/apple-bridge-engine/ARCHITECTURE.md.
+const engineDir = resolve(root, '..', 'apple-bridge-engine');
+const rustTarget = process.env.BOTMEM_RUST_TARGET || ''; // e.g. aarch64-apple-darwin
+const cargoBin = (() => {
+  const home = process.env.HOME || '';
+  const local = home && join(home, '.cargo', 'bin', 'cargo');
+  return local && existsSync(local) ? local : 'cargo';
+})();
+const cargoArgs = ['build', '--release', '--manifest-path', join(engineDir, 'Cargo.toml')];
+if (rustTarget) cargoArgs.push('--target', rustTarget);
+run(cargoBin, cargoArgs);
+const engineLibDir = rustTarget
+  ? join(engineDir, 'target', rustTarget, 'release')
+  : join(engineDir, 'target', 'release');
+const engineStaticLib = join(engineLibDir, 'libbotmem_engine.a');
+if (!existsSync(engineStaticLib)) {
+  throw new Error(`Build error: engine static lib missing at ${engineStaticLib}`);
+}
+// Defensively remove any stale cdylib left by an older build: the linker prefers
+// a `.dylib` over the `.a` for `-lbotmem_engine`, which would dynamically link an
+// absolute build-path dylib (fails code-signing, absent on other Macs). We link
+// the archive by explicit path below regardless, but this keeps the dir clean.
+for (const dylib of [
+  join(engineLibDir, 'libbotmem_engine.dylib'),
+  join(engineLibDir, 'deps', 'libbotmem_engine.dylib'),
+]) {
+  if (existsSync(dylib)) rmSync(dylib, { force: true });
+}
+const engineHeader = join(engineDir, 'include', 'botmem_engine.h');
 
 const logoMark128 = join(generatedAssetsDir, 'logo-mark-128.png');
 const logoMark1024 = join(generatedAssetsDir, 'logo-mark-1024.png');
@@ -149,66 +176,31 @@ for (const [size, name] of iconSizes) {
 run('iconutil', ['-c', 'icns', iconsetDir, '-o', join(resourcesDir, 'AppIcon.icns')]);
 rmSync(iconsetDir, { recursive: true, force: true });
 
-// The app is now a pure UI shell that supervises the bundled Node bridge.
-// The retired pure-Swift tunnel engine (AppleBridgeNative.swift) is no longer
-// compiled, and the app no longer links Contacts/CryptoKit/sqlite3 — Node owns
-// all data access. Only AppKit + Foundation are needed.
+// Compile the Swift UI and link the Rust engine static library in-process. The
+// engine's C ABI is exposed to Swift via -import-objc-header (botmem_engine.h).
+// -lresolv + CoreFoundation/Security satisfy Rust std's transitive macOS deps.
+// No node, dist, or node_modules are bundled anymore — the engine IS the bridge.
 run('swiftc', [
-  // -parse-as-library: this is now a single source file with `@main`; without
-  // this flag swiftc treats it as top-level script code and rejects @main.
+  // -parse-as-library: single source file with `@main`; without it swiftc treats
+  // the file as top-level script code and rejects @main.
   '-parse-as-library',
+  '-O',
   join(root, 'macos', 'BotmemAppleBridge.swift'),
+  '-import-objc-header',
+  engineHeader,
   '-framework',
   'AppKit',
+  // Link the static archive by explicit path (NOT -L/-lbotmem_engine) so the
+  // linker statically pulls the engine in and can never prefer a stray dylib.
+  engineStaticLib,
+  '-lresolv',
+  '-framework',
+  'CoreFoundation',
+  '-framework',
+  'Security',
   '-o',
   join(macosDir, 'botmem'),
 ]);
-
-// Bundle the Node engine into Resources so the app can spawn it offline:
-//   • dist/        — dist/cli.js (default action) + dist/local-index/* (FTS)
-//   • node_modules — better-sqlite3 (native build), ws, pdf-parse, mammoth
-//   • node         — the Node binary the app spawns as a child process
-// The app sets NODE_PATH to Resources/node_modules and runs:
-//   <Resources/node> <Resources/dist/cli.js> --config ~/.botmem/config.json
-cpSync(join(root, 'dist'), join(resourcesDir, 'dist'), { recursive: true });
-if (!existsSync(join(resourcesDir, 'dist', 'cli.js'))) {
-  throw new Error('Build error: dist/cli.js missing — run `pnpm build` first.');
-}
-if (existsSync(join(root, 'node_modules'))) {
-  // dereference resolves pnpm symlinks so the bundle is self-contained, and
-  // copies the better-sqlite3 native .node build into the signed bundle.
-  cpSync(join(root, 'node_modules'), join(resourcesDir, 'node_modules'), {
-    recursive: true,
-    dereference: true,
-  });
-}
-
-// The bundled Node binary is REQUIRED: the app spawns it as its own child so
-// Full Disk Access is inherited under the app's signature. A system/Homebrew
-// node would NOT inherit FDA. For release/CI this build must FAIL when
-// BOTMEM_NODE_BINARY is missing — no system-node fallback. Only an explicit
-// dev opt-out (BOTMEM_ALLOW_SYSTEM_NODE=1, which the app also honors) skips it.
-const bundledNode = process.env.BOTMEM_NODE_BINARY;
-if (bundledNode) {
-  if (!existsSync(bundledNode)) {
-    throw new Error(`BOTMEM_NODE_BINARY points at a missing file: ${bundledNode}`);
-  }
-  copyFileSync(bundledNode, join(resourcesDir, 'node'));
-  // Mark the bundled node executable so Process can spawn it.
-  run('chmod', ['755', join(resourcesDir, 'node')], { stdio: 'ignore' });
-} else if (process.env.BOTMEM_ALLOW_SYSTEM_NODE === '1') {
-  console.warn(
-    'BOTMEM_NODE_BINARY unset and BOTMEM_ALLOW_SYSTEM_NODE=1 — building a DEV bundle ' +
-      'without an embedded node. The app will fall back to a PATH node (no FDA). ' +
-      'Do NOT ship this build.',
-  );
-} else {
-  throw new Error(
-    'BOTMEM_NODE_BINARY is required: the app must bundle its own Node runtime so the ' +
-      'spawned bridge inherits Full Disk Access. Set BOTMEM_NODE_BINARY to a macOS Node ' +
-      'binary (or BOTMEM_ALLOW_SYSTEM_NODE=1 for a non-shippable dev build).',
-  );
-}
 
 const identity = process.env.BOTMEM_CODESIGN_IDENTITY || '-';
 if (identity === '-') {

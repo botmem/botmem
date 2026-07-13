@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/apple-bridge-release.yml'
       - 'packages/apple-bridge/**'
+      - 'packages/apple-bridge-engine/**'
       - 'apps/api/src/apple-tunnel/**'
       - 'apps/api/src/accounts/**'
       - 'apps/api/src/jobs/**'
@@ -17,6 +18,7 @@ on:
     paths:
       - '.github/workflows/apple-bridge-release.yml'
       - 'packages/apple-bridge/**'
+      - 'packages/apple-bridge-engine/**'
       - 'apps/api/src/apple-tunnel/**'
       - 'apps/api/src/accounts/**'
       - 'apps/api/src/jobs/**'
@@ -46,19 +48,29 @@ jobs:
             dmg: botmem-arm64.dmg
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
         with:
           version: 9.15.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install native build tooling
-        run: npm install -g node-gyp
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal \
+            --component clippy,rustfmt --target aarch64-apple-darwin
+          rustup override set 1.96.0
+
+      - name: Validate Rust engine
+        run: |
+          cargo fmt --manifest-path packages/apple-bridge-engine/Cargo.toml --check
+          cargo clippy --manifest-path packages/apple-bridge-engine/Cargo.toml \
+            --all-targets --all-features -- -D warnings
+          cargo test --manifest-path packages/apple-bridge-engine/Cargo.toml --all-features
 
       - run: pnpm install --frozen-lockfile
 
@@ -75,10 +87,10 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
       - name: Build DMG
-        run: |
-          export BOTMEM_NODE_BINARY="$(command -v node)"
-          pnpm --filter @botmem/apple-bridge build:mac-app
+        run: pnpm --filter @botmem/apple-bridge build:mac-app
         env:
+          # The engine is the Rust static lib; build it for the runner's arch.
+          BOTMEM_RUST_TARGET: aarch64-apple-darwin
           BOTMEM_DMG_NAME: ${{ matrix.dmg }}
           BOTMEM_CODESIGN_IDENTITY: ${{ secrets.BOTMEM_CODESIGN_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -86,13 +98,14 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.dmg }}
           path: packages/apple-bridge/dist-macos/${{ matrix.dmg }}
 
       - name: Attach to GitHub Release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v3
-        with:
-          files: packages/apple-bridge/dist-macos/${{ matrix.dmg }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "packages/apple-bridge/dist-macos/${{ matrix.dmg }}" --clobber

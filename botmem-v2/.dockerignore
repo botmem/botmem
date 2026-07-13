@@ -1,0 +1,12 @@
+.git
+.github
+.playwright-cli
+**/.DS_Store
+**/coverage
+**/dist
+**/node_modules
+**/release
+**/target
+macos
+reports
+tmp

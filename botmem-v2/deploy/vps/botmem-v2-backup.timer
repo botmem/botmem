@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Botmem v2 encrypted backup verification
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=botmem-v2-backup.service
+
+[Install]
+WantedBy=timers.target

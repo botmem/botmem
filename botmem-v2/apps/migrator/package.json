@@ -1,0 +1,26 @@
+{
+  "name": "@botmem-v2/migrator",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "botmem-v2-migrator": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pg": "8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.5",
+    "@types/pg": "8.20.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

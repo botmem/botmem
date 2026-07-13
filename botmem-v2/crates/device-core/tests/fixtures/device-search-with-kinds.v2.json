@@ -1,0 +1,17 @@
+{
+  "protocol": "botmem.device.v2",
+  "requestId": "5f01ba57-afd8-4119-83aa-9ef2833118f9",
+  "sentAt": "2026-07-13T10:00:00.000Z",
+  "deadlineAt": "2026-07-13T10:00:01.000Z",
+  "type": "search.request",
+  "payload": {
+    "queryId": "2a39b569-b9ac-44e9-88be-0f47ba5564fd",
+    "query": {
+      "query": "launch",
+      "connectors": ["imessage", "whatsapp"],
+      "kinds": ["message"],
+      "limit": 20,
+      "cursor": null
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "@botmem-v2/cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "botmem": "./dist/bin.js",
+    "botmem-v2": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "package:standalone": "../../scripts/package-cli.sh",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@botmem-v2/contracts": "workspace:*",
+    "@botmem-v2/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.5",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

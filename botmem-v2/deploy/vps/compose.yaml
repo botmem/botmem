@@ -1,0 +1,526 @@
+name: botmem-v2
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 25m
+    max-file: '4'
+
+x-node-runtime: &node-runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  logging: *logging
+
+services:
+  postgres:
+    image: ${BOTMEM_V2_DATABASE_IMAGE:?immutable database image is required}
+    restart: unless-stopped
+    entrypoint: [/opt/botmem/postgres-entrypoint.sh]
+    environment:
+      POSTGRES_DB: botmem_v2
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+    secrets:
+      - postgres_admin_password
+      - internal_ca_crt
+      - postgres_server_crt
+      - postgres_server_key
+    configs:
+      - source: postgres_entrypoint
+        target: /opt/botmem/postgres-entrypoint.sh
+        mode: 0555
+      - source: postgres_hba
+        target: /opt/botmem/pg_hba.conf
+        mode: 0444
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    tmpfs:
+      - /run/postgresql:rw,nosuid,nodev,size=16m,mode=1777
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres -d botmem_v2]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    logging: *logging
+
+  role-bootstrap:
+    image: ${BOTMEM_V2_DATABASE_IMAGE:?immutable database image is required}
+    profiles: [tools]
+    restart: 'no'
+    entrypoint: [/opt/botmem/bootstrap-database.sh]
+    environment:
+      ADMIN_DATABASE_URL_FILE: /run/secrets/postgres_admin_database_url
+    secrets:
+      - postgres_admin_database_url
+      - api_database_password
+      - sync_database_password
+      - projection_worker_database_password
+      - projection_dispatcher_database_password
+      - commerce_database_password
+      - identity_admin_database_password
+      - lifecycle_database_password
+      - migrator_database_password
+      - internal_ca_crt
+    configs:
+      - source: database_bootstrap
+        target: /opt/botmem/bootstrap-database.sh
+        mode: 0555
+      - source: database_roles
+        target: /opt/botmem/00_roles.sql
+        mode: 0444
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    logging: *logging
+
+  lifecycle-volume-init:
+    image: ${BOTMEM_V2_DATABASE_IMAGE:?immutable database image is required}
+    restart: 'no'
+    user: '0:0'
+    entrypoint: [/bin/bash, -euc]
+    command:
+      - |
+        install -d -m 0750 -o 1000 -g 1000 /var/lib/botmem/exports
+        setpriv --reuid=1000 --regid=1000 --clear-groups \
+          /bin/bash -euc 'touch /var/lib/botmem/exports/.write-probe; rm /var/lib/botmem/exports/.write-probe'
+    volumes:
+      - lifecycle_artifacts:/var/lib/botmem/exports
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=4m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 16
+    logging: *logging
+
+  redis:
+    image: redis:8.8.0-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+    restart: unless-stopped
+    entrypoint: [/opt/botmem/redis-entrypoint.sh]
+    secrets:
+      - redis_password
+      - internal_ca_crt
+      - redis_server_crt
+      - redis_server_key
+    configs:
+      - source: redis_entrypoint
+        target: /opt/botmem/redis-entrypoint.sh
+        mode: 0555
+    volumes:
+      - redis_data:/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    networks: [backend]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --tls --cacert /run/secrets/internal_ca_crt -h redis ping | grep -qx PONG
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    logging: *logging
+
+  migrator:
+    image: ${BOTMEM_V2_MIGRATOR_IMAGE:?immutable migrator image is required}
+    profiles: [tools]
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/migrator_database_url
+      DATABASE_PASSWORD_FILE: /run/secrets/migrator_database_password
+    secrets:
+      - migrator_database_url
+      - migrator_database_password
+      - internal_ca_crt
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    logging: *logging
+
+  api:
+    <<: *node-runtime
+    image: ${BOTMEM_V2_API_IMAGE:?immutable API image is required}
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --enable-source-maps --disable-proto=throw --max-old-space-size=320
+      HOST: 0.0.0.0
+      PORT: 12412
+      DATABASE_URL_FILE: /run/secrets/api_database_url
+      AUTH_TOKEN_PEPPER_FILE: /run/secrets/auth_token_pepper
+      CONNECTOR_VAULT_KEYS_FILE: /run/secrets/connector_vault_keys
+      GOOGLE_OAUTH_CLIENT_ID: ${BOTMEM_GOOGLE_OAUTH_CLIENT_ID:?Google OAuth client ID is required}
+      GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/google_oauth_client_secret
+      MICROSOFT_OAUTH_CLIENT_ID: ${BOTMEM_MICROSOFT_OAUTH_CLIENT_ID:?Microsoft OAuth client ID is required}
+      MICROSOFT_OAUTH_CLIENT_SECRET_FILE: /run/secrets/microsoft_oauth_client_secret
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      LOGIN_EMAIL_FROM: ${BOTMEM_LOGIN_EMAIL_FROM:?login sender is required}
+      REDIS_URL_FILE: /run/secrets/redis_url
+      STRIPE_CHECKOUT_API_KEY_FILE: /run/secrets/stripe_checkout_api_key
+      STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
+      LIFECYCLE_ARTIFACT_KEY_PATH: /run/secrets/lifecycle_artifact_key
+      PUBLIC_BASE_URL: ${BOTMEM_PUBLIC_BASE_URL:?public API origin is required}
+      PUBLIC_WEB_URL: ${BOTMEM_PUBLIC_WEB_URL:?public Web origin is required}
+      TRUSTED_ORIGINS: ${BOTMEM_TRUSTED_ORIGINS:?trusted origins are required}
+      BOTMEM_MAC_DMG_URL: ${BOTMEM_MAC_DMG_URL:?immutable Mac DMG URL is required}
+      BOTMEM_MAC_DMG_VERSION: ${BOTMEM_MAC_DMG_VERSION:?Mac DMG version is required}
+      BOTMEM_MAC_DMG_SHA256: ${BOTMEM_MAC_DMG_SHA256:?Mac DMG SHA-256 is required}
+      BOTMEM_CLI_TGZ_URL: ${BOTMEM_CLI_TGZ_URL:?immutable CLI package URL is required}
+      BOTMEM_CLI_TGZ_VERSION: ${BOTMEM_CLI_TGZ_VERSION:?CLI package version is required}
+      BOTMEM_CLI_TGZ_SHA256: ${BOTMEM_CLI_TGZ_SHA256:?CLI package SHA-256 is required}
+      STRIPE_API_VERSION: ${BOTMEM_STRIPE_API_VERSION:?Stripe API version is required}
+      STRIPE_PRICE_ID: ${BOTMEM_STRIPE_PRICE_ID:?Stripe price is required}
+      SALES_ENABLED: ${BOTMEM_SALES_ENABLED:-false}
+      STRIPE_CHECKOUT_SUCCESS_URL: ${BOTMEM_STRIPE_CHECKOUT_SUCCESS_URL:?checkout success URL is required}
+      STRIPE_CHECKOUT_CANCEL_URL: ${BOTMEM_STRIPE_CHECKOUT_CANCEL_URL:?checkout cancel URL is required}
+      STRIPE_PORTAL_RETURN_URL: ${BOTMEM_STRIPE_PORTAL_RETURN_URL:?portal return URL is required}
+      OPENAI_EMBED_MODEL: ${BOTMEM_OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      OPENAI_EMBED_ENDPOINT: https://api.openai.com/v1/embeddings
+      HOSTED_SEARCH_HNSW_EF_SEARCH: 600
+      SEARCH_RATE_LIMIT_WORKSPACE_PER_MINUTE: ${BOTMEM_SEARCH_RATE_LIMIT_WORKSPACE_PER_MINUTE:-60}
+      SEARCH_RATE_LIMIT_GLOBAL_PER_MINUTE: ${BOTMEM_SEARCH_RATE_LIMIT_GLOBAL_PER_MINUTE:-3000}
+      API_REPLICA_ID: api-vultr-1
+      DEVICE_REDIS_NAMESPACE: botmem:v2
+      PGSSLROOTCERT: /run/secrets/internal_ca_crt
+      NODE_EXTRA_CA_CERTS: /run/secrets/internal_ca_crt
+      LIFECYCLE_ARTIFACT_ROOT: /var/lib/botmem/exports
+    secrets:
+      - api_database_url
+      - auth_token_pepper
+      - connector_vault_keys
+      - google_oauth_client_secret
+      - microsoft_oauth_client_secret
+      - openai_api_key
+      - resend_api_key
+      - redis_url
+      - stripe_checkout_api_key
+      - stripe_webhook_secret
+      - lifecycle_artifact_key
+      - internal_ca_crt
+    volumes:
+      - lifecycle_artifacts:/var/lib/botmem/exports:ro
+    networks: [backend, edge]
+    ports:
+      - 127.0.0.1:${BOTMEM_V2_API_LOOPBACK_PORT:-22412}:12412
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      lifecycle-volume-init: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:12412/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    stop_grace_period: 30s
+
+  sync-worker:
+    <<: *node-runtime
+    image: ${BOTMEM_V2_SYNC_WORKER_IMAGE:?immutable sync worker image is required}
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --enable-source-maps --disable-proto=throw --max-old-space-size=192
+      WORKER_DATABASE_URL_FILE: /run/secrets/sync_database_url
+      CONNECTOR_VAULT_KEYS_FILE: /run/secrets/connector_vault_keys
+      GOOGLE_OAUTH_CLIENT_ID: ${BOTMEM_GOOGLE_OAUTH_CLIENT_ID:?Google OAuth client ID is required}
+      GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/google_oauth_client_secret
+      MICROSOFT_OAUTH_CLIENT_ID: ${BOTMEM_MICROSOFT_OAUTH_CLIENT_ID:?Microsoft OAuth client ID is required}
+      MICROSOFT_OAUTH_CLIENT_SECRET_FILE: /run/secrets/microsoft_oauth_client_secret
+      HOSTED_SYNC_WORKER_ID: sync-vultr-1
+      HOSTED_SYNC_EXHAUSTED_RETRY_SECONDS: ${BOTMEM_HOSTED_SYNC_EXHAUSTED_RETRY_SECONDS:-21600}
+      HOSTED_SYNC_GMAIL_INTERVAL_SECONDS: ${BOTMEM_HOSTED_SYNC_GMAIL_INTERVAL_SECONDS:-300}
+      HOSTED_SYNC_OUTLOOK_INTERVAL_SECONDS: ${BOTMEM_HOSTED_SYNC_OUTLOOK_INTERVAL_SECONDS:-300}
+      HOSTED_SYNC_OWNTRACKS_INTERVAL_SECONDS: ${BOTMEM_HOSTED_SYNC_OWNTRACKS_INTERVAL_SECONDS:-300}
+      PGSSLROOTCERT: /run/secrets/internal_ca_crt
+      NODE_EXTRA_CA_CERTS: /run/secrets/internal_ca_crt
+    secrets:
+      - sync_database_url
+      - connector_vault_keys
+      - google_oauth_client_secret
+      - microsoft_oauth_client_secret
+      - internal_ca_crt
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    stop_grace_period: 90s
+
+  projection-worker:
+    <<: *node-runtime
+    image: ${BOTMEM_V2_PROJECTION_WORKER_IMAGE:?immutable projection worker image is required}
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --enable-source-maps --disable-proto=throw --max-old-space-size=320
+      PROJECTION_WORKER_HOST: 0.0.0.0
+      PROJECTION_WORKER_PORT: 12413
+      PROJECTION_WORKER_ID: projection-vultr-1
+      DISPATCHER_DATABASE_URL_FILE: /run/secrets/projection_dispatcher_database_url
+      WORKER_DATABASE_URL_FILE: /run/secrets/projection_worker_database_url
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      OPENAI_EMBED_MODEL: ${BOTMEM_OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      OPENAI_EMBED_ENDPOINT: https://api.openai.com/v1/embeddings
+      PGSSLROOTCERT: /run/secrets/internal_ca_crt
+      NODE_EXTRA_CA_CERTS: /run/secrets/internal_ca_crt
+    secrets:
+      - projection_dispatcher_database_url
+      - projection_worker_database_url
+      - openai_api_key
+      - internal_ca_crt
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:12413/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    stop_grace_period: 30s
+
+  commerce-reconciler:
+    <<: *node-runtime
+    image: ${BOTMEM_V2_COMMERCE_RECONCILER_IMAGE:?immutable commerce reconciler image is required}
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --enable-source-maps --disable-proto=throw --max-old-space-size=128
+      COMMERCE_DATABASE_URL_FILE: /run/secrets/commerce_database_url
+      IDENTITY_ADMIN_DATABASE_URL_FILE: /run/secrets/identity_admin_database_url
+      STRIPE_RECONCILER_API_KEY_FILE: /run/secrets/stripe_reconciler_api_key
+      STRIPE_API_VERSION: ${BOTMEM_STRIPE_API_VERSION:?Stripe API version is required}
+      STRIPE_PRICE_ID: ${BOTMEM_STRIPE_PRICE_ID:?Stripe price is required}
+      COMMERCE_RECONCILER_WORKER_ID: commerce-vultr-1
+      PGSSLROOTCERT: /run/secrets/internal_ca_crt
+      NODE_EXTRA_CA_CERTS: /run/secrets/internal_ca_crt
+    secrets:
+      - commerce_database_url
+      - identity_admin_database_url
+      - stripe_reconciler_api_key
+      - internal_ca_crt
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    stop_grace_period: 30s
+
+  lifecycle-worker:
+    <<: *node-runtime
+    image: ${BOTMEM_V2_LIFECYCLE_WORKER_IMAGE:?immutable lifecycle worker image is required}
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --enable-source-maps --disable-proto=throw --max-old-space-size=160
+      LIFECYCLE_DATABASE_URL_FILE: /run/secrets/lifecycle_database_url
+      LIFECYCLE_ARTIFACT_KEY_PATH: /run/secrets/lifecycle_artifact_key
+      LIFECYCLE_WORKER_ID: lifecycle-vultr-1
+      LIFECYCLE_ARTIFACT_ROOT: /var/lib/botmem/exports
+      PGSSLROOTCERT: /run/secrets/internal_ca_crt
+      NODE_EXTRA_CA_CERTS: /run/secrets/internal_ca_crt
+    secrets:
+      - lifecycle_database_url
+      - lifecycle_artifact_key
+      - internal_ca_crt
+    volumes:
+      - lifecycle_artifacts:/var/lib/botmem/exports
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+      lifecycle-volume-init: { condition: service_completed_successfully }
+    stop_grace_period: 90s
+
+  web:
+    image: ${BOTMEM_V2_WEB_IMAGE:?immutable Web image is required}
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m,mode=0750
+      - /var/run:rw,noexec,nosuid,nodev,size=4m,mode=0750
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    logging: *logging
+    networks: [edge]
+    ports:
+      - 127.0.0.1:${BOTMEM_V2_WEB_LOOPBACK_PORT:-28080}:8080
+
+  caddy-volume-init:
+    image: ${BOTMEM_V2_EDGE_IMAGE:?immutable edge image is required}
+    profiles: [edge]
+    restart: 'no'
+    user: '0:0'
+    entrypoint: [/bin/sh, -euc]
+    command:
+      - |
+        chown -R 1000:1000 /data /config
+        chmod 0750 /data /config
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=4m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 16
+    logging: *logging
+
+  caddy:
+    image: ${BOTMEM_V2_EDGE_IMAGE:?immutable edge image is required}
+    profiles: [edge]
+    restart: unless-stopped
+    user: '1000:1000'
+    environment:
+      BOTMEM_TLS_CONTACT_EMAIL: ${BOTMEM_TLS_CONTACT_EMAIL:?TLS contact email is required}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+        mode: 0444
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    networks: [edge]
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    depends_on:
+      caddy-volume-init: { condition: service_completed_successfully }
+      api: { condition: service_healthy }
+      web: { condition: service_started }
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    logging: *logging
+
+configs:
+  postgres_entrypoint: { file: ./postgres-entrypoint.sh }
+  postgres_hba: { file: ./pg_hba.conf }
+  redis_entrypoint: { file: ./redis-entrypoint.sh }
+  caddyfile: { file: ./Caddyfile }
+  database_bootstrap: { file: ./bootstrap-database.sh }
+  database_roles: { file: ../../db/bootstrap/00_roles.sql }
+
+secrets:
+  postgres_admin_password:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/postgres-admin-password' }
+  postgres_admin_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/postgres-admin-database-url' }
+  internal_ca_crt: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/tls/ca.crt' }
+  postgres_server_crt:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/tls/postgres.crt' }
+  postgres_server_key:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/tls/postgres.key' }
+  redis_server_crt: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/tls/redis.crt' }
+  redis_server_key: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/tls/redis.key' }
+  redis_password: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/redis-password' }
+  api_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/api-database-url' }
+  sync_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/sync-database-url' }
+  projection_worker_database_url:
+    {
+      file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/projection-worker-database-url',
+    }
+  projection_dispatcher_database_url:
+    {
+      file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/projection-dispatcher-database-url',
+    }
+  commerce_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/commerce-database-url' }
+  identity_admin_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/identity-admin-database-url' }
+  lifecycle_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/lifecycle-database-url' }
+  migrator_database_url:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/migrator-database-url' }
+  redis_url: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/redis-url' }
+  auth_token_pepper:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/auth-token-pepper' }
+  connector_vault_keys:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/connector-vault-keys' }
+  google_oauth_client_secret:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/google-oauth-client-secret' }
+  microsoft_oauth_client_secret:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/microsoft-oauth-client-secret' }
+  openai_api_key: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/openai-api-key' }
+  resend_api_key: { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/resend-api-key' }
+  stripe_checkout_api_key:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/stripe-checkout-api-key' }
+  stripe_webhook_secret:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/stripe-webhook-secret' }
+  stripe_reconciler_api_key:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/stripe-reconciler-api-key' }
+  lifecycle_artifact_key:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/lifecycle-artifact-key' }
+  api_database_password:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/api-password' }
+  sync_database_password:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/sync-password' }
+  projection_worker_database_password:
+    {
+      file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/projection-worker-password',
+    }
+  projection_dispatcher_database_password:
+    {
+      file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/projection-dispatcher-password',
+    }
+  commerce_database_password:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/commerce-password' }
+  identity_admin_database_password:
+    {
+      file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/identity-admin-password',
+    }
+  lifecycle_database_password:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/lifecycle-password' }
+  migrator_database_password:
+    { file: '${BOTMEM_V2_SECRETS_DIR:?secret directory is required}/database/migrator-password' }
+
+volumes:
+  postgres_data: { name: botmem-v2-postgres-data }
+  redis_data: { name: botmem-v2-redis-data }
+  lifecycle_artifacts: { name: botmem-v2-lifecycle-artifacts }
+  caddy_data: { name: botmem-v2-caddy-data }
+  caddy_config: { name: botmem-v2-caddy-config }
+
+networks:
+  backend: { name: botmem-v2-backend, internal: true }
+  edge:

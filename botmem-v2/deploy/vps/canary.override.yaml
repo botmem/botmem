@@ -1,0 +1,29 @@
+services:
+  api:
+    ports: !override
+      - 127.0.0.1:${BOTMEM_V2_CANARY_API_PORT:-22414}:12412
+
+  web:
+    ports: !override
+      - 127.0.0.1:${BOTMEM_V2_CANARY_WEB_PORT:-28082}:8080
+
+volumes:
+  lifecycle_artifacts:
+    name: botmem-v2-canary-lifecycle-artifacts
+  postgres_data:
+    external: true
+    name: botmem-v2-postgres-data
+  redis_data:
+    external: true
+    name: botmem-v2-redis-data
+  caddy_data:
+    external: true
+    name: botmem-v2-caddy-data
+  caddy_config:
+    external: true
+    name: botmem-v2-caddy-config
+
+networks:
+  backend:
+    external: true
+    name: botmem-v2-backend
