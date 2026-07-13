@@ -15,8 +15,9 @@ that a tag exists; Botmem does not describe that as cryptographic tag signing.
 
 This file is the live readiness record for the clean v2 rewrite. A component is
 marked complete only when its implementation and deterministic verification are
-both present. The product is not ready for human review while any automated gate
-is open.
+both present. The review branch is ready only after every pull-request gate is
+green; signed publication and the isolated Vultr canary remain post-merge
+release gates.
 
 ## Implemented and verified
 
@@ -47,11 +48,11 @@ is open.
   limits of 750 ms, 1.5 s, and 3 s respectively.
 - PostgreSQL hosted projection/search, immutable active heads, multilingual
   lexical/trigram/semantic lanes, evidence-backed readiness, repair scan, and
-  fresh PostgreSQL 17/pgvector invariants. A clean PostgreSQL 17 run with all
-  V1--V16 migrations and 100,000 hosted documents measured p50 67.154 ms,
-  p95 167.316 ms, and p99 172.950 ms in the mixed
+  fresh PostgreSQL 17/pgvector invariants. The review commit's GitHub Actions
+  PostgreSQL 17 run applied V1--V16 and indexed 100,000 hosted documents, then
+  measured p50 106.346 ms, p95 290.887 ms, and p99 294.235 ms in the mixed
   semantic/lexical/Arabic/typo workload. Embedding-outage fallback measured
-  p50 43.016 ms, p95 159.542 ms, and p99 165.880 ms. Both paths remain below
+  p50 54.753 ms, p95 242.731 ms, and p99 242.755 ms. Both paths remain below
   the 500 ms release gate while preserving exact semantic-neighbour recall.
 - Production PostgreSQL connector-ingestion unit of work exercised through the
   least-privilege worker role: sync lease, revision, head, content-free outbox,
@@ -75,8 +76,11 @@ is open.
   design, reduced motion, and HttpOnly ambient-session boundary.
 - Production Web connections slice for Gmail/Outlook OAuth launch, OwnTracks
   Basic setup, hosted sync/disconnect status, and paired Mac/source truth. The
-  deterministic render fixture, 39 tests, production build/typecheck, and React
-  Doctor 100/100 pass; the real-Chrome gate remains explicitly open below.
+  deterministic render fixture, 50 tests, production build/typecheck, and React
+  Doctor 100/100 pass. A permissioned real-Chrome run covered desktop and 320 px
+  mobile layouts, keyboard skip/result focus, theme switching, federated and
+  partial search, every workspace section, zero overflow, and zero console
+  errors.
 - Canonical CLI search binary exercised as a separate process against a real
   ephemeral HTTP server.
 - MCP server exercised through the official stable SDK and authenticated
@@ -123,15 +127,9 @@ is open.
 
 ## Open automated gates
 
-- Push the scoped v2 branch and require every Botmem v2 pull-request CI job to
-  pass on the exact review commit.
 - After the reviewed commit reaches `main`, publish its signed multi-platform
   image digests and run the isolated loopback-only Vultr backup/restore/canary.
   Public Caddy/DNS promotion stays disabled until the human gates below pass.
-- Run the prepared real-Chrome desktop/mobile/keyboard render script once the
-  user enables Chrome's permissioned remote-debugging bridge. Unit/render-fixture
-  contracts, 39 Web tests, production build/typecheck, and React Doctor 100/100
-  are already green; a missing CDP target is not represented as a browser pass.
 
 ## Human-only final gates
 
@@ -139,9 +137,6 @@ is open.
   privacy disclosures, retention language, and applicable jurisdictional
   rights. Checkout remains technically disabled until that approval and an
   explicit `SALES_ENABLED=true` production change.
-- Enable Chrome remote debugging at `chrome://inspect/#remote-debugging`, keep
-  the real Chrome session running, and execute `pnpm test:web-render` for the
-  final rendered desktop/mobile/keyboard evidence.
 - Register production Google and Microsoft OAuth applications with exact deployed
   callbacks, then consent against real test mailboxes.
 - Provide Apple Developer ID/notarization credentials and verify the final
