@@ -120,7 +120,7 @@ describe('PostgresHostedSearch', () => {
     expect(client.queries).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining("set_config('hnsw.ef_search'"),
-        values: ['600'],
+        values: ['500'],
       }),
     );
     expect(

@@ -18,6 +18,11 @@ import type {
 
 const PROFILE_ID = 'hosted-multilingual-v1';
 const EMBEDDING_DIMENSIONS = 768;
+// The fused semantic lane asks for at most 200 rows. The deterministic 100k
+// recall gate stops finding its semantic needle below 475, so 500 retains a
+// measured safety margin while avoiding the latency cost of the previous 600.
+// Filtered searches can continue through pgvector's iterative scan.
+const DEFAULT_HNSW_EF_SEARCH = 500;
 
 interface EmbeddingProfileRow {
   readonly status: 'indexing' | 'ready' | 'error';
@@ -64,7 +69,7 @@ export class PostgresHostedSearch implements HostedSearchPort {
   ) {
     this.statementTimeoutMs = options.statementTimeoutMs ?? 450;
     this.laneOversampling = options.laneOversampling ?? 4;
-    this.hnswEfSearch = options.hnswEfSearch ?? 600;
+    this.hnswEfSearch = options.hnswEfSearch ?? DEFAULT_HNSW_EF_SEARCH;
     if (this.statementTimeoutMs < 1 || this.statementTimeoutMs > 30_000) {
       throw new RangeError('statementTimeoutMs must be between 1 and 30000');
     }
