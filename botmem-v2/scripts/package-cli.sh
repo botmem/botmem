@@ -74,8 +74,10 @@ npm install --ignore-scripts --no-audit --no-fund --prefix "$SMOKE" "$ARTIFACT" 
 test "$("$SMOKE/node_modules/.bin/botmem" --version)" = "$VERSION"
 test "$("$SMOKE/node_modules/.bin/botmem-v2" --version)" = "$VERSION"
 test "$(tar -xOf "$ARTIFACT" package/package.json | node -e "let value=''; process.stdin.on('data', chunk => value += chunk); process.stdin.on('end', () => { if (JSON.parse(value).license !== 'AGPL-3.0-only') process.exit(1); })")" = ''
-tar -tf "$ARTIFACT" | grep -qx 'package/LICENSE'
-"$SMOKE/node_modules/.bin/botmem" --help | grep -q 'BOTMEM_ACCESS_TOKEN'
+tar -tf "$ARTIFACT" > "$SMOKE/archive-files.txt"
+grep -qx 'package/LICENSE' "$SMOKE/archive-files.txt"
+"$SMOKE/node_modules/.bin/botmem" --help > "$SMOKE/help.txt"
+grep -q 'BOTMEM_ACCESS_TOKEN' "$SMOKE/help.txt"
 PORT_FILE="$SMOKE/api-url"
 node "$ROOT/scripts/cli-package-smoke-server.mjs" "$PORT_FILE" &
 SERVER_PID="$!"

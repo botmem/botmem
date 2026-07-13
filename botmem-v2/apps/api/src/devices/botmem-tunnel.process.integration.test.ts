@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { chmod, mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server as NetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -54,7 +54,7 @@ describe.runIf(enabled)('real botmem-tunnel TLS process canary', () => {
     }
     root = await mkdtemp(join(tmpdir(), 'botmem-v2-canary-'));
     indexRoot = join(root, 'index');
-    generateTlsFixture(root);
+    await generateTlsFixture(root);
     caPem = await readFile(join(root, 'ca.pem'), 'utf8');
     execFileSync(SEED_BINARY, [indexRoot, String(INDEX_DOCUMENTS)], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -160,7 +160,9 @@ describe.runIf(enabled)('real botmem-tunnel TLS process canary', () => {
       helper.child.kill('SIGTERM');
       await helper.exit.catch(() => undefined);
     }
-    await new Promise<void>((resolveClose) => signer?.close(() => resolveClose()));
+    if (signer) {
+      await new Promise<void>((resolveClose) => signer.close(() => resolveClose()));
+    }
     await unlink(signingSocket).catch(() => undefined);
     await app?.close();
     await runtime?.close();
@@ -175,7 +177,7 @@ describe.runIf(enabled)('real botmem-tunnel TLS process canary', () => {
     await pool.close();
     await admin.end();
     if (root) await rm(root, { recursive: true, force: true });
-  });
+  }, 60_000);
 
   it('rejects insecure TLS, pairs publicly, searches locally, cancels, terminates, and revokes', async () => {
     const baseConfig = tunnelConfig(apiBaseUrl, caPem);
@@ -475,8 +477,14 @@ interface RunningHelper {
   readonly stderr: () => string;
 }
 
-function generateTlsFixture(root: string): void {
+async function generateTlsFixture(root: string): Promise<void> {
   const quiet = { stdio: ['ignore', 'ignore', 'ignore'] as const };
+  const extensionFile = join(root, 'server.ext');
+  await writeFile(
+    extensionFile,
+    'subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n',
+    { encoding: 'utf8', mode: 0o600 },
+  );
   execFileSync(
     'openssl',
     [
@@ -532,12 +540,9 @@ function generateTlsFixture(root: string): void {
       '-out',
       join(root, 'server.pem'),
       '-extfile',
-      '/dev/stdin',
+      extensionFile,
     ],
-    {
-      input: 'subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n',
-      stdio: ['pipe', 'ignore', 'ignore'],
-    },
+    quiet,
   );
 }
 
