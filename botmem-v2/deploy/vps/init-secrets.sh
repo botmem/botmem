@@ -99,20 +99,31 @@ write_new "$root/redis-url" "rediss://:${redis_password}@redis:6379"
 external=(
   google-oauth-client-secret microsoft-oauth-client-secret openai-api-key
   resend-api-key stripe-checkout-api-key stripe-webhook-secret
-  stripe-reconciler-api-key backup-age-recipient backup-age-identity
+  stripe-reconciler-api-key
 )
 for name in "${external[@]}"; do
   if [[ "$fixture" == true ]]; then
-    if [[ "$name" == backup-age-recipient ]]; then
-      # The fixture is syntactically nonempty; local Compose validation never decrypts.
-      write_new "$root/$name" 'age1localfixture000000000000000000000000000000000000000000000000000'
-    else
-      write_new "$root/$name" "local-fixture-$name"
-    fi
+    write_new "$root/$name" "local-fixture-$name"
   elif [[ ! -e "$root/$name" ]]; then
     install -m 0600 /dev/null "$root/$name"
   fi
 done
+
+if [[ "$fixture" == true ]]; then
+  # Compose-only validation does not decrypt a backup.
+  write_new "$root/backup-age-recipient" \
+    'age1localfixture000000000000000000000000000000000000000000000000000'
+  write_new "$root/backup-age-identity" 'local-fixture-backup-age-identity'
+elif [[ ! -e "$root/backup-age-recipient" && ! -e "$root/backup-age-identity" ]]; then
+  command -v age-keygen >/dev/null \
+    || { echo 'production secret initialization requires age-keygen' >&2; exit 69; }
+  age-keygen -o "$root/backup-age-identity" >/dev/null 2>&1
+  age-keygen -y "$root/backup-age-identity" > "$root/backup-age-recipient"
+  chmod 0600 "$root/backup-age-recipient" "$root/backup-age-identity"
+elif [[ ! -s "$root/backup-age-recipient" || ! -s "$root/backup-age-identity" ]]; then
+  echo 'partial or empty backup age state; restore both files instead of rotating implicitly' >&2
+  exit 78
+fi
 
 # Standalone Compose file secrets are bind mounts, so uid/mode declarations are
 # not applied. Production Node processes run as uid 1000 and receive only
@@ -136,4 +147,4 @@ elif [[ "$fixture" != true ]]; then
   exit 77
 fi
 
-echo "secret initialization complete at $root; provider and backup files must be provisioned before deployment"
+echo "secret initialization complete at $root; provider files must be provisioned before deployment"

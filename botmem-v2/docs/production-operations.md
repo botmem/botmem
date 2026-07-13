@@ -55,10 +55,10 @@ chmod 0600 /opt/botmem-v2/config.env
 
 `init-secrets.sh` creates the internal CA, service certificates, independent
 database role passwords, session pepper, connector vault key, lifecycle
-artifact key, and TLS URLs. It creates empty provider/commerce/backup files;
-provision those files from their respective consoles before deployment. The
-backup identity and recipient are an `age` key pair. Keep a second copy of the
-identity in the company recovery vault, separate from Vultr.
+artifact key, TLS URLs, and a matched `age` backup identity/recipient pair. It
+creates empty provider/commerce files; provision those files from their
+respective consoles before deployment. Keep a second copy of the generated
+backup identity in the company recovery vault, separate from Vultr.
 
 Run initialization as root. Standalone Compose mounts file secrets directly,
 so the initializer gives only runtime-mounted files uid 1000 and mode 0400;

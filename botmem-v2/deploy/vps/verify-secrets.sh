@@ -1,6 +1,36 @@
 #!/bin/bash
 set -euo pipefail
 
+file_mode() {
+  local value
+  if value="$(stat -c '%a' "$1" 2>/dev/null)"; then
+    printf '%s' "$value"
+    return
+  fi
+  stat -f '%Lp' "$1"
+}
+
+file_owner() {
+  local value
+  if value="$(stat -c '%u' "$1" 2>/dev/null)"; then
+    printf '%s' "$value"
+    return
+  fi
+  stat -f '%u' "$1"
+}
+
+if [[ "${1:-}" == '--self-test-stat' ]]; then
+  probe="$(mktemp)"
+  trap 'rm -f "$probe"' EXIT
+  chmod 0600 "$probe"
+  [[ "$(file_mode "$probe")" == 600 ]] \
+    || { echo 'secret validation: portable file-mode probe failed' >&2; exit 1; }
+  [[ "$(file_owner "$probe")" == "$(id -u)" ]] \
+    || { echo 'secret validation: portable file-owner probe failed' >&2; exit 1; }
+  echo 'secret validation: portable stat probes passed'
+  exit 0
+fi
+
 root="${1:?secret directory is required}"
 [[ -d "$root" && ! -L "$root" ]] || { echo 'secret directory must be a real directory' >&2; exit 78; }
 
@@ -35,14 +65,11 @@ for name in "${required[@]}"; do
     || { echo "secret validation: $name is missing, empty, unreadable, or a symlink" >&2; exit 78; }
   [[ "$(wc -c < "$path" | tr -d '[:space:]')" -le 65536 ]] \
     || { echo "secret validation: $name exceeds 64 KiB" >&2; exit 78; }
-  permissions="$(stat -f '%Lp' "$path" 2>/dev/null || stat -c '%a' "$path")"
+  permissions="$(file_mode "$path")"
   (( (8#$permissions & 077) == 0 )) \
     || { echo "secret validation: $name is accessible by group or other" >&2; exit 78; }
 done
 
-file_owner() {
-  stat -f '%u' "$1" 2>/dev/null || stat -c '%u' "$1"
-}
 for name in "${runtime_readable[@]}"; do
   [[ "$(file_owner "$root/$name")" == 1000 ]] \
     || { echo "secret validation: $name must be owned by runtime uid 1000" >&2; exit 78; }

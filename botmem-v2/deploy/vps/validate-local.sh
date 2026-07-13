@@ -10,6 +10,7 @@ sh -n "$root/postgres-entrypoint.sh"
 sh -n "$root/redis-entrypoint.sh"
 
 "$root/init-secrets.sh" --local-fixture "$work/secrets" >/dev/null
+"$root/verify-secrets.sh" --self-test-stat >/dev/null
 "$root/health-recover.test.sh"
 "$root/wait-service-health.test.sh"
 awk -v secrets="$work/secrets" '
