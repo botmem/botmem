@@ -28,18 +28,20 @@ EOF
 openssl x509 -req -sha256 -days 2 -in "$TEMP/server.csr" \
   -CA "$TEMP/ca.pem" -CAkey "$TEMP/ca.key" -CAcreateserial \
   -out "$TEMP/server.pem" -extfile "$TEMP/server.ext" >/dev/null 2>&1
+install -m 0600 "$TEMP/server.key" "$TEMP/redis-server.key"
 
 # The pinned Redis image deliberately drops from root to its redis user
 # (uid 999). Docker Desktop's bind-mount virtualization can make a runner-owned
 # mode-0600 key appear readable, while a Linux runner correctly rejects it.
-# Stage the ephemeral key for the real runtime uid and keep it owner-readable
-# only; the containing directory remains non-listable to other users.
+# Stage a dedicated ephemeral key for the real runtime uid and keep it
+# owner-readable only; PostgreSQL retains the runner-owned original for its
+# later docker-cp, and the containing directory remains non-listable to others.
 chmod 0711 "$TEMP"
 docker run --rm --user 0 \
   -v "$TEMP:/tls" \
   --entrypoint sh \
   "$REDIS_IMAGE" \
-  -c 'chown redis:redis /tls/server.key && chmod 0400 /tls/server.key && chmod 0444 /tls/server.pem /tls/ca.pem'
+  -c 'chown redis:redis /tls/redis-server.key && chmod 0400 /tls/redis-server.key && chmod 0444 /tls/server.pem /tls/ca.pem'
 
 docker run -d --name "$POSTGRES_CONTAINER" \
   -e POSTGRES_HOST_AUTH_METHOD=trust \
@@ -53,7 +55,7 @@ docker run -d --name "$REDIS_CONTAINER" \
     --port 0 \
     --tls-port 6379 \
     --tls-cert-file /tls/server.pem \
-    --tls-key-file /tls/server.key \
+    --tls-key-file /tls/redis-server.key \
     --tls-ca-cert-file /tls/ca.pem \
     --tls-auth-clients no >/dev/null
 
