@@ -60,6 +60,61 @@ fn successful_rebuild_atomically_flips_the_active_generation() {
 }
 
 #[test]
+fn batch_staging_is_atomic_and_keeps_generation_visibility_fenced() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut store = DeviceStore::open(directory.path()).expect("open store");
+    let staged = store
+        .begin_rebuild(SourceId::IMessage)
+        .expect("begin rebuild");
+    let invalid = StagedDocument {
+        source_id: "",
+        revision: "1",
+        occurred_at_ms: None,
+        searchable_text: "invalid",
+        payload_json: "{}",
+    };
+    assert!(store
+        .stage_documents(staged, &[document("message:1", "first"), invalid])
+        .is_err());
+    assert_eq!(
+        store.staged_document_count(staged).expect("staged count"),
+        0
+    );
+    assert!(store
+        .active_document_ids(SourceId::IMessage)
+        .expect("active docs before activation")
+        .is_empty());
+
+    store
+        .stage_documents(
+            staged,
+            &[
+                document("message:1", "first"),
+                document("message:2", "second"),
+            ],
+        )
+        .expect("stage batch");
+    assert_eq!(
+        store.staged_document_count(staged).expect("staged count"),
+        2
+    );
+    assert!(store
+        .active_document_ids(SourceId::IMessage)
+        .expect("active docs before activation")
+        .is_empty());
+
+    store
+        .activate_rebuild(staged, &checkpoint("batch-ready", 2))
+        .expect("activate batch");
+    assert_eq!(
+        store
+            .active_document_ids(SourceId::IMessage)
+            .expect("active docs"),
+        vec!["message:1", "message:2"]
+    );
+}
+
+#[test]
 fn failed_rebuild_preserves_the_last_good_generation_and_checkpoint() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let mut store = DeviceStore::open(directory.path()).expect("open store");

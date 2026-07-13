@@ -317,54 +317,27 @@ impl DeviceStore {
         if !is_staging {
             return Err(StoreError::GenerationNotStaging(staged));
         }
-        self.connection.execute(
-            "INSERT INTO documents(
-               source, generation, source_id, revision, occurred_at_ms,
-               searchable_text, payload_json
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(source, generation, source_id) DO UPDATE SET
-               revision = excluded.revision,
-               occurred_at_ms = excluded.occurred_at_ms,
-               searchable_text = excluded.searchable_text,
-               payload_json = excluded.payload_json",
-            params![
-                staged.source.as_str(),
-                staged.generation,
-                document.source_id,
-                document.revision,
-                document.occurred_at_ms,
-                document.searchable_text,
-                document.payload_json,
-            ],
-        )?;
-        let rowid = self.connection.query_row(
-            "SELECT rowid FROM documents
-              WHERE source = ?1 AND generation = ?2 AND source_id = ?3",
-            params![
-                staged.source.as_str(),
-                staged.generation,
-                document.source_id
-            ],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let tokens = crate::search::search_tokens_json(document.searchable_text)?;
-        self.connection.execute(
-            "DELETE FROM document_tokens WHERE document_rowid = ?1",
-            [rowid],
-        )?;
-        self.connection.execute(
-            "INSERT OR IGNORE INTO document_tokens(document_rowid, token)
-             SELECT ?1, value FROM json_each(?2)",
-            params![rowid, tokens],
-        )?;
-        self.connection.execute(
-            "INSERT OR IGNORE INTO token_bigrams(token, bigram)
-             SELECT token.token, bigram.value
-               FROM document_tokens token,
-                    json_each(botmem_search_bigrams(token.token)) bigram
-              WHERE token.document_rowid = ?1",
-            [rowid],
-        )?;
+        write_staged_document(&self.connection, staged, document)?;
+        Ok(())
+    }
+
+    /// Writes a bounded group of documents in one durable transaction. The
+    /// generation remains invisible until `activate_rebuild` commits its
+    /// pointer flip, while avoiding one filesystem sync per source record.
+    pub fn stage_documents(
+        &mut self,
+        staged: StagedGeneration,
+        documents: &[StagedDocument<'_>],
+    ) -> Result<(), StoreError> {
+        for document in documents {
+            document.validate()?;
+        }
+        let transaction = self.connection.transaction()?;
+        require_staging(&transaction, staged)?;
+        for document in documents {
+            write_staged_document(&transaction, staged, document)?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -532,6 +505,62 @@ impl DeviceStore {
         )?;
         Ok(())
     }
+}
+
+fn write_staged_document(
+    connection: &Connection,
+    staged: StagedGeneration,
+    document: &StagedDocument<'_>,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "INSERT INTO documents(
+           source, generation, source_id, revision, occurred_at_ms,
+           searchable_text, payload_json
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(source, generation, source_id) DO UPDATE SET
+           revision = excluded.revision,
+           occurred_at_ms = excluded.occurred_at_ms,
+           searchable_text = excluded.searchable_text,
+           payload_json = excluded.payload_json",
+        params![
+            staged.source.as_str(),
+            staged.generation,
+            document.source_id,
+            document.revision,
+            document.occurred_at_ms,
+            document.searchable_text,
+            document.payload_json,
+        ],
+    )?;
+    let rowid = connection.query_row(
+        "SELECT rowid FROM documents
+          WHERE source = ?1 AND generation = ?2 AND source_id = ?3",
+        params![
+            staged.source.as_str(),
+            staged.generation,
+            document.source_id
+        ],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let tokens = crate::search::search_tokens_json(document.searchable_text)?;
+    connection.execute(
+        "DELETE FROM document_tokens WHERE document_rowid = ?1",
+        [rowid],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO document_tokens(document_rowid, token)
+         SELECT ?1, value FROM json_each(?2)",
+        params![rowid, tokens],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO token_bigrams(token, bigram)
+         SELECT token.token, bigram.value
+           FROM document_tokens token,
+                json_each(botmem_search_bigrams(token.token)) bigram
+          WHERE token.document_rowid = ?1",
+        [rowid],
+    )?;
+    Ok(())
 }
 
 fn ensure_fts_schema(connection: &Connection) -> Result<(), StoreError> {
@@ -827,4 +856,74 @@ pub enum StoreError {
     ClockBeforeEpoch,
     #[error("system clock value exceeds SQLite integer range")]
     ClockOverflow,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::SourceCursor;
+
+    fn document<'a>(source_id: &'a str, text: &'a str) -> StagedDocument<'a> {
+        StagedDocument {
+            source_id,
+            revision: "1",
+            occurred_at_ms: Some(1_752_400_800_000),
+            searchable_text: text,
+            payload_json: "{}",
+        }
+    }
+
+    #[test]
+    fn batch_sql_failure_rolls_back_every_document_and_preserves_active_generation() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let mut store = DeviceStore::open(directory.path()).expect("open store");
+        let active = store
+            .begin_rebuild(SourceId::IMessage)
+            .expect("begin active generation");
+        store
+            .stage_document(active, &document("message:1", "active"))
+            .expect("stage active document");
+        store
+            .activate_rebuild(
+                active,
+                &SourceCheckpoint::new(SourceCursor::new("active"), 1_752_400_800_000, 1),
+            )
+            .expect("activate generation");
+
+        let staged = store
+            .begin_rebuild(SourceId::IMessage)
+            .expect("begin staged generation");
+        store
+            .connection
+            .execute_batch(
+                "CREATE TEMP TRIGGER abort_second_batch_document
+                 BEFORE INSERT ON documents
+                 WHEN new.source_id = 'message:3'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced batch failure');
+                 END;",
+            )
+            .expect("install failure trigger");
+
+        let error = store
+            .stage_documents(
+                staged,
+                &[
+                    document("message:2", "must roll back"),
+                    document("message:3", "must fail"),
+                ],
+            )
+            .expect_err("second insert must abort the batch");
+        assert!(matches!(error, StoreError::Database(_)));
+        assert_eq!(
+            store.staged_document_count(staged).expect("staged count"),
+            0
+        );
+        assert_eq!(
+            store
+                .active_document_ids(SourceId::IMessage)
+                .expect("active documents"),
+            vec!["message:1"]
+        );
+    }
 }
