@@ -37,6 +37,11 @@ describe('PostgresHostedSyncWorkerJobStore periodic cadence', () => {
     expect(
       updates.every((query) => query.text.includes('THEN $5::timestamptz ELSE $6::timestamptz')),
     ).toBe(true);
+    expect(
+      updates.every((query) =>
+        query.text.includes('lease_expires_at > clock_timestamp()'),
+      ),
+    ).toBe(true);
   });
 
   it('constructor_rejectsUnboundedCadences', () => {
@@ -86,6 +91,7 @@ describe('PostgresHostedSyncWorkerJobStore periodic cadence', () => {
       'GMAIL_PROVIDER_UNAVAILABLE',
     ]);
     expect(updates[0]?.text).toContain("THEN 'pending' ELSE $5");
+    expect(updates[0]?.text).toContain('lease_expires_at > clock_timestamp()');
   });
 
   it('fail_whenPermanent_staysTerminalEvenAtTheFirstAttempt', async () => {

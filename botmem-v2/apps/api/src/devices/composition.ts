@@ -167,12 +167,18 @@ export async function composeDeviceRuntime(input: {
   const router = new ReplicaNeutralDeviceRouter(
     repository,
     metadata,
+    sourceStatusDirectory,
     rpc,
     clock,
     security,
     config.relayTimeoutMs,
   );
-  const sourceStatuses = new DeviceSourceStatusReader(repository, sourceStatusDirectory, Date.now);
+  const sourceStatuses = new DeviceSourceStatusReader(
+    repository,
+    sourceStatusDirectory,
+    metadata,
+    Date.now,
+  );
 
   let closed = false;
   return Object.freeze({

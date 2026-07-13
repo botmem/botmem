@@ -208,13 +208,34 @@ export const SearchLaneCoverageSchema = z
     laneId: z.string().trim().min(1).max(256),
     placement: z.enum(['hosted', 'device']),
     deviceId: z.string().uuid().optional(),
+    connector: ConnectorSchema.optional(),
     status: SearchLaneStatusSchema,
     retryable: z.boolean(),
     returned: z.number().int().nonnegative(),
     tookMs: z.number().int().nonnegative(),
     reasonCode: z.string().trim().min(1).max(128).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((lane, context) => {
+    if (lane.placement === 'hosted' && lane.deviceId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['deviceId'],
+        message: 'a hosted lane cannot identify a device',
+      });
+    }
+    if (
+      lane.connector &&
+      (lane.placement !== 'device' ||
+        (lane.connector !== 'imessage' && lane.connector !== 'whatsapp'))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['connector'],
+        message: 'connector-level coverage is limited to local device connectors',
+      });
+    }
+  });
 export type SearchLaneCoverage = z.infer<typeof SearchLaneCoverageSchema>;
 
 export const SearchResponseSchema = z

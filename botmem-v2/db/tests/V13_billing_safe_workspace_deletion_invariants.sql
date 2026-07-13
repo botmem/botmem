@@ -36,7 +36,7 @@ INSERT INTO botmem.workspace_lifecycle_job (
     'd1330000-0000-4000-8000-000000000001',
     'deletion', 'running', '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z',
     1, 5, 'v13.pending', 'd1350000-0000-4000-8000-000000000001',
-    '2026-07-13T10:05:00Z'
+    clock_timestamp() + interval '5 minutes'
 ),
 (
     'd1320000-0000-4000-8000-000000000002',

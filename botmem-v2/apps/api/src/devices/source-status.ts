@@ -1,5 +1,5 @@
 import { SourceStatusSchema, type SourceStatus } from '@botmem-v2/contracts';
-import type { DeviceRegistryPort } from './ports.js';
+import type { DeviceRegistryPort, PresenceDirectoryPort } from './ports.js';
 
 export interface SourceStatusReaderPort {
   list(workspaceId: string, signal: AbortSignal): Promise<readonly SourceStatus[]>;
@@ -9,6 +9,7 @@ export interface DeviceSourceStatusSnapshot {
   readonly tenantId: string;
   readonly workspaceId: string;
   readonly deviceId: string;
+  readonly sessionId: string;
   readonly expiresAtMs: number;
   readonly sources: readonly SourceStatus[];
 }
@@ -22,26 +23,40 @@ export class DeviceSourceStatusReader implements SourceStatusReaderPort {
   constructor(
     private readonly devices: DeviceRegistryPort,
     private readonly statuses: DeviceSourceStatusDirectoryPort,
+    private readonly presence: PresenceDirectoryPort,
     private readonly nowMs: () => number,
   ) {}
 
   async list(workspaceId: string, signal: AbortSignal): Promise<readonly SourceStatus[]> {
     throwIfAborted(signal);
-    const [devices, snapshots] = await Promise.all([
+    const [devices, snapshots, presences] = await Promise.all([
       this.devices.listForWorkspace(workspaceId),
       this.statuses.list(workspaceId),
+      this.presence.list(workspaceId),
     ]);
     throwIfAborted(signal);
+    const nowMs = this.nowMs();
     const owners = new Map(
       devices
         .filter((device) => device.workspaceId === workspaceId && device.status === 'active')
         .map((device) => [device.deviceId, device.tenantId]),
     );
+    const currentSessions = new Map(
+      presences
+        .filter(
+          (presence) =>
+            presence.workspaceId === workspaceId &&
+            presence.expiresAtMs > nowMs &&
+            owners.get(presence.deviceId) === presence.tenantId,
+        )
+        .map((presence) => [presence.deviceId, presence.sessionId]),
+    );
     const valid = snapshots.filter(
       (snapshot) =>
         snapshot.workspaceId === workspaceId &&
-        snapshot.expiresAtMs > this.nowMs() &&
-        owners.get(snapshot.deviceId) === snapshot.tenantId,
+        snapshot.expiresAtMs > nowMs &&
+        owners.get(snapshot.deviceId) === snapshot.tenantId &&
+        currentSessions.get(snapshot.deviceId) === snapshot.sessionId,
     );
     return aggregateLocalStatuses(valid.flatMap((snapshot) => snapshot.sources));
   }

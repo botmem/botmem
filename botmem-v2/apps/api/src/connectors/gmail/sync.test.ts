@@ -351,4 +351,23 @@ describe('GmailSyncService', () => {
       reasonCode: 'GMAIL_SYNC_FAILED',
     });
   });
+
+  it('run_whenEveryBoundedRepresentationIsOversized_doesNotAdvanceOrInventADeletion', async () => {
+    const { service, ingestion, api } = createHarness();
+    vi.mocked(api.listMessages).mockResolvedValue({
+      messages: [{ id: 'message-too-large' }],
+      nextPageToken: null,
+    });
+    vi.mocked(api.getMessage).mockRejectedValue(
+      new GmailProviderError('response_too_large', 200),
+    );
+
+    await expect(run(service)).rejects.toMatchObject({ code: 'GMAIL_PROVIDER_UNAVAILABLE' });
+
+    expect(ingestion.commits).toHaveLength(0);
+    expect(ingestion.closes[0]).toMatchObject({
+      outcome: 'failed',
+      reasonCode: 'GMAIL_PROVIDER_UNAVAILABLE',
+    });
+  });
 });

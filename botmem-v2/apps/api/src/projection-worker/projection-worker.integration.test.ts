@@ -182,6 +182,53 @@ describe.skipIf(!enabled)('projection worker real PostgreSQL', () => {
     });
   });
 
+  it('repairs an active ingest head even when its outbox row is missing', async () => {
+    const fixture = await insertFixture(admin, 'repair-no-outbox');
+    await admin.query('DELETE FROM botmem.transactional_outbox WHERE id = $1::uuid', [
+      fixture.outboxId,
+    ]);
+    const worker = projectionWorker(fixedEmbeddings(() => modelRevision));
+
+    await expect(worker.runRepairOnce()).resolves.toBeGreaterThanOrEqual(1);
+
+    const repaired = await admin.query<{ projection_state: string; documents: string }>(
+      `SELECT projection.state AS projection_state,
+              (SELECT count(*) FROM botmem.hosted_document_revision
+                WHERE revision_id = $1::uuid) AS documents
+         FROM botmem.projection_state projection
+        WHERE projection.revision_id = $1::uuid`,
+      [fixture.revisionId],
+    );
+    expect(repaired.rows[0]).toEqual({ projection_state: 'applied', documents: '1' });
+  });
+
+  it('repairs a pending projection whose outbox row is missing', async () => {
+    const fixture = await insertFixture(admin, 'repair-pending-no-outbox');
+    await admin.query('DELETE FROM botmem.transactional_outbox WHERE id = $1::uuid', [
+      fixture.outboxId,
+    ]);
+    await admin.query(
+      `INSERT INTO botmem.projection_state (
+         tenant_id, account_id, projection_name, revision_id, state, attempts
+       ) VALUES ($1::uuid, $2::uuid, 'hosted_search_v1', $3::uuid, 'pending', 0)`,
+      [fixture.workspaceId, fixture.accountId, fixture.revisionId],
+    );
+
+    await expect(
+      projectionWorker(fixedEmbeddings(() => modelRevision)).runRepairOnce(),
+    ).resolves.toBeGreaterThanOrEqual(1);
+
+    const repaired = await admin.query<{ projection_state: string; documents: string }>(
+      `SELECT projection.state AS projection_state,
+              (SELECT count(*) FROM botmem.hosted_document_revision
+                WHERE revision_id = $1::uuid) AS documents
+         FROM botmem.projection_state projection
+        WHERE projection.revision_id = $1::uuid`,
+      [fixture.revisionId],
+    );
+    expect(repaired.rows[0]).toEqual({ projection_state: 'applied', documents: '1' });
+  });
+
   function projectionWorker(embeddings: QueryEmbeddingPort): ProjectionOutboxWorker {
     const materializer = new HostedProjectionMaterializer(
       new PostgresHostedProjectionInputReader(workerPool),

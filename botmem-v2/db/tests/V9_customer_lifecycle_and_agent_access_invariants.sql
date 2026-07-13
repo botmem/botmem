@@ -371,20 +371,19 @@ BEGIN
         '91000000-0000-4000-8000-000000000001',
         '91100000-0000-4000-8000-000000000001',
         '2026-07-13T10:08:01Z'
-    ) IS NOT NULL THEN
-        RAISE EXCEPTION 'export artifact was downloadable more than once';
+    ) IS DISTINCT FROM artifact THEN
+        RAISE EXCEPTION 'repeat export download did not preserve the artifact locator';
     END IF;
-    BEGIN
-        PERFORM botmem.request_workspace_export(
-            '91700000-0000-4000-8000-000000000099',
-            '91000000-0000-4000-8000-000000000001',
-            '91000000-0000-4000-8000-000000000001',
-            '91100000-0000-4000-8000-000000000001',
-            '2026-07-13T10:08:02Z', 8
-        );
-        RAISE EXCEPTION 'replacement export bypassed purge-before-replacement';
-    EXCEPTION WHEN object_not_in_prerequisite_state THEN NULL;
-    END;
+    SELECT botmem.request_workspace_export(
+        '91700000-0000-4000-8000-000000000099',
+        '91000000-0000-4000-8000-000000000001',
+        '91000000-0000-4000-8000-000000000001',
+        '91100000-0000-4000-8000-000000000001',
+        '2026-07-13T10:08:02Z', 8
+    ) INTO job_id;
+    IF job_id <> '91700000-0000-4000-8000-000000000001' THEN
+        RAISE EXCEPTION 'ready export request did not remain idempotent';
+    END IF;
     SELECT botmem.request_workspace_deletion(
         '91800000-0000-4000-8000-000000000001',
         '91000000-0000-4000-8000-000000000001',

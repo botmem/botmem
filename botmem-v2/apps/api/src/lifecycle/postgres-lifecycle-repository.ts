@@ -126,7 +126,7 @@ export class PostgresLifecycleApiRepository implements LifecycleApiRepositoryPor
     });
   }
 
-  async consumeExportArtifactKey(input: {
+  async readExportArtifactKey(input: {
     readonly principal: AuthenticatedPrincipal;
     readonly jobId: string;
     readonly now: string;
@@ -134,7 +134,7 @@ export class PostgresLifecycleApiRepository implements LifecycleApiRepositoryPor
     return transaction(this.pool, 'botmem_api', async (client) => {
       await setOwnerContext(client, input.principal);
       const result = await client.query<TextRow>({
-        text: `SELECT botmem.consume_workspace_export_artifact(
+        text: `SELECT botmem.read_workspace_export_artifact(
                  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz
                ) AS value`,
         values: [

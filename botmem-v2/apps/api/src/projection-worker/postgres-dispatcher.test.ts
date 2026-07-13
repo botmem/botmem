@@ -85,6 +85,32 @@ describe('PostgresOutboxDispatcher', () => {
       }),
     ).rejects.toBeInstanceOf(OutboxSettlementConflictError);
   });
+
+  it('listsRepairWorkspacesThroughTheContentBlindDebtFunction', async () => {
+    const queries: SqlQueryConfig[] = [];
+    const client = fakeClient(queries, (query) =>
+      query.text.includes('list_projection_repair_workspaces')
+        ? {
+            rows: [{ workspace_id: '20000000-0000-4000-8000-000000000002' }],
+            rowCount: 1,
+          }
+        : { rows: [], rowCount: null },
+    );
+    const dispatcher = new PostgresOutboxDispatcher(fakePool(client));
+
+    await expect(
+      dispatcher.listRepairWorkspaces({
+        limit: 25,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual(['20000000-0000-4000-8000-000000000002']);
+
+    const scan = queries.find((query) =>
+      query.text.includes('list_projection_repair_workspaces'),
+    );
+    expect(scan?.text.toLowerCase()).not.toMatch(/payload|transactional_outbox/u);
+    expect(scan?.values).toEqual([null, 25]);
+  });
 });
 
 function fakePool(client: SqlClientPort): SqlPoolPort {

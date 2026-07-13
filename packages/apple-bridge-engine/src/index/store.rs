@@ -5,6 +5,7 @@
 //! `SearchItem` mapping) identical for result parity with the node engine.
 
 use std::collections::BTreeSet;
+use std::io;
 use std::path::Path;
 
 use rusqlite::{params_from_iter, Connection};
@@ -21,39 +22,71 @@ pub struct IndexStore {
     db: Connection,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum IndexOpenError {
+    #[error("could not secure the local index: {0}")]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+}
+
 #[cfg(unix)]
-fn create_private_dir(dir: &Path) {
-    use std::os::unix::fs::DirBuilderExt;
-    let _ = std::fs::DirBuilder::new()
+fn create_private_dir(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
-        .create(dir);
+        .create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(not(unix))]
-fn create_private_dir(dir: &Path) {
-    let _ = std::fs::create_dir_all(dir);
+fn create_private_dir(dir: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(dir)
 }
 
 #[cfg(unix)]
-fn harden_index_file(path: &Path) {
+fn harden_index_file(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
 }
 
 #[cfg(not(unix))]
-fn harden_index_file(_path: &Path) {}
+fn harden_index_file(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+fn sqlite_sidecar(path: &Path, suffix: &str) -> std::path::PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    value.into()
+}
+
+fn harden_index_files(path: &Path) -> io::Result<()> {
+    harden_index_file(path)?;
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = sqlite_sidecar(path, suffix);
+        match harden_index_file(&sidecar) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
 
 impl IndexStore {
     /// Open/create the index at `path` (created if missing). Never a source DB.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, rusqlite::Error> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, IndexOpenError> {
         let path = path.as_ref();
-        if let Some(dir) = path.parent() {
-            create_private_dir(dir);
+        if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+            create_private_dir(dir)?;
         }
         let db = Connection::open(path)?;
-        harden_index_file(path);
-        Self::init(db)
+        harden_index_file(path)?;
+        let store = Self::init(db)?;
+        harden_index_files(path)?;
+        Ok(store)
     }
 
     /// In-memory store (tests).
@@ -261,7 +294,7 @@ impl IndexStore {
             let ts: i64 = row.get(8)?;
             let media_json: Option<String> = row.get(9)?;
             let rank: f64 = row.get(10)?;
-            let src = SourceName::from_str(&source);
+            let src = SourceName::parse(&source);
 
             Ok(SearchItem {
                 id: format!("{source}:{source_id}"),
@@ -327,6 +360,9 @@ fn epoch_secs_to_iso(secs: i64) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
     fn rec(source_id: &str, text: &str, sender: &str, ts: i64) -> IndexRecord {
         IndexRecord {
             source_id: source_id.to_string(),
@@ -372,6 +408,34 @@ mod tests {
         s.set_source_state(SourceName::Whatsapp, 1, None).unwrap();
         s.set_source_state(SourceName::Contacts, 1, None).unwrap();
         s
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn disk_index_hardens_existing_directory_and_sqlite_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("existing-index-dir");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = dir.join("index.sqlite");
+
+        let _store = IndexStore::open(&path).unwrap();
+
+        assert_eq!(
+            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        for candidate in [
+            path.clone(),
+            sqlite_sidecar(&path, "-wal"),
+            sqlite_sidecar(&path, "-shm"),
+        ] {
+            assert!(candidate.exists(), "{} should exist", candidate.display());
+            assert_eq!(
+                std::fs::metadata(candidate).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]

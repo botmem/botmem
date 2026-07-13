@@ -31,7 +31,9 @@ fn core_data_to_iso(nanos: i64) -> String {
 /// being avoided by callers passing valid ISO).
 fn iso_to_core_data(iso: &str) -> Option<i64> {
     let ms = parse_iso_ms(iso)?;
-    Some((ms / 1000 - CORE_DATA_EPOCH_OFFSET) * 1_000_000_000)
+    (ms / 1000)
+        .checked_sub(CORE_DATA_EPOCH_OFFSET)?
+        .checked_mul(1_000_000_000)
 }
 
 /// Minimal ISO-8601 parser for `YYYY-MM-DDTHH:MM:SS(.mmm)?Z` → epoch ms.
@@ -50,7 +52,7 @@ fn parse_iso_ms(s: &str) -> Option<i64> {
     let doy = (153 * (if mo > 2 { mo - 3 } else { mo + 9 }) + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe - 719_468;
-    Some(((days * 86_400 + h * 3600 + mi * 60 + se) * 1000) as i64)
+    Some((days * 86_400 + h * 3600 + mi * 60 + se) * 1000)
 }
 
 #[derive(Debug, Serialize)]
@@ -392,5 +394,10 @@ mod tests {
         let nanos = iso_to_core_data(&iso).unwrap();
         // round-trips to within the original (whole-second) precision
         assert_eq!(core_data_to_iso(nanos), iso);
+    }
+
+    #[test]
+    fn iso_core_data_rejects_out_of_range_nanoseconds() {
+        assert_eq!(iso_to_core_data("9999-12-31T23:59:59.000Z"), None);
     }
 }

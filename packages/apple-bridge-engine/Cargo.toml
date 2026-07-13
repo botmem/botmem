@@ -2,6 +2,7 @@
 name = "botmem-apple-bridge-engine"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.96"
 description = "In-process Rust engine for the Botmem Apple Bridge (FDA-held reader, encrypted tunnel, local FTS index)."
 license = "MIT"
 publish = false

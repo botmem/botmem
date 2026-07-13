@@ -221,6 +221,7 @@ export class PostgresHostedSyncWorkerJobStore implements HostedSyncWorkerJobStor
       Date.parse(completedAt) + this.cadenceMs[claim.connector],
     ).toISOString();
     await this.transaction(claim.tenantId, async (client) => {
+      await lockHostedSyncClaim(client, claim);
       const result = await client.query({
         text: `UPDATE botmem.hosted_sync_job
                   SET state = CASE WHEN request_version > claimed_request_version
@@ -234,7 +235,8 @@ export class PostgresHostedSyncWorkerJobStore implements HostedSyncWorkerJobStor
                       lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
                       failure_code = NULL
                 WHERE tenant_id = $1::uuid AND account_id = $2::uuid
-                  AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid`,
+                  AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           claim.tenantId,
           claim.accountId,
@@ -262,6 +264,7 @@ export class PostgresHostedSyncWorkerJobStore implements HostedSyncWorkerJobStor
       Date.parse(input.failedAt) + this.exhaustedRetryMs,
     ).toISOString();
     await this.transaction(input.claim.tenantId, async (client) => {
+      await lockHostedSyncClaim(client, input.claim);
       const result = await client.query({
         text: `UPDATE botmem.hosted_sync_job
                   SET state = CASE WHEN request_version > claimed_request_version
@@ -276,7 +279,8 @@ export class PostgresHostedSyncWorkerJobStore implements HostedSyncWorkerJobStor
                       failure_code = CASE WHEN request_version > claimed_request_version
                                           THEN NULL ELSE $8 END
                 WHERE tenant_id = $1::uuid AND account_id = $2::uuid
-                  AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid`,
+                  AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           input.claim.tenantId,
           input.claim.accountId,
@@ -302,13 +306,15 @@ export class PostgresHostedSyncWorkerJobStore implements HostedSyncWorkerJobStor
 
   async cancel(claim: HostedSyncJobClaim, cancelledAt: string, reasonCode: string): Promise<void> {
     await this.transaction(claim.tenantId, async (client) => {
+      await lockHostedSyncClaim(client, claim);
       const result = await client.query({
         text: `UPDATE botmem.hosted_sync_job
                   SET state = 'cancelled', finished_at = $5::timestamptz,
                       lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
                       failure_code = $6
                 WHERE tenant_id = $1::uuid AND account_id = $2::uuid
-                  AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid`,
+                  AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           claim.tenantId,
           claim.accountId,
@@ -341,6 +347,17 @@ export class PostgresHostedSyncWorkerJobStore implements HostedSyncWorkerJobStor
   ): Promise<Result> {
     return transaction(this.workerPool, 'botmem_worker', tenant, operation);
   }
+}
+
+function lockHostedSyncClaim(client: SqlClientPort, claim: HostedSyncJobClaim): Promise<unknown> {
+  return client.query({
+    text: `SELECT 1
+             FROM botmem.hosted_sync_job
+            WHERE tenant_id = $1::uuid AND account_id = $2::uuid
+              AND id = $3::uuid AND state = 'running' AND lease_token = $4::uuid
+            FOR UPDATE`,
+    values: [claim.tenantId, claim.accountId, claim.jobId, claim.leaseToken],
+  });
 }
 
 export class HostedSyncPersistenceError extends Error {

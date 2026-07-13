@@ -51,8 +51,8 @@ jobs:
           cache-dependency-path: botmem-v2/pnpm-lock.yaml
       - name: Pin Rust toolchain
         run: |
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup override set 1.85.1
+          rustup toolchain install 1.96.0 --profile minimal --component clippy,rustfmt
+          rustup override set 1.96.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - name: Validate operational shell scripts
@@ -128,8 +128,8 @@ jobs:
           cache-dependency-path: botmem-v2/pnpm-lock.yaml
       - name: Pin Rust toolchain for the real device process canary
         run: |
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup override set 1.85.1
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup override set 1.96.0
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install --yes postgresql-client
       - run: pnpm install --frozen-lockfile
@@ -319,8 +319,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Pin Rust toolchain
         run: |
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup override set 1.85.1
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup override set 1.96.0
       - name: Test the signed-client source tree
         run: ./scripts/macos/test.sh
       - name: Confirm release fails closed without a bundled Universal tunnel helper

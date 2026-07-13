@@ -146,7 +146,7 @@ export class PostgresHostedProjectionStore {
                 WHERE projection_name = $3 AND revision_id = $4::uuid
                   AND state = 'processing' AND lease_owner = $5
                   AND lease_token = $6::uuid
-                  AND lease_expires_at > $2::timestamptz`,
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           command.outputHash,
           command.projectedAt,
@@ -443,7 +443,7 @@ ON CONFLICT (projection_name, revision_id) DO UPDATE
   WHERE botmem.projection_state.state IN ('pending', 'failed')
      OR (
        botmem.projection_state.state = 'processing' AND
-       botmem.projection_state.lease_expires_at <= statement_timestamp()
+       botmem.projection_state.lease_expires_at <= clock_timestamp()
      )
 RETURNING state, output_hash
 `;
@@ -545,8 +545,8 @@ SELECT ingest_head.account_id, ingest_head.head_revision_id AS revision_id
    AND state.projection_name = $2
  WHERE ingest_head.tenant_id = $1::uuid
    AND (
-     state.revision_id IS NULL OR state.state = 'failed' OR
-     (state.state = 'processing' AND state.lease_expires_at <= statement_timestamp())
+     state.revision_id IS NULL OR state.state IN ('pending', 'failed') OR
+     (state.state = 'processing' AND state.lease_expires_at <= clock_timestamp())
    )
  ORDER BY ingest_head.updated_at, ingest_head.head_revision_id
  LIMIT $3::integer

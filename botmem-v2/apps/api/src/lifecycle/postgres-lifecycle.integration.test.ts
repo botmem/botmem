@@ -7,7 +7,6 @@ import type { AuthenticatedPrincipal } from '../identity/domain.js';
 import { PostgresRuntimeRoleValidator } from '../projection-worker/postgres-role-health.js';
 import { NodePostgresPoolAdapter } from '../search/node-postgres.js';
 import { SharedFilesystemLifecycleArtifactStore } from './filesystem-artifact-store.js';
-import { LifecycleExportNotReadyError } from './domain.js';
 import {
   PostgresLifecycleApiRepository,
   PostgresLifecycleWorkerRepository,
@@ -63,7 +62,7 @@ describe.skipIf(!enabled)(
       ]);
     });
 
-    it('exportsOnce_thenDeletesHostedState_whileOfflineDeviceNoticeRemainsBestEffort', async () => {
+    it('exportsIdempotently_thenDeletesHostedState_whileOfflineDeviceNoticeRemainsBestEffort', async () => {
       await expect(
         new PostgresRuntimeRoleValidator().validate(
           lifecyclePool,
@@ -72,7 +71,7 @@ describe.skipIf(!enabled)(
         ),
       ).resolves.toBeUndefined();
 
-      let nowMs = STARTED_AT;
+      let nowMs = Date.now();
       const ids = [EXPORT_JOB_ID, DELETE_JOB_ID];
       const artifacts = new SharedFilesystemLifecycleArtifactStore(
         artifactRoot,
@@ -121,9 +120,50 @@ describe.skipIf(!enabled)(
       expect(exportText).toContain('"sourceEventId":"lifecycle-integration-message"');
       expect(exportText).toContain('"body":"Hosted lifecycle integration"');
       expect(exportText).not.toContain('credential_ref');
-      await expect(service.openExport(principal, EXPORT_JOB_ID)).rejects.toBeInstanceOf(
-        LifecycleExportNotReadyError,
+      const reopened = await service.openExport(principal, EXPORT_JOB_ID);
+      expect(await readAll(reopened.body)).toBe(exportText);
+      await admin.query(
+        `UPDATE botmem.workspace_lifecycle_job
+            SET requested_at = clock_timestamp() - interval '2 minutes',
+                artifact_expires_at = clock_timestamp() - interval '1 minute'
+          WHERE id = $1::uuid`,
+        [EXPORT_JOB_ID],
       );
+      await expect(
+        new PostgresLifecycleApiRepository(apiPool).readExportArtifactKey({
+          principal,
+          jobId: EXPORT_JOB_ID,
+          now: '2000-01-01T00:00:00.000Z',
+        }),
+      ).resolves.toBeNull();
+      const compatibility = await apiPool.connect();
+      try {
+        await compatibility.query({ text: 'BEGIN' });
+        await compatibility.query({ text: 'SET LOCAL ROLE botmem_api' });
+        await compatibility.query({
+          text: "SELECT set_config('botmem.tenant_id', $1, true)",
+          values: [WORKSPACE_ID],
+        });
+        await compatibility.query({
+          text: "SELECT set_config('botmem.workspace_id', $1, true)",
+          values: [WORKSPACE_ID],
+        });
+        await compatibility.query({
+          text: "SELECT set_config('botmem.user_id', $1, true)",
+          values: [USER_ID],
+        });
+        const backdated = await compatibility.query<{ readonly artifact_key: string | null }>({
+          text: `SELECT botmem.consume_workspace_export_artifact(
+                   $1::uuid, $2::uuid, $2::uuid, $3::uuid, $4::timestamptz
+                 ) AS artifact_key`,
+          values: [EXPORT_JOB_ID, WORKSPACE_ID, USER_ID, '2000-01-01T00:00:00.000Z'],
+        });
+        expect(backdated.rows[0]?.artifact_key).toBeNull();
+        await compatibility.query({ text: 'COMMIT' });
+      } finally {
+        await compatibility.query({ text: 'ROLLBACK' }).catch(() => undefined);
+        compatibility.release();
+      }
 
       nowMs += 10_000;
       const deletion = await service.requestDeletion(principal, `DELETE ${WORKSPACE_ID}`);

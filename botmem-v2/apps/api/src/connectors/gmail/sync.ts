@@ -305,19 +305,12 @@ export class GmailSyncService {
     for (let offset = 0; offset < uniqueIds.length; offset += MESSAGE_CONCURRENCY) {
       const batch = uniqueIds.slice(offset, offset + MESSAGE_CONCURRENCY);
       const messages = await Promise.all(
-        batch.map(async (messageId) => {
-          try {
-            return await this.gmail.getMessage(authorization, messageId, {
-              ...MESSAGE_POLICY,
-              ...(signal ? { signal } : {}),
-            });
-          } catch (error) {
-            if (error instanceof GmailProviderError && error.failure === 'response_too_large') {
-              return null;
-            }
-            throw error;
-          }
-        }),
+        batch.map((messageId) =>
+          this.gmail.getMessage(authorization, messageId, {
+            ...MESSAGE_POLICY,
+            ...(signal ? { signal } : {}),
+          }),
+        ),
       );
       const mapped = await Promise.all(
         messages.map((message, index) =>

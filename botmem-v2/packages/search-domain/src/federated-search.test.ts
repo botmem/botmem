@@ -78,6 +78,10 @@ const readyDevice: DeviceTarget = {
   deviceId: DEVICE_ID,
   availability: 'ready',
   connectors: ['imessage', 'whatsapp'],
+  sources: [
+    { connector: 'imessage', availability: 'ready', searchable: true },
+    { connector: 'whatsapp', availability: 'ready', searchable: true },
+  ],
 };
 
 const baseRequest: SearchRequestInput = {
@@ -127,6 +131,57 @@ describe('FederatedSearchService', () => {
       `device:${DEVICE_ID}`,
       'hosted',
     ]);
+  });
+
+  it('search_whenOneDeviceConnectorNeedsPermission_queriesReadyConnectorAndDisclosesGap', async () => {
+    let routedConnectors: SearchRequest['connectors'];
+    const hosted: HostedSearchPort = {
+      search: async () => {
+        throw new Error('hosted search must not run for local-only connector filters');
+      },
+    };
+    const directory: DeviceDirectoryPort = {
+      listSearchTargets: async () => [
+        {
+          ...readyDevice,
+          sources: [
+            { connector: 'imessage', availability: 'ready', searchable: true },
+            {
+              connector: 'whatsapp',
+              availability: 'permission_required',
+              searchable: false,
+              reasonCode: 'full_disk_access_required',
+            },
+          ],
+        },
+      ],
+    };
+    const device: DeviceSearchPort = {
+      search: async (_workspaceId, _target, request) => {
+        routedConnectors = request.connectors;
+        return result(candidate('imessage:1', 'imessage', '2026-07-13T11:00:00.000Z'));
+      },
+    };
+
+    const response = await service(hosted, directory, device).search('workspace-1', {
+      ...baseRequest,
+      connectors: ['imessage', 'whatsapp'],
+    });
+
+    expect(routedConnectors).toEqual(['imessage']);
+    expect(response.items.map((item) => item.ref)).toEqual(['imessage:1']);
+    expect(response.coverage.partial).toBe(true);
+    expect(response.coverage.lanes).toContainEqual({
+      laneId: `device:${DEVICE_ID}:whatsapp`,
+      placement: 'device',
+      deviceId: DEVICE_ID,
+      connector: 'whatsapp',
+      status: 'permission_required',
+      retryable: false,
+      returned: 0,
+      tookMs: 0,
+      reasonCode: 'full_disk_access_required',
+    });
   });
 
   it('search_whenHostedSemanticRankingIsUnavailable_keepsLexicalResultsAndMarksDegraded', async () => {

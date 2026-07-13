@@ -1,7 +1,7 @@
 import type { SourceStatus } from '@botmem-v2/contracts';
 import { describe, expect, it } from 'vitest';
 import type { DeviceSnapshot } from './domain.js';
-import type { DeviceRegistryPort } from './ports.js';
+import type { DeviceRegistryPort, PresenceDirectoryPort } from './ports.js';
 import {
   CombinedSourceStatusReader,
   DeviceSourceStatusReader,
@@ -41,6 +41,7 @@ describe('device source status composition', () => {
           tenantId: TENANT_ID,
           workspaceId: WORKSPACE_ID,
           deviceId: DEVICE_ID,
+          sessionId: 'session-current',
           expiresAtMs: 2_000,
           sources: [ready('imessage')],
         },
@@ -48,12 +49,38 @@ describe('device source status composition', () => {
           tenantId: '10000000-0000-4000-8000-000000000002',
           workspaceId: WORKSPACE_ID,
           deviceId: DEVICE_ID,
+          sessionId: 'session-current',
+          expiresAtMs: 2_000,
+          sources: [ready('whatsapp')],
+        },
+        {
+          tenantId: TENANT_ID,
+          workspaceId: WORKSPACE_ID,
+          deviceId: DEVICE_ID,
+          sessionId: 'session-stale',
           expiresAtMs: 2_000,
           sources: [ready('whatsapp')],
         },
       ],
     };
-    const deviceReader = new DeviceSourceStatusReader(devices, statuses, () => 1_000);
+    const presence: PresenceDirectoryPort = {
+      upsert: async () => undefined,
+      removeIfCurrent: async () => undefined,
+      get: async () => undefined,
+      list: async () => [
+        {
+          tenantId: TENANT_ID,
+          workspaceId: WORKSPACE_ID,
+          deviceId: DEVICE_ID,
+          sessionId: 'session-current',
+          ownerReplicaId: 'api-1',
+          connectors: ['imessage'],
+          availability: 'ready',
+          expiresAtMs: 2_000,
+        },
+      ],
+    };
+    const deviceReader = new DeviceSourceStatusReader(devices, statuses, presence, () => 1_000);
     const hosted: SourceStatusReaderPort = {
       list: async () => [
         {

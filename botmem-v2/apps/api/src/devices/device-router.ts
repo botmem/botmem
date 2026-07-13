@@ -11,11 +11,16 @@ import {
 import type {
   DeviceDirectoryPort,
   DeviceSearchPort,
+  DeviceConnectorTarget,
   DeviceTarget,
   RankedLaneResult,
   SearchLaneContext,
 } from '@botmem-v2/search-domain';
 import type { DeviceSnapshot, LocalConnector } from './domain.js';
+import type {
+  DeviceSourceStatusDirectoryPort,
+  DeviceSourceStatusSnapshot,
+} from './source-status.js';
 import type {
   ClockPort,
   DevicePresence,
@@ -31,6 +36,7 @@ export class ReplicaNeutralDeviceRouter implements DeviceDirectoryPort, DeviceSe
   constructor(
     private readonly devices: DeviceRegistryPort,
     private readonly presence: PresenceDirectoryPort,
+    private readonly sourceStatuses: DeviceSourceStatusDirectoryPort,
     private readonly rpc: ReplicaDeviceRpcPort,
     private readonly clock: ClockPort,
     private readonly ids: SecretGeneratorPort,
@@ -46,9 +52,10 @@ export class ReplicaNeutralDeviceRouter implements DeviceDirectoryPort, DeviceSe
     signal: AbortSignal,
   ): Promise<readonly DeviceTarget[]> {
     throwIfAborted(signal);
-    const [registered, connected] = await Promise.all([
+    const [registered, connected, sourceStatuses] = await Promise.all([
       this.devices.listForWorkspace(workspaceId),
       this.presence.list(workspaceId),
+      this.sourceStatuses.list(workspaceId),
     ]);
     throwIfAborted(signal);
     const active = registered.filter(
@@ -56,9 +63,16 @@ export class ReplicaNeutralDeviceRouter implements DeviceDirectoryPort, DeviceSe
     );
     if (active.length === 0) throw new NoEligibleDeviceError();
     const byDevice = new Map(connected.map((entry) => [entry.deviceId, entry]));
+    const statusByDevice = new Map(sourceStatuses.map((entry) => [entry.deviceId, entry]));
     return active
       .sort((left, right) => left.deviceId.localeCompare(right.deviceId))
-      .map((device) => this.toTarget(device, byDevice.get(device.deviceId)));
+      .map((device) =>
+        this.toTarget(
+          device,
+          byDevice.get(device.deviceId),
+          statusByDevice.get(device.deviceId),
+        ),
+      );
   }
 
   async search(
@@ -87,7 +101,12 @@ export class ReplicaNeutralDeviceRouter implements DeviceDirectoryPort, DeviceSe
       throw new DeviceRouteOwnershipError();
     }
 
-    const connectors = selectedConnectors(request.connectors, presence.connectors);
+    const searchable = new Set(
+      target.sources.filter((source) => source.searchable).map((source) => source.connector),
+    );
+    const connectors = selectedConnectors(request.connectors, presence.connectors).filter(
+      (connector) => searchable.has(connector),
+    );
     if (connectors.length === 0) throw new NoEligibleDeviceError();
     const startedAtMs = this.clock.nowMs();
     const deadlineAtMs = startedAtMs + this.requestTimeoutMs;
@@ -153,12 +172,17 @@ export class ReplicaNeutralDeviceRouter implements DeviceDirectoryPort, DeviceSe
     }
   }
 
-  private toTarget(device: DeviceSnapshot, presence: DevicePresence | undefined): DeviceTarget {
+  private toTarget(
+    device: DeviceSnapshot,
+    presence: DevicePresence | undefined,
+    sourceStatus: DeviceSourceStatusSnapshot | undefined,
+  ): DeviceTarget {
     if (!presence || presence.expiresAtMs <= this.clock.nowMs()) {
       return {
         deviceId: device.deviceId,
         availability: 'offline',
         connectors: device.connectors,
+        sources: unavailableSources(device.connectors, 'offline', 'device_disconnected'),
         reasonCode: 'device_disconnected',
       };
     }
@@ -167,16 +191,98 @@ export class ReplicaNeutralDeviceRouter implements DeviceDirectoryPort, DeviceSe
         deviceId: device.deviceId,
         availability: 'failed',
         connectors: device.connectors,
+        sources: unavailableSources(
+          device.connectors,
+          'failed',
+          'device_presence_owner_mismatch',
+        ),
         reasonCode: 'device_presence_owner_mismatch',
       };
     }
+    const validStatus =
+      sourceStatus?.tenantId === device.tenantId &&
+      sourceStatus.workspaceId === device.workspaceId &&
+      sourceStatus.sessionId === presence.sessionId &&
+      sourceStatus.expiresAtMs > this.clock.nowMs()
+        ? sourceStatus
+        : undefined;
     return {
       deviceId: device.deviceId,
       availability: presence.availability,
       connectors: presence.connectors,
+      sources: presence.connectors.map((connector) =>
+        sourceTarget(
+          connector,
+          validStatus?.sources.find((source) => source.connector === connector),
+        ),
+      ),
       ...(presence.reasonCode ? { reasonCode: presence.reasonCode } : {}),
     };
   }
+}
+
+function unavailableSources(
+  connectors: readonly LocalConnector[],
+  availability: DeviceConnectorTarget['availability'],
+  reasonCode: string,
+): readonly DeviceConnectorTarget[] {
+  return connectors.map((connector) => ({
+    connector,
+    availability,
+    searchable: false,
+    reasonCode,
+  }));
+}
+
+function sourceTarget(
+  connector: LocalConnector,
+  status: DeviceSourceStatusSnapshot['sources'][number] | undefined,
+): DeviceConnectorTarget {
+  if (!status) {
+    return {
+      connector,
+      availability: 'indexing',
+      searchable: false,
+      reasonCode: 'source_status_pending',
+    };
+  }
+  if (status.searchable) {
+    return {
+      connector,
+      availability: 'ready',
+      searchable: true,
+      ...(status.readiness !== 'ready'
+        ? { reasonCode: status.reasonCode ?? 'source_degraded' }
+        : {}),
+    };
+  }
+  if (status.detail === 'permission_required' || status.readiness === 'locked') {
+    return {
+      connector,
+      availability: 'permission_required',
+      searchable: false,
+      reasonCode: status.reasonCode ?? 'permission_required',
+    };
+  }
+  if (
+    status.readiness === 'authorizing' ||
+    status.readiness === 'enrolling' ||
+    status.readiness === 'connected' ||
+    status.readiness === 'indexing'
+  ) {
+    return {
+      connector,
+      availability: 'indexing',
+      searchable: false,
+      reasonCode: status.reasonCode ?? 'source_indexing',
+    };
+  }
+  return {
+    connector,
+    availability: status.readiness === 'error' ? 'failed' : 'offline',
+    searchable: false,
+    reasonCode: status.reasonCode ?? `source_${status.readiness}`,
+  };
 }
 
 function selectedConnectors(

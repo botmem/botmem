@@ -20,7 +20,7 @@ INSERT INTO botmem.hosted_sync_job (
     'b1110000-0000-4000-8000-000000000001',
     'b1100000-0000-4000-8000-000000000001',
     'gmail', 'completed', 1, 1, 19,
-    '2026-07-13T10:05:00Z', '2026-07-13T10:00:00Z',
+    clock_timestamp() + interval '1 day', '2026-07-13T10:00:00Z',
     '2026-07-13T10:00:00Z'
 );
 
@@ -36,6 +36,12 @@ BEGIN
     IF claimed.id IS NOT NULL THEN
         RAISE EXCEPTION 'completed job was claimed before its durable due time';
     END IF;
+
+    -- The database owns scheduler time, so move the durable due time instead
+    -- of using a caller-controlled timestamp to make the job claimable.
+    UPDATE botmem.hosted_sync_job
+       SET available_at = clock_timestamp() - interval '1 second'
+     WHERE id = 'b1120000-0000-4000-8000-000000000001';
 
     SELECT * INTO claimed FROM botmem.claim_hosted_sync_job(
         'periodic-invariant', 'b1130000-0000-4000-8000-000000000002',

@@ -21,6 +21,16 @@ const GMAIL_API_ROOT = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo';
 const TOKEN_POLICY = Object.freeze({ timeoutMs: 15_000, maxResponseBytes: 64 * 1024 });
 const REFRESH_SKEW_MS = 60_000;
+const MESSAGE_METADATA_HEADERS = Object.freeze([
+  'Bcc',
+  'Cc',
+  'Date',
+  'From',
+  'Reply-To',
+  'Sender',
+  'Subject',
+  'To',
+]);
 
 interface GoogleProviderConfig {
   readonly clientId: string;
@@ -217,7 +227,32 @@ export class GoogleGmailAdapter implements GmailOAuthProviderPort, GmailApiPort 
     messageId: string,
     policy: GmailRequestPolicy,
   ): Promise<GmailMessage | null> {
-    const query = new URLSearchParams({ format: 'full' });
+    for (const format of ['full', 'metadata', 'minimal'] as const) {
+      try {
+        return await this.getMessageWithFormat(authorization, messageId, policy, format);
+      } catch (error) {
+        if (
+          !(error instanceof GmailProviderError) ||
+          error.failure !== 'response_too_large' ||
+          format === 'minimal'
+        ) {
+          throw error;
+        }
+      }
+    }
+    throw new GmailProviderError('invalid_response');
+  }
+
+  private async getMessageWithFormat(
+    authorization: GmailAuthorizationSession,
+    messageId: string,
+    policy: GmailRequestPolicy,
+    format: 'full' | 'metadata' | 'minimal',
+  ): Promise<GmailMessage | null> {
+    const query = new URLSearchParams({ format });
+    if (format === 'metadata') {
+      MESSAGE_METADATA_HEADERS.forEach((header) => query.append('metadataHeaders', header));
+    }
     const response = await this.authorizedResponse(
       authorization,
       `${GMAIL_API_ROOT}/messages/${encodeURIComponent(messageId)}?${query.toString()}`,

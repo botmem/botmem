@@ -8,6 +8,7 @@ import { NodePostgresPoolAdapter } from '../search/node-postgres.js';
 import {
   DeploymentKeyRing,
   GmailCredentialVaultAdapter,
+  HostedSyncLeaseLostError,
   HostedSyncWorker,
   OutlookCredentialVaultAdapter,
   OwnTracksCredentialVaultAdapter,
@@ -40,6 +41,55 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
     now,
   );
   const ingestion = new PostgresHostedIngestionUnitOfWork(workerPool);
+
+  const moveAvailableBeforeDatabaseNow = async () => {
+    const client = await workerPool.connect();
+    try {
+      await client.query({ text: 'BEGIN' });
+      await client.query({ text: 'SET LOCAL ROLE botmem_worker' });
+      await client.query({
+        text: "SELECT set_config('botmem.tenant_id', $1, true)",
+        values: [tenant],
+      });
+      await client.query({
+        text: `UPDATE botmem.hosted_sync_job
+                  SET available_at = statement_timestamp() - interval '1 second'
+                WHERE tenant_id = $1::uuid AND account_id = $2::uuid`,
+        values: [tenant, accountId],
+      });
+      await client.query({ text: 'COMMIT' });
+    } catch (error) {
+      await client.query({ text: 'ROLLBACK' }).catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  const expireLeaseBeforeDatabaseNow = async () => {
+    const client = await workerPool.connect();
+    try {
+      await client.query({ text: 'BEGIN' });
+      await client.query({ text: 'SET LOCAL ROLE botmem_worker' });
+      await client.query({
+        text: "SELECT set_config('botmem.tenant_id', $1, true)",
+        values: [tenant],
+      });
+      await client.query({
+        text: `UPDATE botmem.hosted_sync_job
+                  SET lease_expires_at = statement_timestamp() - interval '1 second'
+                WHERE tenant_id = $1::uuid AND account_id = $2::uuid
+                  AND state = 'running'`,
+        values: [tenant, accountId],
+      });
+      await client.query({ text: 'COMMIT' });
+    } catch (error) {
+      await client.query({ text: 'ROLLBACK' }).catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
 
   afterAll(async () => {
     await Promise.all([apiPool.close(), workerPool.close()]);
@@ -128,14 +178,15 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
         maxAttempts: 5,
       }),
     ).resolves.toBeNull();
+    await moveAvailableBeforeDatabaseNow();
     const retried = await jobs.claim({
       workerId: 'worker.integration',
-      now: retryAt,
-      leaseExpiresAt: new Date(Date.parse(retryAt) + 60_000).toISOString(),
+      now: now(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       maxAttempts: 5,
     });
     expect(retried?.attempt).toBe(2);
-    await jobs.cancel(retried!, retryAt, 'INTEGRATION_RESET');
+    await jobs.cancel(retried!, now(), 'INTEGRATION_RESET');
     await scheduler.enqueue(owner);
     const beforeSync = await ingestion.loadAccount(tenant, accountId);
     expect(beforeSync).not.toBeNull();
@@ -207,19 +258,18 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
       }),
     ).resolves.toBeNull();
 
-    const dueAtMs = Date.now() + 24 * 60 * 60_000;
-    const dueAt = new Date(dueAtMs).toISOString();
+    await moveAvailableBeforeDatabaseNow();
     const concurrentClaims = await Promise.all([
       jobs.claim({
         workerId: 'worker.periodic-a',
-        now: dueAt,
-        leaseExpiresAt: new Date(dueAtMs + 60_000).toISOString(),
+        now: now(),
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
         maxAttempts: 5,
       }),
       jobs.claim({
         workerId: 'worker.periodic-b',
-        now: dueAt,
-        leaseExpiresAt: new Date(dueAtMs + 60_000).toISOString(),
+        now: now(),
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
         maxAttempts: 5,
       }),
     ]);
@@ -230,23 +280,24 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
     await expect(
       jobs.claim({
         workerId: 'worker.before-expiry',
-        now: new Date(dueAtMs + 59_000).toISOString(),
-        leaseExpiresAt: new Date(dueAtMs + 119_000).toISOString(),
+        now: now(),
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
         maxAttempts: 5,
       }),
     ).resolves.toBeNull();
+    await expireLeaseBeforeDatabaseNow();
     const recovered = await jobs.claim({
       workerId: 'worker.after-crash',
-      now: new Date(dueAtMs + 61_000).toISOString(),
-      leaseExpiresAt: new Date(dueAtMs + 121_000).toISOString(),
+      now: now(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       maxAttempts: 5,
     });
     expect(recovered?.attempt).toBe(2);
 
-    const periodicRetryAtMs = dueAtMs + 181_000;
+    const periodicRetryAtMs = Date.now() + 60_000;
     await jobs.fail({
       claim: recovered!,
-      failedAt: new Date(dueAtMs + 61_000).toISOString(),
+      failedAt: now(),
       failureCode: 'PERIODIC_RETRY',
       retryable: true,
       retryAt: new Date(periodicRetryAtMs).toISOString(),
@@ -260,14 +311,15 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
         maxAttempts: 5,
       }),
     ).resolves.toBeNull();
+    await moveAvailableBeforeDatabaseNow();
     const periodicRetry = await jobs.claim({
       workerId: 'worker.retry-due',
-      now: new Date(periodicRetryAtMs).toISOString(),
-      leaseExpiresAt: new Date(periodicRetryAtMs + 60_000).toISOString(),
+      now: now(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       maxAttempts: 5,
     });
     expect(periodicRetry?.attempt).toBe(3);
-    await jobs.complete(periodicRetry!, new Date(periodicRetryAtMs + 1_000).toISOString());
+    await jobs.complete(periodicRetry!, now());
     await expect(
       jobs.claim({
         workerId: 'worker.not-due-again',
@@ -304,14 +356,15 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
       retryAt: new Date(shortRetryAtMs).toISOString(),
       maxAttempts: 2,
     });
+    await moveAvailableBeforeDatabaseNow();
     const finalShortRetry = await recoveryJobs.claim({
       workerId: 'worker.exhaust-short-retries',
-      now: new Date(shortRetryAtMs).toISOString(),
-      leaseExpiresAt: new Date(shortRetryAtMs + 60_000).toISOString(),
+      now: now(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       maxAttempts: 2,
     });
     expect(finalShortRetry?.attempt).toBe(2);
-    const exhaustedAtMs = shortRetryAtMs + 1_000;
+    const exhaustedAtMs = Date.now();
     await recoveryJobs.fail({
       claim: finalShortRetry!,
       failedAt: new Date(exhaustedAtMs).toISOString(),
@@ -328,21 +381,22 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
         maxAttempts: 2,
       }),
     ).resolves.toBeNull();
-    const recoveryProbeAtMs = exhaustedAtMs + 900_000;
+    await moveAvailableBeforeDatabaseNow();
+    const recoveryProbeAtMs = Date.now();
     const recoveryProbe = await recoveryJobs.claim({
       workerId: 'worker.exhaustion-probe',
-      now: new Date(recoveryProbeAtMs).toISOString(),
-      leaseExpiresAt: new Date(recoveryProbeAtMs + 60_000).toISOString(),
+      now: now(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       maxAttempts: 2,
     });
     expect(recoveryProbe?.attempt).toBe(1);
-    await recoveryJobs.complete(recoveryProbe!, new Date(recoveryProbeAtMs + 1_000).toISOString());
+    await recoveryJobs.complete(recoveryProbe!, now());
 
     await scheduler.enqueue(owner);
     const permanent = await recoveryJobs.claim({
       workerId: 'worker.permanent-failure',
-      now: new Date(recoveryProbeAtMs + 2_000).toISOString(),
-      leaseExpiresAt: new Date(recoveryProbeAtMs + 62_000).toISOString(),
+      now: now(),
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       maxAttempts: 2,
     });
     expect(permanent?.attempt).toBe(1);
@@ -362,5 +416,36 @@ describe.skipIf(!enabled)('durable hosted sync runtime real PostgreSQL', () => {
         maxAttempts: 2,
       }),
     ).resolves.toBeNull();
+
+    await scheduler.enqueue(owner);
+    const shortLeaseNow = Date.now();
+    const lockWaitClaim = await jobs.claim({
+      workerId: 'worker.lock-wait',
+      now: new Date(shortLeaseNow).toISOString(),
+      leaseExpiresAt: new Date(shortLeaseNow + 100).toISOString(),
+      maxAttempts: 5,
+    });
+    expect(lockWaitClaim).not.toBeNull();
+    const lock = await workerPool.connect();
+    try {
+      await lock.query({ text: 'BEGIN' });
+      await lock.query({ text: 'SET LOCAL ROLE botmem_worker' });
+      await lock.query({
+        text: "SELECT set_config('botmem.tenant_id', $1, true)",
+        values: [tenant],
+      });
+      await lock.query({
+        text: `SELECT 1 FROM botmem.hosted_sync_job
+                WHERE id = $1::uuid FOR UPDATE`,
+        values: [lockWaitClaim!.jobId],
+      });
+      const staleSettlement = jobs.complete(lockWaitClaim!, now());
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await lock.query({ text: 'COMMIT' });
+      await expect(staleSettlement).rejects.toBeInstanceOf(HostedSyncLeaseLostError);
+    } finally {
+      await lock.query({ text: 'ROLLBACK' }).catch(() => undefined);
+      lock.release();
+    }
   });
 });

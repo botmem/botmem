@@ -72,6 +72,15 @@ launch requirements.
   provider user ID. Extracted names are search terms, never identity evidence.
 - Local content and indexes are not stored remotely. Relayed query/result bodies
   are neither logged nor cached.
+- Account exports are hosted-content-only NDJSON and remain downloadable until
+  their displayed expiry time; a dropped HTTP connection never consumes the
+  only download attempt. Every hosted event is exported losslessly. Records
+  larger than the artifact writer's line limit are represented by contiguous
+  `hosted_event_chunk` records whose base64url payload reconstructs the exact
+  original `hosted_event` line and whose SHA-256 digest verifies it. The export
+  manifest declares this encoding. Device-local iMessage and WhatsApp content
+  is excluded because copying it to the server would violate the product's
+  storage boundary.
 - The signed Mac app owns one background incremental scheduler. Launch, wake,
   activation after permission changes, and bounded periodic/retry triggers are
   single-flight and coalesced. Per-source schedule state survives restart in the

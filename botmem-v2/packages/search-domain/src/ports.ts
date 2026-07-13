@@ -35,10 +35,18 @@ export type DeviceAvailability =
   | 'indexing'
   | 'failed';
 
+export interface DeviceConnectorTarget {
+  readonly connector: Extract<Connector, 'imessage' | 'whatsapp'>;
+  readonly availability: DeviceAvailability;
+  readonly searchable: boolean;
+  readonly reasonCode?: string;
+}
+
 export interface DeviceTarget {
   readonly deviceId: string;
   readonly availability: DeviceAvailability;
   readonly connectors: readonly Extract<Connector, 'imessage' | 'whatsapp'>[];
+  readonly sources: readonly DeviceConnectorTarget[];
   readonly reasonCode?: string;
 }
 

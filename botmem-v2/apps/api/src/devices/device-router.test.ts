@@ -4,6 +4,7 @@ import {
   MAX_DEVICE_FRAME_BYTES,
   type DeviceFrame,
   type SearchRequest,
+  type SourceStatus,
 } from '@botmem-v2/contracts';
 import { FederatedSearchService } from '@botmem-v2/search-domain';
 import { describe, expect, it } from 'vitest';
@@ -25,6 +26,10 @@ import type {
   ReplicaDeviceRpcPort,
   SecretGeneratorPort,
 } from './ports.js';
+import type {
+  DeviceSourceStatusDirectoryPort,
+  DeviceSourceStatusSnapshot,
+} from './source-status.js';
 
 const WORKSPACE_ID = '20000000-0000-4000-8000-000000000001';
 // V4 launch identity intentionally uses one workspace per tenant.
@@ -89,6 +94,13 @@ class MemoryPresence implements PresenceDirectoryPort {
     return found?.workspaceId === workspaceId ? found : undefined;
   }
   async list(workspaceId: string): Promise<readonly DevicePresence[]> {
+    return [...this.records.values()].filter((entry) => entry.workspaceId === workspaceId);
+  }
+}
+
+class MemorySourceStatuses implements DeviceSourceStatusDirectoryPort {
+  readonly records = new Map<string, DeviceSourceStatusSnapshot>();
+  async list(workspaceId: string): Promise<readonly DeviceSourceStatusSnapshot[]> {
     return [...this.records.values()].filter((entry) => entry.workspaceId === workspaceId);
   }
 }
@@ -185,6 +197,45 @@ function target(deviceId = DEVICE_1) {
     deviceId,
     availability: 'ready' as const,
     connectors: ['imessage', 'whatsapp'] as const,
+    sources: [
+      {
+        connector: 'imessage' as const,
+        availability: 'ready' as const,
+        searchable: true,
+      },
+      {
+        connector: 'whatsapp' as const,
+        availability: 'ready' as const,
+        searchable: true,
+      },
+    ],
+  };
+}
+
+function readySource(connector: 'imessage' | 'whatsapp'): SourceStatus {
+  return {
+    connector,
+    readiness: 'ready',
+    detail: 'ready',
+    searchable: true,
+    indexedCount: 1,
+    checkpointAt: '2026-07-13T09:59:00.000Z',
+    lastProbeAt: '2026-07-13T09:59:30.000Z',
+  };
+}
+
+function sourceSnapshot(
+  deviceId: string,
+  sessionId: string,
+  sources: readonly SourceStatus[] = [readySource('imessage'), readySource('whatsapp')],
+): DeviceSourceStatusSnapshot {
+  return {
+    tenantId: TENANT_ID,
+    workspaceId: WORKSPACE_ID,
+    deviceId,
+    sessionId,
+    expiresAtMs: Date.parse('2026-07-13T10:05:00.000Z'),
+    sources,
   };
 }
 
@@ -205,17 +256,19 @@ function context(signal = new AbortController().signal) {
 function fixture(timeoutMs = 50) {
   const devices = new MemoryDevices();
   const presence = new MemoryPresence();
+  const statuses = new MemorySourceStatuses();
   const rpc = new SessionRpc();
   const clock = new FixedClock();
   const router = new ReplicaNeutralDeviceRouter(
     devices,
     presence,
+    statuses,
     rpc,
     clock,
     new SequenceIds(),
     timeoutMs,
   );
-  return { devices, presence, rpc, clock, router };
+  return { devices, presence, statuses, rpc, clock, router };
 }
 
 describe('replica-neutral device directory and router', () => {
@@ -225,6 +278,7 @@ describe('replica-neutral device directory and router', () => {
     await state.devices.create(device(DEVICE_2));
     await state.presence.upsert(online(DEVICE_1, 'session-old'));
     await state.presence.upsert(online(DEVICE_1, 'session-new'));
+    state.statuses.records.set(DEVICE_1, sourceSnapshot(DEVICE_1, 'session-new'));
 
     const targets = await state.router.listSearchTargets(
       WORKSPACE_ID,
@@ -236,6 +290,20 @@ describe('replica-neutral device directory and router', () => {
         deviceId: DEVICE_2,
         availability: 'offline',
         connectors: ['imessage', 'whatsapp'],
+        sources: [
+          {
+            connector: 'imessage',
+            availability: 'offline',
+            searchable: false,
+            reasonCode: 'device_disconnected',
+          },
+          {
+            connector: 'whatsapp',
+            availability: 'offline',
+            searchable: false,
+            reasonCode: 'device_disconnected',
+          },
+        ],
         reasonCode: 'device_disconnected',
       },
     ]);
@@ -253,6 +321,85 @@ describe('replica-neutral device directory and router', () => {
       expect(outbound.payload.query.cursor).toBeNull();
       expect(outbound.payload.query.connectors).toEqual(['imessage']);
     }
+  });
+
+  it('federation_whenOneConnectorNeedsPermission_searchesReadySourceAndReportsPartial', async () => {
+    const state = fixture();
+    await state.devices.create(device(DEVICE_1));
+    await state.presence.upsert(online(DEVICE_1, 'session-current'));
+    state.statuses.records.set(
+      DEVICE_1,
+      sourceSnapshot(DEVICE_1, 'session-current', [
+        readySource('imessage'),
+        {
+          connector: 'whatsapp',
+          readiness: 'locked',
+          detail: 'permission_required',
+          searchable: false,
+          reasonCode: 'full_disk_access_required',
+        },
+      ]),
+    );
+    const service = new FederatedSearchService(
+      { search: async () => ({ candidates: [] }) },
+      state.router,
+      state.router,
+      state.clock,
+      { next: () => QUERY_ID },
+      { hostedDeadlineMs: 20, deviceDeadlineMs: 20, reciprocalRankConstant: 60 },
+    );
+
+    const response = await service.search(WORKSPACE_ID, {
+      ...request(),
+      connectors: ['imessage', 'whatsapp'],
+    });
+
+    expect(response.items).toHaveLength(1);
+    expect(response.items[0]?.origin.connector).toBe('imessage');
+    expect(response.coverage.partial).toBe(true);
+    expect(response.coverage.lanes).toContainEqual({
+      laneId: `device:${DEVICE_1}:whatsapp`,
+      placement: 'device',
+      deviceId: DEVICE_1,
+      connector: 'whatsapp',
+      status: 'permission_required',
+      retryable: false,
+      returned: 0,
+      tookMs: 0,
+      reasonCode: 'full_disk_access_required',
+    });
+    const outbound = state.rpc.requests[0]?.frame;
+    expect(outbound?.type).toBe('search.request');
+    if (outbound?.type === 'search.request') {
+      expect(outbound.payload.query.connectors).toEqual(['imessage']);
+    }
+  });
+
+  it('directory_doesNotTrustSourceStatusFromAStaleDeviceSession', async () => {
+    const state = fixture();
+    await state.devices.create(device(DEVICE_1));
+    await state.presence.upsert(online(DEVICE_1, 'session-current'));
+    state.statuses.records.set(DEVICE_1, sourceSnapshot(DEVICE_1, 'session-stale'));
+
+    const targets = await state.router.listSearchTargets(
+      WORKSPACE_ID,
+      new AbortController().signal,
+    );
+
+    expect(targets[0]?.sources).toEqual([
+      {
+        connector: 'imessage',
+        availability: 'indexing',
+        searchable: false,
+        reasonCode: 'source_status_pending',
+      },
+      {
+        connector: 'whatsapp',
+        availability: 'indexing',
+        searchable: false,
+        reasonCode: 'source_status_pending',
+      },
+    ]);
   });
 
   it('router_rejectsWrongWorkspaceRevokedAndOversizedResponse', async () => {

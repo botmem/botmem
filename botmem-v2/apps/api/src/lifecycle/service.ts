@@ -69,7 +69,7 @@ export class WorkspaceLifecycleService {
     jobId: string,
   ): Promise<{ readonly body: Readable; readonly filename: string }> {
     assertOwnerBrowserPrincipal(principal);
-    const artifactKey = await this.repository.consumeExportArtifactKey({
+    const artifactKey = await this.repository.readExportArtifactKey({
       principal,
       jobId,
       now: new Date(this.clock.nowMs()).toISOString(),

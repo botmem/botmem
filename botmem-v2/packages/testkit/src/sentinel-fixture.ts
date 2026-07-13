@@ -53,6 +53,14 @@ export function createSentinelFixture(
           deviceId: SENTINEL_DEVICE_ID,
           availability: deviceAvailability,
           connectors: ['imessage', 'whatsapp'],
+          sources: (['imessage', 'whatsapp'] as const).map((connector) => ({
+            connector,
+            availability: deviceAvailability,
+            searchable: deviceAvailability === 'ready',
+            ...(deviceAvailability === 'ready'
+              ? {}
+              : { reasonCode: 'device_disconnected' }),
+          })),
           ...(deviceAvailability === 'ready' ? {} : { reasonCode: 'device_disconnected' }),
         },
       ];

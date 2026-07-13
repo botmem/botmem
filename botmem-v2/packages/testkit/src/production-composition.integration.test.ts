@@ -544,9 +544,11 @@ describe.runIf(enabled)('production composition end-to-end gate', () => {
     expect(exportText).toContain('"connector":"outlook"');
     expect(exportText).toContain('"connector":"owntracks"');
     expect(exportText).not.toContain('credential_ref');
-    await expect(
-      browser.downloadWorkspaceExport(workspace.workspaceId, exportJob.job.jobId),
-    ).rejects.toEqual(expect.objectContaining<WebApiError>({ status: 409 }));
+    const retriedExport = await browser.downloadWorkspaceExport(
+      workspace.workspaceId,
+      exportJob.job.jobId,
+    );
+    await expect(retriedExport.text()).resolves.toBe(exportText);
 
     helper.child.kill('SIGTERM');
     await helper.exit;

@@ -1,11 +1,11 @@
 import { constants } from 'node:fs';
 import {
   lstat,
+  link,
   mkdir,
   open,
   readFile,
   readdir,
-  rename,
   rm,
   statfs,
   unlink,
@@ -148,14 +148,44 @@ export class SharedFilesystemLifecycleArtifactStore implements LifecycleArtifact
         this.maxBytes,
         async () =>
           this.withQuotaLock(async () => {
-            await rename(temporaryPath, finalPath);
-            await unlink(reservationPath);
+            let installed = false;
+            try {
+              await link(temporaryPath, finalPath);
+              installed = true;
+            } catch (error) {
+              if (!isExistingFile(error)) throw error;
+            } finally {
+              await unlink(temporaryPath).catch((error: unknown) => {
+                if (!isMissingFile(error)) throw error;
+              });
+              await unlink(reservationPath).catch((error: unknown) => {
+                if (!isMissingFile(error)) throw error;
+              });
+            }
+            if (!installed) await this.authenticateArtifact(finalPath);
           }),
       );
     } catch (error) {
       await handle.close().catch(() => undefined);
       await unlink(temporaryPath).catch(() => undefined);
       await unlink(reservationPath).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async recover(input: {
+    readonly workspaceId: string;
+    readonly jobId: string;
+  }): Promise<string | null> {
+    assertUuid(input.workspaceId);
+    assertUuid(input.jobId);
+    const key = `${input.workspaceId}/${input.jobId}.bme`;
+    const path = this.safePath(key);
+    try {
+      await this.authenticateArtifact(path);
+      return key;
+    } catch (error) {
+      if (isMissingFile(error)) return null;
       throw error;
     }
   }
@@ -228,6 +258,27 @@ export class SharedFilesystemLifecycleArtifactStore implements LifecycleArtifact
       return metadata.isDirectory() && !metadata.isSymbolicLink();
     } catch {
       return false;
+    }
+  }
+
+  private async authenticateArtifact(path: string): Promise<void> {
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || metadata.size < HEADER_BYTES + TAG_BYTES) {
+        throw new LifecycleArtifactStorageError('artifact is not a valid regular file');
+      }
+      if (metadata.size > this.maxBytes + HEADER_BYTES + TAG_BYTES) {
+        throw new LifecycleArtifactStorageError('artifact exceeded its configured size bound');
+      }
+      const { header, nonce, tag, ciphertextBytes } = await readEnvelope(handle, metadata.size);
+      await authenticate(handle, this.artifactKey, header, nonce, tag, ciphertextBytes);
+    } catch (error) {
+      if (isMissingFile(error) || error instanceof LifecycleArtifactStorageError) throw error;
+      throw new LifecycleArtifactStorageError('artifact authentication failed');
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   }
 

@@ -37,23 +37,12 @@ pub struct StatusSource {
     pub count: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct IndexingStatus {
     pub active: bool,
     pub source: Option<String>,
     pub done: u64,
     pub total: Option<u64>,
-}
-
-impl Default for IndexingStatus {
-    fn default() -> Self {
-        Self {
-            active: false,
-            source: None,
-            done: 0,
-            total: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -242,8 +231,7 @@ fn write_atomic(path: &Path, snapshot: &StatusSnapshot) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let json = serde_json::to_string_pretty(snapshot)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(snapshot).map_err(std::io::Error::other)?;
     let tmp = path.with_extension(format!("{}.{}.tmp", std::process::id(), now_ms()));
 
     {

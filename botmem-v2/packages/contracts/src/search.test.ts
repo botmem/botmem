@@ -131,4 +131,32 @@ describe('SearchResponse contract', () => {
 
     expect(SearchResponseSchema.parse(response)).toEqual(response);
   });
+
+  it('SearchResponseSchema_whenOneDeviceConnectorIsBlocked_acceptsConnectorCoverage', () => {
+    const response = {
+      version: 2,
+      queryId: 'cfdf162d-fee7-4870-868d-091e9dc57561',
+      items: [],
+      coverage: {
+        partial: true,
+        lanes: [
+          {
+            laneId: 'device:df381211-58ea-4558-a36f-a2a3202bc682:whatsapp',
+            placement: 'device',
+            deviceId: 'df381211-58ea-4558-a36f-a2a3202bc682',
+            connector: 'whatsapp',
+            status: 'permission_required',
+            retryable: false,
+            returned: 0,
+            tookMs: 0,
+            reasonCode: 'full_disk_access_required',
+          },
+        ],
+      },
+      found: 0,
+      tookMs: 1,
+    };
+
+    expect(SearchResponseSchema.parse(response)).toEqual(response);
+  });
 });

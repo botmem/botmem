@@ -37,7 +37,7 @@ INSERT INTO botmem.hosted_sync_job (
     'b1210000-0000-4000-8000-000000000001',
     'b1220000-0000-4000-8000-000000000001',
     'gmail', 'retryable_exhausted', 1, 1, 5,
-    '2026-07-13T11:00:00Z', '2026-07-13T10:00:00Z',
+    clock_timestamp() + interval '1 day', '2026-07-13T10:00:00Z',
     '2026-07-13T10:00:00Z', NULL, NULL, NULL, NULL,
     'GMAIL_PROVIDER_UNAVAILABLE'
 ),
@@ -57,7 +57,8 @@ INSERT INTO botmem.hosted_sync_job (
     'owntracks', 'running', 1, 1, 5,
     '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z',
     '2026-07-13T10:00:00Z', NULL, 'v12.crashed-worker',
-    'b1250000-0000-4000-8000-000000000001', '2026-07-13T10:30:00Z',
+    'b1250000-0000-4000-8000-000000000001',
+    clock_timestamp() - interval '1 minute',
     NULL
 );
 
@@ -92,12 +93,18 @@ BEGIN
         SELECT 1 FROM botmem.hosted_sync_job
          WHERE id = 'b1230000-0000-4000-8000-000000000003'
            AND state = 'retryable_exhausted'
-           AND available_at = '2026-07-13T11:14:59Z'
+           AND available_at BETWEEN
+               clock_timestamp() + interval '14 minutes 59 seconds' AND
+               clock_timestamp() + interval '15 minutes 1 second'
            AND attempts = 5
            AND failure_code = 'WORKER_LEASE_EXHAUSTED'
     ) THEN
         RAISE EXCEPTION 'crash exhaustion was not scheduled for a fresh probe cooldown';
     END IF;
+
+    UPDATE botmem.hosted_sync_job
+       SET available_at = clock_timestamp() - interval '1 second'
+     WHERE id = 'b1230000-0000-4000-8000-000000000001';
 
     SELECT * INTO claimed FROM botmem.claim_hosted_sync_job(
         'v12.recovery', 'b1240000-0000-4000-8000-000000000003',

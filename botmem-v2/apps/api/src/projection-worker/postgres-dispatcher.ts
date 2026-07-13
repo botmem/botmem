@@ -66,6 +66,7 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
   }): Promise<void> {
     validateOwner(input.owner);
     await this.transaction(input.signal, async (client) => {
+      await lockOutboxClaim(client, input, input.signal);
       const result = await client.query({
         text: `UPDATE botmem.transactional_outbox
                   SET state = 'published', lease_owner = NULL,
@@ -74,7 +75,7 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
                       next_attempt_at = $4::timestamptz
                 WHERE id = $1::uuid AND state = 'processing'
                   AND lease_owner = $2 AND lease_token = $3::uuid
-                  AND lease_expires_at > $4::timestamptz`,
+                  AND lease_expires_at > clock_timestamp()`,
         values: [input.messageId, input.owner, input.leaseToken, input.publishedAt],
         signal: input.signal,
       });
@@ -93,19 +94,19 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
   }): Promise<void> {
     validateOwner(input.owner);
     await this.transaction(input.signal, async (client) => {
+      await lockOutboxClaim(client, input, input.signal);
       const result = await client.query({
         text: `UPDATE botmem.transactional_outbox
-                  SET state = CASE WHEN $5::boolean THEN 'dead' ELSE 'pending' END,
+                  SET state = CASE WHEN $4::boolean THEN 'dead' ELSE 'pending' END,
                       lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
-                      next_attempt_at = $6::timestamptz, published_at = NULL
+                      next_attempt_at = $5::timestamptz, published_at = NULL
                 WHERE id = $1::uuid AND state = 'processing'
                   AND lease_owner = $2 AND lease_token = $3::uuid
-                  AND lease_expires_at > $4::timestamptz`,
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           input.messageId,
           input.owner,
           input.leaseToken,
-          input.failedAt,
           input.dead,
           input.nextAttemptAt,
         ],
@@ -124,16 +125,15 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
       throw new RangeError('repair workspace limit must be between 1 and 500');
     }
     return this.transaction(input.signal, async (client) => {
-      const result = await client.query<{ tenant_id: string }>({
-        text: `SELECT DISTINCT tenant_id
-                 FROM botmem.transactional_outbox
-                WHERE ($1::uuid IS NULL OR tenant_id > $1::uuid)
-                ORDER BY tenant_id
-                LIMIT $2::integer`,
+      const result = await client.query<{ workspace_id: string }>({
+        text: `SELECT workspace_id
+                 FROM botmem.list_projection_repair_workspaces(
+                   $1::uuid, $2::integer
+                 )`,
         values: [input.afterWorkspaceId ?? null, input.limit],
         signal: input.signal,
       });
-      return Object.freeze(result.rows.map((row) => row.tenant_id));
+      return Object.freeze(result.rows.map((row) => row.workspace_id));
     });
   }
 
@@ -166,6 +166,22 @@ export class PostgresOutboxDispatcher implements OutboxDispatcherPort {
   }
 }
 
+function lockOutboxClaim(
+  client: SqlClientPort,
+  input: { readonly messageId: string; readonly owner: string; readonly leaseToken: string },
+  signal: AbortSignal,
+): Promise<unknown> {
+  return client.query({
+    text: `SELECT 1
+             FROM botmem.transactional_outbox
+            WHERE id = $1::uuid AND state = 'processing'
+              AND lease_owner = $2 AND lease_token = $3::uuid
+            FOR UPDATE`,
+    values: [input.messageId, input.owner, input.leaseToken],
+    signal,
+  });
+}
+
 const CLAIM_SQL = `
 WITH claimable AS (
   SELECT id
@@ -173,7 +189,7 @@ WITH claimable AS (
    WHERE (
      state = 'pending' AND next_attempt_at <= statement_timestamp()
    ) OR (
-     state = 'processing' AND lease_expires_at <= statement_timestamp()
+     state = 'processing' AND lease_expires_at <= clock_timestamp()
    )
    ORDER BY next_attempt_at, created_at, id
    FOR UPDATE SKIP LOCKED

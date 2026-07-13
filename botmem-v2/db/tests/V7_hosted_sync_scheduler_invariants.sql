@@ -53,8 +53,15 @@ BEGIN
           '2026-07-13T10:00:02Z',
           '2026-07-13T10:10:02Z',
           5
-      );
+    );
     IF claimed <> 0 THEN RAISE EXCEPTION 'active job was concurrently claimable'; END IF;
+
+    -- Lease expiry is governed by the database clock. Expire the fixture
+    -- explicitly instead of trying to advance time through caller input.
+    UPDATE botmem.hosted_sync_job
+       SET lease_expires_at = clock_timestamp() - interval '1 second'
+     WHERE id = '37000000-0000-4000-8000-000000000001';
+
     SELECT count(*) INTO claimed
       FROM botmem.claim_hosted_sync_job(
           'worker.recovery',

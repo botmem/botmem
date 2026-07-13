@@ -1,6 +1,7 @@
 import {
   ConcurrentSyncError,
   IdempotencyConflictError,
+  SyncOwnershipError,
   connectorAccountId,
   ingestRevisionId,
   outboxMessageId,
@@ -187,6 +188,7 @@ describe('PostgresHostedIngestionUnitOfWork', () => {
   it('commitPage_whenDuplicateContentChanged_rollsBackBeforeHeadOutboxOrCursor', async () => {
     const client = new ScriptedClient((query) => {
       if (query.text.includes('FROM botmem.connector_account ca')) return result(accountRow());
+      if (query.text.includes('FROM botmem.connector_sync')) return result({ active: 1 });
       if (query.text.includes('INSERT INTO botmem.ingest_event_revision')) {
         return { rows: [], rowCount: 0 };
       }
@@ -237,6 +239,32 @@ describe('PostgresHostedIngestionUnitOfWork', () => {
     expect(client.queries.at(-1)?.text).toBe('ROLLBACK');
     expect(
       client.queries.some((query) => query.text.includes('INSERT INTO botmem.connector_sync')),
+    ).toBe(false);
+    const reclaim = client.queries.find((query) =>
+      query.text.includes("SET state = 'abandoned'"),
+    );
+    expect(reclaim?.text).toContain('lease_expires_at <= clock_timestamp()');
+    expect(reclaim?.values).toEqual([TENANT_ID, ACCOUNT_ID, SYNC_ID]);
+  });
+
+  it('commitPage_whenDatabaseLeaseExpired_rejectsBeforeWritingContent', async () => {
+    const client = new ScriptedClient((query) => {
+      if (query.text.includes('FROM botmem.connector_account ca')) return result(accountRow());
+      if (query.text.includes('FROM botmem.connector_sync')) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: null };
+    });
+    const unitOfWork = new PostgresHostedIngestionUnitOfWork(pool(client));
+
+    await expect(unitOfWork.commitPage(pageCommit())).rejects.toBeInstanceOf(
+      SyncOwnershipError,
+    );
+    expect(client.queries.at(-1)?.text).toBe('ROLLBACK');
+    expect(
+      client.queries.some((query) =>
+        query.text.includes('INSERT INTO botmem.ingest_event_revision'),
+      ),
     ).toBe(false);
   });
 });

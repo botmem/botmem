@@ -21,12 +21,13 @@ const FUTURE_TOKENS: OAuthTokenSet = Object.freeze({
 
 class FixtureHttp implements BoundedHttpClientPort {
   public readonly requests: BoundedHttpRequest[] = [];
-  public readonly responses: BoundedHttpResponse[] = [];
+  public readonly responses: (BoundedHttpResponse | Error)[] = [];
 
   public async request(request: BoundedHttpRequest) {
     this.requests.push(request);
     const response = this.responses.shift();
     if (!response) throw new Error('missing fixture response');
+    if (response instanceof Error) throw response;
     return response;
   }
 }
@@ -176,5 +177,69 @@ describe('GoogleGmailAdapter', () => {
       }),
     ).rejects.toEqual(expect.objectContaining<GmailProviderError>({ failure: 'revoked' }));
     expect(http.requests).toHaveLength(1);
+  });
+
+  it('getMessage_whenFullResponseIsTooLarge_fallsBackToSearchableMetadata', async () => {
+    const { adapter, http } = harness();
+    http.responses.push(
+      new GmailProviderError('response_too_large', 200),
+      response(200, {
+        id: 'message-large',
+        threadId: 'thread-large',
+        historyId: 'H200',
+        internalDate: '1718447400000',
+        snippet: 'The searchable message preview',
+        payload: {
+          mimeType: 'multipart/mixed',
+          headers: [
+            { name: 'Subject', value: 'Large attachment' },
+            { name: 'From', value: 'sender@example.test' },
+          ],
+        },
+      }),
+    );
+
+    const message = await adapter.getMessage(authorization().session, 'message-large', {
+      timeoutMs: 20_000,
+      maxResponseBytes: 16 * 1024 * 1024,
+    });
+
+    expect(message).toMatchObject({
+      id: 'message-large',
+      historyId: 'H200',
+      snippet: 'The searchable message preview',
+    });
+    expect(new URL(http.requests[0]!.url).searchParams.get('format')).toBe('full');
+    const metadataUrl = new URL(http.requests[1]!.url);
+    expect(metadataUrl.searchParams.get('format')).toBe('metadata');
+    expect(metadataUrl.searchParams.getAll('metadataHeaders')).toEqual(
+      expect.arrayContaining(['Subject', 'From', 'To', 'Date']),
+    );
+  });
+
+  it('getMessage_whenMetadataIsStillTooLarge_preservesTheEventWithMinimalMetadata', async () => {
+    const { adapter, http } = harness();
+    http.responses.push(
+      new GmailProviderError('response_too_large', 200),
+      new GmailProviderError('response_too_large', 200),
+      response(200, {
+        id: 'message-extreme',
+        threadId: 'thread-extreme',
+        historyId: 'H201',
+        labelIds: ['INBOX'],
+      }),
+    );
+
+    const message = await adapter.getMessage(authorization().session, 'message-extreme', {
+      timeoutMs: 20_000,
+      maxResponseBytes: 16 * 1024 * 1024,
+    });
+
+    expect(message).toMatchObject({ id: 'message-extreme', historyId: 'H201' });
+    expect(http.requests.map((request) => new URL(request.url).searchParams.get('format'))).toEqual([
+      'full',
+      'metadata',
+      'minimal',
+    ]);
   });
 });

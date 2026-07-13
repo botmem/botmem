@@ -100,6 +100,32 @@ describe('SharedFilesystemLifecycleArtifactStore', () => {
     expect(await store.ready()).toBe(true);
   });
 
+  it('recovers a committed artifact after a crash without requiring a second quota reservation', async () => {
+    const { store } = await fixture();
+    const writer = await store.create({ workspaceId: WORKSPACE_A, jobId: JOB_A });
+    const plaintext = '{"type":"manifest","crashRecovery":true}\n';
+    await writer.write(plaintext);
+    const artifactKey = await writer.commit();
+
+    await expect(store.recover({ workspaceId: WORKSPACE_A, jobId: JOB_A })).resolves.toBe(
+      artifactKey,
+    );
+    expect(await collect(await store.open(artifactKey))).toBe(plaintext);
+  });
+
+  it('keeps the first authenticated final artifact when two stale claims finish the same job', async () => {
+    const quota = 2 * (MAX_BYTES + ENVELOPE_BYTES);
+    const { store } = await fixture({ maxWorkspaceBytes: quota, maxGlobalBytes: quota });
+    const first = await store.create({ workspaceId: WORKSPACE_A, jobId: JOB_A });
+    const stale = await store.create({ workspaceId: WORKSPACE_A, jobId: JOB_A });
+    await first.write('{"winner":"first"}\n');
+    await stale.write('{"winner":"stale"}\n');
+
+    const artifactKey = await first.commit();
+    await expect(stale.commit()).resolves.toBe(artifactKey);
+    expect(await collect(await store.open(artifactKey))).toBe('{"winner":"first"}\n');
+  });
+
   it('fails readiness and creation when the configured free-space reserve is unavailable', async () => {
     const { store } = await fixture({ minimumFreeBytes: Number.MAX_SAFE_INTEGER });
     expect(await store.ready()).toBe(false);

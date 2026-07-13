@@ -68,6 +68,15 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
   }
 
   public claimSync(claim: SyncClaim): Promise<ConnectorAccountSnapshot> {
+    const leaseDurationMs =
+      Date.parse(claim.sync.leaseExpiresAt) - Date.parse(claim.sync.startedAt);
+    if (
+      !Number.isSafeInteger(leaseDurationMs) ||
+      leaseDurationMs < 1 ||
+      leaseDurationMs > 3_600_000
+    ) {
+      throw new RangeError('sync lease duration must be between one millisecond and one hour');
+    }
     return this.inTenantTransaction(claim.tenantId, async (client) => {
       const current = await this.requiredSnapshot(client, claim.tenantId, claim.accountId);
       if (current.aggregateVersion !== claim.expectedAggregateVersion) {
@@ -75,25 +84,22 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
       }
 
       if (current.activeSync) {
-        if (
-          current.activeSync.id !== claim.replacesExpiredSyncId ||
-          Date.parse(current.activeSync.leaseExpiresAt) > Date.parse(claim.sync.startedAt)
-        ) {
+        if (current.activeSync.id !== claim.replacesExpiredSyncId) {
           throw new ConcurrentSyncError();
         }
         const abandoned = await client.query({
           text: `
             UPDATE botmem.connector_sync
                SET state = 'abandoned',
-                   closed_at = $4::timestamptz,
+                   closed_at = clock_timestamp(),
                    failure_code = 'LEASE_EXPIRED'
              WHERE tenant_id = $1::uuid
                AND account_id = $2::uuid
                AND id = $3::uuid
                AND state = 'active'
-               AND lease_expires_at <= $4::timestamptz
+               AND lease_expires_at <= clock_timestamp()
           `,
-          values: [claim.tenantId, claim.accountId, current.activeSync.id, claim.sync.startedAt],
+          values: [claim.tenantId, claim.accountId, current.activeSync.id],
         });
         if (abandoned.rowCount !== 1) throw new ConcurrentSyncError();
       } else if (claim.replacesExpiredSyncId !== null) {
@@ -108,15 +114,15 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
               started_at, lease_expires_at
             )
             VALUES ($1::uuid, $2::uuid, $3::uuid, 'active', $4::bigint,
-                    $5::timestamptz, $6::timestamptz)
+                    clock_timestamp(),
+                    clock_timestamp() + $5::bigint * interval '1 millisecond')
           `,
           values: [
             claim.sync.id,
             claim.tenantId,
             claim.accountId,
             claim.expectedAggregateVersion,
-            claim.sync.startedAt,
-            claim.sync.leaseExpiresAt,
+            leaseDurationMs,
           ],
         });
       } catch (error) {
@@ -138,6 +144,7 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
     return this.inTenantTransaction(commit.tenantId, async (client) => {
       const current = await this.requiredSnapshot(client, commit.tenantId, commit.accountId);
       if (current.activeSync?.id !== commit.syncId) throw new SyncOwnershipError();
+      await this.assertActiveSyncLease(client, commit.tenantId, commit.accountId, commit.syncId);
       if (
         current.aggregateVersion !== commit.expectedAggregateVersion ||
         current.cursorVersion !== commit.expectedCursorVersion
@@ -265,6 +272,7 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
         ],
       });
       if (checkpoint.rowCount !== 1) throw new OptimisticConcurrencyError();
+      await this.assertActiveSyncLease(client, commit.tenantId, commit.accountId, commit.syncId);
       await this.bumpAggregate(
         client,
         commit.tenantId,
@@ -297,6 +305,7 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
              AND account_id = $2::uuid
              AND id = $3::uuid
              AND state = 'active'
+             AND lease_expires_at > clock_timestamp()
         `,
         values: [
           close.tenantId,
@@ -339,6 +348,24 @@ export class PostgresHostedIngestionUnitOfWork implements HostedIngestionUnitOfW
     const snapshot = await this.loadSnapshot(client, workspaceId, accountId, true);
     if (!snapshot) throw new AccountNotFoundError();
     return snapshot;
+  }
+
+  private async assertActiveSyncLease(
+    client: SqlClientPort,
+    tenant: TenantId,
+    account: ReturnType<typeof connectorAccountId>,
+    sync: ReturnType<typeof syncId>,
+  ): Promise<void> {
+    const active = await client.query({
+      text: `SELECT 1
+               FROM botmem.connector_sync
+              WHERE tenant_id = $1::uuid AND account_id = $2::uuid
+                AND id = $3::uuid AND state = 'active'
+                AND lease_expires_at > clock_timestamp()
+              FOR UPDATE`,
+      values: [tenant, account, sync],
+    });
+    if (active.rowCount !== 1) throw new SyncOwnershipError();
   }
 
   private async loadSnapshot(

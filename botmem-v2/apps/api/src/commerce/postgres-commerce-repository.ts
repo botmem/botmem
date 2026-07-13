@@ -384,6 +384,7 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
   ): Promise<void> {
     await this.transaction(async (client) => {
       await setEvent(client, input.eventId);
+      await lockWebhookClaim(client, input);
       const result = await client.query({
         text: `UPDATE botmem.stripe_webhook_event
                   SET state = $2, worker_id = NULL, claimed_at = NULL,
@@ -391,7 +392,7 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
                       processed_at = $3::timestamptz, failure_code = NULL
                 WHERE id = $1 AND state = 'processing' AND worker_id = $4
                   AND lease_token = $5::uuid
-                  AND lease_expires_at > $3::timestamptz`,
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           input.eventId,
           input.outcome,
@@ -407,6 +408,7 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
   async retryWebhook(input: Parameters<CommerceRepositoryPort['retryWebhook']>[0]): Promise<void> {
     await this.transaction(async (client) => {
       await setEvent(client, input.eventId);
+      await lockWebhookClaim(client, input);
       const result = await client.query({
         text: `UPDATE botmem.stripe_webhook_event
                   SET state = CASE WHEN $5 THEN 'dead_letter' ELSE 'pending' END,
@@ -417,7 +419,7 @@ export class PostgresCommerceRepository implements CommerceRepositoryPort {
                       available_at = $4::timestamptz
                 WHERE id = $1 AND state = 'processing' AND worker_id = $6
                   AND lease_token = $7::uuid
-                  AND lease_expires_at > $3::timestamptz`,
+                  AND lease_expires_at > clock_timestamp()`,
         values: [
           input.eventId,
           input.failureCode,
@@ -528,6 +530,20 @@ function setEvent(client: SqlClientPort, eventId: string): Promise<unknown> {
   return client.query({
     text: "SELECT set_config('botmem.stripe_event_id', $1, true)",
     values: [eventId],
+  });
+}
+
+function lockWebhookClaim(
+  client: SqlClientPort,
+  input: { readonly eventId: string; readonly workerId: string; readonly leaseToken: string },
+): Promise<unknown> {
+  return client.query({
+    text: `SELECT 1
+             FROM botmem.stripe_webhook_event
+            WHERE id = $1 AND state = 'processing' AND worker_id = $2
+              AND lease_token = $3::uuid
+            FOR UPDATE`,
+    values: [input.eventId, input.workerId, input.leaseToken],
   });
 }
 

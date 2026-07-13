@@ -1,4 +1,9 @@
-import { LifecycleLeaseLostError, type LifecycleJobClaim } from './domain.js';
+import { createHash } from 'node:crypto';
+import {
+  LifecycleLeaseLostError,
+  type HostedExportRecord,
+  type LifecycleJobClaim,
+} from './domain.js';
 import type {
   LifecycleArtifactStorePort,
   LifecycleArtifactWriterPort,
@@ -88,79 +93,68 @@ export class WorkspaceLifecycleWorker {
     let artifactKey: string | undefined;
     let failureCode = 'EXPORT_STORAGE_FAILED';
     try {
-      writer = await this.artifacts.create({ workspaceId: job.workspaceId, jobId: job.jobId });
-      await writer.write(
-        `${JSON.stringify({
-          type: 'manifest',
-          version: 2,
+      artifactKey =
+        (await this.artifacts.recover({
           workspaceId: job.workspaceId,
-          exportedAt: new Date(this.clock.nowMs()).toISOString(),
-          contentBoundary: 'hosted-only',
-          localContentIncluded: false,
-          credentialsIncluded: false,
-        })}\n`,
-      );
+          jobId: job.jobId,
+        })) ?? undefined;
+      if (!artifactKey) {
+        writer = await this.artifacts.create({ workspaceId: job.workspaceId, jobId: job.jobId });
+        await writer.write(
+          `${JSON.stringify({
+            type: 'manifest',
+            version: 2,
+            workspaceId: job.workspaceId,
+            exportedAt: new Date(this.clock.nowMs()).toISOString(),
+            contentBoundary: 'hosted-only',
+            localContentIncluded: false,
+            credentialsIncluded: false,
+            oversizedRecordEncoding: {
+              type: 'hosted_event_chunk',
+              version: 1,
+              encoding: 'base64url',
+              integrity: 'sha256',
+              indexBase: 0,
+            },
+          })}\n`,
+        );
 
-      let cursor: { readonly accountId: string; readonly sourceEventId: string } | null = null;
-      do {
-        failureCode = 'EXPORT_READ_FAILED';
-        const nowMs = this.clock.nowMs();
-        const now = new Date(nowMs).toISOString();
-        const renewed = await this.jobs.renewLease({
-          jobId: job.jobId,
-          workerId: this.options.workerId,
-          leaseToken: job.leaseToken,
-          now,
-          leaseExpiresAt: new Date(nowMs + this.leaseMs).toISOString(),
-        });
-        if (!renewed) throw new LifecycleLeaseLostError();
-        const page = await this.jobs.readExportPage({
-          jobId: job.jobId,
-          workerId: this.options.workerId,
-          leaseToken: job.leaseToken,
-          now,
-          cursor,
-          pageSize: this.exportPageSize,
-        });
-        failureCode = 'EXPORT_STORAGE_FAILED';
-        for (const item of page.items) {
-          // Only user-owned hosted event fields are emitted. Internal hashes,
-          // encrypted credentials, projection data, and local device content
-          // are absent from this contract.
-          const record = `${JSON.stringify({
-            type: 'hosted_event',
-            connector: item.connector,
-            sourceEventId: item.sourceEventId,
-            sourceRevision: item.sourceRevision,
-            kind: item.kind,
-            occurredAt: item.occurredAt,
-            observedAt: item.observedAt,
-            payload: item.payload,
-            tombstone: item.tombstone,
-          })}\n`;
-          if (Buffer.byteLength(record, 'utf8') > writer.maxRecordBytes) {
-            await writer.write(
-              `${JSON.stringify({
-                type: 'hosted_event_skipped',
-                connector: item.connector,
-                sourceEventId: item.sourceEventId,
-                sourceRevision: item.sourceRevision,
-                kind: item.kind,
-                occurredAt: item.occurredAt,
-                observedAt: item.observedAt,
-                tombstone: item.tombstone,
-                reason: 'record_exceeds_size_limit',
-              })}\n`,
-            );
-            continue;
+        let cursor: { readonly accountId: string; readonly sourceEventId: string } | null = null;
+        do {
+          failureCode = 'EXPORT_READ_FAILED';
+          const nowMs = this.clock.nowMs();
+          const now = new Date(nowMs).toISOString();
+          const renewed = await this.jobs.renewLease({
+            jobId: job.jobId,
+            workerId: this.options.workerId,
+            leaseToken: job.leaseToken,
+            now,
+            leaseExpiresAt: new Date(nowMs + this.leaseMs).toISOString(),
+          });
+          if (!renewed) throw new LifecycleLeaseLostError();
+          const page = await this.jobs.readExportPage({
+            jobId: job.jobId,
+            workerId: this.options.workerId,
+            leaseToken: job.leaseToken,
+            now,
+            cursor,
+            pageSize: this.exportPageSize,
+          });
+          failureCode = 'EXPORT_STORAGE_FAILED';
+          for (const item of page.items) {
+            // Only user-owned hosted event fields are emitted. Internal hashes,
+            // encrypted credentials, projection data, and local device content
+            // are absent from this contract.
+            for (const record of exportRecordLines(item, writer.maxRecordBytes)) {
+              await writer.write(record);
+            }
           }
-          await writer.write(record);
-        }
-        cursor = page.nextCursor;
-      } while (cursor);
+          cursor = page.nextCursor;
+        } while (cursor);
 
-      artifactKey = await writer.commit();
-      writer = undefined;
+        artifactKey = await writer.commit();
+        writer = undefined;
+      }
       failureCode = 'EXPORT_FINALIZE_FAILED';
       const completedMs = this.clock.nowMs();
       const completed = await this.jobs.completeExport({
@@ -175,7 +169,10 @@ export class WorkspaceLifecycleWorker {
       this.telemetry.event({ event: 'completed', jobId: job.jobId, kind: 'export' });
     } catch (error) {
       await writer?.abort().catch(() => undefined);
-      if (artifactKey) await this.artifacts.delete(artifactKey).catch(() => undefined);
+      // A committed, authenticated artifact is a durable recovery point. It is
+      // intentionally left in place when DB settlement loses its lease so the
+      // next exact job claim can adopt it without quota deadlock or stale-worker
+      // deletion of another worker's winner.
       await this.recordFailure(
         job,
         error instanceof LifecycleLeaseLostError ? 'LEASE_LOST' : failureCode,
@@ -283,6 +280,75 @@ export class WorkspaceLifecycleWorker {
       }
     }
   }
+}
+
+/**
+ * Produces bounded NDJSON without dropping an oversized user record. Chunk
+ * payloads concatenate before base64url decoding to recover the exact original
+ * `hosted_event` line; the digest verifies reconstruction.
+ */
+export function exportRecordLines(
+  item: HostedExportRecord,
+  maxRecordBytes: number,
+): readonly string[] {
+  if (!Number.isSafeInteger(maxRecordBytes) || maxRecordBytes < 256) {
+    throw new RangeError('export record size bound is invalid');
+  }
+  const record = `${JSON.stringify({
+    type: 'hosted_event',
+    connector: item.connector,
+    sourceEventId: item.sourceEventId,
+    sourceRevision: item.sourceRevision,
+    kind: item.kind,
+    occurredAt: item.occurredAt,
+    observedAt: item.observedAt,
+    payload: item.payload,
+    tombstone: item.tombstone,
+  })}\n`;
+  const recordBytes = Buffer.from(record, 'utf8');
+  if (recordBytes.byteLength <= maxRecordBytes) return Object.freeze([record]);
+
+  const recordSha256 = createHash('sha256').update(recordBytes).digest('hex');
+  const scaffold = chunkLine(
+    recordSha256,
+    Number.MAX_SAFE_INTEGER,
+    Number.MAX_SAFE_INTEGER,
+    '',
+  );
+  const payloadBytes = maxRecordBytes - Buffer.byteLength(scaffold, 'utf8');
+  if (payloadBytes < 1) throw new RangeError('export record size bound cannot hold chunk metadata');
+
+  const encoded = recordBytes.toString('base64url');
+  const chunkCount = Math.ceil(encoded.length / payloadBytes);
+  const lines = Array.from({ length: chunkCount }, (_unused, chunkIndex) =>
+    chunkLine(
+      recordSha256,
+      chunkIndex,
+      chunkCount,
+      encoded.slice(chunkIndex * payloadBytes, (chunkIndex + 1) * payloadBytes),
+    ),
+  );
+  if (lines.some((line) => Buffer.byteLength(line, 'utf8') > maxRecordBytes)) {
+    throw new RangeError('export chunk exceeded its record size bound');
+  }
+  return Object.freeze(lines);
+}
+
+function chunkLine(
+  recordSha256: string,
+  chunkIndex: number,
+  chunkCount: number,
+  data: string,
+): string {
+  return `${JSON.stringify({
+    type: 'hosted_event_chunk',
+    version: 1,
+    recordSha256,
+    encoding: 'base64url',
+    chunkIndex,
+    chunkCount,
+    data,
+  })}\n`;
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {

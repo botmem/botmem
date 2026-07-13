@@ -127,6 +127,34 @@ export class FederatedSearchService {
             outcomes.push(Promise.resolve(this.unavailableDevice(device)));
             continue;
           }
+          const requestedConnectors = this.requestedDeviceConnectors(device, request.connectors);
+          const sources = new Map(device.sources.map((source) => [source.connector, source]));
+          const searchableConnectors = requestedConnectors.filter(
+            (connector) => sources.get(connector)?.searchable === true,
+          );
+          for (const connector of requestedConnectors.filter(
+            (candidate) => !searchableConnectors.includes(candidate),
+          )) {
+            const source = sources.get(connector);
+            const availability = source?.availability ?? 'offline';
+            const status: SearchLaneStatus = availability === 'ready' ? 'failed' : availability;
+            outcomes.push(
+              Promise.resolve({
+                coverage: {
+                  laneId: `${laneId}:${connector}`,
+                  placement: 'device',
+                  ...coverageDeviceId(device.deviceId),
+                  connector,
+                  status,
+                  retryable: status !== 'permission_required',
+                  returned: 0,
+                  tookMs: 0,
+                  reasonCode: source?.reasonCode ?? 'source_status_missing',
+                },
+              }),
+            );
+          }
+          if (searchableConnectors.length === 0) continue;
           outcomes.push(
             this.executeLane(
               {
@@ -136,10 +164,12 @@ export class FederatedSearchService {
               },
               this.options.deviceDeadlineMs,
               (signal) =>
-                this.deviceSearch.search(workspaceId, device, request, {
-                  queryId,
-                  signal,
-                }),
+                this.deviceSearch.search(
+                  workspaceId,
+                  device,
+                  { ...request, connectors: searchableConnectors },
+                  { queryId, signal },
+                ),
             ),
           );
         }
@@ -183,6 +213,17 @@ export class FederatedSearchService {
     };
 
     return SearchResponseSchema.parse(response);
+  }
+
+  private requestedDeviceConnectors(
+    device: DeviceTarget,
+    requestedConnectors: readonly Connector[] | undefined,
+  ): readonly Extract<Connector, 'imessage' | 'whatsapp'>[] {
+    const requested = requestedConnectors?.filter(
+      (connector): connector is Extract<Connector, 'imessage' | 'whatsapp'> =>
+        DEVICE_CONNECTORS.has(connector),
+    );
+    return device.connectors.filter((connector) => !requested || requested.includes(connector));
   }
 
   private resolvePlacements(request: ReturnType<typeof parseSearchRequest>): {

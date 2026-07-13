@@ -6,11 +6,11 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "package:cli": "./scripts/package-cli.sh",
-    "typecheck": "pnpm --filter @botmem-v2/contracts build && pnpm -r --if-present typecheck",
+    "typecheck": "pnpm build && pnpm -r --if-present typecheck",
     "test": "pnpm build && pnpm test:packages",
     "test:packages": "pnpm -r --if-present test",
     "test:coverage": "pnpm build && pnpm -r --if-present test:coverage",
-    "verify": "pnpm typecheck && pnpm build && pnpm test:packages",
+    "verify": "pnpm typecheck && pnpm test:packages",
     "verify:rust": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
     "test:production-e2e": "./scripts/production-e2e.sh",
     "test:web-render": "./scripts/web-render-smoke.sh",

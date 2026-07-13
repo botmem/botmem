@@ -1,3 +1,4 @@
+import { SourceStatusSchema } from '@botmem-v2/contracts';
 import type { LocalConnector } from './domain.js';
 import type {
   DevicePresence,
@@ -518,9 +519,15 @@ function parseSourceStatus(value: string, nowMs: number): DeviceSourceStatusSnap
     typeof parsed.tenantId !== 'string' ||
     typeof parsed.workspaceId !== 'string' ||
     typeof parsed.deviceId !== 'string' ||
+    typeof parsed.sessionId !== 'string' ||
     typeof parsed.expiresAtMs !== 'number' ||
     parsed.expiresAtMs <= nowMs ||
-    !Array.isArray(parsed.sources)
+    !Array.isArray(parsed.sources) ||
+    !parsed.sources.every(
+      (source) =>
+        SourceStatusSchema.safeParse(source).success &&
+        (source.connector === 'imessage' || source.connector === 'whatsapp'),
+    )
   ) {
     return undefined;
   }

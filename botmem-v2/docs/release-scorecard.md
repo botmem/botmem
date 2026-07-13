@@ -48,10 +48,10 @@ is open.
 - PostgreSQL hosted projection/search, immutable active heads, multilingual
   lexical/trigram/semantic lanes, evidence-backed readiness, repair scan, and
   fresh PostgreSQL 17/pgvector invariants. A clean PostgreSQL 17 run with all
-  V1--V15 migrations and 100,000 hosted documents measured p50 113.025 ms,
-  p95 239.982 ms, and p99 251.302 ms in the mixed
+  V1--V16 migrations and 100,000 hosted documents measured p50 119.482 ms,
+  p95 240.802 ms, and p99 256.068 ms in the mixed
   semantic/lexical/Arabic/typo workload. Embedding-outage fallback measured
-  p50 23.102 ms, p95 118.414 ms, and p99 124.489 ms. Both paths remain below
+  p50 24.193 ms, p95 119.158 ms, and p99 129.015 ms. Both paths remain below
   the 500 ms release gate.
 - Production PostgreSQL connector-ingestion unit of work exercised through the
   least-privilege worker role: sync lease, revision, head, content-free outbox,
@@ -98,7 +98,7 @@ is open.
 - Scheduler, bounded retry/exhaustion recovery, transactional hosted projection,
   repair, commerce reconciliation, lifecycle export/deletion, audit events,
   redacted health surfaces, and independent least-privilege worker identities.
-- V1--V15 forward-only database history now runs through a minimal Node/Postgres
+- V1--V16 forward-only database history now runs through a minimal Node/Postgres
   migrator with SHA-256 ledger, advisory serialization, transactional scripts,
   tamper/out-of-order/database-ahead rejection, and a verified one-time legacy
   Flyway import. Fresh, concurrent, no-op, tamper, rollback, and role-isolation
@@ -107,13 +107,13 @@ is open.
   Stripe checkout/webhook/reconciliation, two users, Gmail and Outlook provider
   emulators, an actual HTTPS Basic OwnTracks endpoint, hosted ingestion,
   zero-lexical semantic retrieval, the real Rust tunnel with iMessage and
-  WhatsApp, Web/installed CLI/official MCP result parity, one-use encrypted
+  WhatsApp, Web/installed CLI/official MCP result parity, retryable encrypted
   export, billing-safe deletion, erasure, and credential revocation.
 - Vultr delivery is Docker Compose/Caddy only: GitHub Actions uses the strictly
   pinned `ssh botmem` transport, verifies keyless image signatures, performs an
   encrypted backup plus disposable restore, runs a loopback canary, and promotes
   atomically. Stable and canary Compose models, Caddy config, host scripts,
-  ShellCheck, and actionlint pass. No Kubernetes path exists.
+  ShellCheck, and actionlint pass.
 - Nine release images are built from pinned inputs with SBOM/signing workflows.
   Node runtimes are non-root and package-manager-free; the Botmem PostgreSQL/
   pgvector image rebuilds `gosu` with Go 1.26.5; the Botmem Caddy image rebuilds

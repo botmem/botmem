@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "AGPL-3.0-only"
-rust-version = "1.85"
+rust-version = "1.96"
 
 [workspace.dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }

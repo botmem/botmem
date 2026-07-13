@@ -20,7 +20,7 @@ export interface LifecycleApiRepositoryPort {
     readonly now: string;
     readonly maximumAgeSeconds: number;
   }): Promise<boolean>;
-  consumeExportArtifactKey(input: {
+  readExportArtifactKey(input: {
     readonly principal: AuthenticatedPrincipal;
     readonly jobId: string;
     readonly now: string;
@@ -133,6 +133,7 @@ export interface LifecycleArtifactReaderPort {
 }
 
 export interface LifecycleArtifactStorePort extends LifecycleArtifactReaderPort {
+  recover(input: { readonly workspaceId: string; readonly jobId: string }): Promise<string | null>;
   create(input: {
     readonly workspaceId: string;
     readonly jobId: string;
