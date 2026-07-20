@@ -40,6 +40,6 @@
     "typescript": "catalog:"
   },
   "dependencies": {
-    "@toon-format/toon": "^2.3.0"
+    "@toon-format/toon": "^2.3.1"
   }
 }

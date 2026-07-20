@@ -9,9 +9,9 @@
   },
   "devDependencies": {
     "vitepress": "^1.6.4",
-    "vue": "^3.5.35"
+    "vue": "^3.5.40"
   },
   "dependencies": {
-    "posthog-js": "^1.382.0"
+    "posthog-js": "^1.404.1"
   }
 }
